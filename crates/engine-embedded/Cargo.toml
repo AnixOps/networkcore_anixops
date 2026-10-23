@@ -7,6 +7,8 @@ repository.workspace = true
 description = "In-process engine for the iOS Network Extension: userspace TCP/IP, pluggable outbounds and the C ABI."
 
 [dependencies]
+# Block cipher for Shadowsocks-2022 identity headers only; session data uses ring.
+aes = "0.9"
 base64 = "0.22"
 blake3 = "1.8"
 # WireGuard Noise state machine only; the `device` feature (its own TUN and sockets) stays off.

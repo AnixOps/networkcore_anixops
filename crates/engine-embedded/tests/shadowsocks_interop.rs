@@ -10,7 +10,7 @@ use std::time::Duration;
 use base64::Engine as _;
 use engine_embedded::shadowsocks::{Method, Ss2022Outbound};
 use engine_outbound::{TargetAddr, TcpDialer, TcpOutbound};
-use shadowsocks::config::{ServerConfig, ServerType};
+use shadowsocks::config::{ServerConfig, ServerType, ServerUser, ServerUserManager};
 use shadowsocks::context::Context;
 use shadowsocks::crypto::CipherKind;
 use shadowsocks::relay::socks5::Address;
@@ -35,11 +35,33 @@ fn test_key(method: Method) -> String {
     base64::engine::general_purpose::STANDARD.encode(key)
 }
 
+fn other_key(method: Method) -> String {
+    let key: Vec<u8> = (0..method.key_len())
+        .map(|i| (i as u8).wrapping_mul(53).wrapping_add(7))
+        .collect();
+    base64::engine::general_purpose::STANDARD.encode(key)
+}
+
 /// Starts a reference server that relays every session to its requested target.
 async fn start_reference_server(method: Method, password: &str) -> SocketAddr {
+    start_reference_server_with_user(method, password, None).await
+}
+
+/// With `user_key`, `password` is the server's identity key and sessions must
+/// carry an identity header naming that user.
+async fn start_reference_server_with_user(
+    method: Method,
+    password: &str,
+    user_key: Option<&str>,
+) -> SocketAddr {
     let bind: SocketAddr = "127.0.0.1:0".parse().unwrap();
-    let config =
+    let mut config =
         ServerConfig::new(bind, password.to_string(), kind_for(method)).expect("server config");
+    if let Some(user_key) = user_key {
+        let mut users = ServerUserManager::new();
+        users.add_user(ServerUser::with_encoded_key("user", user_key).expect("user key"));
+        config.set_user_manager(users);
+    }
     let context = Context::new_shared(ServerType::Server);
     let listener = ProxyListener::bind(context, &config)
         .await
@@ -191,4 +213,25 @@ async fn wrong_key_fails_without_leaking_it() {
     let err = result.expect_err("a wrong key must not produce data");
     assert!(!err.to_string().contains(&wrong));
     assert!(!err.to_string().contains(&password));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn identity_header_reaches_multi_user_server() {
+    for method in [Method::Aes128Gcm, Method::Aes256Gcm] {
+        let identity_key = test_key(method);
+        let user_key = other_key(method);
+        let server = start_reference_server_with_user(method, &identity_key, Some(&user_key)).await;
+        let echo = start_echo_server(None).await;
+        let client = outbound(method, server, &format!("{identity_key}:{user_key}"));
+
+        let mut stream = client.connect(&TargetAddr::Ip(echo)).await.unwrap();
+        stream.write_all(b"multi-user").await.unwrap();
+        stream.flush().await.unwrap();
+        let mut echoed = [0u8; 10];
+        tokio::time::timeout(TIMEOUT, stream.read_exact(&mut echoed))
+            .await
+            .expect("echo timed out")
+            .unwrap();
+        assert_eq!(&echoed, b"multi-user", "{}", method.name());
+    }
 }

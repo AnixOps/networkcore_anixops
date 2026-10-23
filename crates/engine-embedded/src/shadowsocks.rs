@@ -1,8 +1,9 @@
 //! Shadowsocks-2022 (SIP022) TCP client outbound.
 //!
 //! Supports `2022-blake3-aes-128-gcm`, `2022-blake3-aes-256-gcm` and
-//! `2022-blake3-chacha20-poly1305` with a single pre-shared key. Multi-user
-//! identity headers (`iPSK:uPSK` passwords) are rejected for now.
+//! `2022-blake3-chacha20-poly1305`. A password of the form `iPSK:...:uPSK`
+//! adds extensible identity headers (SIP022 multi-user), which only the AES
+//! methods define. Keys are standard or URL-safe base64, padding optional.
 //!
 //! The request header is sent together with the first payload write. If the
 //! application reads before writing (server-speaks-first protocols), the header
@@ -15,6 +16,8 @@ use std::sync::Arc;
 use std::task::{ready, Context, Poll};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use aes::cipher::{BlockCipherEncrypt, KeyInit};
+use aes::{Aes128, Aes256, Block};
 use base64::Engine as _;
 use engine_outbound::{BoxFuture, BoxStream, Dialer, TargetAddr, TcpOutbound};
 use ring::aead::{self, Aad, LessSafeKey, Nonce, UnboundKey};
@@ -24,6 +27,8 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 pub const PROTOCOL: &str = "shadowsocks-2022";
 
 const SUBKEY_CONTEXT: &str = "shadowsocks 2022 session subkey";
+const IDENTITY_SUBKEY_CONTEXT: &str = "shadowsocks 2022 identity subkey";
+const IDENTITY_HEADER_LEN: usize = 16;
 const TAG_LEN: usize = 16;
 const NONCE_LEN: usize = 12;
 const CLIENT_STREAM: u8 = 0;
@@ -82,11 +87,13 @@ pub struct Ss2022Outbound {
     port: u16,
     method: Method,
     psk: Arc<[u8]>,
+    identity_keys: Arc<[Box<[u8]>]>,
     dialer: Arc<dyn Dialer>,
 }
 
 impl Ss2022Outbound {
-    /// `password` is the base64-encoded pre-shared key.
+    /// `password` is the base64-encoded pre-shared key, or `iPSK:...:uPSK`
+    /// for a server that identifies users by identity headers.
     pub fn new(
         server: impl Into<String>,
         port: u16,
@@ -98,17 +105,15 @@ impl Ss2022Outbound {
         if server.is_empty() || port == 0 {
             return Err(invalid_input("shadowsocks-2022 server address is empty"));
         }
-        if password.contains(':') {
+        let mut keys = password
+            .trim()
+            .split(':')
+            .map(|key| decode_key(method, key))
+            .collect::<io::Result<Vec<_>>>()?;
+        let psk = keys.pop().expect("split yields at least one key");
+        if !keys.is_empty() && method == Method::ChaCha20Poly1305 {
             return Err(invalid_input(
-                "shadowsocks-2022 multi-user identity headers are not supported yet",
-            ));
-        }
-        let psk = base64::engine::general_purpose::STANDARD
-            .decode(password.trim())
-            .map_err(|_| invalid_input("shadowsocks-2022 key is not valid base64"))?;
-        if psk.len() != method.key_len() {
-            return Err(invalid_input(
-                "shadowsocks-2022 key length does not match the method",
+                "shadowsocks-2022 identity headers need an AES method",
             ));
         }
         Ok(Self {
@@ -116,6 +121,7 @@ impl Ss2022Outbound {
             port,
             method,
             psk: psk.into(),
+            identity_keys: keys.into(),
             dialer,
         })
     }
@@ -134,10 +140,77 @@ impl TcpOutbound for Ss2022Outbound {
         Box::pin(async move {
             let address = encode_address(target)?;
             let inner = self.dialer.dial(&self.server, self.port).await?;
-            let stream = Ss2022Stream::new(inner, self.method, self.psk.clone(), address)?;
+            let stream = Ss2022Stream::new(
+                inner,
+                self.method,
+                self.psk.clone(),
+                self.identity_keys.clone(),
+                address,
+            )?;
             Ok(Box::new(stream) as BoxStream)
         })
     }
+}
+
+/// Decodes one base64 key and checks its length against the method.
+fn decode_key(method: Method, key: &str) -> io::Result<Vec<u8>> {
+    let key = key.trim();
+    let decoded = if key.contains(['-', '_']) {
+        URL_SAFE_KEY.decode(key)
+    } else {
+        STANDARD_KEY.decode(key)
+    }
+    .map_err(|_| invalid_input("shadowsocks-2022 key is not valid base64"))?;
+    if decoded.len() != method.key_len() {
+        return Err(invalid_input(
+            "shadowsocks-2022 key length does not match the method",
+        ));
+    }
+    Ok(decoded)
+}
+
+const LENIENT_PADDING: base64::engine::GeneralPurposeConfig =
+    base64::engine::GeneralPurposeConfig::new()
+        .with_decode_padding_mode(base64::engine::DecodePaddingMode::Indifferent);
+const STANDARD_KEY: base64::engine::GeneralPurpose =
+    base64::engine::GeneralPurpose::new(&base64::alphabet::STANDARD, LENIENT_PADDING);
+const URL_SAFE_KEY: base64::engine::GeneralPurpose =
+    base64::engine::GeneralPurpose::new(&base64::alphabet::URL_SAFE, LENIENT_PADDING);
+
+/// One extensible identity header: the first 16 bytes of BLAKE3(`next_key`),
+/// encrypted with AES under a subkey of `identity_key` and the request salt.
+fn identity_header(
+    method: Method,
+    identity_key: &[u8],
+    salt: &[u8],
+    next_key: &[u8],
+) -> io::Result<[u8; IDENTITY_HEADER_LEN]> {
+    let mut hasher = blake3::Hasher::new_derive_key(IDENTITY_SUBKEY_CONTEXT);
+    hasher.update(identity_key);
+    hasher.update(salt);
+    let subkey = hasher.finalize();
+    let subkey = &subkey.as_bytes()[..method.key_len()];
+    let mut plain = [0u8; IDENTITY_HEADER_LEN];
+    plain.copy_from_slice(&blake3::hash(next_key).as_bytes()[..IDENTITY_HEADER_LEN]);
+    let plain = Block::from(plain);
+    let mut sealed = Block::from([0u8; IDENTITY_HEADER_LEN]);
+    let setup_failed = || io::Error::other("shadowsocks-2022 identity key setup failed");
+    match method {
+        Method::Aes128Gcm => Aes128::new_from_slice(subkey)
+            .map_err(|_| setup_failed())?
+            .encrypt_block_b2b(&plain, &mut sealed),
+        Method::Aes256Gcm => Aes256::new_from_slice(subkey)
+            .map_err(|_| setup_failed())?
+            .encrypt_block_b2b(&plain, &mut sealed),
+        Method::ChaCha20Poly1305 => {
+            return Err(invalid_input(
+                "shadowsocks-2022 identity headers need an AES method",
+            ))
+        }
+    }
+    let mut out = [0u8; IDENTITY_HEADER_LEN];
+    out.copy_from_slice(sealed.as_slice());
+    Ok(out)
 }
 
 /// SOCKS-style address: ATYP, address, big-endian port.
@@ -236,6 +309,7 @@ pub struct Ss2022Stream {
     inner: BoxStream,
     method: Method,
     psk: Arc<[u8]>,
+    identity_keys: Arc<[Box<[u8]>]>,
     /// Encoded target address; `Some` until the request header is written.
     pending_address: Option<Vec<u8>>,
     request_salt: Vec<u8>,
@@ -251,7 +325,13 @@ pub struct Ss2022Stream {
 }
 
 impl Ss2022Stream {
-    fn new(inner: BoxStream, method: Method, psk: Arc<[u8]>, address: Vec<u8>) -> io::Result<Self> {
+    fn new(
+        inner: BoxStream,
+        method: Method,
+        psk: Arc<[u8]>,
+        identity_keys: Arc<[Box<[u8]>]>,
+        address: Vec<u8>,
+    ) -> io::Result<Self> {
         let mut request_salt = vec![0u8; method.key_len()];
         fill_random(&mut request_salt)?;
         let encryptor = Cipher::new(method, &psk, &request_salt)?;
@@ -259,6 +339,7 @@ impl Ss2022Stream {
             inner,
             method,
             psk,
+            identity_keys,
             pending_address: Some(address),
             request_salt,
             encryptor,
@@ -298,6 +379,15 @@ impl Ss2022Stream {
         fixed[9..11].copy_from_slice(&(variable.len() as u16).to_be_bytes());
 
         self.out.extend_from_slice(&self.request_salt);
+        // Each identity key names the next one; the last names the user key.
+        for (index, identity_key) in self.identity_keys.iter().enumerate() {
+            let next_key = self
+                .identity_keys
+                .get(index + 1)
+                .map_or(&self.psk[..], |key| &key[..]);
+            let header = identity_header(self.method, identity_key, &self.request_salt, next_key)?;
+            self.out.extend_from_slice(&header);
+        }
         self.encryptor.seal_into(&mut self.out, &fixed)?;
         self.encryptor.seal_into(&mut self.out, &variable)
     }
@@ -569,6 +659,42 @@ mod tests {
         cipher.nonce[0] = 0xff;
         let _ = cipher.next_nonce();
         assert_eq!(&cipher.nonce[..2], &[0, 1]);
+    }
+
+    #[test]
+    fn keys_accept_url_safe_and_unpadded_base64() {
+        let key = [0xfbu8; 16];
+        let standard = base64::engine::general_purpose::STANDARD.encode(key);
+        let unpadded = standard.trim_end_matches('=').to_owned();
+        let url_safe = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(key);
+        assert!(url_safe.contains(['-', '_']));
+        for encoded in [standard, unpadded, url_safe] {
+            assert_eq!(decode_key(Method::Aes128Gcm, &encoded).unwrap(), key);
+        }
+    }
+
+    #[test]
+    fn identity_keys_need_an_aes_method() {
+        let dialer: Arc<dyn Dialer> = Arc::new(engine_outbound::TcpDialer);
+        let key = base64::engine::general_purpose::STANDARD.encode([3u8; 32]);
+        let multi_user = format!("{key}:{key}");
+        let outbound = Ss2022Outbound::new(
+            "example.com",
+            8388,
+            Method::Aes256Gcm,
+            &multi_user,
+            dialer.clone(),
+        )
+        .unwrap();
+        assert_eq!(outbound.identity_keys.len(), 1);
+        assert!(Ss2022Outbound::new(
+            "example.com",
+            8388,
+            Method::ChaCha20Poly1305,
+            &multi_user,
+            dialer
+        )
+        .is_err());
     }
 
     #[test]
