@@ -5,7 +5,9 @@
 //! an alpha built-in ad-block plugin package. It does not apply live
 //! request/response mutations yet.
 
+pub mod loon_map_local;
 pub mod loon_plugin;
+mod loon_syntax;
 pub mod managed_sdwan;
 
 use control_domain::{
@@ -41,6 +43,7 @@ pub const MITM_POLICY_MANIFEST_HOOK_MISSING_CODE: &str = "mitm.policy.manifest.h
 pub const MITM_POLICY_MANIFEST_PERMISSION_MISSING_CODE: &str =
     "mitm.policy.manifest.permission_missing";
 pub const MITM_POLICY_PERMISSION_DENIED_CODE: &str = "mitm.policy.permission.denied";
+pub const MITM_POLICY_HTTP_EVENT_MAP_LOCAL_CODE: &str = "mitm.policy.http_event.map_local";
 pub const MITM_POLICY_HTTP_EVENT_MUTATION_PLANNED_CODE: &str =
     "mitm.policy.http_event.mutation_planned";
 pub const MITM_POLICY_HTTP_EVENT_MUTATION_DEFERRED_CODE: &str =
@@ -818,11 +821,40 @@ impl MitmPluginService for AnixOpsMitmPluginService {
             });
         };
 
+        if http_event.phase == HttpMitmPhase::Request {
+            if let Some(rule) = loon_map_local::match_map_local(source, &http_event.url)? {
+                return Ok(HttpMitmOutcome {
+                    action: HttpMitmAction::Respond {
+                        status_code: rule.status_code,
+                        headers: rule.headers,
+                        body: rule.body,
+                    },
+                    header_mutations: Vec::new(),
+                    body_mutation: None,
+                    script_dispatch: None,
+                    audits: vec![AuditEvent {
+                        actor: plugin_instance.manifest.id.clone(),
+                        action: "mitm.policy.plan_http_mitm_event".to_string(),
+                        decision: AuditDecision::Allowed,
+                        reason: Some(format!(
+                            "request {} answered by a [Map Local] rule",
+                            http_event.request_id
+                        )),
+                    }],
+                    diagnostics: vec![mitm_policy_diagnostic(
+                        DiagnosticSeverity::Info,
+                        MITM_POLICY_HTTP_EVENT_MAP_LOCAL_CODE,
+                        "request matched a [Map Local] rule and is answered locally",
+                    )],
+                });
+            }
+        }
+
         let mut engine = AnixOpsMitmPolicyEngine::new()?;
         engine.load_config(source)?;
         let phase = policy_phase_from_domain(http_event.phase);
         let body = String::from_utf8_lossy(&http_event.body);
-        let (plan, planned_body) = engine.build_rewrite_plan(&http_event.url, phase, &body)?;
+        let (plan, _) = engine.build_rewrite_plan(&http_event.url, phase, &body)?;
 
         let action = domain_action_from_policy_rewrite(&plan.rewrite);
         let header_mutations = plan
@@ -830,11 +862,15 @@ impl MitmPluginService for AnixOpsMitmPluginService {
             .iter()
             .map(domain_header_mutation_from_policy)
             .collect();
-        let body_mutation = if plan.rewrite.action == MitmPolicyRewriteAction::BodyMutation
-            && planned_body.as_bytes() != http_event.body.as_slice()
-        {
-            Some(HttpBodyMutation {
-                body: planned_body.into_bytes(),
+        // Every matching body rule applies in order, so one Loon
+        // `[Body Rewrite]` line with several replacement pairs takes effect.
+        let body_mutation = if plan.rewrite.action == MitmPolicyRewriteAction::BodyMutation {
+            let (chained_body, chain) = engine.apply_body_chain(&http_event.url, phase, &body)?;
+            (chain.rewritten
+                && !chain.truncated
+                && chained_body.as_bytes() != http_event.body.as_slice())
+            .then(|| HttpBodyMutation {
+                body: chained_body.into_bytes(),
                 truncated: false,
             })
         } else {

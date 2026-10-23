@@ -6,15 +6,26 @@
 //! routing model, and HTTP rewrite lines stay in the plugin source that the
 //! `mitm_anixops` core evaluates. Every non-comment line gets a support status,
 //! so a plugin can be graded as fully, partially, or not supported before it
-//! is enabled. `[Script]` `http-request`/`http-response` lines (P1) are planned
-//! by the `mitm_anixops` core and executed by the `script-runtime` QuickJS
-//! runtime on desktop; `[Map Local]` and body rewrites are still deferred.
+//! is enabled.
+//!
+//! P1 adds `[Script]` `http-request`/`http-response` lines, planned by the
+//! `mitm_anixops` core and executed by the `script-runtime` QuickJS runtime on
+//! desktop; `[Map Local]` (and `mock-response-body` rewrites), answered locally
+//! by [`crate::loon_map_local`]; and `[Body Rewrite]`. The core only reads
+//! url-first rewrite lines, so Loon's action-first body rewrites are
+//! translated: `http-response <url> <regex> <replacement> ...` becomes one
+//! `<url> response-body-replace-regex <regex> <replacement>` rule per pair.
+//! The first rule replaces the original line and the rest are appended, and
+//! core diagnostics are mapped back to the original line numbers.
 
+use crate::loon_map_local::{map_local_pattern_accepted, parse_map_local_line, pattern_source_len};
+use crate::loon_syntax::{quote, tokens};
 use crate::{AnixOpsMitmPolicyEngine, MitmPolicyRuleDiagnosticStatus};
 use config_core::routing::{parse_rule_line, PolicyTarget, RoutingModel, RoutingRule, RuleLine};
 use control_domain::{
     DomainError, DomainResult, HookPoint, PluginManifest, PluginPackage, PluginPermission,
 };
+use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
 pub const LOON_PLUGIN_MAX_BYTES: usize = 1024 * 1024;
@@ -133,6 +144,8 @@ pub enum LoonLineHandler {
     PolicyEngine,
     /// Dispatch planned by the policy core, executed by the script runtime.
     ScriptRuntime,
+    /// Answered locally by [`crate::loon_map_local`].
+    MapLocal,
     None,
 }
 
@@ -239,7 +252,8 @@ pub struct LoonPluginImport {
 }
 
 impl LoonPluginImport {
-    /// Plugin text evaluated by the `mitm_anixops` core.
+    /// Plugin text evaluated by the `mitm_anixops` core, with Loon-only
+    /// syntax translated (see the module docs).
     pub fn source(&self) -> &str {
         &self.source
     }
@@ -406,24 +420,11 @@ pub fn import_loon_plugin(text: &str) -> DomainResult<LoonPluginImport> {
             Section::Rewrite | Section::HeaderRewrite => {
                 parser.rewrite_line(line_number, &section_name, line)
             }
-            Section::BodyRewrite => {
-                parser.has_response_actions = true;
-                parser.push(
-                    line_number,
-                    &section_name,
-                    LoonLineStatus::Deferred,
-                    LoonLineHandler::PolicyEngine,
-                    "body_rewrite.p1",
-                )
-            }
+            Section::BodyRewrite => parser.body_rewrite_line(line_number, &section_name, line),
             Section::Script => parser.script_line(line_number, &section_name, line),
-            Section::MapLocal => parser.push(
-                line_number,
-                &section_name,
-                LoonLineStatus::Deferred,
-                LoonLineHandler::None,
-                "map_local.p1",
-            ),
+            Section::MapLocal => {
+                parser.map_local_line(line_number, &section_name, line);
+            }
             Section::Mitm => parser.mitm_line(line_number, &section_name, line),
             Section::Other => parser.push(
                 line_number,
@@ -435,7 +436,8 @@ pub fn import_loon_plugin(text: &str) -> DomainResult<LoonPluginImport> {
         }
     }
 
-    let policy_load_error = parser.cross_check_with_policy_core(text);
+    let (source, line_origins) = parser.translated_source(text);
+    let policy_load_error = parser.cross_check_with_policy_core(&source, &line_origins);
     let level = grade(&parser.lines, policy_load_error.is_some());
     Ok(LoonPluginImport {
         metadata: parser.metadata,
@@ -448,7 +450,7 @@ pub fn import_loon_plugin(text: &str) -> DomainResult<LoonPluginImport> {
         },
         has_request_actions: parser.has_request_actions,
         has_response_actions: parser.has_response_actions,
-        source: text.to_string(),
+        source,
     })
 }
 
@@ -460,6 +462,10 @@ struct Parser {
     lines: Vec<LoonLineReport>,
     has_request_actions: bool,
     has_response_actions: bool,
+    /// Replacement text for original lines, by 1-based line number.
+    replaced: BTreeMap<usize, String>,
+    /// Lines appended after the plugin: section, line, original line number.
+    appended: Vec<(&'static str, String, usize)>,
 }
 
 impl Parser {
@@ -739,6 +745,10 @@ impl Parser {
         .unwrap_or("")
         .to_ascii_lowercase();
 
+        if action == "mock-response-body" && !first.eq_ignore_ascii_case("url") {
+            self.mock_response_body_line(line, section, text);
+            return;
+        }
         let (status, reason, response) = classify_rewrite_action(&action);
         if status != LoonLineStatus::Unsupported {
             if response {
@@ -753,6 +763,163 @@ impl Parser {
             LoonLineHandler::PolicyEngine
         };
         self.push(line, section, status, handler, reason);
+    }
+
+    /// `<url> mock-response-body <map local attributes>` answers like a
+    /// `[Map Local]` line, so it moves to an appended `[Map Local]` section.
+    fn mock_response_body_line(&mut self, line: usize, section: &str, text: &str) {
+        let pattern_len = pattern_source_len(text);
+        let attributes = text[pattern_len..]
+            .trim_start()
+            .get("mock-response-body".len()..)
+            .unwrap_or("");
+        let pattern = tokens(text).into_iter().next().unwrap_or_default();
+        let map_local = format!("{} {}", quote(&pattern), attributes.trim());
+        self.replaced.insert(line, format!("# {text}"));
+        if self.map_local_line(line, section, &map_local) {
+            self.appended.push(("Map Local", map_local, line));
+        }
+    }
+
+    /// Grades a `[Map Local]` line; returns whether it takes effect.
+    fn map_local_line(&mut self, line: usize, section: &str, text: &str) -> bool {
+        let (status, handler, reason) = match parse_map_local_line(text) {
+            Ok(rule) if map_local_pattern_accepted(&rule.pattern) => {
+                self.has_request_actions = true;
+                (
+                    LoonLineStatus::Supported,
+                    LoonLineHandler::MapLocal,
+                    "map_local.response",
+                )
+            }
+            Ok(_) => (
+                LoonLineStatus::Unsupported,
+                LoonLineHandler::None,
+                "map_local.pattern_rejected",
+            ),
+            Err(reason) => (LoonLineStatus::Unsupported, LoonLineHandler::None, reason),
+        };
+        self.push(line, section, status, handler, reason);
+        status == LoonLineStatus::Supported
+    }
+
+    /// Translates Loon's action-first `[Body Rewrite]` lines; url-first lines
+    /// in the section are graded like `[Rewrite]` lines.
+    fn body_rewrite_line(&mut self, line: usize, section: &str, text: &str) {
+        let tokens = tokens(text);
+        let kind = tokens
+            .first()
+            .map(|token| token.to_ascii_lowercase())
+            .unwrap_or_default();
+        let response = match kind.as_str() {
+            "http-request" => false,
+            "http-response" => true,
+            "http-request-jq" | "http-response-jq" => {
+                // The core is built without jq.
+                self.replaced.insert(line, format!("# {text}"));
+                self.push(
+                    line,
+                    section,
+                    LoonLineStatus::Unsupported,
+                    LoonLineHandler::None,
+                    "body_rewrite.jq_unavailable",
+                );
+                return;
+            }
+            _ if tokens.len() >= 2
+                && classify_rewrite_action(&tokens[1].to_ascii_lowercase()).1
+                    != "rewrite.action_unsupported" =>
+            {
+                self.rewrite_line(line, section, text);
+                return;
+            }
+            _ => {
+                self.replaced.insert(line, format!("# {text}"));
+                self.push(
+                    line,
+                    section,
+                    LoonLineStatus::Unsupported,
+                    LoonLineHandler::None,
+                    "body_rewrite.type_unsupported",
+                );
+                return;
+            }
+        };
+        if tokens.len() < 3 || tokens[1].is_empty() || tokens[2].is_empty() {
+            self.replaced.insert(line, format!("# {text}"));
+            self.push(
+                line,
+                section,
+                LoonLineStatus::Unsupported,
+                LoonLineHandler::None,
+                "body_rewrite.invalid",
+            );
+            return;
+        }
+
+        let action = if response {
+            "response-body-replace-regex"
+        } else {
+            "request-body-replace-regex"
+        };
+        let pattern = quote(&tokens[1]);
+        for (index, pair) in tokens[2..].chunks(2).enumerate() {
+            let replacement = pair.get(1).map(String::as_str).unwrap_or("");
+            let rule = format!(
+                "{pattern} {action} {} {}",
+                quote(&pair[0]),
+                quote(replacement)
+            );
+            if index == 0 {
+                self.replaced.insert(line, rule);
+            } else {
+                self.appended.push(("Body Rewrite", rule, line));
+            }
+        }
+        let reason = if response {
+            self.has_response_actions = true;
+            "body_rewrite.http_response"
+        } else {
+            self.has_request_actions = true;
+            "body_rewrite.http_request"
+        };
+        self.push(
+            line,
+            section,
+            LoonLineStatus::Supported,
+            LoonLineHandler::PolicyEngine,
+            reason,
+        );
+    }
+
+    /// The plugin text for the core and, for each of its lines, the original
+    /// 1-based line number it came from.
+    fn translated_source(&self, text: &str) -> (String, Vec<usize>) {
+        let mut lines = Vec::new();
+        let mut origins = Vec::new();
+        for (index, raw_line) in text.lines().enumerate() {
+            let line = index + 1;
+            lines.push(
+                self.replaced
+                    .get(&line)
+                    .cloned()
+                    .unwrap_or_else(|| raw_line.to_string()),
+            );
+            origins.push(line);
+        }
+        let mut current_section = None;
+        for (section, rule, origin) in &self.appended {
+            if current_section != Some(*section) {
+                lines.push(format!("[{section}]"));
+                origins.push(*origin);
+                current_section = Some(*section);
+            }
+            lines.push(rule.clone());
+            origins.push(*origin);
+        }
+        let mut source = lines.join("\n");
+        source.push('\n');
+        (source, origins)
     }
 
     /// HTTP scripts run in the script runtime; scheduled and event scripts
@@ -814,7 +981,11 @@ impl Parser {
 
     /// Loads the plugin into the policy core and downgrades lines it owns but
     /// did not accept. Returns the load error when the core refuses the text.
-    fn cross_check_with_policy_core(&mut self, text: &str) -> Option<String> {
+    fn cross_check_with_policy_core(
+        &mut self,
+        text: &str,
+        line_origins: &[usize],
+    ) -> Option<String> {
         let mut engine = match AnixOpsMitmPolicyEngine::new() {
             Ok(engine) => engine,
             Err(error) => return Some(error.message),
@@ -827,11 +998,14 @@ impl Parser {
             if diagnostic.status == MitmPolicyRuleDiagnosticStatus::Accepted {
                 continue;
             }
-            for line in self
-                .lines
-                .iter_mut()
-                .filter(|line| line.line == diagnostic.line)
-            {
+            let Some(origin) = diagnostic
+                .line
+                .checked_sub(1)
+                .and_then(|index| line_origins.get(index))
+            else {
+                continue;
+            };
+            for line in self.lines.iter_mut().filter(|line| line.line == *origin) {
                 let owned_by_core = matches!(
                     line.handler,
                     LoonLineHandler::PolicyEngine | LoonLineHandler::ScriptRuntime
@@ -889,12 +1063,23 @@ fn classify_rewrite_action(action: &str) -> (LoonLineStatus, &'static str, bool)
         {
             (LoonLineStatus::Supported, "rewrite.reject", false)
         }
-        _ if action.starts_with("request-body-") || action == "mock-request-body" => {
-            (LoonLineStatus::Deferred, "rewrite.body_p1", false)
+        // The core is built without jq.
+        "request-body-jq" | "response-body-jq" | "http-request-jq" | "http-response-jq" => {
+            (LoonLineStatus::Unsupported, "rewrite.jq_unavailable", false)
         }
-        _ if action.starts_with("response-body-") || action == "mock-response-body" => {
-            (LoonLineStatus::Deferred, "rewrite.body_p1", true)
+        "request-body-replace-regex" | "request-body-json-replace" => {
+            (LoonLineStatus::Supported, "rewrite.request_body", false)
         }
+        "response-body-replace-regex" | "response-body-json-replace" => {
+            (LoonLineStatus::Supported, "rewrite.response_body", true)
+        }
+        // Only the url-first `url ... mock-response-body` form reaches here;
+        // the plain form is moved to `[Map Local]`.
+        "mock-request-body" | "mock-response-body" => (
+            LoonLineStatus::Unsupported,
+            "rewrite.mock_body_unsupported",
+            false,
+        ),
         _ => (
             LoonLineStatus::Unsupported,
             "rewrite.action_unsupported",
