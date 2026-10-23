@@ -12,6 +12,7 @@
 
 ### Added
 
+- 自研 WebSocket 传输层：新增 `transport-ws`（RFC 6455 客户端：握手校验 `Sec-WebSocket-Accept`，每次写入一个带掩码的二进制帧，读取时把数据帧按序拼成字节流，自动回应 ping，close 帧视为流结束；path/Host/自定义头拒绝可注入的字符），测试以独立实现 `tokio-tungstenite` 作为服务端。Trojan 支持 `"transport": {"type": "ws", "path", "host"}`（TLS 内跑 WebSocket），订阅中的 Trojan-WS 节点可由自研引擎直接运行。
 - 自研 SOCKS5 与 HTTP 代理出站：新增 `outbound-socks`（RFC 1928 `CONNECT`，可选 RFC 1929 用户名/密码，完整读取应答绑定地址，不吞掉目标先发的数据）与 `outbound-http`（`CONNECT` 隧道，可选 Basic 认证与 TLS（HTTPS 代理，复用 `transport-tls`），响应头逐字节读取到空行为止，目标域名拒绝控制字符以防头注入）；`engine-embedded` 新增 `socks`、`http` feature（默认开启），可作为上游代理或代理链出口，CI 协议 feature 矩阵同步覆盖。测试使用仓库自己的 `inbound-mixed` 作为服务端。
 - 自研 Trojan 出站：新增 `transport-tls`（rustls + WebPKI 根证书的标准 TLS 客户端，`insecure` 仅跳过证书校验、仍校验握手签名，可供后续 VMess/VLESS-TLS 复用）与 `outbound-trojan`（SHA-224 密码头与首包合并发送，支持服务端先发数据的目标）；`engine-embedded` 新增 `trojan` feature（默认开启），订阅中的 TCP Trojan 节点可由自研引擎直接运行，`run-url --engine auto` 不再为 Trojan 回退到 sing-box。
 - `networkcore-linux run-url` 新增 `--engine auto|embedded|sing-box`（默认 `auto`）：自研引擎（`engine-embedded` 本地代理）能运行订阅时直接在进程内提供 SOCKS5/HTTP 代理，不再下载和启动 sing-box；目前支持 Shadowsocks-2022 与 VLESS + REALITY，全部节点都支持时同时应用订阅规则与策略组；其他协议在 `auto` 下回退到 sing-box，`embedded` 下报告不支持的节点（不含密钥）。`engine-embedded::nodes` 把 `config-core` 节点转换为配置信封，`config-core` 的 `ImportedRouting` 新增 `spec` 字段。

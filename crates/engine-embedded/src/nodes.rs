@@ -14,6 +14,7 @@ use control_domain::{
     NODE_METADATA_TLS_ALPN, NODE_METADATA_TLS_ENABLED, NODE_METADATA_TLS_INSECURE,
     NODE_METADATA_TLS_REALITY_PUBLIC_KEY, NODE_METADATA_TLS_REALITY_SHORT_ID,
     NODE_METADATA_TLS_SERVER_NAME, NODE_METADATA_TROJAN_PASSWORD,
+    NODE_METADATA_V2RAY_TRANSPORT_HOST, NODE_METADATA_V2RAY_TRANSPORT_PATH,
     NODE_METADATA_V2RAY_TRANSPORT_TYPE, NODE_METADATA_VLESS_FLOW, NODE_METADATA_VLESS_UUID,
 };
 use serde_json::{json, Value};
@@ -155,11 +156,15 @@ fn vless(node: &NodeDescriptor) -> Result<Value, Unsupported> {
 fn trojan(node: &NodeDescriptor) -> Result<Value, Unsupported> {
     let password =
         metadata(node, NODE_METADATA_TROJAN_PASSWORD).ok_or("trojan password is missing")?;
-    if let Some(transport) = metadata(node, NODE_METADATA_V2RAY_TRANSPORT_TYPE) {
-        if transport != "tcp" {
-            return Err("trojan transports other than tcp are not implemented yet");
-        }
-    }
+    let transport = match metadata(node, NODE_METADATA_V2RAY_TRANSPORT_TYPE) {
+        None | Some("tcp") => Value::Null,
+        Some("ws") => json!({
+            "type": "ws",
+            "path": metadata(node, NODE_METADATA_V2RAY_TRANSPORT_PATH).unwrap_or_default(),
+            "host": metadata(node, NODE_METADATA_V2RAY_TRANSPORT_HOST).unwrap_or_default(),
+        }),
+        Some(_) => return Err("trojan transports other than tcp and ws are not implemented yet"),
+    };
     if metadata(node, NODE_METADATA_TLS_ENABLED) == Some("false") {
         return Err("trojan without tls is not supported");
     }
@@ -179,5 +184,6 @@ fn trojan(node: &NodeDescriptor) -> Result<Value, Unsupported> {
         "server_name": metadata(node, NODE_METADATA_TLS_SERVER_NAME),
         "alpn": alpn,
         "insecure": metadata(node, NODE_METADATA_TLS_INSECURE) == Some("true"),
+        "transport": transport,
     }))
 }

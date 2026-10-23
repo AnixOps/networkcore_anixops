@@ -100,6 +100,38 @@ fn supported_nodes_become_registry_outbounds() {
 }
 
 #[test]
+fn trojan_websocket_nodes_carry_path_and_host() {
+    let trojan_ws = node(
+        "trojan-ws",
+        Protocol::Trojan,
+        &[
+            ("trojan.password", "secret"),
+            ("tls.server_name", "cdn.example"),
+            ("v2ray.transport.type", "ws"),
+            ("v2ray.transport.path", "/ws"),
+            ("v2ray.transport.host", "front.example"),
+        ],
+    );
+    let outbound = outbound_for_node(&trojan_ws).unwrap();
+    assert_eq!(
+        outbound["transport"],
+        serde_json::json!({"type": "ws", "path": "/ws", "host": "front.example"})
+    );
+    let (envelope, _) = single_node_envelope("p", &[trojan_ws], None).unwrap();
+    assert_eq!(builds(&envelope), "trojan");
+
+    let trojan_grpc = node(
+        "trojan-grpc",
+        Protocol::Trojan,
+        &[
+            ("trojan.password", "secret"),
+            ("v2ray.transport.type", "grpc"),
+        ],
+    );
+    assert!(outbound_for_node(&trojan_grpc).is_err());
+}
+
+#[test]
 fn unsupported_nodes_are_reported_without_secrets() {
     let legacy_ss = node(
         "legacy",
