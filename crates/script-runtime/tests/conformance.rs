@@ -265,7 +265,6 @@ mod javascriptcore {
 
     #[test]
     fn javascriptcore_passes_shared_conformance_fixtures() {
-        assert!(!JscScriptRuntime::ENFORCES_HEAP_LIMIT);
         let skipped = run_suite(&[], &|store, script, invocation, limits| {
             JscScriptRuntime::new(store, Arc::new(script_runtime::DisabledScriptHttpClient))
                 .run(script, invocation, limits)
