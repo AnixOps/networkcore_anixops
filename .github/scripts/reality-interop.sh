@@ -127,7 +127,10 @@ server.serve_forever()
      "settings": {"clients": [{"id": "${uuid}"}]}},
     {"tag": "vmess-ws", "listen": "127.0.0.1", "port": 24442, "protocol": "vmess",
      "settings": {"clients": [{"id": "${uuid}"}]},
-     "streamSettings": {"network": "ws", "wsSettings": {"path": "/vm"}}}
+     "streamSettings": {"network": "ws", "wsSettings": {"path": "/vm"}}},
+    {"tag": "vmess-grpc", "listen": "127.0.0.1", "port": 24443, "protocol": "vmess",
+     "settings": {"clients": [{"id": "${uuid}"}]},
+     "streamSettings": {"network": "grpc", "grpcSettings": {"serviceName": "vmgrpc"}}}
   ],
   "outbounds": [{"protocol": "freedom",
     "settings": {"finalRules": [{"action": "allow", "network": "tcp", "ip": ["127.0.0.1"]}]}}]
@@ -152,7 +155,10 @@ EOF
      "users": [{"uuid": "${uuid}", "alterId": 0}]},
     {"type": "vmess", "tag": "vmess-ws", "listen": "127.0.0.1", "listen_port": 25442,
      "users": [{"uuid": "${uuid}", "alterId": 0}],
-     "transport": {"type": "ws", "path": "/vm"}}
+     "transport": {"type": "ws", "path": "/vm"}},
+    {"type": "vmess", "tag": "vmess-grpc", "listen": "127.0.0.1", "listen_port": 25443,
+     "users": [{"uuid": "${uuid}", "alterId": 0}],
+     "transport": {"type": "grpc", "service_name": "vmgrpc"}}
   ],
   "outbounds": [{"type": "direct"}]
 }
@@ -163,14 +169,14 @@ EOF
   "${bin}/xray" run -c "${work}/xray.json" > "${work}/xray.log" 2>&1 &
   "${bin}/sing-box" run -c "${work}/sing-box.json" > "${work}/sing-box.log" 2>&1 &
 
-  for port in 18080 18443 18444 24431 24432 24441 24442 25431 25432 25441 25442; do
+  for port in 18080 18443 18444 24431 24432 24441 24442 24443 25431 25432 25441 25442 25443; do
     wait_for_port "${port}"
   done
 
   cat > "${work}/env" <<EOF
 NC_INTEROP_SERVERS=xray-vision=127.0.0.1:24431:vision,xray-plain=127.0.0.1:24432:none,sing-box-vision=127.0.0.1:25431:vision,sing-box-plain=127.0.0.1:25432:none
 NC_VLESS_UUID=${uuid}
-NC_VMESS_SERVERS=xray-vmess-tcp=127.0.0.1:24441:tcp,xray-vmess-ws=127.0.0.1:24442:ws,sing-box-vmess-tcp=127.0.0.1:25441:tcp,sing-box-vmess-ws=127.0.0.1:25442:ws
+NC_VMESS_SERVERS=xray-vmess-tcp=127.0.0.1:24441:tcp,xray-vmess-ws=127.0.0.1:24442:ws,xray-vmess-grpc=127.0.0.1:24443:grpc,sing-box-vmess-tcp=127.0.0.1:25441:tcp,sing-box-vmess-ws=127.0.0.1:25442:ws,sing-box-vmess-grpc=127.0.0.1:25443:grpc
 NC_VMESS_UUID=${uuid}
 NC_REALITY_PUBLIC_KEY=${public_key}
 NC_REALITY_SHORT_ID=${short_id}

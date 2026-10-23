@@ -15,8 +15,9 @@ use control_domain::{
     NODE_METADATA_TLS_REALITY_PUBLIC_KEY, NODE_METADATA_TLS_REALITY_SHORT_ID,
     NODE_METADATA_TLS_SERVER_NAME, NODE_METADATA_TROJAN_PASSWORD,
     NODE_METADATA_V2RAY_TRANSPORT_HOST, NODE_METADATA_V2RAY_TRANSPORT_PATH,
-    NODE_METADATA_V2RAY_TRANSPORT_TYPE, NODE_METADATA_VLESS_FLOW, NODE_METADATA_VLESS_UUID,
-    NODE_METADATA_VMESS_ALTER_ID, NODE_METADATA_VMESS_SECURITY, NODE_METADATA_VMESS_UUID,
+    NODE_METADATA_V2RAY_TRANSPORT_SERVICE_NAME, NODE_METADATA_V2RAY_TRANSPORT_TYPE,
+    NODE_METADATA_VLESS_FLOW, NODE_METADATA_VLESS_UUID, NODE_METADATA_VMESS_ALTER_ID,
+    NODE_METADATA_VMESS_SECURITY, NODE_METADATA_VMESS_UUID,
 };
 use serde_json::{json, Value};
 
@@ -139,7 +140,7 @@ fn shadowsocks(node: &NodeDescriptor) -> Result<Value, Unsupported> {
 fn vless(node: &NodeDescriptor) -> Result<Value, Unsupported> {
     let uuid = metadata(node, NODE_METADATA_VLESS_UUID).ok_or("vless uuid is missing")?;
     let flow = metadata(node, NODE_METADATA_VLESS_FLOW).unwrap_or_default();
-    let transport = websocket_transport(node)?;
+    let transport = v2ray_transport(node)?;
     if let Some(public_key) = metadata(node, NODE_METADATA_TLS_REALITY_PUBLIC_KEY) {
         if !transport.is_null() {
             return Err("vless REALITY over transports other than tcp is not implemented yet");
@@ -190,7 +191,7 @@ fn vmess(node: &NodeDescriptor) -> Result<Value, Unsupported> {
     ) {
         return Err("vmess alterId other than 0 (legacy headers) is not supported");
     }
-    let transport = websocket_transport(node)?;
+    let transport = v2ray_transport(node)?;
     Ok(json!({
         "type": "vmess",
         "server": node.endpoint.host,
@@ -214,8 +215,8 @@ fn standard_tls(node: &NodeDescriptor) -> Value {
     })
 }
 
-/// `null` for tcp, the `ws` transport entry, or unsupported.
-fn websocket_transport(node: &NodeDescriptor) -> Result<Value, Unsupported> {
+/// `null` for tcp, the `ws` or `grpc` transport entry, or unsupported.
+fn v2ray_transport(node: &NodeDescriptor) -> Result<Value, Unsupported> {
     match metadata(node, NODE_METADATA_V2RAY_TRANSPORT_TYPE) {
         None | Some("tcp") => Ok(Value::Null),
         Some("ws") => Ok(json!({
@@ -223,7 +224,12 @@ fn websocket_transport(node: &NodeDescriptor) -> Result<Value, Unsupported> {
             "path": metadata(node, NODE_METADATA_V2RAY_TRANSPORT_PATH).unwrap_or_default(),
             "host": metadata(node, NODE_METADATA_V2RAY_TRANSPORT_HOST).unwrap_or_default(),
         })),
-        Some(_) => Err("transports other than tcp and ws are not implemented yet"),
+        Some("grpc") => Ok(json!({
+            "type": "grpc",
+            "service_name": metadata(node, NODE_METADATA_V2RAY_TRANSPORT_SERVICE_NAME)
+                .ok_or("grpc service name is missing")?,
+        })),
+        Some(_) => Err("transports other than tcp, ws and grpc are not implemented yet"),
     }
 }
 
@@ -241,7 +247,7 @@ fn alpn_list(node: &NodeDescriptor) -> Vec<&str> {
 fn trojan(node: &NodeDescriptor) -> Result<Value, Unsupported> {
     let password =
         metadata(node, NODE_METADATA_TROJAN_PASSWORD).ok_or("trojan password is missing")?;
-    let transport = websocket_transport(node)?;
+    let transport = v2ray_transport(node)?;
     if metadata(node, NODE_METADATA_TLS_ENABLED) == Some("false") {
         return Err("trojan without tls is not supported");
     }

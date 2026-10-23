@@ -11,6 +11,7 @@ engine-outbound = { path = "../engine-outbound" }
 serde = { version = "1", features = ["derive"] }
 sha2 = "0.10"
 tokio = { version = "1", default-features = false, features = ["io-util"] }
+transport-grpc = { path = "../transport-grpc" }
 transport-tls = { path = "../transport-tls" }
 transport-ws = { path = "../transport-ws" }
 

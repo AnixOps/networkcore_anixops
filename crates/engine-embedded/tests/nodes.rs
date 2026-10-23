@@ -138,9 +138,26 @@ fn trojan_websocket_nodes_carry_path_and_host() {
         &[
             ("trojan.password", "secret"),
             ("v2ray.transport.type", "grpc"),
+            ("v2ray.transport.service_name", "TunService"),
         ],
     );
-    assert!(outbound_for_node(&trojan_grpc).is_err());
+    let outbound = outbound_for_node(&trojan_grpc).unwrap();
+    assert_eq!(
+        outbound["transport"],
+        serde_json::json!({"type": "grpc", "service_name": "TunService"})
+    );
+    let (envelope, _) = single_node_envelope("p", &[trojan_grpc], None).unwrap();
+    assert_eq!(builds(&envelope), "trojan");
+
+    for transport in [
+        &[("v2ray.transport.type", "grpc")][..],
+        &[("v2ray.transport.type", "h2")],
+    ] {
+        let mut metadata = vec![("trojan.password", "secret")];
+        metadata.extend_from_slice(transport);
+        let unsupported = node("trojan-unsupported", Protocol::Trojan, &metadata);
+        assert!(outbound_for_node(&unsupported).is_err());
+    }
 }
 
 #[test]
@@ -247,12 +264,12 @@ fn unsupported_nodes_are_reported_without_secrets() {
             ("shadowsocks.password", "legacy-secret"),
         ],
     );
-    let vless_grpc = node(
-        "grpc",
+    let vless_h2 = node(
+        "h2",
         Protocol::Vless,
         &[
             ("vless.uuid", "b831381d-6324-4d53-ad4f-8cda48b30811"),
-            ("v2ray.transport.type", "grpc"),
+            ("v2ray.transport.type", "h2"),
         ],
     );
     let hysteria2 = node(
@@ -260,7 +277,7 @@ fn unsupported_nodes_are_reported_without_secrets() {
         Protocol::Hysteria2,
         &[("hysteria2.password", "hy2-secret")],
     );
-    for node in [legacy_ss, vless_grpc, hysteria2] {
+    for node in [legacy_ss, vless_h2, hysteria2] {
         let reason = outbound_for_node(&node).unwrap_err();
         assert!(!reason.contains("secret"), "{reason}");
     }

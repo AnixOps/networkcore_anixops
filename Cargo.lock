@@ -3437,6 +3437,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tokio-tungstenite",
+ "transport-grpc",
  "transport-tls",
  "transport-ws",
 ]
@@ -3456,6 +3457,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tokio-tungstenite",
+ "transport-grpc",
  "transport-tls",
  "transport-ws",
  "x25519-dalek",
@@ -3475,6 +3477,7 @@ dependencies = [
  "sha2",
  "sha3",
  "tokio",
+ "transport-grpc",
  "transport-tls",
  "transport-ws",
 ]
@@ -5670,6 +5673,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "transport-grpc"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "engine-outbound",
+ "h2",
+ "http",
+ "tokio",
 ]
 
 [[package]]
