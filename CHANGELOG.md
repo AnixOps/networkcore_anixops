@@ -6,11 +6,19 @@
 
 ### Security
 
+- 修复 Actions 依赖审计发现的 RUSTSEC-2026-0385（`ctutils` 掩码生成与 `u128` 比较非常数时间）：将 `ctutils` lock 提升到 `0.4.4`。未添加漏洞忽略规则。
 - 修复 Actions 依赖审计发现的 RUSTSEC-2026-0346、RUSTSEC-2026-0347、RUSTSEC-2026-0348、RUSTSEC-2026-0349（`rustls`）、RUSTSEC-2026-0382（`rustls-webpki`）和 RUSTSEC-2026-0381（`webpki-roots`）：将 `rustls` 最低版本与 lock 提升到 `0.23.46`，`rustls-webpki` lock 提升到 `0.103.16`，`webpki-roots` lock 提升到 `1.0.10`。未添加漏洞忽略规则。
 - 修复 Actions 依赖审计发现的 [RUSTSEC-2026-0285](https://rustsec.org/advisories/RUSTSEC-2026-0285.html)：将 `rustls` 最低版本与 lock 提升到 `0.23.45`，相应 `rustls-webpki` lock 提升到 `0.103.15`。保留依赖审计与全平台 TLS 回归，未添加漏洞忽略规则。
 
 ### Added
 
+- Windows Tauri GUI 导入含规则和策略组的订阅时生成路由配置，策略组在原生分组界面中查看和修改默认成员；不含规则或导入失败时保持原来的单选择器配置。
+
+- `engine-embedded` 运行时配置支持 `routing` 段（与 `outbound` 二选一）：多个命名出站加 `config-core` 规则与策略组，`RoutedOutbound` 按连接选择直连、拒绝或节点。iOS App 尚未生成该段，现有配置行为不变。
+
+- 订阅规则与策略组导入：`config-core::routing_import` 从 Surge/Loon `[Proxy Group]`/`[Rule]` 与 Clash `proxy-groups`/`rules` 构建路由模型，不支持的规则和组跳过并警告；`engine-singbox` 新增 `render_sing_box_local_proxy_routing_config`；`networkcore-linux run-url` 未指定 `--node` 时按订阅规则和策略组生成 sing-box 路由，导入失败时退回单节点。
+
+- 路由规则支持 `DOMAIN-KEYWORD`：`config-core` 按域名子串匹配，`engine-singbox` 翻译为 sing-box `domain_keyword`；共享路由快照与 sing-box 等价性测试覆盖该规则。
 - `engine-embedded` 新增 WireGuard 模式：用 boringtun 的 Noise 状态机（BSD-3-Clause，不启用 `device` 特性）把 TUN 包直接封装到一个对端，不经过用户态 TCP/IP 栈；附带与进程内 boringtun 对端的回环测试。iOS App 可粘贴单 Peer 的 `wg-quick` 配置导入，私钥和预共享密钥存入钥匙串，隧道地址、路由、DNS 和 MTU 按配置下发。
 
 - iOS 节点密钥改存钥匙串：App 导入 `ss://` 节点时把密钥写入共享 keychain access group（`$(AppIdentifierPrefix)networkcore.shared`），隧道配置只保存 `passwordReference` 和不含密钥的运行时配置；隧道扩展启动时从钥匙串取回密钥再交给内核。

@@ -8,6 +8,7 @@ use super::{
     append_managed_log, load_validated_managed_configuration, managed_config_or_default,
     profile_node_options, profile_node_options_from_selector, write_diagnostic_report_at,
 };
+use config_core::routing_import::import_subscription_routing;
 use config_core::CoreSubscriptionService;
 use control_domain::{
     PublicEngineKind, PublicEngineRunPlan, SubscriptionService, SubscriptionSource,
@@ -19,12 +20,12 @@ use engine_mieru::{
 };
 use engine_singbox::{
     inspect_sing_box_native_config, measure_sing_box_clash_api_outbound_delay,
-    read_sing_box_clash_api_selector, render_sing_box_local_proxy_selector_config,
-    rewrite_sing_box_mixed_inbound_listener, sing_box_config_sha256, GithubSingBoxReleaseInstaller,
-    SingBoxInstallRequest, SingBoxLocalControllerConfig, SingBoxLocalProxyConfigRequest,
-    SingBoxManagedProcessState, SingBoxManagedProcessSupervisor, SingBoxReleaseInstaller,
-    SingBoxTarget, SingBoxTargetArch, SingBoxTargetOs,
-    DEFAULT_SING_BOX_CLASH_API_DELAY_TIMEOUT_MILLIS,
+    read_sing_box_clash_api_selector, render_sing_box_local_proxy_routing_config,
+    render_sing_box_local_proxy_selector_config, rewrite_sing_box_mixed_inbound_listener,
+    sing_box_config_sha256, GithubSingBoxReleaseInstaller, SingBoxInstallRequest,
+    SingBoxLocalControllerConfig, SingBoxLocalProxyConfigRequest, SingBoxManagedProcessState,
+    SingBoxManagedProcessSupervisor, SingBoxReleaseInstaller, SingBoxTarget, SingBoxTargetArch,
+    SingBoxTargetOs, DEFAULT_SING_BOX_CLASH_API_DELAY_TIMEOUT_MILLIS,
 };
 use platform_windows::managed::{
     read_managed_state, windows_managed_config_path, windows_managed_data_directory,
@@ -1676,27 +1677,39 @@ fn import_subscription_at(location: &str, desktop: &mut DesktopState) -> Result<
         if run_plan.engine == PublicEngineKind::Mieru {
             return import_mieru_subscription_plan(&run_plan, desktop);
         }
-        let source_options = profile_node_options(&catalog.nodes);
-        let rendered = render_sing_box_local_proxy_selector_config(
-            &SingBoxLocalProxyConfigRequest {
-                nodes: catalog.nodes,
-                selected_node_id: desktop.profile_node_id.clone(),
-                listen_host: "127.0.0.1".to_string(),
-                listen_port: 7890,
-            },
-            &SingBoxLocalControllerConfig::loopback_selector(),
-        )
-        .map_err(|error| error.to_string())?;
-        let node_catalog =
-            profile_node_options_from_selector(&rendered.selectable_nodes, &source_options)?;
-        write_managed_text_atomic(&config_path, &rendered.json)
+        let request = SingBoxLocalProxyConfigRequest {
+            nodes: catalog.nodes,
+            selected_node_id: desktop.profile_node_id.clone(),
+            listen_host: "127.0.0.1".to_string(),
+            listen_port: 7890,
+        };
+        // Subscription rules and policy groups produce a routed config whose
+        // selector groups are edited like a native profile's groups.
+        let routed = import_subscription_routing(&payload, &request.nodes)
+            .routing
+            .and_then(|model| render_sing_box_local_proxy_routing_config(&request, &model).ok());
+        if let Some(routed) = routed {
+            write_managed_text_atomic(&config_path, &routed.json)
+                .map_err(|error| error.to_string())?;
+            (Some("127.0.0.1:7890".to_string()), None, Vec::new(), None)
+        } else {
+            let source_options = profile_node_options(&request.nodes);
+            let rendered = render_sing_box_local_proxy_selector_config(
+                &request,
+                &SingBoxLocalControllerConfig::loopback_selector(),
+            )
             .map_err(|error| error.to_string())?;
-        (
-            Some("127.0.0.1:7890".to_string()),
-            Some(rendered.selected_node_id),
-            node_catalog,
-            Some(sing_box_config_sha256(&rendered.json)),
-        )
+            let node_catalog =
+                profile_node_options_from_selector(&rendered.selectable_nodes, &source_options)?;
+            write_managed_text_atomic(&config_path, &rendered.json)
+                .map_err(|error| error.to_string())?;
+            (
+                Some("127.0.0.1:7890".to_string()),
+                Some(rendered.selected_node_id),
+                node_catalog,
+                Some(sing_box_config_sha256(&rendered.json)),
+            )
+        }
     };
     let mut managed = managed_config_or_default()?;
     managed.system_proxy = proxy.map(|server| WindowsProxySettings {
@@ -3072,6 +3085,50 @@ mod tests {
             }),
             native_mitm: None,
         }
+    }
+
+    #[test]
+    fn routed_profile_groups_are_listed_as_native_groups() {
+        let payload = concat!(
+            "[Proxy]\n",
+            "HK = ss, 82.47.34.99, 11111, encrypt-method=aes-256-gcm, password=f43c0eee-13b9-4f07-bec9-d4b744141503\n",
+            "[Proxy Group]\n",
+            "Proxy = select, HK, DIRECT\n",
+            "[Rule]\n",
+            "DOMAIN-SUFFIX,google.com,Proxy\n",
+            "FINAL,DIRECT\n",
+        );
+        let service = CoreSubscriptionService::new();
+        let raw = service
+            .fetch(&SubscriptionSource {
+                id: "windows-tauri-profile".to_string(),
+                location: format!("inline:{payload}"),
+            })
+            .unwrap();
+        let nodes = service
+            .normalize(&service.parse(&raw).unwrap())
+            .unwrap()
+            .nodes;
+        let model = import_subscription_routing(payload, &nodes)
+            .routing
+            .expect("profile routing should import");
+        let routed = render_sing_box_local_proxy_routing_config(
+            &SingBoxLocalProxyConfigRequest {
+                nodes,
+                selected_node_id: None,
+                listen_host: "127.0.0.1".to_string(),
+                listen_port: 7890,
+            },
+            &model,
+        )
+        .unwrap();
+
+        let groups = native_groups(&routed.json).unwrap();
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].tag, "Proxy");
+        assert_eq!(groups[0].group_type, "selector");
+        assert_eq!(groups[0].outbounds.len(), 2);
+        assert_eq!(groups[0].outbounds[1], "direct");
     }
 
     #[test]

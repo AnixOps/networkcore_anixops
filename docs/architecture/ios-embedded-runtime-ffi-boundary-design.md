@@ -132,6 +132,8 @@ Provisioning Profile UUID、absolute path 或用户流量内容。
 - `mitm_policy`：用户显式 MITM 开关和证书状态摘要。
 - `diagnostic_context`：不含 secret 的 safe correlation id。
 
+当前实现（`crates/engine-embedded/src/config.rs`）的出站二选一：`outbound` 为所有连接使用一个出站；`routing` 为 `{ outbounds: { <节点 id>: <出站> }, rules: [...], groups: [...] }`，规则与策略组使用 `config-core` 的同一路由模型（见 [规则与策略组模型](routing-policy-group-model.md)），两者同时出现或都缺失时返回 `config_rejected`。路由错误只返回固定信息，状态中出站显示为 `routed`，不包含规则文本或节点参数。
+
 输入 envelope 必须由 Swift bridge 在调用前完成 schema、profile id、content hash 和 required field 校验。Rust 仍必须重复校验，
 并在失败时返回 stable error code；任何失败都不能让 Extension fallback 到 daemon、CLI、helper process 或外部代理二进制。
 

@@ -148,21 +148,25 @@ fn routing_snapshot_decisions_match_fixture() {
 fn routing_snapshot_config_normalizes_rules_and_groups() {
     let model = snapshot_model();
 
-    assert_eq!(model.rules.len(), 8);
+    assert_eq!(model.rules.len(), 9);
+    assert_eq!(
+        model.rules[4].matcher,
+        RuleMatcher::DomainKeyword("tracker".to_string())
+    );
     assert_eq!(
         model.rules[2].matcher,
         RuleMatcher::DomainSuffix("netflix.com".to_string())
     );
     assert_eq!(
-        model.rules[4].matcher,
+        model.rules[5].matcher,
         RuleMatcher::Domain("router.lan".to_string())
     );
-    assert!(model.rules[5].no_resolve);
+    assert!(model.rules[6].no_resolve);
     assert_eq!(
-        model.rules[6].matcher,
+        model.rules[7].matcher,
         RuleMatcher::IpCidr(IpCidr::parse("2001:db8::/32").unwrap())
     );
-    assert_eq!(model.rules[7].matcher, RuleMatcher::GeoIp("CN".to_string()));
+    assert_eq!(model.rules[8].matcher, RuleMatcher::GeoIp("CN".to_string()));
     assert_eq!(model.final_target, PolicyTarget::Group("Proxy".to_string()));
 
     let proxy = model.group("Proxy").unwrap();
