@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# REALITY interop harness for the outbound-vless crate (Linux runners only).
+# REALITY (outbound-vless) and VMess (outbound-vmess) interop harness
+# (Linux runners only).
 #
 #   reality-interop.sh download   fetch Xray-core and sing-box release binaries
 #   reality-interop.sh start      start targets and REALITY servers, write env
@@ -121,7 +122,12 @@ server.serve_forever()
      "settings": {"clients": [{"id": "${uuid}"}], "decryption": "none"},
      "streamSettings": {"network": "tcp", "security": "reality",
        "realitySettings": {"dest": "127.0.0.1:18444", "serverNames": ["${server_name}"],
-         "privateKey": "${private_key}", "shortIds": ["${short_id}"], "show": true}}}
+         "privateKey": "${private_key}", "shortIds": ["${short_id}"], "show": true}}},
+    {"tag": "vmess-tcp", "listen": "127.0.0.1", "port": 24441, "protocol": "vmess",
+     "settings": {"clients": [{"id": "${uuid}"}]}},
+    {"tag": "vmess-ws", "listen": "127.0.0.1", "port": 24442, "protocol": "vmess",
+     "settings": {"clients": [{"id": "${uuid}"}]},
+     "streamSettings": {"network": "ws", "wsSettings": {"path": "/vm"}}}
   ],
   "outbounds": [{"protocol": "freedom",
     "settings": {"finalRules": [{"action": "allow", "network": "tcp", "ip": ["127.0.0.1"]}]}}]
@@ -141,7 +147,12 @@ EOF
      "users": [{"uuid": "${uuid}", "flow": ""}],
      "tls": {"enabled": true, "server_name": "${server_name}",
        "reality": {"enabled": true, "handshake": {"server": "127.0.0.1", "server_port": 18444},
-         "private_key": "${private_key}", "short_id": ["${short_id}"]}}}
+         "private_key": "${private_key}", "short_id": ["${short_id}"]}}},
+    {"type": "vmess", "tag": "vmess-tcp", "listen": "127.0.0.1", "listen_port": 25441,
+     "users": [{"uuid": "${uuid}", "alterId": 0}]},
+    {"type": "vmess", "tag": "vmess-ws", "listen": "127.0.0.1", "listen_port": 25442,
+     "users": [{"uuid": "${uuid}", "alterId": 0}],
+     "transport": {"type": "ws", "path": "/vm"}}
   ],
   "outbounds": [{"type": "direct"}]
 }
@@ -152,13 +163,15 @@ EOF
   "${bin}/xray" run -c "${work}/xray.json" > "${work}/xray.log" 2>&1 &
   "${bin}/sing-box" run -c "${work}/sing-box.json" > "${work}/sing-box.log" 2>&1 &
 
-  for port in 18080 18443 18444 24431 24432 25431 25432; do
+  for port in 18080 18443 18444 24431 24432 24441 24442 25431 25432 25441 25442; do
     wait_for_port "${port}"
   done
 
   cat > "${work}/env" <<EOF
 NC_INTEROP_SERVERS=xray-vision=127.0.0.1:24431:vision,xray-plain=127.0.0.1:24432:none,sing-box-vision=127.0.0.1:25431:vision,sing-box-plain=127.0.0.1:25432:none
 NC_VLESS_UUID=${uuid}
+NC_VMESS_SERVERS=xray-vmess-tcp=127.0.0.1:24441:tcp,xray-vmess-ws=127.0.0.1:24442:ws,sing-box-vmess-tcp=127.0.0.1:25441:tcp,sing-box-vmess-ws=127.0.0.1:25442:ws
+NC_VMESS_UUID=${uuid}
 NC_REALITY_PUBLIC_KEY=${public_key}
 NC_REALITY_SHORT_ID=${short_id}
 NC_REALITY_SERVER_NAME=${server_name}

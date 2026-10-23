@@ -16,6 +16,7 @@ use control_domain::{
     NODE_METADATA_TLS_SERVER_NAME, NODE_METADATA_TROJAN_PASSWORD,
     NODE_METADATA_V2RAY_TRANSPORT_HOST, NODE_METADATA_V2RAY_TRANSPORT_PATH,
     NODE_METADATA_V2RAY_TRANSPORT_TYPE, NODE_METADATA_VLESS_FLOW, NODE_METADATA_VLESS_UUID,
+    NODE_METADATA_VMESS_ALTER_ID, NODE_METADATA_VMESS_SECURITY, NODE_METADATA_VMESS_UUID,
 };
 use serde_json::{json, Value};
 
@@ -31,6 +32,7 @@ pub fn outbound_for_node(node: &NodeDescriptor) -> Result<Value, Unsupported> {
         Protocol::Shadowsocks => shadowsocks(node)?,
         Protocol::Vless => vless(node)?,
         Protocol::Trojan => trojan(node)?,
+        Protocol::Vmess => vmess(node)?,
         _ => return Err("protocol is not implemented by the embedded engine yet"),
     };
     let kind = outbound["type"].as_str().unwrap_or_default();
@@ -154,23 +156,53 @@ fn vless(node: &NodeDescriptor) -> Result<Value, Unsupported> {
     if !flow.is_empty() && flow != "none" {
         return Err("vless flows without REALITY are not implemented yet");
     }
-    let tls = if metadata(node, NODE_METADATA_TLS_ENABLED) == Some("true") {
-        json!({
-            "server_name": metadata(node, NODE_METADATA_TLS_SERVER_NAME),
-            "alpn": alpn_list(node),
-            "insecure": metadata(node, NODE_METADATA_TLS_INSECURE) == Some("true"),
-        })
-    } else {
-        Value::Null
-    };
     Ok(json!({
         "type": "vless",
         "server": node.endpoint.host,
         "port": node.endpoint.port,
         "uuid": uuid,
-        "tls": tls,
+        "tls": standard_tls(node),
         "transport": transport,
     }))
+}
+
+fn vmess(node: &NodeDescriptor) -> Result<Value, Unsupported> {
+    let uuid = metadata(node, NODE_METADATA_VMESS_UUID).ok_or("vmess uuid is missing")?;
+    let security = metadata(node, NODE_METADATA_VMESS_SECURITY).unwrap_or("auto");
+    if !matches!(
+        security,
+        "auto" | "aes-128-gcm" | "chacha20-poly1305" | "chacha20-ietf-poly1305"
+    ) {
+        return Err("vmess security other than auto, aes-128-gcm and chacha20-poly1305 is not implemented yet");
+    }
+    if !matches!(
+        metadata(node, NODE_METADATA_VMESS_ALTER_ID),
+        None | Some("0")
+    ) {
+        return Err("vmess alterId other than 0 (legacy headers) is not supported");
+    }
+    let transport = websocket_transport(node)?;
+    Ok(json!({
+        "type": "vmess",
+        "server": node.endpoint.host,
+        "port": node.endpoint.port,
+        "uuid": uuid,
+        "security": security,
+        "tls": standard_tls(node),
+        "transport": transport,
+    }))
+}
+
+/// The standard TLS entry when the node enables TLS, otherwise `null`.
+fn standard_tls(node: &NodeDescriptor) -> Value {
+    if metadata(node, NODE_METADATA_TLS_ENABLED) != Some("true") {
+        return Value::Null;
+    }
+    json!({
+        "server_name": metadata(node, NODE_METADATA_TLS_SERVER_NAME),
+        "alpn": alpn_list(node),
+        "insecure": metadata(node, NODE_METADATA_TLS_INSECURE) == Some("true"),
+    })
 }
 
 /// `null` for tcp, the `ws` transport entry, or unsupported.
