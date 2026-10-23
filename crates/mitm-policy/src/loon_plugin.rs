@@ -650,25 +650,6 @@ impl Parser {
                 };
                 self.push(line, section, status, handler, reason);
             }
-            // The routing model has no keyword matcher yet; the policy core
-            // still rejects matching requests on decrypted hosts.
-            "DOMAIN-KEYWORD" => {
-                let (status, handler, reason) = if reject {
-                    self.has_request_actions = true;
-                    (
-                        LoonLineStatus::Partial,
-                        LoonLineHandler::PolicyEngine,
-                        "rule.domain_keyword_mitm_only",
-                    )
-                } else {
-                    (
-                        LoonLineStatus::Unsupported,
-                        LoonLineHandler::None,
-                        "rule.policy_unsupported",
-                    )
-                };
-                self.push(line, section, status, handler, reason);
-            }
             "FINAL" => self.push(
                 line,
                 section,

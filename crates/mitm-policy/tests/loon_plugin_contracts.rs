@@ -206,10 +206,7 @@ fn mixed_plugin_reports_partial_deferred_and_unsupported_lines() {
             .find(|line| line.reason == reason)
             .map(|line| line.status)
     };
-    assert_eq!(
-        status_of("rule.domain_keyword_mitm_only"),
-        Some(LoonLineStatus::Partial)
-    );
+    assert_eq!(status_of("rule.routing"), Some(LoonLineStatus::Supported));
     assert_eq!(
         status_of("rule.policy_unsupported"),
         Some(LoonLineStatus::Unsupported)
@@ -221,10 +218,17 @@ fn mixed_plugin_reports_partial_deferred_and_unsupported_lines() {
         status_of("mitm.skip_server_cert_verify_refused"),
         Some(LoonLineStatus::Unsupported)
     );
-    assert!(
-        plugin.routing_rules().is_empty(),
-        "PROXY and keyword rules must not enter the routing model"
+    let rules = plugin.routing_rules();
+    assert_eq!(
+        rules.len(),
+        1,
+        "PROXY rules must not enter the routing model"
     );
+    assert_eq!(
+        rules[0].matcher,
+        RuleMatcher::DomainKeyword("adtrack".to_string())
+    );
+    assert_eq!(rules[0].target, PolicyTarget::Reject);
 
     let text = plugin.report.render_text("p0-partial-mixed");
     assert!(text.starts_with("p0-partial-mixed: partial"));

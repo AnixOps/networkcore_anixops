@@ -64,14 +64,12 @@ The plugin as a whole is graded `full`, `partial`, or `unsupported`.
 - `[MITM] hostname` (`%APPEND%`/`%INSERT%`, `-host`/`!host` exclusions) goes
   to `LoonMitmHostnames::apply`. Plugins only add hosts.
   `skip-server-cert-verify` is always refused.
-- `[Rule]` DOMAIN, DOMAIN-SUFFIX, IP-CIDR, IP-CIDR6, and GEOIP lines with a
+- `[Rule]` DOMAIN, DOMAIN-SUFFIX, DOMAIN-KEYWORD, IP-CIDR, IP-CIDR6, and GEOIP lines with a
   REJECT or DIRECT policy become routing rules. `routing_model_with_plugin_rules`
   puts them before the user's rules.
 - URL-REGEX REJECT rules, reject variants, 301–308 redirects, and
   request/response header rewrites stay in the source that the `mitm_anixops`
   core evaluates.
-- DOMAIN-KEYWORD REJECT is partial: it only applies on decrypted hosts until
-  the routing model gains a keyword matcher.
 - Rules that name another policy cannot work, because a plugin does not know
   the user's node names.
 - Scripts, `[Map Local]`, and body rewrites are deferred to the P1 tier.
