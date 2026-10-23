@@ -8,6 +8,7 @@ use engine_outbound::registry::{parse_settings, BuildError, OutboundFactory, Set
 use engine_outbound::{Dialer, TcpOutbound};
 use serde::Deserialize;
 use tls_mimic::Fingerprint;
+use transport_grpc::{GrpcConnector, GrpcSettings};
 use transport_tls::{TlsConnector, TlsSettings};
 use transport_ws::{WsConnector, WsSettings};
 
@@ -32,7 +33,8 @@ struct VlessSettings {
     /// Standard TLS; without `reality` and `tls` the connection is plain TCP.
     #[serde(default)]
     tls: Option<StandardTlsSettings>,
-    /// `{"type": "ws", "path": ..., "host": ...}`; raw stream when absent.
+    /// `{"type": "ws", "path": ..., "host": ...}` or
+    /// `{"type": "grpc", "service_name": ...}`; raw stream when absent.
     #[serde(default)]
     transport: Option<TransportSettings>,
 }
@@ -59,6 +61,14 @@ enum TransportSettings {
         /// `Host` header; defaults to the TLS server name or `server`.
         #[serde(default)]
         host: String,
+    },
+    Grpc {
+        /// Call path `/<service_name>/Tun`.
+        #[serde(default)]
+        service_name: String,
+        /// `:authority`; defaults to the TLS server name or `server`.
+        #[serde(default)]
+        authority: String,
     },
 }
 
@@ -118,19 +128,43 @@ fn standard_outbound(
     uuid: [u8; 16],
     dialer: Arc<dyn Dialer>,
 ) -> Result<VlessTlsOutbound, BuildError> {
+    let grpc_transport = matches!(settings.transport, Some(TransportSettings::Grpc { .. }));
     let tls = settings.tls.map(|tls| TlsSettings {
         server_name: tls
             .server_name
             .filter(|name| !name.is_empty())
             .unwrap_or_else(|| settings.server.clone()),
-        alpn: tls.alpn,
+        // gRPC needs HTTP/2.
+        alpn: if tls.alpn.is_empty() && grpc_transport {
+            vec!["h2".to_owned()]
+        } else {
+            tls.alpn
+        },
         insecure: tls.insecure,
     });
     let default_host = tls
         .as_ref()
         .map_or(settings.server.as_str(), |tls| tls.server_name.as_str());
+    let mut grpc = None;
     let websocket = match settings.transport {
         None | Some(TransportSettings::Tcp) => None,
+        Some(TransportSettings::Grpc {
+            service_name,
+            authority,
+        }) => {
+            grpc = Some(
+                GrpcConnector::new(
+                    &GrpcSettings {
+                        service_name,
+                        authority,
+                    },
+                    default_host,
+                    tls.is_some(),
+                )
+                .map_err(|_| "vless grpc settings are invalid")?,
+            );
+            None
+        }
         Some(TransportSettings::Ws { path, host }) => Some(
             WsConnector::new(
                 &WsSettings {
@@ -153,6 +187,9 @@ fn standard_outbound(
             .map_err(|_| "vless outbound settings are invalid")?;
     if let Some(websocket) = websocket {
         outbound = outbound.with_websocket(websocket);
+    }
+    if let Some(grpc) = grpc {
+        outbound = outbound.with_grpc(grpc);
     }
     Ok(outbound)
 }

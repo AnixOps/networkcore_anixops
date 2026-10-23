@@ -10,6 +10,7 @@ use std::task::{ready, Context, Poll};
 
 use engine_outbound::{BoxFuture, BoxStream, Dialer, TargetAddr, TcpOutbound};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use transport_grpc::GrpcConnector;
 use transport_tls::TlsConnector;
 use transport_ws::WsConnector;
 
@@ -22,6 +23,7 @@ pub struct VlessTlsOutbound {
     uuid: [u8; 16],
     tls: Option<TlsConnector>,
     websocket: Option<WsConnector>,
+    grpc: Option<GrpcConnector>,
     dialer: Arc<dyn Dialer>,
 }
 
@@ -33,6 +35,7 @@ impl fmt::Debug for VlessTlsOutbound {
             .field("uuid", &"<redacted>")
             .field("tls", &self.tls.is_some())
             .field("websocket", &self.websocket.is_some())
+            .field("grpc", &self.grpc.is_some())
             .finish()
     }
 }
@@ -59,6 +62,7 @@ impl VlessTlsOutbound {
             uuid,
             tls,
             websocket: None,
+            grpc: None,
             dialer,
         })
     }
@@ -66,6 +70,12 @@ impl VlessTlsOutbound {
     /// Carries VLESS in a WebSocket (inside TLS when TLS is set).
     pub fn with_websocket(mut self, websocket: WsConnector) -> Self {
         self.websocket = Some(websocket);
+        self
+    }
+
+    /// Carries the stream in a gRPC (`gun`) call instead of a WebSocket.
+    pub fn with_grpc(mut self, grpc: GrpcConnector) -> Self {
+        self.grpc = Some(grpc);
         self
     }
 }
@@ -84,6 +94,9 @@ impl TcpOutbound for VlessTlsOutbound {
             }
             if let Some(websocket) = &self.websocket {
                 stream = websocket.connect(stream).await?;
+            }
+            if let Some(grpc) = &self.grpc {
+                stream = grpc.connect(stream).await?;
             }
             Ok(Box::new(PlainVlessStream {
                 inner: stream,

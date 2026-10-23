@@ -12,6 +12,7 @@ ring = "0.17.14"
 serde = { version = "1", features = ["derive"] }
 tls-mimic = { path = "../tls-mimic" }
 tokio = { version = "1", default-features = false, features = ["io-util"] }
+transport-grpc = { path = "../transport-grpc" }
 transport-tls = { path = "../transport-tls" }
 transport-ws = { path = "../transport-ws" }
 

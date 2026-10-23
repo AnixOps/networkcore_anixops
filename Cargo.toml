@@ -27,6 +27,7 @@ members = [
     "crates/script-runtime",
     "crates/tls-mimic",
     "crates/transport-tls",
+    "crates/transport-grpc",
     "crates/transport-ws",
 ]
 resolver = "2"
