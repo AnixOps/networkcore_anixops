@@ -98,6 +98,7 @@ fn resolution_snapshot(resolution: &RouteResolution) -> Value {
     serde_json::json!({
         "matched": match resolution.matched {
             RouteMatch::Rule(index) => format!("rule:{index}"),
+            RouteMatch::ResolveFailed(index) => format!("resolve_failed:{index}"),
             RouteMatch::Final => "final".to_string(),
         },
         "target": resolution.target.name(),

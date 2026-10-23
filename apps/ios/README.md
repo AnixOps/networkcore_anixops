@@ -21,9 +21,11 @@ their own gates pass.
   `.github/scripts/build-ios-runtime-xcframework.sh` and never commits. The extension imports the C ABI as the Clang
   module `NetworkCoreRuntimeC` and fails closed when the runtime handshake or the tunnel profile is invalid. The containing
   app does not link the runtime.
-- M1a tunnel profile: the app imports one Shadowsocks-2022 `ss://` link and saves it in
-  `NETunnelProviderProtocol.providerConfiguration`, including the key. Moving the key to a Keychain `passwordReference`
-  shared through a keychain access group is required before external TestFlight.
+- M1a tunnel profile: the app imports one Shadowsocks-2022 `ss://` link. The node key goes into the Keychain
+  (`NodeSecretStore`, `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`) and the profile keeps only its persistent
+  reference in `NETunnelProviderProtocol.passwordReference`; `providerConfiguration` holds the runtime config without
+  the key. Both targets list `$(AppIdentifierPrefix)networkcore.shared` first in `keychain-access-groups`, so the
+  extension reads the item the app saved. The default team-prefixed profiles already allow this group.
 - Swift sources may only live under `apps/ios/Sources` or `apps/ios/Tests`.
 - Future Xcode project or workspace files must reference this source tree and must not become the only source of truth.
 
@@ -52,5 +54,13 @@ GitHub Actions statically checks this README and runs the `macos-26` manifest va
 `.github/scripts/verify-ios-package-manifest.sh`. Any Swift/Xcode source scan, Swift build, Swift test, Xcode project validation,
 signing, archive/export or upload validation must run only in GitHub Actions on `macos-26` or Apple official platforms.
 
-The upload workflow enabled marker remains blocked. `ios-upload-workflow-status` must stay `pending` until source tree,
-manual confirmation, protected environment and secret setup gates are complete.
+`ios-upload-workflow-status=enabled` (2026-10-22) unlocks only the manual internal TestFlight workflow,
+`.github/workflows/ios-testflight.yml`. External TestFlight, App Store submission and release assets stay blocked.
+
+## App icon
+
+`Design/AppIcon.svg` is the source of the app icon. The asset catalog uses one
+1024×1024 sRGB PNG without an alpha channel
+(`Sources/NetworkCoreApp/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png`);
+iOS applies the corner mask. Re-export the PNG at 1024×1024 and drop the alpha
+channel whenever the SVG changes.

@@ -3316,10 +3316,16 @@ pub fn start_managed_control_socket_with_runtime_snapshot(
             match listener.accept() {
                 Ok((mut stream, _)) => {
                     let mut command = Vec::new();
+                    // Accepted sockets inherit O_NONBLOCK from the listener on
+                    // BSD-derived kernels; the bounded read relies on a blocking
+                    // socket with a read timeout.
                     let read_result = stream
-                        .set_read_timeout(Some(Duration::from_secs(
-                            MANAGED_CONTROL_SOCKET_IO_TIMEOUT_SECONDS,
-                        )))
+                        .set_nonblocking(false)
+                        .and_then(|()| {
+                            stream.set_read_timeout(Some(Duration::from_secs(
+                                MANAGED_CONTROL_SOCKET_IO_TIMEOUT_SECONDS,
+                            )))
+                        })
                         .and_then(|()| (&mut stream).take(64).read_to_end(&mut command));
                     let wire_command = read_result.ok().and_then(|_| {
                         std::str::from_utf8(&command)

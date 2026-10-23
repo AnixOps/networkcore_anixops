@@ -620,11 +620,12 @@ ios-m1a-acceptance-status=pending
 ios-m1a-acceptance-peak-memory-mb=pending
 ios-m1a-acceptance-24h-no-jetsam=pending
 ios-m1a-acceptance-recorded-at=pending
-ios-m1a-tunnel-profile-secret-storage=provider-configuration-internal-testflight-only
+ios-m1a-tunnel-profile-secret-storage=keychain-password-reference-shared-access-group
 ```
 
-已知限制：节点密钥目前保存在 `NETunnelProviderProtocol.providerConfiguration` 中，只适用于内部 TestFlight；外部
-TestFlight 前必须改为 Keychain `passwordReference`，这需要在两个 target 增加 keychain access group entitlement 并更新描述文件。
+节点密钥保存在钥匙串中，隧道配置只保存 `passwordReference`。两个 target 的 entitlements 都把
+`$(AppIdentifierPrefix)networkcore.shared` 放在 `keychain-access-groups` 第一位；Apple 默认生成的描述文件已允许
+`TEAMID.*`，不需要额外开启 App ID capability。真机验收时额外确认：导入节点后锁屏重连仍可启动隧道（设备首次解锁之后）。
 
 ## iOS App Review Manual Confirmation
 
@@ -665,7 +666,7 @@ ios-app-review-confirmed-by=pending
 archive/export、App Store Connect API、protected environment 或 manual approval，因此 upload/release 保持阻断。
 
 ```text
-ios-upload-workflow-status=pending
+ios-upload-workflow-status=enabled
 ios-upload-workflow-source-contract=docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
 ios-upload-workflow-archive-export=blocked
 ios-upload-workflow-app-store-connect-api=blocked
@@ -677,8 +678,8 @@ ios-upload-workflow-app-review-submission=blocked
 ios-upload-workflow-release-assets=blocked
 ios-upload-workflow-macos-runner=blocked
 ios-upload-workflow-build-processing-check=blocked
-ios-upload-workflow-confirmed-at=pending
-ios-upload-workflow-confirmed-by=pending
+ios-upload-workflow-confirmed-at=2026-10-22
+ios-upload-workflow-confirmed-by=kalijerry
 ios-upload-scope=internal-testflight-only
 ios-upload-scope-decision=maintainer-2026-10-13
 ios-upload-external-testflight=blocked
@@ -686,10 +687,10 @@ ios-upload-beta-app-review=blocked-not-required-for-internal
 ios-upload-bundle-id-storage=github-variables-only
 ios-upload-api-key-status=team-key-added-to-environment
 ios-export-compliance-answer=standard-https-only-exempt-2026-10-13
-ios-upload-internal-confirmation-status=pending
+ios-upload-internal-confirmation-status=confirmed
 ios-upload-internal-confirmation-items=app-record,export-compliance,internal-testing-group,app-privacy-determination,privacy-policy-determination,environment-secrets-and-variables
 ios-upload-internal-workflow=.github/workflows/ios-testflight.yml
-ios-upload-internal-workflow-status=defined-fail-closed-until-enabled
+ios-upload-internal-workflow-status=enabled-manual-dispatch-internal-testflight-only
 ios-upload-internal-workflow-variables=IOS_APP_BUNDLE_ID,IOS_TUNNEL_BUNDLE_ID
 ios-upload-internal-workflow-secrets=APP_STORE_CONNECT_API_KEY_ID,APP_STORE_CONNECT_ISSUER_ID,APP_STORE_CONNECT_API_PRIVATE_KEY,TEAM_ID,APPLE_CERTIFICATE_P12_BASE64,APPLE_CERTIFICATE_PASSWORD,APPLE_KEYCHAIN_PASSWORD,APPLE_PROVISIONING_PROFILE_BASE64,APPLE_PACKET_TUNNEL_PROVISIONING_PROFILE_BASE64
 ```

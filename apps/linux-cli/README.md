@@ -1,257 +1,226 @@
 # networkcore-linux
 
-`networkcore-linux install-service --service-executable <absolute-path> --confirm` renders and writes an explicit
-systemd unit through `platform-linux::systemd`; optional `--service-unit`, `--service-description`,
-`--service-arg`, `--service-user`, `--service-group`, and `--service-state-dir` parameters are included in
-the unit. Existing units are snapshotted under the selected state directory before replacement and the written
-content is verified. The command does not call `systemctl`, enable a unit, or start a service. `networkcore-linux
-service start|stop|restart|status --service-unit <name> --confirm` controls one explicit systemd unit through
-`systemctl`; it never enables units and status uses `systemctl is-active`. The source boundary is documented in
-`docs/architecture/linux-managed-service-unit-source-contract.md`.
-`service reload` sends `systemctl reload` to the managed unit; installation uses the separate `systemctl daemon-reload`
-manager refresh after writing a unit. Foreground runtime reload/rollback and cross-process control remain separate
-managed-lifecycle work.
-`networkcore-linux uninstall-service --confirm` stops and removes the matching unit file only after snapshotting
-it under the selected state directory; it does not delete the state directory, and purge remains a separate
-future action.
+`networkcore-linux` is the Linux CLI entrypoint for NetworkCore. This README describes current `main` source.
+Release state lives in the repository [README](../../README.md); the per-version feature and boundary index is
+`docs/alpha-release-feature-matrix.md`. All validation runs in GitHub Actions according to `docs/ci-cd-policy.md`.
 
-`networkcore-linux connect --confirm [--service-unit <name>]`, `disconnect --confirm [--service-unit <name>]`,
-and `restart --confirm [--service-unit <name>]` are the concise managed-service aliases for
-`service start`, `service stop`, and `service restart`. Without that explicit managed-service selection,
-`connect --config <path>` remains the foreground runtime entrypoint, while `disconnect` and `restart`
-return their foreground-runtime boundary. `networkcore-linux status --service-unit <name>` reads the explicit
-managed unit through read-only `systemctl is-active`; plain `status` remains platform-only. `networkcore-linux
-managed-log <log-file-path>` and `logs <log-file-path>` both return a bounded tail from one explicit log path;
-neither scans default locations or streams a live file. `networkcore-linux proxy apply --file <absolute-path> --snapshot <absolute-path> --url <proxy-url> --confirm`
-manages one explicit environment proxy file. `proxy status` is read-only and `proxy rollback --confirm` refuses
-to overwrite an externally changed file; these commands do not discover or mutate a desktop default proxy.
+P4 current stage source of truth: this crate is in P4 Client And Platform Integration. P3 Runtime Capability
+Baseline is completed history. The active P4 backlog buckets are subscription/client compatibility, MITM data plane
+plus certificate lifecycle, and browser capture user flow completion; P3 wording in older changelog or roadmap
+entries is historical context only.
 
-`networkcore-linux mitm certificate trust-apply --cert-file <path> --trust-file <absolute-path> --snapshot <absolute-path> --confirm`
-manages the Ubuntu-style explicit CA trust-file path and refreshes it through `update-ca-certificates`.
-`trust-rollback` restores the matching snapshot after the same explicit confirmation. The adapter verifies the
-written PEM, refuses symlinks and external changes, and does not discover distro defaults or mutate NSS,
-p11-kit, Firefox, browser profiles, HTTPS decryption, or rewrite policy.
+## Safety boundary
 
-`networkcore-linux core list` reports the registered public engine descriptors.
-`networkcore-linux core install mieru --binary <path> --sha256 <digest>` verifies
-an operator-provided Mieru executable locally and returns its digest; it does not
-download, spawn, or install a service. This verification command does not mutate
-runtime state or the system proxy.
-`networkcore-linux core start|stop|status mieru --binary <path> --sha256 <digest> --config <path>`
-and the matching commands use the official client's explicit `apply config`,
-`start`, `stop`, or `status` controls. They require a regular absolute config
-file and never expose the client's stdout/stderr in NetworkCore output;
-listener readiness and system proxy mutation remain separate gates.
+The CLI does not modify TUN, DNS, routing, firewall, system trust stores, browser trust stores, or profile trust
+state, and it never scans default locations. Every command that writes host state requires explicit absolute paths,
+a snapshot, and `--confirm`. The exceptions are narrow and named: one NetworkCore systemd unit, one environment proxy
+file, one Ubuntu-style CA trust file, and operator-selected certificate/PAC/policy/profile-prefs artifacts.
 
-`networkcore-linux` is the Linux CLI entrypoint for NetworkCore.
+## Command overview
 
-Current `main` contains the `CommandSubscriptionCatalogStore` local JSON persistence
-boundary: `CommandSubscriptionCatalogStore::add_source`,
-`CommandSubscriptionCatalogStore::list_sources`, `CommandSubscriptionCatalogStore::remove_source`,
-`CommandSubscriptionCatalogStore::select_source`, `CommandSubscriptionCatalogStore::update_source`, and
-`CommandSubscriptionCatalogStore::rollback_catalog`. Add/remove/update require explicit catalog and rollback
-snapshot paths, the store writes schema version 1, rejects duplicate or missing source ids, and returns
-redacted reports. `CommandSubscriptionCatalogStore::rollback_catalog` restores an explicit validated snapshot
-while retaining that snapshot. `run-catalog <catalog-path> <source-id>` resolves one saved source into the
-existing foreground sing-box path. `subscription refresh start` explicitly refreshes one saved HTTP(S) source after
-candidate validation, writes only explicit catalog/status/snapshot paths, and requires confirmation; `status` and
-`stop` operate on that status record. It never restarts the core, switches nodes, or modifies system settings.
-Linux systemd scheduling is separately opt-in: `subscription refresh schedule install` requires explicit absolute
-catalog/status/snapshot paths, source ID, interval, unit base name, and `--confirm`; it writes a NetworkCore-owned
-oneshot service plus persistent timer, reloads systemd, and verifies the timer. Reinstalling identical content is
-idempotent, while external changes are rejected. `schedule stop` and `schedule uninstall` are confirmed, named,
-bounded operations and retain the final refresh status record. Generated units carry no subscription URL or credentials.
-All catalog operations are verified by GitHub Actions contract tests.
+| Area | Commands |
+|---|---|
+| Basics | `help`, `version`, `capabilities`, `status`, `diagnostics`, `prepare-config` |
+| Foreground runtime | `start`, `stop`, `connect`, `disconnect`, `restart`, `reload`, `rollback` |
+| Public engines | `install-sing-box` / `sing-box install`, `run-url`, `run-catalog`, `core list`, `core install/start/stop/status mieru` |
+| Nodes | `node list`, `node select`, `node switch`, `node health` |
+| Subscriptions | `subscription add/list/remove/select/update/rollback`, `subscription refresh start/status/stop`, `subscription refresh schedule install/status/stop/uninstall` |
+| systemd | `install-service`, `uninstall-service`, `service start|stop|restart|status`, `service reload` |
+| Environment proxy | `proxy apply/status/rollback` |
+| Managed records | `managed-status`, `managed-event`, `managed-log` / `logs` |
+| MITM | `mitm status/diagnostics/certificate-plan/browser-plan`, `mitm certificate apply/rollback/trust-apply/trust-rollback`, `mitm http-rewrite plan/preview`, `mitm browser-capture plan/launch-plan/session-plan/launch/apply/rollback/verify/traffic-proof` |
 
-Current `main` also contains the source-only `CommandManagedForegroundSessionStore::read_status`,
-`CommandManagedForegroundSessionStore::write_status`, and
-`CommandManagedForegroundSessionStore::transition_status` boundaries for v0.1.2-alpha.2. They read, initially
-write, or expected-state transition an explicit schema version 1 session status record, respectively report
-`liveness_verified=false`, reject write overwrite, and retain a non-overwriting pre-transition snapshot. The
-transition allows only `starting -> running/failed` and `running -> stopped/failed`. They do not inspect a
-process or wire runtime control commands. `networkcore-linux managed-status
-<status-record-path>` exposes the same explicit record through text/JSON without claiming liveness or
-modifying the record. `networkcore-linux managed-status init <status-record-path> <session-id> <engine-id>
-<state>` non-overwritingly creates the explicit record and reports `record_written=true` without claiming
-liveness. `networkcore-linux managed-status transition <status-record-path> <snapshot-path> <expected-state>
-<next-state>` performs an expected-state transition, writes the original record to a non-overwriting snapshot,
-and reports `snapshot_written=true` without claiming liveness. Their contract tests have passed GitHub Actions.
+## Foreground runtime
 
-`networkcore-linux managed-status rollback <status-record-path> <snapshot-path> <expected-state>` exposes the
-same v0.1.2-alpha.2 rollback boundary through text/JSON. It restores an explicit snapshot's original contents
-only after the current expected state and trimmed session/engine identity match, retains the snapshot, and reports
-previous/restored state, `snapshot_retained=true`, and `liveness_verified=false`. It does not inspect a process or
-control a runtime.
+`start` wires `engine-native::NativeProxyEngineService` through `RuntimeOrchestrator` with the built-in
+`networkcore.adblock` MITM plugin hook. It is foreground-only: Unix `SIGINT`/`SIGTERM` and injected lifecycle
+interruption map to `cli.linux.start.lifecycle_interrupted` with exit code 130, after which the in-process runtime is
+stopped and native release diagnostics such as `engine.native.runtime.accept_loop_stopped` and
+`engine.native.runtime.released` are aggregated.
 
-`start` can opt into the same recording boundary with
-`--managed-status <status.json> --managed-snapshot <starting.snapshot.json> --managed-events <event-directory>`.
-All three paths are required together. The foreground session records `starting`, `running`, `stopped`, or
-`failed` with non-overwriting status snapshots and bounded schema-versioned event records; omitted paths preserve
-the existing foreground-only behavior and recorded state never claims process liveness.
+**Managed recording.** `start --managed-status <status.json> --managed-snapshot <starting.snapshot.json> --managed-events <event-directory>`
+(all three together) records `starting`, `running`, `stopped`, or `failed` with non-overwriting status snapshots and
+bounded schema-versioned event records. Recorded state never claims process liveness.
 
-On Unix, the same explicit managed start can add `--managed-control-socket <absolute-path>`.
-NetworkCore creates that socket without replacing an existing path, applies owner-only `0600`, and accepts only a
-bounded `stop`, `reload`, or `rollback` request with a two-second I/O deadline. `stop --managed-control-socket <absolute-path> --confirm`
-sends the current foreground runtime through interruption and release; `reload --managed-control-socket <absolute-path> --confirm`
-reloads that same foreground runtime from its explicit start configuration and resumes its lifecycle wait.
-`rollback --managed-control-socket <absolute-path> --expected-config-version <positive-integer> --confirm`
-only restores the owner-retained prior-successful configuration snapshot when the caller's version
-matches the active version, the expected `Running` state check succeeds, and health readback passes.
-`status --managed-control-socket <absolute-path>` reports the bounded, redacted runtime health record.
-No default socket, PID lookup, or non-Unix fallback is provided; the boundary is fixed by
+**Control socket (Unix).** The same managed start can add `--managed-control-socket <absolute-path>`. NetworkCore
+creates the socket without replacing an existing path, applies owner-only `0600`, and accepts only bounded `stop`,
+`reload`, or `rollback` requests with a two-second I/O deadline:
+
+- `stop --managed-control-socket <path> --confirm` interrupts and releases the foreground runtime.
+- `reload --managed-control-socket <path> --confirm` reloads it from its explicit start configuration.
+- `rollback --managed-control-socket <path> --expected-config-version <n> --confirm` restores the owner-retained prior
+  successful configuration only when the version matches, the `Running` check succeeds, and health readback passes.
+- `status --managed-control-socket <path>` reports the bounded, redacted runtime health record.
+
+No default socket, PID lookup, or non-Unix fallback exists; see
 `docs/architecture/linux-managed-runtime-health-source-contract.md`.
 
-Current `main` also contains the source-only `CommandManagedForegroundSessionEventStore::read_event` and
-`CommandManagedForegroundSessionEventStore::write_event` boundaries for v0.1.2-alpha.2. They read or
-non-overwritingly write one explicit schema version 1 JSON event record with session/engine/event ids, an allowed
-event kind, recorded state, and a caller-recorded timestamp, while reporting `record_written=true` for writes and
-`liveness_verified=false`.
-`networkcore-linux managed-event <event-record-path>` exposes that one explicit record through text/JSON without
-claiming liveness. `networkcore-linux managed-event init <event-record-path> <session-id> <engine-id> <event-id>
-<event-kind> <state> <recorded-at>` non-overwritingly creates the explicit record and reports `record_written=true`
-without claiming liveness. Current `main` also exposes the untagged bounded audit query through
-`CommandManagedForegroundSessionEventStore::list_event_history` and `networkcore-linux managed-event list
-<event-directory> [--session-id <id>] [--event-kind <kind>] [--state <state>] [--cursor <offset>] [--limit <1-100>]`:
-it reads only direct regular JSON records from the explicit directory, validates every candidate before exact
-filtering, sorts by `(recorded_at, event_id, event_path)`, and returns one page plus an offset cursor. The query caps
-each page at 100 entries, the directory at 256 records, and each record at 65536 bytes; it does not create a default
-path, recurse, include event-record symlinks discovered during enumeration, tail a file, claim liveness, read logs,
-or control a runtime. Its contract tests are verified only by GitHub Actions.
+## Public engines and subscriptions
 
-`CommandManagedForegroundSessionLogStore::read_tail` and `networkcore-linux managed-log <log-file-path>
-[--tail-lines <1-1000>]` form the managed-log slice. They read an explicit
-regular UTF-8 log file, return at most 1000 final lines from a 65536-byte file, redact URLs and common credential
-values before exposing the report, and report `liveness_verified=false`; it does not create logs, search default
-locations, tail or stream a file, or control a runtime. Text output renders the selected lines; JSON exposes the
-same bounded report as
-`managed_foreground_log_tail`. The report also includes `returned_byte_count`,
-the UTF-8 byte count of returned line contents, excluding discarded content and
-line separators.
+`install-sing-box` uses the `engine-singbox` latest release installer. `run-url <share-link-or-file-uri-or-https-url> [--node-id <id>]`
+and `run-catalog <catalog-path> <source-id>` parse input with `config-core` and first create a `PublicEngineRunPlan`:
 
-The crate currently provides:
+- Direct `ss://`, `trojan://`, `vless://`, `vmess://`, `hysteria2://`/`hy2://`, and `tuic://` links, supported Clash
+  YAML, sing-box JSON, and Surge/Loon/Quantumult X catalog payloads, one explicit absolute `file://` UTF-8 subscription
+  file, or one bounded HTTP(S) subscription fetch are accepted.
+- Shadowsocks, Trojan, VLESS, VMess, Hysteria2, and TUIC run through the foreground sing-box flow.
+- A `mierus://` node uses engine-mieru and requires `--binary <local-path> --sha256 <digest>`; the CLI renders an
+  atomic local config with rollback snapshot, invokes official apply/start, and requires a reachable loopback SOCKS5
+  listener. Failures return a stable redacted error and do not replace an existing config or running core.
+- `--node-id <id>` selects one normalized catalog node; otherwise the first node is used.
 
-- Command parsing for the first Linux command surface.
-- A config reader boundary that can be tested without local file-system verification.
-- Response and diagnostic mapping for help, capabilities, prepare-config, start, stop, status, diagnostics, mitm status/diagnostics/certificate-plan/certificate apply/rollback/browser-plan/browser-capture/http-rewrite, install-sing-box, run-url, and version commands.
-- A foreground lifecycle host source contract for `start` handoff, with default unavailable, current-process, injectable interruption source, Unix OS signal source, and interruption cleanup implementations.
-- JSON response rendering for automation-facing output contracts.
-- A minimal binary that wires `capabilities`, `status`, `diagnostics`, `mitm status/diagnostics/certificate-plan/browser-plan`, `mitm certificate apply/rollback`, `mitm http-rewrite plan/preview`, and `mitm browser-capture plan/launch-plan/session-plan/launch/apply/rollback/verify/traffic-proof` to `HostLinuxReadOnlyProbe`, wires `mitm certificate apply/rollback` to `CommandMitmCertificateArtifactStore`, wires `mitm browser-capture launch --confirm` to an injected `BrowserCaptureProcessRunner`, wires `mitm browser-capture verify --confirm` to an injected `BrowserCaptureEndpointProbe`, wires `mitm browser-capture traffic-proof --confirm` to an injected `BrowserCaptureTrafficProofProbe`, wires `prepare-config` to the pure `config-core` service, wires `start` to `engine-native::NativeProxyEngineService` through `RuntimeOrchestrator` with the built-in `networkcore.adblock` MITM plugin hook, wires `install-sing-box` to the `engine-singbox` latest release installer, and wires `run-url` to direct `config-core` share-link and catalog parsers plus explicit absolute `file://` and foreground HTTP(S) subscription readers, `sing-box` config renderer, and foreground process runner. Direct `ss://`, `trojan://`, `vless://`, `vmess://`, `hysteria2://`/`hy2://`, and `tuic://` links plus supported Clash YAML, sing-box JSON, Surge/Loon/Quantumult X catalog payloads, one caller-selected absolute `file://` UTF-8 subscription file, or one explicit HTTP(S) subscription can run; persistent catalog control and managed background runtime remain unavailable.
+`core list` reports registered public engine descriptors. `core install mieru --binary <path> --sha256 <digest>` only
+verifies an operator-provided executable. `core start|stop|status mieru --binary <path> --sha256 <digest> --config <path>`
+drive the official client's `apply config`, `start`, `stop`, and `status` with a regular absolute config file, never
+echoing the client's stdout/stderr.
 
-Release/source split: `v0.1.2-alpha.3` is the current source release slice and is downloadable only after its matching GitHub Actions tag workflow succeeds; `v0.1.0` remains the latest stable Linux artifact.
-This README describes current `main` source. The `v0.1.0` artifact
-includes `mitm certificate apply --confirm --cert-file <path> --key-file
-<path> [--profile-trust-file <path>] --snapshot <path>` / `rollback --snapshot <path>` certificate artifact
-lifecycle, TLS-consumable CA certificate PEM, private key PEM, and an optional dedicated profile CA PEM copy while keeping CA install/trust mutation blocked. The artifact also includes `mitm http-rewrite plan` / `mitm http-rewrite preview --confirm --url <url>`
-caller-provided plain HTTP rewrite foundation, explicit HTTP proxy `http://`
-live request/response rewrite, explicit HTTP `CONNECT` pass-through tunnel foundation with bounded ClientHello/SNI observation, `http_rewrite` report, `mitm browser-capture verify --confirm`,
-`mitm browser-capture verify --confirm --target-url <url>`,
-`mitm browser-capture session-plan`, browser capture target route verify, the browser capture `--target-url`
-option, `mitm browser-capture traffic-proof --confirm [--target-url <url>] [--proof-token <token>] [--proof-log <path>]`,
-`session-plan`/`launch --confirm` proof URL binding through `proof_target_url`,
-`networkcore_proof_token`, and `traffic_proof_command`, and
-`mitm browser-capture apply --confirm --pac-file <path> [--policy-file <path>] [--profile-prefs-file <path>] --snapshot <path>`
-/ `rollback --snapshot <path>` PAC/browser policy/profile prefs artifact apply/rollback, plus
-`networkcore-linux start` built-in `networkcore.adblock` MITM hook injection for
-native SOCKS5 CONNECT-level `Reject` blocking. Browser capture `session-plan`,
-`launch`, `apply`, `verify`, and `traffic-proof` also accept
-`--proxy-scheme http|socks5`; `socks5` emits
-`socks5://127.0.0.1:7890` browser/PAC/probe plans so an explicitly launched
-dedicated browser can target the native SOCKS5 CONNECT hook. The traffic-proof
-command verifies that an operator-provided proof log contains a browser proof
-token and emits `traffic_proof_report`; when proof token/log are omitted, it
-uses the same default proof binding as session-plan/launch, derived from the
-target CONNECT endpoint plus proxy URL so it can match native SOCKS5 CONNECT
-diagnostics. Session-plan/launch proof binding appends
-the token to the target URL passed to the dedicated browser and emits the
-matching traffic-proof command; the artifact path writes only the
-operator-provided NetworkCore PAC file, optional Chromium/Chrome managed proxy
-policy artifact, optional Firefox dedicated profile prefs, and rollback
-snapshot, reports `profile_prefs_file_path` and `profile_prefs_content`, and
-never installs system PAC or browser policy. The `v0.1.0-alpha.19` release adds
-proof binding hardening on top of that boundary: `traffic-proof` records `proof_connect_authority` and,
-when target URL parsing succeeds, requires one proof log line to bind the proof
-token, planned proxy URL, and CONNECT authority; otherwise it reports
-`binding_mismatch`. The `v0.1.0-alpha.20` release adds traffic-proof text
-CONNECT authority output for manual proof audit without switching to JSON. The
-`v0.1.0-rc.1`, included in `v0.1.0`, adds a regression freeze contract for caller-provided
-HTTPS request preview so it does not claim live TLS decryption, live
-CONNECT-stream rewrite, or JavaScript script dispatch.
-The native MITM hook only writes SOCKS5 CONNECT
-failure for plugin `Reject`, emits
-`engine.native.runtime.http_mitm_connect_browser_proof_observed` with the same
-default proof token, and does not decrypt HTTPS. The HTTP rewrite preview applies
-plugin outcomes only to caller-provided plain HTTP input and does not intercept
-live browser/system traffic or execute TLS decryption. The latest artifact also includes the controlled TLS termination plan/report:
-`NativeControlledTlsTerminationPlanReport` and
-`plan_explicit_http_connect_controlled_tls_termination` can report that a
-CONNECT tunnel, observed ClientHello/SNI, and NetworkCore CA certificate/private
-key PEM material are sufficient to plan downstream TLS termination; the
-`http_rewrite` report exposes `controlled_tls_termination_plan_ready`,
-`downstream_tls_termination_plan_ready`, and `upstream_tls_forwarding_ready`
-while keeping `tls_decryption_ready=false`. The same artifact also includes the HTTPS request rewrite preview:
-`http_rewrite` reports `https_request_rewrite_preview_ready=true`,
-`https_response_rewrite_ready=false`, and `script_dispatch_ready=false`, while
-`engine-native` can preview reject, redirect, and request header mutation for
-caller-provided request-phase `https://` input after the controlled TLS
-termination plan is ready. It also reports
-`https_response_rewrite_preview_ready=true` and can preview response header
-mutation plus guarded response body mutation for caller-provided response-phase
-`https://` input through `NativeHttpsResponseRewritePreviewReport`; full live
-`https_response_rewrite_ready` remains false. It does not enable live HTTPS decryption, live
-CONNECT-stream HTTPS request/response rewrite, full live HTTPS response rewrite, CA trust
-mutation, browser/system proxy mutation, or JavaScript script dispatch. The dedicated profile trust artifact increment is not included in
-older artifacts before `v0.1.0-alpha.13`; the plain HTTP rewrite foundation is not included before `v0.1.0-alpha.12`.
-The per-alpha feature and boundary index is
-`docs/alpha-release-feature-matrix.md`.
+**Persistent catalog.** `CommandSubscriptionCatalogStore` keeps a local schema version 1 JSON catalog:
+`CommandSubscriptionCatalogStore::add_source`, `CommandSubscriptionCatalogStore::list_sources`,
+`CommandSubscriptionCatalogStore::remove_source`, `CommandSubscriptionCatalogStore::select_source`,
+`CommandSubscriptionCatalogStore::update_source`, and `CommandSubscriptionCatalogStore::rollback_catalog`.
+Add/remove/update need explicit catalog and snapshot paths, duplicate or missing ids are rejected, reports are
+redacted, and rollback restores a validated snapshot while retaining it.
 
-P4 current stage source of truth: this crate is now in P4 Client And Platform
-Integration. P3 Runtime Capability Baseline is completed history, not the
-current repository stage. The active P4 backlog buckets are subscription/client
-compatibility, MITM data plane plus certificate lifecycle, and browser capture
-user flow completion. Any P3 wording in completed changelog or roadmap entries
-is historical context only and must not be used as the current CLI release or
-iteration stage.
+**Refresh.** `subscription refresh start` refreshes one saved HTTP(S) source after candidate validation, writing only
+explicit catalog/status/snapshot paths with confirmation; `status` and `stop` operate on that status record. It never
+restarts the core, switches nodes, or changes system settings. `subscription refresh schedule install` additionally
+needs a source ID, interval, unit base name, and `--confirm`; it writes a NetworkCore-owned oneshot service plus
+persistent timer (no URL or credentials in the units), reloads systemd, and verifies the timer. Identical reinstall is
+idempotent, external changes are rejected, and `schedule stop`/`uninstall` retain the final status record.
 
-`run-url <share-link-or-file-uri-or-https-url> [--node-id <id>]` and `run-catalog <catalog-path> <source-id>` first create `PublicEngineRunPlan`. Shadowsocks, Trojan, VLESS, VMess, Hysteria2, and TUIC use the existing sing-box foreground flow. A selected `mierus://` node uses engine-mieru and requires `--binary <local-path> --sha256 <digest>`; it renders an atomic local config with rollback snapshot, invokes official apply/start, and requires a reachable loopback SOCKS5 listener before success. Missing binary/digest, invalid config, digest mismatch, or failed listener readiness returns a stable redacted error and does not replace an existing config or running core. `--node-id` selects one normalized catalog node; without it the first node is selected. Remote fetching remains bounded and explicit.
+## systemd service
 
-`networkcore-linux mitm status`, `networkcore-linux mitm diagnostics`, `networkcore-linux mitm certificate-plan`, `networkcore-linux mitm certificate apply/rollback`, `networkcore-linux mitm browser-plan`, `networkcore-linux mitm http-rewrite plan/preview`, and `networkcore-linux mitm browser-capture plan/launch-plan/session-plan/launch/apply/rollback/verify/traffic-proof` implement the first partial `MITM_CLI_COMMAND_GATE` surface. They load the built-in `networkcore.adblock` policy through `mitm-policy`, emit `mitm_status` JSON fields, and report `mitm-cli-command-gate-status=partial-active`. `networkcore-linux start` also loads the built-in plugin into `engine-native`; matching plugin `Reject` outcomes are applied at the explicit SOCKS5 CONNECT layer as a SOCKS5 general failure response before outbound selection, and CONNECT hook diagnostics emit the default browser proof token when the target endpoint matches the same proxy URL.
+`install-service --service-executable <absolute-path> --confirm` renders and writes an explicit unit through
+`platform-linux::systemd`, with optional `--service-unit`, `--service-description`, `--service-arg`, `--service-user`,
+`--service-group`, and `--service-state-dir`. An existing unit is snapshotted under the state directory first and the
+written content is verified; installation runs `systemctl daemon-reload` but never enables or starts the unit.
 
-`certificate-plan` exposes `mitm_status.certificate_plan` with current certificate state, artifact lifecycle steps, dedicated profile trust artifact step, trust blocked operations, and `mutation_ready=false`; `mitm certificate apply --confirm --cert-file <path> --key-file <path> [--profile-trust-file <path>] --snapshot <path>` writes operator-provided NetworkCore CA certificate PEM, private key PEM, an optional dedicated profile CA PEM copy, and a rollback snapshot through `CommandMitmCertificateArtifactStore`, records `certificate_lifecycle`, `LinuxMitmCertificateArtifactRequest`, `profile_trust_file_path`, `profile_trust_content`, `profile_trust_fingerprint`, `LinuxMitmCertificateApplyReport`, and `trust_plan`; `mitm certificate rollback --snapshot <path>` removes NetworkCore-managed certificate artifacts when the snapshot fingerprint still matches. The certificate lifecycle boundary is fixed by `docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md` and keeps system trust-store, browser trust-store, and profile trust state mutation blocked. The live HTTP/1.1 and explicit Linux private-key read boundary is fixed by `docs/architecture/linux-mitm-http-rewrite-source-contract.md`.
+- `service start|stop|restart|status --service-unit <name> --confirm` controls that one unit through `systemctl`
+  (status uses `systemctl is-active`).
+- `service reload` sends `systemctl reload` to the managed unit.
+- `connect`, `disconnect`, and `restart` with `--confirm [--service-unit <name>]` are aliases for service
+  start/stop/restart. Without a managed-service selection, `connect --config <path>` is the foreground runtime entry
+  and `disconnect`/`restart` return their foreground boundary. `status --service-unit <name>` reads the unit; plain
+  `status` stays platform-only.
+- `uninstall-service --confirm` stops and removes the matching unit after snapshotting it; the state directory is kept.
 
-`http-rewrite plan` exposes `MITM_HTTP_TLS_DATA_PLANE_GATE=plain-http-live-data-plane-active/tls-decryption-blocked`; `http-rewrite preview --confirm --url <url>` builds a `NativePlainHttpMessage`, invokes the built-in plugin, applies reject/redirect/header/body mutation outcomes to caller-provided plain HTTP input, and current `main` can also report caller-provided HTTPS request reject/redirect/header mutation preview through `https_request_rewrite_preview_ready=true` plus caller-provided HTTPS response header/body mutation preview through `https_response_rewrite_preview_ready=true` while keeping `https_response_rewrite_ready=false`, `script_dispatch_ready=false`, and `tls_decryption_ready=false`. The report also fixes `certificate_pinning_bypass_supported=false`, `http2_mitm_supported=false`, and `http3_quic_mitm_supported=false`: NetworkCore does not bypass certificate/public-key pinning and does not represent HTTP/2 or HTTP/3/QUIC as intercepted traffic. The native `ListenerKind::Http` explicit proxy path also parses real `http://` HTTP/1.x request/response traffic through `NativeExplicitHttpProxyRequest` and applies reject, redirect, and header/body rewrite before or after SOCKS outbound forwarding; current `main` also starts an explicit HTTP `CONNECT` pass-through tunnel foundation through the configured SOCKS outbound and can bounded-peek TLS ClientHello/SNI before relay. The preview boundary remains caller-provided, while the explicitly enabled `start` path performs bounded live TLS termination and up to four HTTP/1.1 exchanges; CA trust, browser/system proxy mutation, HTTP/2, unbounded streaming, and cross-session relay remain blocked.
+Boundary: `docs/architecture/linux-managed-service-unit-source-contract.md`.
 
-`v0.1.2-alpha.3` release increment: `start --enable-https-mitm --mitm-ca-cert <ca.pem> --mitm-ca-key <ca.key> --confirm` opts into the controlled HTTP CONNECT TLS path, which issues an authority-bound leaf, decrypts up to four bounded HTTP/1.1 request/response exchanges on one TLS session, forwards upstream with web-PKI validation, and applies the built-in plugin hook in both phases. The session closes on HTTP close semantics, terminal rewrite, parse failure, or the exchange budget. `start --enable-script-runtime --script-runner <local-runner> --script-map <script-url>=<local-file> [--script-map ...] [--node-binary <path>] --confirm` attaches the local Node script executor to that hook. Runner and assets must be local regular non-symlink files, and each mapped asset is SHA-256 pinned at executor creation and rechecked before dispatch. Linux starts Node in a fresh no-network namespace with the Node permission model restricted to reading only the runner, mapped asset, and staged bounded body; it grants no persistent store, write, child-process, addon, or network permission, caps V8 old-space at 64 MiB, and uses `unshare --kill-child` so a timed-out sandbox exits with its Node child. Missing, symbolic-link, unreadable, changed, unavailable, or timed-out scripts remain fail-open. Machine-readable rewrite reports distinguish `script_dispatch_failed` from a deferred dispatch and preserve any validated non-script rewrite. NetworkCore never downloads script URLs. These flags do not install CA trust or alter system/browser proxy state. `--script-store` is rejected in this sandbox. The `mitm http-rewrite` preview report deliberately remains preview-only and does not run scripts; the opt-in `start` runtime is independently covered by the same-commit GitHub Actions gate.
+## Environment proxy
 
-`browser-plan` exposes `mitm_status.browser_plan` with the planned explicit proxy `127.0.0.1:7890`, required steps, blocked operations, and `mutation_ready=false`. `browser-capture` emits a `browser_capture` report: `plan` is read-only, `launch-plan` returns manual dedicated-profile browser command templates bound to the loaded `networkcore.adblock` plugin and planned proxy URL without writing host state, `session-plan <ss://url>` returns a redacted subscription-to-local-proxy/browser/verify/traffic-proof command plan plus selected node and plugin metadata without starting processes, `session-plan` and `launch --confirm` both accept `--target-url <url>` so the dedicated browser profile can open a specific page through the planned proxy, current `main` appends `networkcore_proof_token` to that target as `proof_target_url` and emits a matching `traffic_proof_command`, `launch --confirm` starts a dedicated browser profile through `BrowserCaptureProcessRunner` with explicit `--proxy-server` and `--user-data-dir` arguments and records `launch_report`, pid, profile, proxy, target URL, proof target URL, proof token/log, command args, and plugin metadata, `verify --confirm` uses `BrowserCaptureEndpointProbe` to check whether the planned local proxy endpoint is reachable and records `verify_report`, proxy URL, probe type, and plugin metadata, `verify --confirm --target-url <url>` additionally sends an HTTP CONNECT probe for the target host:port through the planned proxy and records `target_url`, `probe=http-connect-target`, and `target_reachable`, `traffic-proof --confirm [--target-url <url>] [--proof-token <token>] [--proof-log <path>]` uses `BrowserCaptureTrafficProofProbe` to inspect an operator-provided proof log for the session proof binding, defaults omitted proof token/log to the CONNECT-endpoint session proof binding, and records `traffic_proof_report`, `proof-log-token`, proxy URL, target URL, `proof_connect_authority`, proof target URL, proof token, proof log path, and plugin metadata; when target URL parsing succeeds, the command probe requires one proof log line to bind token, proxy URL, and CONNECT authority or returns `binding_mismatch`, `apply --confirm --pac-file <path> [--policy-file <path>] [--profile-prefs-file <path>] --snapshot <path>` uses `BrowserCapturePacFileStore` to write an operator-provided NetworkCore PAC file plus optional Chromium/Chrome managed proxy policy artifact, optional Firefox dedicated profile prefs, and rollback snapshot, records `LinuxBrowserCapturePacRequest`, `pac_file_path`, `pac_url`, `policy_file_path`, `policy_url`, `profile_prefs_file_path`, `profile_prefs_content`, and `apply_report`, and `rollback --snapshot <path>` reads the NetworkCore snapshot and removes or restores those NetworkCore-created artifacts. The browser hijack path remains `deferred`; system CA trust mutation, browser/system proxy mutation, system PAC installation, full live browser capture automation, HTTPS decryption, and live HTTPS request/response rewrite gates stay blocked.
+`proxy apply --file <absolute-path> --snapshot <absolute-path> --url <proxy-url> --confirm` manages one explicit
+environment proxy file. `proxy status` is read-only; `proxy rollback --confirm` refuses to overwrite an externally
+changed file. No desktop default proxy is discovered or modified.
 
-The browser capture mutation path is governed by
-`docs/architecture/linux-mitm-browser-capture-source-contract.md`. It requires
-`BrowserCaptureProcessRunner`, `LinuxBrowserCaptureLaunchRequest`,
-`LinuxBrowserCaptureLaunchReport`, `BrowserCaptureAuthorization`,
-`BrowserCaptureEndpointProbe`, `LinuxBrowserCaptureSessionPlanRequest`,
-`LinuxBrowserCaptureSessionPlanReport`, `BrowserCaptureTrafficProofProbe`,
-`LinuxBrowserCaptureTrafficProofRequest`,
-`LinuxBrowserCaptureTrafficProofReport`, `BrowserCapturePacFileStore`,
-`LinuxBrowserCapturePacRequest`, `BrowserCaptureRollbackSnapshot`, explicit session-plan/launch/apply/rollback/verify/traffic-proof commands,
-and rollback-safe snapshots before any browser/system proxy state can be written.
-The current command surface can plan a redacted subscription-to-browser capture
-session, launch a dedicated browser process, optionally open a `proof_target_url`
-derived from `--target-url` plus `networkcore_proof_token` inside that dedicated
-profile, emit a matching `traffic_proof_command`, and verify the planned local
-proxy endpoint or target URL proxy route after `--confirm`; `traffic-proof`
-can reuse the same default proof binding from `--target-url` when token/log are
-omitted. It also reports `proof_connect_authority` and rejects proof logs where
-the token is not on the same line as the planned proxy URL and CONNECT authority.
-Text output now prints that CONNECT authority explicitly so the proof binding is
-auditable without switching to JSON.
-That default token is CONNECT-endpoint based, so a captured
-`networkcore-linux start` log can contain the same token through
-`engine.native.runtime.http_mitm_connect_browser_proof_observed`. It can also
-write/rollback caller-selected NetworkCore PAC and optional browser policy
-artifacts with `--pac-file`, optional `--policy-file`, and `--snapshot`; it does not mutate system proxy,
-install browser policy, system PAC, TUN, DNS, firewall, CA, or HTTP/TLS data-plane
-state. The `start` path can block plugin-rejected explicit SOCKS5 CONNECT
-tunnels, and `--proxy-scheme socks5` can route a dedicated browser plan to that
-hook, but neither path writes browser/system proxy state or proves HTTPS MITM.
+## Managed records
 
-This crate does not modify TUN, DNS, routing, firewall, system trust stores, browser trust stores, or profile trust state. Explicit confirmed systemd unit install, control, and removal are the managed-service exceptions: they operate only on the named NetworkCore unit with snapshot, verification, and rollback boundaries. Certificate commands only write operator-provided CA certificate PEM/private key PEM artifact paths, optional CA PEM profile copy, and rollback snapshots. `start` is foreground-only, maps Unix `SIGINT`/`SIGTERM` and injected lifecycle interruption to `cli.linux.start.lifecycle_interrupted` with exit code 130, then stops the current in-process runtime and aggregates native release diagnostics such as `engine.native.runtime.accept_loop_stopped` and `engine.native.runtime.released`. `run-url` is also foreground-only and does not imply daemon discovery, implicit control sockets, background status, default log scanning, packaging, or service installation. All validation runs in GitHub Actions according to `docs/ci-cd-policy.md`.
+All records are explicit schema version 1 files and every report fixes `liveness_verified=false`; nothing inspects a
+process or controls a runtime.
+
+- **Status.** `CommandManagedForegroundSessionStore::read_status`, `CommandManagedForegroundSessionStore::write_status`,
+  `CommandManagedForegroundSessionStore::transition_status`, and `rollback_status`.
+  `networkcore-linux managed-status <status-record-path>` reads; `networkcore-linux managed-status init <path> <session-id> <engine-id> <state>`
+  creates without overwrite (`record_written=true`); `networkcore-linux managed-status transition <path> <snapshot-path> <expected-state> <next-state>`
+  allows only `starting -> running/failed` and `running -> stopped/failed` and writes a non-overwriting snapshot
+  (`snapshot_written=true`); `managed-status rollback <path> <snapshot-path> <expected-state>` restores the snapshot only
+  when expected state and trimmed session/engine identity match, retaining it (`snapshot_retained=true`).
+- **Events.** `CommandManagedForegroundSessionEventStore::read_event` and `CommandManagedForegroundSessionEventStore::write_event`
+  read or non-overwritingly write one event (session/engine/event ids, allowed kind, state, caller timestamp).
+  `networkcore-linux managed-event <event-record-path>` reads; `networkcore-linux managed-event init <path> <session-id> <engine-id> <event-id> <event-kind> <state> <recorded-at>`
+  creates. `CommandManagedForegroundSessionEventStore::list_event_history` backs
+  `networkcore-linux managed-event list <event-directory> [--session-id <id>] [--event-kind <kind>] [--state <state>] [--cursor <offset>] [--limit <1-100>]`:
+  direct regular JSON files only (no recursion, symlinks skipped), every candidate validated before exact filtering,
+  sorted by `(recorded_at, event_id, event_path)`, offset paging; caps are 100 per page, 256 per directory, 65536
+  bytes per record.
+- **Logs.** `CommandManagedForegroundSessionLogStore::read_tail` backs `managed-log <log-file-path> [--tail-lines <1-1000>]`
+  (alias `logs`): one explicit regular UTF-8 file up to 65536 bytes, at most 1000 final lines, URLs and common
+  credential values redacted. JSON output is `managed_foreground_log_tail` with `returned_byte_count` (UTF-8 bytes of
+  returned line contents, excluding separators). No creation, default search, or live streaming.
+
+## MITM
+
+The `mitm` commands implement the partial `MITM_CLI_COMMAND_GATE` surface: they load the built-in `networkcore.adblock`
+policy through `mitm-policy`, emit `mitm_status` JSON, and report `mitm-cli-command-gate-status=partial-active`.
+`start` loads the same plugin into `engine-native`: a plugin `Reject` becomes a SOCKS5 general failure at the explicit
+CONNECT layer before outbound selection, and CONNECT hook diagnostics
+(`engine.native.runtime.http_mitm_connect_browser_proof_observed`) emit the default browser proof token.
+
+### Certificates
+
+`certificate-plan` exposes `mitm_status.certificate_plan` (certificate state, artifact lifecycle steps, dedicated
+profile trust artifact step, trust blocked operations, `mutation_ready=false`).
+
+- `mitm certificate apply --confirm --cert-file <path> --key-file <path> [--profile-trust-file <path>] --snapshot <path>`
+  writes operator-provided CA certificate PEM, private key PEM, an optional dedicated profile CA PEM copy, and a
+  rollback snapshot through `CommandMitmCertificateArtifactStore`, reporting `certificate_lifecycle`,
+  `LinuxMitmCertificateArtifactRequest`, `profile_trust_file_path`, `profile_trust_content`,
+  `profile_trust_fingerprint`, `LinuxMitmCertificateApplyReport`, and `trust_plan`.
+- `mitm certificate rollback --snapshot <path>` removes those artifacts when the snapshot fingerprint still matches.
+- `mitm certificate trust-apply --cert-file <path> --trust-file <absolute-path> --snapshot <absolute-path> --confirm`
+  manages an Ubuntu-style CA trust file and refreshes it through `update-ca-certificates`; `trust-rollback` restores the
+  matching snapshot. Written PEM is verified, symlinks and external changes are refused, and distro defaults, NSS,
+  p11-kit, Firefox, and browser profiles are not touched.
+
+Boundary: `docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md`.
+
+### HTTP rewrite and controlled HTTPS
+
+`http-rewrite plan` exposes `MITM_HTTP_TLS_DATA_PLANE_GATE=plain-http-live-data-plane-active/tls-decryption-blocked`.
+`http-rewrite preview --confirm --url <url>` builds a `NativePlainHttpMessage`, invokes the plugin, and applies
+reject/redirect/header/body outcomes to caller-provided plain HTTP input. For caller-provided `https://` input it also
+reports request preview (`https_request_rewrite_preview_ready=true`) and response header/body preview
+(`https_response_rewrite_preview_ready=true`, via `NativeHttpsResponseRewritePreviewReport`) once the controlled TLS
+termination plan (`NativeControlledTlsTerminationPlanReport`) is ready. The preview report stays preview-only:
+`https_response_rewrite_ready=false`, `script_dispatch_ready=false`, `tls_decryption_ready=false`,
+`certificate_pinning_bypass_supported=false`, `http2_mitm_supported=false`, `http3_quic_mitm_supported=false`.
+
+The native `ListenerKind::Http` explicit proxy parses real `http://` HTTP/1.x traffic through
+`NativeExplicitHttpProxyRequest`, applies reject/redirect/header/body rewrite around SOCKS outbound forwarding, and
+supports an explicit `CONNECT` pass-through tunnel that can bounded-peek the TLS ClientHello/SNI.
+
+**Controlled HTTPS (`v0.1.2-alpha.3`).** `start --enable-https-mitm --mitm-ca-cert <ca.pem> --mitm-ca-key <ca.key> --confirm`
+issues an authority-bound leaf, decrypts up to four bounded HTTP/1.1 request/response exchanges per TLS session,
+forwards upstream with web-PKI validation, and applies the plugin hook in both phases. The session closes on HTTP close
+semantics, terminal rewrite, parse failure, or the exchange budget.
+
+**Local scripts.** `start --enable-script-runtime --script-runner <local-runner> --script-map <script-url>=<local-file> [--script-map ...] [--node-binary <path>] --confirm`
+attaches the local Node executor. Runner and assets must be local regular non-symlink files; each asset is SHA-256
+pinned at creation and rechecked before dispatch. Node runs in a fresh no-network namespace with read-only permission
+for the runner, mapped asset, and staged bounded body; no store, write, child-process, addon, or network permission;
+V8 old-space capped at 64 MiB; `unshare --kill-child` ends timed-out sandboxes. Failing scripts are fail-open and
+reported as `script_dispatch_failed`, preserving validated non-script rewrites. Script URLs are never downloaded and
+`--script-store` is rejected.
+
+CA trust, browser/system proxy mutation, HTTP/2, unbounded streaming, and cross-session relay remain blocked.
+Boundary: `docs/architecture/linux-mitm-http-rewrite-source-contract.md`.
+
+### Browser capture
+
+`browser-plan` exposes `mitm_status.browser_plan` with the planned explicit proxy `127.0.0.1:7890`, required steps,
+blocked operations, and `mutation_ready=false`. `browser-capture` emits a `browser_capture` report:
+
+| Subcommand | Behavior |
+|---|---|
+| `plan` | Read-only plan |
+| `launch-plan` | Manual dedicated-profile browser command templates bound to the plugin and planned proxy URL |
+| `session-plan <ss://url>` | Redacted subscription-to-local-proxy/browser/verify/traffic-proof plan with selected node and plugin metadata; starts nothing |
+| `launch --confirm` | Starts a dedicated profile through `BrowserCaptureProcessRunner` with `--proxy-server` and `--user-data-dir`; records `launch_report`, pid, profile, proxy, target/proof URLs, proof token/log, args, plugin metadata |
+| `verify --confirm` | `BrowserCaptureEndpointProbe` checks the planned local proxy endpoint (`verify_report`); with `--target-url` it performs target route verify via HTTP CONNECT (`probe=http-connect-target`, `target_reachable`) |
+| `traffic-proof --confirm [--target-url <url>] [--proof-token <token>] [--proof-log <path>]` | `BrowserCaptureTrafficProofProbe` inspects an operator-provided proof log (`traffic_proof_report`, `proof-log-token`, `proof_connect_authority`); one log line must bind token, proxy URL, and CONNECT authority or the result is `binding_mismatch`; text output prints the CONNECT authority |
+| `apply --confirm --pac-file <path> [--policy-file <path>] [--profile-prefs-file <path>] --snapshot <path>` | `BrowserCapturePacFileStore` writes a NetworkCore PAC file, optional Chromium/Chrome managed proxy policy, optional Firefox dedicated profile prefs, and a snapshot; reports `LinuxBrowserCapturePacRequest`, `pac_file_path`, `pac_url`, `policy_file_path`, `policy_url`, `profile_prefs_file_path`, `profile_prefs_content`, `apply_report` |
+| `rollback --snapshot <path>` | Removes or restores the NetworkCore-created artifacts from the snapshot |
+
+`session-plan` and `launch` accept `--target-url <url>`; the CLI appends `networkcore_proof_token` to produce
+`proof_target_url` and emits a matching `traffic_proof_command`. When token/log are omitted, `traffic-proof` uses the
+same default binding, derived from the target CONNECT endpoint plus proxy URL, so it matches the native CONNECT
+diagnostic. `session-plan`, `launch`, `apply`, `verify`, and `traffic-proof` accept `--proxy-scheme http|socks5`;
+`socks5` plans `socks5://127.0.0.1:7890` so a dedicated browser targets the native SOCKS5 CONNECT hook.
+
+The browser hijack path remains `deferred`. System CA trust, browser/system proxy mutation, system PAC installation,
+full live browser capture automation, and HTTPS rewrite of captured browser traffic stay blocked. The mutation path is
+governed by `docs/architecture/linux-mitm-browser-capture-source-contract.md`, which requires
+`BrowserCaptureProcessRunner`, `LinuxBrowserCaptureLaunchRequest`, `LinuxBrowserCaptureLaunchReport`,
+`BrowserCaptureAuthorization`, `BrowserCaptureEndpointProbe`, `LinuxBrowserCaptureSessionPlanRequest`,
+`LinuxBrowserCaptureSessionPlanReport`, `BrowserCaptureTrafficProofProbe`, `LinuxBrowserCaptureTrafficProofRequest`,
+`LinuxBrowserCaptureTrafficProofReport`, `BrowserCapturePacFileStore`, `LinuxBrowserCapturePacRequest`, and
+`BrowserCaptureRollbackSnapshot` before any browser/system proxy state can be written.

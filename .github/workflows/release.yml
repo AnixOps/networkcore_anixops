@@ -388,7 +388,12 @@ jobs:
           set -euo pipefail
           test -f apps/ios/README.md
           test -f docs/manual-intervention.md
-          grep -q '^ios-upload-workflow-status=pending$' docs/manual-intervention.md
+          # enabled only unlocks the manual internal TestFlight workflow; release uploads and assets stay blocked here.
+          if grep -q '^ios-upload-workflow-status=enabled$' docs/manual-intervention.md; then
+            grep -q '^ios-upload-scope=internal-testflight-only$' docs/manual-intervention.md
+          else
+            grep -q '^ios-upload-workflow-status=pending$' docs/manual-intervention.md
+          fi
           grep -q '^ios-upload-workflow-release-assets=blocked$' docs/manual-intervention.md
           ios_allowed='^$'
           if [[ -f apps/ios/Package.swift ]]; then

@@ -35,9 +35,24 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             return
         }
         guard let tunnelProtocol = protocolConfiguration as? NETunnelProviderProtocol,
-              let config = tunnelProtocol.providerConfiguration?[TunnelProfileKeys.runtimeConfig] as? Data
+              let template = tunnelProtocol.providerConfiguration?[TunnelProfileKeys.runtimeConfig] as? Data
         else {
             completionHandler(PacketTunnelFailure(reason: "tunnel profile is missing"))
+            return
+        }
+        guard let keyReference = tunnelProtocol.passwordReference else {
+            completionHandler(PacketTunnelFailure(reason: "tunnel profile has no node key; import the node again"))
+            return
+        }
+        let config: Data
+        do {
+            let password = try NodeSecretStore.password(for: keyReference)
+            config = try EmbeddedRuntimeConfig.decoded(from: template).withPassword(password).encoded()
+        } catch let failure as NodeSecretStore.Failure {
+            completionHandler(PacketTunnelFailure(reason: "node key is unavailable (keychain status \(failure.status))"))
+            return
+        } catch {
+            completionHandler(PacketTunnelFailure(reason: "tunnel profile is malformed"))
             return
         }
 
