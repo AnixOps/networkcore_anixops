@@ -8,10 +8,11 @@ use control_domain::{
     AuditEvent, Diagnostic, DiagnosticSeverity, DomainError, DomainResult, Endpoint,
     HttpHeaderMutation, HttpHeaderMutationOperation, HttpMitmAction, HttpMitmEvent,
     HttpMitmOutcome, HttpMitmPhase, HttpMitmScriptDispatch, HttpMitmScriptKind, ListenerDescriptor,
-    ListenerKind, ListenerNetwork, ListenerRoute, MetadataEntry, MitmPluginService, NodeDescriptor,
-    PluginInstance, Protocol, ProxyEngineConfig, ProxyEngineDescriptor, ProxyEngineEvent,
-    ProxyEngineEventKind, ProxyEngineHealthReport, ProxyEngineKind, ProxyEngineLifecycleState,
-    ProxyEngineRollbackRequest, ProxyEngineService, ProxyEngineStatus, RouteAction, RuleSet,
+    ListenerKind, ListenerNetwork, ListenerRoute, MetadataEntry, MitmHostnameDecision,
+    MitmPluginService, NodeDescriptor, PluginInstance, Protocol, ProxyEngineConfig,
+    ProxyEngineDescriptor, ProxyEngineEvent, ProxyEngineEventKind, ProxyEngineHealthReport,
+    ProxyEngineKind, ProxyEngineLifecycleState, ProxyEngineRollbackRequest, ProxyEngineService,
+    ProxyEngineStatus, RouteAction, RuleSet,
 };
 use rcgen::{
     CertificateParams, DistinguishedName, DnType, ExtendedKeyUsagePurpose, Issuer, KeyPair,
@@ -33,6 +34,14 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
+
+mod h2_mitm;
+
+pub use h2_mitm::{
+    run_native_h2_mitm_session, NativeH2MitmSessionConfig, NativeH2MitmSessionReport,
+    CONTROLLED_H2_MAX_CONCURRENT_STREAMS, CONTROLLED_H2_MAX_STREAMS_PER_SESSION,
+    CONTROLLED_H2_STREAM_TIMEOUT_MS,
+};
 
 pub const DEFAULT_NATIVE_ENGINE_ID: &str = "native";
 
@@ -301,6 +310,31 @@ pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_CLIENT_RESPONSE_WRITTEN_CODE: &
     "engine.native.runtime.http_proxy_plain_client_response_written";
 pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_CLIENT_RESPONSE_WRITE_FAILED_CODE: &str =
     "engine.native.runtime.http_proxy_plain_client_response_write_failed";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_ALPN_NEGOTIATED_CODE: &str =
+    "engine.native.runtime.http_proxy_tls_alpn_negotiated";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_H2_SESSION_READY_CODE: &str =
+    "engine.native.runtime.http_proxy_h2_session_ready";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_H2_SESSION_FAILED_CODE: &str =
+    "engine.native.runtime.http_proxy_h2_session_failed";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_H2_STREAM_COMPLETED_CODE: &str =
+    "engine.native.runtime.http_proxy_h2_stream_completed";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_H2_STREAM_FAILED_CODE: &str =
+    "engine.native.runtime.http_proxy_h2_stream_failed";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_H2_STREAM_PASSTHROUGH_CODE: &str =
+    "engine.native.runtime.http_proxy_h2_stream_passthrough";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_H2_STREAM_AUTHORITY_MISMATCH_CODE: &str =
+    "engine.native.runtime.http_proxy_h2_stream_authority_mismatch";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_H2_STREAM_LIMIT_REACHED_CODE: &str =
+    "engine.native.runtime.http_proxy_h2_stream_limit_reached";
+pub const ENGINE_NATIVE_RUNTIME_UDP_MITM_QUIC_REJECTED_CODE: &str =
+    "engine.native.runtime.udp_mitm_quic_rejected";
+pub const ENGINE_NATIVE_RUNTIME_UDP_MITM_ALLOWED_CODE: &str =
+    "engine.native.runtime.udp_mitm_allowed";
+pub const ENGINE_NATIVE_RUNTIME_UDP_MITM_POLICY_FAILED_CODE: &str =
+    "engine.native.runtime.udp_mitm_policy_failed";
+
+/// UDP port that carries HTTP/3 over QUIC.
+pub const QUIC_HTTPS_UDP_PORT: u16 = 443;
 
 const SOCKS5_VERSION: u8 = 0x05;
 const SOCKS5_AUTH_METHOD_NO_AUTHENTICATION_REQUIRED: u8 = 0x00;
@@ -1188,6 +1222,94 @@ impl NativeHttpMitmPluginHook {
             );
         }
         report
+    }
+}
+
+impl NativeHttpMitmPluginHook {
+    /// Decides whether one UDP datagram flow may leave the data plane. QUIC to
+    /// a MITM hostname is refused so the client falls back to TCP TLS, where
+    /// the controlled TLS session can intercept it.
+    pub fn plan_udp_datagram(
+        &self,
+        target_host: &str,
+        target_port: u16,
+    ) -> NativeUdpMitmDecisionReport {
+        plan_native_udp_mitm_decision(
+            target_host,
+            target_port,
+            &self.plugin_instance,
+            self.plugin_service.as_ref(),
+        )
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeUdpMitmDecision {
+    Allow,
+    RejectQuic,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeUdpMitmDecisionReport {
+    pub decision: NativeUdpMitmDecision,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+/// Applies the plugin's MITM hostname list to a UDP flow. Only UDP/443 is
+/// treated as QUIC; other ports and hosts outside the list are allowed. A
+/// policy evaluation error allows the flow, because refusing it would not
+/// make the TCP fallback interceptable either.
+pub fn plan_native_udp_mitm_decision(
+    target_host: &str,
+    target_port: u16,
+    plugin_instance: &PluginInstance,
+    plugin_service: &dyn MitmPluginService,
+) -> NativeUdpMitmDecisionReport {
+    if target_port != QUIC_HTTPS_UDP_PORT {
+        return NativeUdpMitmDecisionReport {
+            decision: NativeUdpMitmDecision::Allow,
+            diagnostics: Vec::new(),
+        };
+    }
+
+    let hostname = target_host
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .trim_end_matches('.')
+        .to_ascii_lowercase();
+    match plugin_service.evaluate_mitm_hostname(plugin_instance, &hostname, true) {
+        Ok(MitmHostnameDecision::RejectQuic) => NativeUdpMitmDecisionReport {
+            decision: NativeUdpMitmDecision::RejectQuic,
+            diagnostics: vec![engine_diagnostic(
+                DiagnosticSeverity::Info,
+                ENGINE_NATIVE_RUNTIME_UDP_MITM_QUIC_REJECTED_CODE,
+                "native data plane refused QUIC to a MITM hostname so the client falls back to TCP TLS",
+                SOURCE_ENGINE_NATIVE_MITM,
+            )],
+        },
+        Ok(MitmHostnameDecision::Bypass | MitmHostnameDecision::Intercept) => {
+            NativeUdpMitmDecisionReport {
+                decision: NativeUdpMitmDecision::Allow,
+                diagnostics: vec![engine_diagnostic(
+                    DiagnosticSeverity::Info,
+                    ENGINE_NATIVE_RUNTIME_UDP_MITM_ALLOWED_CODE,
+                    "native data plane allowed UDP/443 to a host outside the QUIC rejection policy",
+                    SOURCE_ENGINE_NATIVE_MITM,
+                )],
+            }
+        }
+        Err(error) => NativeUdpMitmDecisionReport {
+            decision: NativeUdpMitmDecision::Allow,
+            diagnostics: vec![engine_diagnostic(
+                DiagnosticSeverity::Warning,
+                ENGINE_NATIVE_RUNTIME_UDP_MITM_POLICY_FAILED_CODE,
+                format!(
+                    "native data plane could not evaluate the MITM hostname list for UDP/443: {}",
+                    error.code
+                ),
+                SOURCE_ENGINE_NATIVE_MITM,
+            )],
+        },
     }
 }
 
@@ -5828,6 +5950,7 @@ fn explicit_http_proxy_request_to_socks5_target(
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct TlsClientHelloMetadata {
     sni_hostname: Option<String>,
+    alpn_protocols: Vec<Vec<u8>>,
     tls_record_version: String,
     tls_handshake_version: String,
 }
@@ -5885,15 +6008,27 @@ fn parse_tls_client_hello_metadata(bytes: &[u8]) -> Option<TlsClientHelloMetadat
     }
 
     let sni_hostname = parse_tls_client_hello_sni_extension(&body[cursor..]);
+    let alpn_protocols = parse_tls_client_hello_alpn_extension(&body[cursor..]);
 
     Some(TlsClientHelloMetadata {
         sni_hostname,
+        alpn_protocols,
         tls_record_version,
         tls_handshake_version,
     })
 }
 
 fn parse_tls_client_hello_sni_extension(bytes: &[u8]) -> Option<String> {
+    parse_tls_server_name_extension(find_tls_client_hello_extension(bytes, 0x0000)?)
+}
+
+fn parse_tls_client_hello_alpn_extension(bytes: &[u8]) -> Vec<Vec<u8>> {
+    find_tls_client_hello_extension(bytes, 0x0010)
+        .and_then(parse_tls_alpn_protocol_name_list)
+        .unwrap_or_default()
+}
+
+fn find_tls_client_hello_extension(bytes: &[u8], wanted_type: u16) -> Option<&[u8]> {
     if bytes.len() < 2 {
         return None;
     }
@@ -5916,14 +6051,56 @@ fn parse_tls_client_hello_sni_extension(bytes: &[u8]) -> Option<String> {
             return None;
         }
 
-        if extension_type == 0x0000 {
-            return parse_tls_server_name_extension(&extensions[cursor..extension_end]);
+        if extension_type == wanted_type {
+            return Some(&extensions[cursor..extension_end]);
         }
 
         cursor = extension_end;
     }
 
     None
+}
+
+fn parse_tls_alpn_protocol_name_list(bytes: &[u8]) -> Option<Vec<Vec<u8>>> {
+    if bytes.len() < 2 {
+        return None;
+    }
+
+    let list_len = u16::from_be_bytes([bytes[0], bytes[1]]) as usize;
+    let list_end = 2_usize.checked_add(list_len)?;
+    if bytes.len() < list_end {
+        return None;
+    }
+
+    let mut protocols = Vec::new();
+    let mut cursor = 2_usize;
+    while cursor < list_end {
+        let name_len = bytes[cursor] as usize;
+        cursor = cursor.checked_add(1)?;
+        let name_end = cursor.checked_add(name_len)?;
+        if name_len == 0 || name_end > list_end {
+            return None;
+        }
+        protocols.push(bytes[cursor..name_end].to_vec());
+        cursor = name_end;
+    }
+
+    Some(protocols)
+}
+
+/// Returns the ALPN protocol names a complete TLS ClientHello record offers,
+/// in client preference order. Malformed or truncated input yields an empty
+/// list, which the controlled TLS path treats as an HTTP/1.1-only client.
+pub fn observe_tls_client_hello_alpn_protocols(bytes: &[u8]) -> Vec<String> {
+    parse_tls_client_hello_metadata(bytes)
+        .map(|metadata| {
+            metadata
+                .alpn_protocols
+                .iter()
+                .map(|protocol| String::from_utf8_lossy(protocol).into_owned())
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn parse_tls_server_name_extension(bytes: &[u8]) -> Option<String> {
@@ -6817,121 +6994,53 @@ fn run_controlled_tls_connect_http_exchange(
         let client_tls_stream = client_stream.try_clone().map_err(|error| {
             format!("controlled TLS client stream could not be cloned: {error}")
         })?;
+        let server_name = ServerName::try_from(connect_request.target_host.as_str())
+            .map_err(|error| format!("controlled TLS upstream authority is invalid: {error}"))?
+            .to_owned();
+
+        let client_alpn_protocols = peek_controlled_tls_client_alpn_protocols(client_stream);
+        if client_alpn_protocols
+            .iter()
+            .any(|protocol| protocol.as_slice() == h2_mitm::ALPN_H2)
+        {
+            let negotiated = h2_mitm::run_controlled_tls_alpn_session(
+                h2_mitm::NativeControlledTlsAlpnSession {
+                    client_stream: client_tls_stream,
+                    outbound_stream,
+                    server_name,
+                    connect_request,
+                    downstream_server_config,
+                    upstream_client_config,
+                    client_alpn_protocols: &client_alpn_protocols,
+                    http_mitm_hook,
+                    session_timeout,
+                },
+                &mut diagnostics,
+            );
+            // The ALPN runtime switched the shared socket description to
+            // non-blocking; hand the caller's handle back in blocking mode.
+            let _ = client_stream.set_nonblocking(false);
+            return negotiated;
+        }
+
         let downstream_connection =
             ServerConnection::new(downstream_server_config).map_err(|error| {
                 format!("controlled TLS downstream session could not initialize: {error}")
             })?;
         let mut downstream_tls = StreamOwned::new(downstream_connection, client_tls_stream);
-
-        let server_name = ServerName::try_from(connect_request.target_host.as_str())
-            .map_err(|error| format!("controlled TLS upstream authority is invalid: {error}"))?
-            .to_owned();
         let upstream_connection = ClientConnection::new(upstream_client_config, server_name)
             .map_err(|error| {
                 format!("controlled TLS upstream session could not initialize: {error}")
             })?;
         let mut upstream_tls = StreamOwned::new(upstream_connection, outbound_stream);
-        let mut response_written = false;
-        for exchange_index in 0..CONTROLLED_TLS_MAX_HTTP_EXCHANGES {
-            let decrypted_request_report = {
-                let mut bounded_reader =
-                    NativeBoundedRead::new(&mut downstream_tls, session_timeout);
-                read_https_connect_http_request(&mut bounded_reader, connect_request)
-            };
-            let Some(decrypted_request) = decrypted_request_report.request else {
-                if exchange_index == 0 {
-                    diagnostics.extend(decrypted_request_report.diagnostics);
-                    return Err(
-                        "controlled TLS downstream session could not read a bounded decrypted HTTP request"
-                            .to_string(),
-                    );
-                }
-                break;
-            };
-            diagnostics.extend(decrypted_request_report.diagnostics);
-
-            let request_message =
-                explicit_http_proxy_request_to_plain_http_message(&decrypted_request);
-            let request_rewrite_report = http_mitm_hook
-                .map(|hook| hook.plan_plain_http(&request_message))
-                .unwrap_or_else(|| passthrough_plain_http_rewrite_report(&request_message));
-            diagnostics.extend(request_rewrite_report.diagnostics.clone());
-            record_plain_http_live_rewrite_diagnostic(&mut diagnostics, &request_rewrite_report);
-
-            if request_rewrite_report.terminal_action.is_some() {
-                let client_response = serialize_plain_http_proxy_response(
-                    &decrypted_request.version,
-                    &request_rewrite_report,
-                );
-                let client_write_report =
-                    write_plain_http_proxy_client_response(&mut downstream_tls, client_response);
-                response_written = diagnostics_contain_code(
-                    &client_write_report.diagnostics,
-                    ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_CLIENT_RESPONSE_WRITTEN_CODE,
-                );
-                diagnostics.extend(client_write_report.diagnostics);
-                break;
-            }
-
-            let request_close =
-                http_message_requests_close(&decrypted_request.version, &decrypted_request.headers)
-                    || exchange_index + 1 == CONTROLLED_TLS_MAX_HTTP_EXCHANGES;
-            let upstream_request =
-                serialize_explicit_http_proxy_request_for_upstream_with_connection(
-                    &decrypted_request,
-                    &request_rewrite_report,
-                    request_close,
-                );
-            let upstream_write_report =
-                write_plain_http_proxy_upstream_request(&mut upstream_tls, upstream_request);
-            let upstream_request_written = diagnostics_contain_code(
-                &upstream_write_report.diagnostics,
-                ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_UPSTREAM_REQUEST_WRITTEN_CODE,
-            );
-            diagnostics.extend(upstream_write_report.diagnostics);
-            if !upstream_request_written {
-                return Err("controlled TLS upstream request write failed".to_string());
-            }
-
-            let upstream_response_report = {
-                let mut bounded_reader = NativeBoundedRead::new(&mut upstream_tls, session_timeout);
-                read_plain_http_proxy_response(&mut bounded_reader)
-            };
-            diagnostics.extend(upstream_response_report.diagnostics.clone());
-            let upstream_response = upstream_response_report.response.ok_or_else(|| {
-                "controlled TLS upstream session could not read a bounded HTTP response".to_string()
-            })?;
-            let response_close = request_close
-                || http_message_requests_close(
-                    &upstream_response.version,
-                    &upstream_response.headers,
-                );
-            let response_message = plain_http_proxy_response_to_plain_http_message(
-                &decrypted_request,
-                &upstream_response,
-            );
-            let response_rewrite_report = http_mitm_hook
-                .map(|hook| hook.plan_plain_http(&response_message))
-                .unwrap_or_else(|| passthrough_plain_http_rewrite_report(&response_message));
-            diagnostics.extend(response_rewrite_report.diagnostics.clone());
-            record_plain_http_live_rewrite_diagnostic(&mut diagnostics, &response_rewrite_report);
-            let client_response = serialize_plain_http_proxy_response_with_connection(
-                &upstream_response.version,
-                &response_rewrite_report,
-                response_close,
-            );
-            let client_write_report =
-                write_plain_http_proxy_client_response(&mut downstream_tls, client_response);
-            response_written = diagnostics_contain_code(
-                &client_write_report.diagnostics,
-                ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_CLIENT_RESPONSE_WRITTEN_CODE,
-            );
-            diagnostics.extend(client_write_report.diagnostics);
-            if response_close {
-                break;
-            }
-        }
-        Ok(response_written)
+        run_controlled_tls_http1_exchanges(
+            &mut downstream_tls,
+            &mut upstream_tls,
+            connect_request,
+            http_mitm_hook,
+            session_timeout,
+            &mut diagnostics,
+        )
     })();
 
     match exchange {
@@ -6939,7 +7048,7 @@ fn run_controlled_tls_connect_http_exchange(
             diagnostics.push(engine_diagnostic(
                 DiagnosticSeverity::Info,
                 ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_SESSION_DECRYPTION_READY_CODE,
-                "native explicit HTTP proxy CONNECT completed a controlled TLS HTTP/1.1 request/response exchange",
+                "native explicit HTTP proxy CONNECT completed a controlled TLS request/response exchange",
                 SOURCE_ENGINE_NATIVE_MITM,
             ));
             (response_written, diagnostics)
@@ -6953,6 +7062,123 @@ fn run_controlled_tls_connect_http_exchange(
             ));
             (false, diagnostics)
         }
+    }
+}
+
+fn run_controlled_tls_http1_exchanges<D, U>(
+    downstream_tls: &mut D,
+    upstream_tls: &mut U,
+    connect_request: &NativeExplicitHttpProxyRequest,
+    http_mitm_hook: Option<&NativeHttpMitmPluginHook>,
+    session_timeout: Duration,
+    diagnostics: &mut Vec<Diagnostic>,
+) -> Result<bool, String>
+where
+    D: Read + Write,
+    U: Read + Write,
+{
+    let mut response_written = false;
+    for exchange_index in 0..CONTROLLED_TLS_MAX_HTTP_EXCHANGES {
+        let decrypted_request_report = {
+            let mut bounded_reader = NativeBoundedRead::new(downstream_tls, session_timeout);
+            read_https_connect_http_request(&mut bounded_reader, connect_request)
+        };
+        let Some(decrypted_request) = decrypted_request_report.request else {
+            if exchange_index == 0 {
+                diagnostics.extend(decrypted_request_report.diagnostics);
+                return Err(
+                    "controlled TLS downstream session could not read a bounded decrypted HTTP request"
+                        .to_string(),
+                );
+            }
+            break;
+        };
+        diagnostics.extend(decrypted_request_report.diagnostics);
+
+        let request_message = explicit_http_proxy_request_to_plain_http_message(&decrypted_request);
+        let request_rewrite_report = http_mitm_hook
+            .map(|hook| hook.plan_plain_http(&request_message))
+            .unwrap_or_else(|| passthrough_plain_http_rewrite_report(&request_message));
+        diagnostics.extend(request_rewrite_report.diagnostics.clone());
+        record_plain_http_live_rewrite_diagnostic(diagnostics, &request_rewrite_report);
+
+        if request_rewrite_report.terminal_action.is_some() {
+            let client_response = serialize_plain_http_proxy_response(
+                &decrypted_request.version,
+                &request_rewrite_report,
+            );
+            let client_write_report =
+                write_plain_http_proxy_client_response(downstream_tls, client_response);
+            response_written = diagnostics_contain_code(
+                &client_write_report.diagnostics,
+                ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_CLIENT_RESPONSE_WRITTEN_CODE,
+            );
+            diagnostics.extend(client_write_report.diagnostics);
+            break;
+        }
+
+        let request_close =
+            http_message_requests_close(&decrypted_request.version, &decrypted_request.headers)
+                || exchange_index + 1 == CONTROLLED_TLS_MAX_HTTP_EXCHANGES;
+        let upstream_request = serialize_explicit_http_proxy_request_for_upstream_with_connection(
+            &decrypted_request,
+            &request_rewrite_report,
+            request_close,
+        );
+        let upstream_write_report =
+            write_plain_http_proxy_upstream_request(upstream_tls, upstream_request);
+        let upstream_request_written = diagnostics_contain_code(
+            &upstream_write_report.diagnostics,
+            ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_UPSTREAM_REQUEST_WRITTEN_CODE,
+        );
+        diagnostics.extend(upstream_write_report.diagnostics);
+        if !upstream_request_written {
+            return Err("controlled TLS upstream request write failed".to_string());
+        }
+
+        let upstream_response_report = {
+            let mut bounded_reader = NativeBoundedRead::new(upstream_tls, session_timeout);
+            read_plain_http_proxy_response(&mut bounded_reader)
+        };
+        diagnostics.extend(upstream_response_report.diagnostics.clone());
+        let upstream_response = upstream_response_report.response.ok_or_else(|| {
+            "controlled TLS upstream session could not read a bounded HTTP response".to_string()
+        })?;
+        let response_close = request_close
+            || http_message_requests_close(&upstream_response.version, &upstream_response.headers);
+        let response_message =
+            plain_http_proxy_response_to_plain_http_message(&decrypted_request, &upstream_response);
+        let response_rewrite_report = http_mitm_hook
+            .map(|hook| hook.plan_plain_http(&response_message))
+            .unwrap_or_else(|| passthrough_plain_http_rewrite_report(&response_message));
+        diagnostics.extend(response_rewrite_report.diagnostics.clone());
+        record_plain_http_live_rewrite_diagnostic(diagnostics, &response_rewrite_report);
+        let client_response = serialize_plain_http_proxy_response_with_connection(
+            &upstream_response.version,
+            &response_rewrite_report,
+            response_close,
+        );
+        let client_write_report =
+            write_plain_http_proxy_client_response(downstream_tls, client_response);
+        response_written = diagnostics_contain_code(
+            &client_write_report.diagnostics,
+            ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_CLIENT_RESPONSE_WRITTEN_CODE,
+        );
+        diagnostics.extend(client_write_report.diagnostics);
+        if response_close {
+            break;
+        }
+    }
+    Ok(response_written)
+}
+
+fn peek_controlled_tls_client_alpn_protocols(client_stream: &TcpStream) -> Vec<Vec<u8>> {
+    let mut buffer = [0_u8; TLS_CLIENT_HELLO_PEEK_MAX_BYTES];
+    match client_stream.peek(&mut buffer) {
+        Ok(bytes_read) => parse_tls_client_hello_metadata(&buffer[..bytes_read])
+            .map(|metadata| metadata.alpn_protocols)
+            .unwrap_or_default(),
+        Err(_) => Vec::new(),
     }
 }
 
@@ -7944,6 +8170,318 @@ mod controlled_tls_session_tests {
             .expect("test upstream TLS thread should finish");
         std::fs::remove_dir_all(&script_runtime_root)
             .expect("controlled TLS script runtime directory should be removed");
+    }
+
+    #[test]
+    fn controlled_tls_connect_session_negotiates_h2_with_client_and_upstream() {
+        let (downstream_server_config, mitm_ca_der) = test_mitm_downstream_server_config();
+        let (upstream_ca_certificate_pem, upstream_ca_private_key_pem, upstream_ca_der) =
+            test_ca_material();
+        let (upstream_leaf_certificate_der, upstream_leaf_private_key_der) = issue_test_leaf(
+            &upstream_ca_certificate_pem,
+            &upstream_ca_private_key_pem,
+            "example.com",
+        );
+        let mut upstream_server_config =
+            (*test_server_config(upstream_leaf_certificate_der, upstream_leaf_private_key_der))
+                .clone();
+        upstream_server_config.alpn_protocols = vec![b"h2".to_vec()];
+        let upstream_server_config = Arc::new(upstream_server_config);
+        let upstream_client_config = test_client_config(upstream_ca_der);
+
+        let upstream_listener =
+            TcpListener::bind("127.0.0.1:0").expect("test upstream listener should bind");
+        let upstream_address = upstream_listener
+            .local_addr()
+            .expect("test upstream listener should expose local address");
+        let upstream_worker = thread::spawn(move || {
+            let (stream, _) = upstream_listener
+                .accept()
+                .expect("test upstream should accept proxy TLS connection");
+            test_runtime().block_on(async move {
+                stream
+                    .set_nonblocking(true)
+                    .expect("test upstream socket should become non-blocking");
+                let stream = tokio::net::TcpStream::from_std(stream)
+                    .expect("test upstream socket should join the runtime");
+                let tls_stream = tokio_rustls::TlsAcceptor::from(upstream_server_config)
+                    .accept(stream)
+                    .await
+                    .expect("test upstream TLS handshake should complete");
+                assert_eq!(tls_stream.get_ref().1.alpn_protocol(), Some(&b"h2"[..]));
+                let mut connection = h2::server::handshake(tls_stream)
+                    .await
+                    .expect("test upstream HTTP/2 handshake should complete");
+                let (request, mut respond) = connection
+                    .accept()
+                    .await
+                    .expect("test upstream should receive a stream")
+                    .expect("test upstream stream should be valid");
+                assert_eq!(request.uri().path(), "/resource");
+                assert_eq!(
+                    request
+                        .uri()
+                        .authority()
+                        .map(|authority| authority.as_str()),
+                    Some("example.com")
+                );
+                let response = http::Response::builder()
+                    .status(200)
+                    .header("content-length", "8")
+                    .body(())
+                    .expect("test upstream response head should build");
+                let mut send = respond
+                    .send_response(response, false)
+                    .expect("test upstream response should send");
+                send.send_data(bytes::Bytes::from_static(b"upstream"), true)
+                    .expect("test upstream body should send");
+                while connection.accept().await.is_some() {}
+            });
+        });
+
+        let proxy_listener =
+            TcpListener::bind("127.0.0.1:0").expect("test proxy listener should bind");
+        let proxy_address = proxy_listener
+            .local_addr()
+            .expect("test proxy listener should expose local address");
+        let downstream_client = thread::spawn(move || {
+            test_runtime().block_on(async move {
+                let stream = tokio::net::TcpStream::connect(proxy_address)
+                    .await
+                    .expect("test h2 client should connect to controlled proxy session");
+                let mut client_config = (*test_client_config(mitm_ca_der)).clone();
+                client_config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+                let server_name = ServerName::try_from("example.com")
+                    .expect("test server name should parse")
+                    .to_owned();
+                let tls_stream = tokio_rustls::TlsConnector::from(Arc::new(client_config))
+                    .connect(server_name, stream)
+                    .await
+                    .expect("test h2 client TLS handshake should complete");
+                assert_eq!(tls_stream.get_ref().1.alpn_protocol(), Some(&b"h2"[..]));
+                let (send_request, connection) = h2::client::handshake(tls_stream)
+                    .await
+                    .expect("test h2 client handshake should complete");
+                let driver = tokio::spawn(async move {
+                    let _ = connection.await;
+                });
+                let mut send_request = send_request
+                    .ready()
+                    .await
+                    .expect("test h2 client should be ready");
+                let request = http::Request::builder()
+                    .uri("https://example.com/resource")
+                    .body(())
+                    .expect("test h2 request head should build");
+                let (response, _) = send_request
+                    .send_request(request, true)
+                    .expect("test h2 request should send");
+                let response = response.await.expect("test h2 response should arrive");
+                assert_eq!(response.status(), 200);
+                let mut body = response.into_body();
+                let mut collected = Vec::new();
+                while let Some(chunk) = body.data().await {
+                    let chunk = chunk.expect("test h2 response chunk should arrive");
+                    let _ = body.flow_control().release_capacity(chunk.len());
+                    collected.extend_from_slice(&chunk);
+                }
+                assert_eq!(collected, b"upstream");
+                drop(send_request);
+                let _ = driver.await;
+            });
+        });
+
+        let (proxy_stream, _) = proxy_listener
+            .accept()
+            .expect("test proxy should accept controlled TLS client connection");
+        let outbound_stream = TcpStream::connect(upstream_address)
+            .expect("test proxy should connect to upstream TLS server");
+        let connect_request = test_connect_request();
+        let client_hello = observe_http_connect_tls_client_hello_from_stream(
+            &proxy_stream,
+            &connect_request,
+            true,
+        );
+        assert!(client_hello.client_hello_observed);
+        let (exchange_completed, diagnostics) = run_controlled_tls_connect_http_exchange(
+            &proxy_stream,
+            outbound_stream,
+            &connect_request,
+            downstream_server_config,
+            upstream_client_config,
+            None,
+        );
+
+        assert!(exchange_completed, "{diagnostics:#?}");
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_ALPN_NEGOTIATED_CODE
+                && diagnostic.message.contains("ALPN h2")
+        }));
+        for code in [
+            ENGINE_NATIVE_RUNTIME_HTTP_PROXY_H2_SESSION_READY_CODE,
+            ENGINE_NATIVE_RUNTIME_HTTP_PROXY_H2_STREAM_COMPLETED_CODE,
+            ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_SESSION_DECRYPTION_READY_CODE,
+        ] {
+            assert!(diagnostics_contain_code(&diagnostics, code), "{code}");
+        }
+        downstream_client
+            .join()
+            .expect("test h2 client thread should finish");
+        upstream_worker
+            .join()
+            .expect("test h2 upstream thread should finish");
+    }
+
+    #[test]
+    fn controlled_tls_connect_session_falls_back_to_http1_when_upstream_lacks_h2() {
+        let (downstream_server_config, mitm_ca_der) = test_mitm_downstream_server_config();
+        let (upstream_ca_certificate_pem, upstream_ca_private_key_pem, upstream_ca_der) =
+            test_ca_material();
+        let (upstream_leaf_certificate_der, upstream_leaf_private_key_der) = issue_test_leaf(
+            &upstream_ca_certificate_pem,
+            &upstream_ca_private_key_pem,
+            "example.com",
+        );
+        let upstream_server_config =
+            test_server_config(upstream_leaf_certificate_der, upstream_leaf_private_key_der);
+        let upstream_client_config = test_client_config(upstream_ca_der);
+
+        let upstream_listener =
+            TcpListener::bind("127.0.0.1:0").expect("test upstream listener should bind");
+        let upstream_address = upstream_listener
+            .local_addr()
+            .expect("test upstream listener should expose local address");
+        let upstream_worker = thread::spawn(move || {
+            let (stream, _) = upstream_listener
+                .accept()
+                .expect("test upstream should accept proxy TLS connection");
+            let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+            let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
+            let connection = ServerConnection::new(upstream_server_config)
+                .expect("test upstream TLS connection should initialize");
+            let mut tls_stream = StreamOwned::new(connection, stream);
+            let request = read_explicit_http_proxy_request(&mut tls_stream)
+                .request
+                .expect("test upstream should receive decrypted HTTP/1.1 request");
+            assert_eq!(request.origin_path, "/fallback");
+            assert_eq!(tls_stream.conn.alpn_protocol(), Some(&b"http/1.1"[..]));
+            tls_stream
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 8\r\nConnection: close\r\n\r\nfallback",
+                )
+                .expect("test upstream should write HTTPS response");
+            tls_stream
+                .flush()
+                .expect("test upstream should flush HTTPS response");
+        });
+
+        let proxy_listener =
+            TcpListener::bind("127.0.0.1:0").expect("test proxy listener should bind");
+        let proxy_address = proxy_listener
+            .local_addr()
+            .expect("test proxy listener should expose local address");
+        let downstream_client = thread::spawn(move || {
+            let stream = TcpStream::connect(proxy_address)
+                .expect("test TLS client should connect to controlled proxy session");
+            let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+            let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
+            let mut client_config = (*test_client_config(mitm_ca_der)).clone();
+            client_config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+            let server_name = ServerName::try_from("example.com")
+                .expect("test server name should parse")
+                .to_owned();
+            let connection = ClientConnection::new(Arc::new(client_config), server_name)
+                .expect("test TLS client connection should initialize");
+            let mut tls_stream = StreamOwned::new(connection, stream);
+            tls_stream
+                .write_all(
+                    b"GET /fallback HTTP/1.1\r\nHost: example.com\r\nConnection: close\r\n\r\n",
+                )
+                .expect("test TLS client should write HTTP request");
+            tls_stream
+                .flush()
+                .expect("test TLS client should flush HTTP request");
+            let response = read_plain_http_proxy_response(&mut tls_stream)
+                .response
+                .expect("test TLS client should receive HTTP/1.1 response");
+            assert_eq!(response.status_code, 200);
+            assert_eq!(response.body, b"fallback");
+            assert_eq!(tls_stream.conn.alpn_protocol(), Some(&b"http/1.1"[..]));
+        });
+
+        let (proxy_stream, _) = proxy_listener
+            .accept()
+            .expect("test proxy should accept controlled TLS client connection");
+        let outbound_stream = TcpStream::connect(upstream_address)
+            .expect("test proxy should connect to upstream TLS server");
+        let connect_request = test_connect_request();
+        let client_hello = observe_http_connect_tls_client_hello_from_stream(
+            &proxy_stream,
+            &connect_request,
+            true,
+        );
+        assert!(client_hello.client_hello_observed);
+        let (exchange_completed, diagnostics) = run_controlled_tls_connect_http_exchange(
+            &proxy_stream,
+            outbound_stream,
+            &connect_request,
+            downstream_server_config,
+            upstream_client_config,
+            None,
+        );
+
+        assert!(exchange_completed, "{diagnostics:#?}");
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_ALPN_NEGOTIATED_CODE
+                && diagnostic.message.contains("ALPN http/1.1")
+        }));
+        assert!(!diagnostics_contain_code(
+            &diagnostics,
+            ENGINE_NATIVE_RUNTIME_HTTP_PROXY_H2_SESSION_READY_CODE
+        ));
+        downstream_client
+            .join()
+            .expect("test TLS client thread should finish");
+        upstream_worker
+            .join()
+            .expect("test upstream TLS thread should finish");
+    }
+
+    fn test_runtime() -> tokio::runtime::Runtime {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("test runtime should start")
+    }
+
+    fn test_connect_request() -> NativeExplicitHttpProxyRequest {
+        let mut connect_request = Cursor::new(
+            b"CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n".to_vec(),
+        );
+        read_explicit_http_proxy_request(&mut connect_request)
+            .request
+            .expect("test CONNECT request should parse")
+    }
+
+    fn test_mitm_downstream_server_config() -> (Arc<ServerConfig>, Vec<u8>) {
+        let (mitm_ca_certificate_pem, mitm_ca_private_key_pem, mitm_ca_der) = test_ca_material();
+        let (mitm_leaf_certificate_der, mitm_leaf_private_key_der) = issue_test_leaf(
+            &mitm_ca_certificate_pem,
+            &mitm_ca_private_key_pem,
+            "example.com",
+        );
+        let downstream_material = NativeTlsLeafCertificateMaterial {
+            authority: "example.com".to_string(),
+            certificate_pem: String::new(),
+            private_key_pem: String::new(),
+            certificate_der: mitm_leaf_certificate_der,
+            private_key_der: mitm_leaf_private_key_der,
+        };
+        let downstream_server_config =
+            build_controlled_tls_termination_server_config(&downstream_material)
+                .server_config
+                .expect("test MITM leaf material should build a downstream server config");
+        (downstream_server_config, mitm_ca_der)
     }
 
     struct ControlledTlsScriptDispatchingMitmPluginService {
