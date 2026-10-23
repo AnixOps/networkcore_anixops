@@ -21,6 +21,22 @@
 6. 根据 CI/CD 日志修复问题。
 7. CI/CD 通过后再合并。
 
+## 许可证与签署（DCO）
+
+本仓库以 Apache-2.0 发布（见 `LICENSE`）。提交到本仓库的贡献按 Apache-2.0 第 5 条以同一许可证授权，不需要另签 CLA。
+
+每个 commit 需要按 [Developer Certificate of Origin 1.1](https://developercertificate.org/) 签署，在提交信息末尾加上：
+
+```
+Signed-off-by: 你的名字 <你的邮箱>
+```
+
+使用 `git commit -s` 会自动添加。签署表示你有权以 Apache-2.0 提交这段代码。
+
+不要提交与 Apache-2.0 不兼容的代码或依赖（例如 GPL、AGPL、SSPL 或源码可见类许可证）。新增 Rust 依赖必须通过 `deny.toml` 的许可证检查；如需放宽白名单，在 PR 中单独说明理由。
+
+NetworkCore、AnixOps 的名称和图标不在 Apache-2.0 授权范围内（Apache-2.0 第 6 条）。
+
 ## Pull Request 要求
 
 PR 应说明：

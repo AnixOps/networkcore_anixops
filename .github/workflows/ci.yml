@@ -2985,6 +2985,15 @@ jobs:
         shell: bash
         run: cargo audit
 
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+
+      - name: Check dependency licenses
+        shell: bash
+        run: cargo deny --locked check licenses
+
   reality-interop:
     name: REALITY interop (Linux)
     runs-on: ubuntu-latest

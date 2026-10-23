@@ -98,7 +98,7 @@ else
         esac
 
         case "${path}" in
-          Cargo.toml|Cargo.lock|rust-toolchain|rust-toolchain.toml)
+          Cargo.toml|Cargo.lock|deny.toml|rust-toolchain|rust-toolchain.toml)
             mark rust
             mark full_matrix
             recognized=true
