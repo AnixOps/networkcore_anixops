@@ -1,0 +1,17 @@
+[package]
+name = "inbound-mixed"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Local mixed inbound (SOCKS5 and HTTP proxy on one port) that relays through an engine outbound."
+
+[dependencies]
+engine-outbound = { path = "../engine-outbound" }
+tokio = { version = "1", default-features = false, features = ["net", "io-util", "time", "sync", "rt", "macros"] }
+
+[dev-dependencies]
+tokio = { version = "1", default-features = false, features = ["net", "io-util", "time", "sync", "rt", "rt-multi-thread", "macros"] }
+
+[lib]
+path = "src/lib.rs"

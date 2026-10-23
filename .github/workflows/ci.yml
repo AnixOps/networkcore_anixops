@@ -2667,16 +2667,17 @@ jobs:
         with:
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
 
-      # Every protocol is a cargo feature of engine-embedded. Each one must build,
-      # lint and pass the contract tests alone and with every other one removed.
+      # Every protocol (and the desktop local proxy) is a cargo feature of
+      # engine-embedded. Each one must build, lint and pass the tests alone and
+      # with every other one removed.
       - name: Lint and test each protocol feature alone
         shell: bash
         run: |
           set -euo pipefail
-          for features in "" shadowsocks vless wireguard; do
+          for features in "" shadowsocks vless wireguard local-proxy; do
             echo "::group::engine-embedded features=[${features}]"
             cargo clippy --locked -p engine-embedded --no-default-features --features "${features}" --all-targets -- -D warnings
-            cargo test --locked -p engine-embedded --no-default-features --features "${features}" --test ffi_contracts
+            cargo test --locked -p engine-embedded --no-default-features --features "${features}" --tests
             echo "::endgroup::"
           done
 

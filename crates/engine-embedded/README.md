@@ -18,8 +18,13 @@ Each protocol is its own crate behind a cargo feature; `src/protocols.rs` regist
 | `shadowsocks` | `shadowsocks` | `outbound-shadowsocks` |
 | `vless` | `vless` | `outbound-vless` |
 | `wireguard` | `wireguard` | this crate + boringtun |
+| `local-proxy` | (desktop mode, not a protocol) | `inbound-mixed` |
 
 `cargo build -p engine-embedded --no-default-features --features vless` builds a runtime with only VLESS and direct; any other `type` is rejected with `config_rejected`. To add a protocol: create an `outbound-<name>` crate that implements `TcpOutbound` and `engine_outbound::registry::OutboundFactory`, add it as an optional dependency with a feature here, and register its factory in `protocols::default_registry`. `EmbeddedRuntime::with_registry` accepts a caller-built registry, for protocol crates kept outside this repository. The CI job `Protocol feature matrix` builds, lints and runs the C ABI contract tests with each feature alone.
+
+## Desktop local proxy
+
+`local_proxy::LocalProxy::start(config, listen, settings)` takes the same config envelope and serves its outbound (single or `routing`) behind a SOCKS5/HTTP mixed listener from `inbound-mixed`, on its own thread and tokio runtime. Because applications hand the proxy a host name, domain rules match without FakeIP. WireGuard is a packet tunnel and is rejected in this mode. Bind it to loopback; `tests/local_proxy.rs` covers direct, routed and failure cases.
 
 ## Config envelope
 
