@@ -9,6 +9,8 @@ description = "In-process engine for the iOS Network Extension: userspace TCP/IP
 [dependencies]
 base64 = "0.22"
 blake3 = "1.8"
+# WireGuard Noise state machine only; the `device` feature (its own TUN and sockets) stays off.
+boringtun = { version = "0.7", default-features = false }
 config-core = { path = "../config-core" }
 engine-outbound = { path = "../engine-outbound" }
 futures = "0.3"

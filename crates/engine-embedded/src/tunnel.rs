@@ -5,7 +5,8 @@
 //! produced by the userspace TCP/IP stack leave through the [`PacketSink`]
 //! callback on the tunnel thread. TCP flows are relayed through the outbound,
 //! UDP/53 is forwarded as DNS-over-TCP, and other UDP is dropped so QUIC falls
-//! back to TCP.
+//! back to TCP. A WireGuard tunnel ([`Tunnel::start_wireguard`]) skips the
+//! stack and seals packets straight to its peer.
 
 use std::io;
 use std::net::SocketAddr;
@@ -25,6 +26,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tokio::sync::{mpsc, oneshot, Semaphore};
 
 use crate::dns;
+use crate::wireguard::{self, WireGuardSettings};
 
 /// Receives every IP packet the stack emits. Called on the tunnel thread.
 pub type PacketSink = Box<dyn Fn(&[u8]) + Send + Sync + 'static>;
@@ -53,18 +55,18 @@ pub struct TunnelSettings {
 /// Live counters. Snapshots are safe to expose: no addresses, no payloads.
 #[derive(Default)]
 pub struct TunnelStats {
-    packets_in: AtomicU64,
-    packets_in_dropped: AtomicU64,
-    packets_out: AtomicU64,
-    tcp_active: AtomicU64,
-    tcp_total: AtomicU64,
-    tcp_rejected: AtomicU64,
-    tcp_connect_failed: AtomicU64,
-    udp_dropped: AtomicU64,
-    dns_queries: AtomicU64,
-    dns_failed: AtomicU64,
-    bytes_up: AtomicU64,
-    bytes_down: AtomicU64,
+    pub(crate) packets_in: AtomicU64,
+    pub(crate) packets_in_dropped: AtomicU64,
+    pub(crate) packets_out: AtomicU64,
+    pub(crate) tcp_active: AtomicU64,
+    pub(crate) tcp_total: AtomicU64,
+    pub(crate) tcp_rejected: AtomicU64,
+    pub(crate) tcp_connect_failed: AtomicU64,
+    pub(crate) udp_dropped: AtomicU64,
+    pub(crate) dns_queries: AtomicU64,
+    pub(crate) dns_failed: AtomicU64,
+    pub(crate) bytes_up: AtomicU64,
+    pub(crate) bytes_down: AtomicU64,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
@@ -103,7 +105,7 @@ impl TunnelStats {
     }
 }
 
-fn bump(counter: &AtomicU64) {
+pub(crate) fn bump(counter: &AtomicU64) {
     counter.fetch_add(1, Ordering::Relaxed);
 }
 
@@ -120,6 +122,25 @@ impl Tunnel {
         outbound: Arc<dyn TcpOutbound>,
         sink: PacketSink,
     ) -> io::Result<Self> {
+        Self::launch(move |packet_rx, stats| {
+            spawn_tasks(settings, outbound, sink, packet_rx, stats)
+        })
+    }
+
+    /// Starts a WireGuard tunnel to one peer. Resolving the endpoint and
+    /// binding the UDP socket happen before this returns.
+    pub fn start_wireguard(settings: WireGuardSettings, sink: PacketSink) -> io::Result<Self> {
+        Self::launch(move |packet_rx, stats| {
+            wireguard::spawn_tasks(settings, sink, packet_rx, stats)
+        })
+    }
+
+    /// Runs `setup` on a new tunnel thread inside its tokio runtime and waits
+    /// for it to report whether the tasks started.
+    fn launch<F>(setup: F) -> io::Result<Self>
+    where
+        F: FnOnce(mpsc::Receiver<Vec<u8>>, Arc<TunnelStats>) -> io::Result<()> + Send + 'static,
+    {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()?;
@@ -133,7 +154,7 @@ impl Tunnel {
             .name("networkcore-tunnel".into())
             .spawn(move || {
                 runtime.block_on(async move {
-                    match spawn_tasks(settings, outbound, sink, packet_rx, thread_stats) {
+                    match setup(packet_rx, thread_stats) {
                         Ok(()) => {
                             let _ = ready_tx.send(Ok(()));
                             let _ = shutdown_rx.await;

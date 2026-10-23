@@ -7,12 +7,6 @@ import NetworkExtension
 /// It re-reads platform facts and the runtime handshake on every start and fails closed when either is
 /// unavailable. It never starts another process and never logs the tunnel profile.
 final class PacketTunnelProvider: NEPacketTunnelProvider {
-    /// Addresses inside the tunnel. 198.18.0.0/15 is reserved for benchmarking and never routed publicly.
-    private static let tunnelIPv4Address = "198.18.0.1"
-    private static let tunnelDNSServer = "198.18.0.2"
-    private static let tunnelIPv6Address = "fd00:4e43::1"
-    private static let tunnelMTU = 1500
-
     private var session: EmbeddedRuntimeSession?
 
     override func startTunnel(options: [String: NSObject]?, completionHandler: @escaping (Error?) -> Void) {
@@ -45,9 +39,12 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             return
         }
         let config: Data
+        let interface: TunnelInterface
         do {
-            let password = try NodeSecretStore.password(for: keyReference)
-            config = try EmbeddedRuntimeConfig.decoded(from: template).withPassword(password).encoded()
+            let secret = NodeSecret.fromKeychainValue(try NodeSecretStore.password(for: keyReference))
+            config = try EmbeddedRuntimeConfig.decoded(from: template).withSecret(secret).encoded()
+            interface = try (tunnelProtocol.providerConfiguration?[TunnelProfileKeys.tunnelInterface] as? Data)
+                .map(TunnelInterface.decoded(from:)) ?? .proxy
         } catch let failure as NodeSecretStore.Failure {
             completionHandler(PacketTunnelFailure(reason: "node key is unavailable (keychain status \(failure.status))"))
             return
@@ -67,8 +64,11 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             return
         }
 
-        let remote = tunnelProtocol.serverAddress ?? Self.tunnelIPv4Address
-        setTunnelNetworkSettings(Self.networkSettings(remoteAddress: remote)) { [weak self] error in
+        guard let settings = Self.networkSettings(interface, remoteAddress: tunnelProtocol.serverAddress ?? "127.0.0.1") else {
+            completionHandler(PacketTunnelFailure(reason: "tunnel profile has invalid interface addresses"))
+            return
+        }
+        setTunnelNetworkSettings(settings) { [weak self] error in
             guard let self = self else {
                 completionHandler(PacketTunnelFailure(reason: "tunnel provider was released"))
                 return
@@ -100,20 +100,51 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         completionHandler?(session?.statusJSON())
     }
 
-    /// Full-tunnel settings: every IPv4 and IPv6 route and all DNS go through the tunnel. The provider's own
-    /// connections to the proxy server are not routed into the tunnel by the system.
-    static func networkSettings(remoteAddress: String) -> NEPacketTunnelNetworkSettings {
+    /// Interface settings from the saved profile. The provider's own sockets (to the proxy server or the
+    /// WireGuard endpoint) are never routed into the tunnel by the system. Returns nil for an address or route
+    /// that does not parse.
+    static func networkSettings(_ interface: TunnelInterface, remoteAddress: String) -> NEPacketTunnelNetworkSettings? {
+        let addresses = interface.addresses.map(CIDR.parse)
+        let routes = interface.includedRoutes.map(CIDR.parse)
+        guard addresses.allSatisfy({ $0 != nil }), routes.allSatisfy({ $0 != nil }) else {
+            return nil
+        }
+        let v4Addresses = addresses.compactMap { $0 }.filter { !$0.isIPv6 }
+        let v6Addresses = addresses.compactMap { $0 }.filter { $0.isIPv6 }
+        let v4Routes = routes.compactMap { $0 }.filter { !$0.isIPv6 }
+        let v6Routes = routes.compactMap { $0 }.filter { $0.isIPv6 }
+
         let settings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: remoteAddress)
-        let ipv4 = NEIPv4Settings(addresses: [tunnelIPv4Address], subnetMasks: ["255.255.255.0"])
-        ipv4.includedRoutes = [NEIPv4Route.default()]
-        settings.ipv4Settings = ipv4
-        let ipv6 = NEIPv6Settings(addresses: [tunnelIPv6Address], networkPrefixLengths: [64])
-        ipv6.includedRoutes = [NEIPv6Route.default()]
-        settings.ipv6Settings = ipv6
-        let dns = NEDNSSettings(servers: [tunnelDNSServer])
-        dns.matchDomains = [""]
-        settings.dnsSettings = dns
-        settings.mtu = NSNumber(value: tunnelMTU)
+        if !v4Addresses.isEmpty {
+            let ipv4 = NEIPv4Settings(
+                addresses: v4Addresses.map(\.address),
+                subnetMasks: v4Addresses.compactMap(\.ipv4SubnetMask)
+            )
+            ipv4.includedRoutes = v4Routes.map { route in
+                route.isDefaultRoute
+                    ? NEIPv4Route.default()
+                    : NEIPv4Route(destinationAddress: route.address, subnetMask: route.ipv4SubnetMask ?? "255.255.255.255")
+            }
+            settings.ipv4Settings = ipv4
+        }
+        if !v6Addresses.isEmpty {
+            let ipv6 = NEIPv6Settings(
+                addresses: v6Addresses.map(\.address),
+                networkPrefixLengths: v6Addresses.map { NSNumber(value: $0.prefixLength) }
+            )
+            ipv6.includedRoutes = v6Routes.map { route in
+                route.isDefaultRoute
+                    ? NEIPv6Route.default()
+                    : NEIPv6Route(destinationAddress: route.address, networkPrefixLength: NSNumber(value: route.prefixLength))
+            }
+            settings.ipv6Settings = ipv6
+        }
+        if !interface.dnsServers.isEmpty {
+            let dns = NEDNSSettings(servers: interface.dnsServers)
+            dns.matchDomains = [""]
+            settings.dnsSettings = dns
+        }
+        settings.mtu = NSNumber(value: interface.mtu)
         return settings
     }
 }

@@ -18,6 +18,7 @@
 - 订阅规则与策略组导入：`config-core::routing_import` 从 Surge/Loon `[Proxy Group]`/`[Rule]` 与 Clash `proxy-groups`/`rules` 构建路由模型，不支持的规则和组跳过并警告；`engine-singbox` 新增 `render_sing_box_local_proxy_routing_config`；`networkcore-linux run-url` 未指定 `--node` 时按订阅规则和策略组生成 sing-box 路由，导入失败时退回单节点。
 
 - 路由规则支持 `DOMAIN-KEYWORD`：`config-core` 按域名子串匹配，`engine-singbox` 翻译为 sing-box `domain_keyword`；共享路由快照与 sing-box 等价性测试覆盖该规则。
+- `engine-embedded` 新增 WireGuard 模式：用 boringtun 的 Noise 状态机（BSD-3-Clause，不启用 `device` 特性）把 TUN 包直接封装到一个对端，不经过用户态 TCP/IP 栈；附带与进程内 boringtun 对端的回环测试。iOS App 可粘贴单 Peer 的 `wg-quick` 配置导入，私钥和预共享密钥存入钥匙串，隧道地址、路由、DNS 和 MTU 按配置下发。
 
 - iOS 节点密钥改存钥匙串：App 导入 `ss://` 节点时把密钥写入共享 keychain access group（`$(AppIdentifierPrefix)networkcore.shared`），隧道配置只保存 `passwordReference` 和不含密钥的运行时配置；隧道扩展启动时从钥匙串取回密钥再交给内核。
 

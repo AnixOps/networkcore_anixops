@@ -90,7 +90,7 @@ final class ShadowsocksNodeLinkTests: XCTestCase {
         let stored = try full.withoutSecret().encoded()
         XCTAssertNil(String(data: stored, encoding: .utf8)?.range(of: key))
 
-        let restored = try EmbeddedRuntimeConfig.decoded(from: stored).withPassword(key)
+        let restored = try EmbeddedRuntimeConfig.decoded(from: stored).withSecret(full.secret)
         XCTAssertEqual(restored, full)
         XCTAssertEqual(try restored.encoded(), try full.encoded())
     }

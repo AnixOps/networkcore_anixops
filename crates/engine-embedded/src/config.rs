@@ -1,9 +1,10 @@
 //! Runtime config envelope passed across the C ABI.
 //!
 //! The envelope is JSON. It carries either the one outbound the tunnel uses
-//! or a `routing` section with named outbounds, rules and policy groups.
-//! Passwords are read from the Keychain by the Swift side right before the
-//! call and are never written back out by this crate (no `Debug`, no status
+//! or a `routing` section with named TCP outbounds, rules and policy groups.
+//! Secrets (the Shadowsocks password, the WireGuard private and preshared
+//! keys) are read from the Keychain by the Swift side right before the call
+//! and are never written back out by this crate (no `Debug`, no status
 //! field).
 
 use std::collections::BTreeMap;
@@ -17,6 +18,7 @@ use serde::Deserialize;
 use crate::direct::DirectOutbound;
 use crate::routing::RoutedOutbound;
 use crate::shadowsocks::{Method, Ss2022Outbound};
+use crate::wireguard::{decode_key, WireGuardSettings};
 use crate::{RuntimeError, RuntimeErrorCode};
 
 pub const CONFIG_SCHEMA_VERSION: u32 = 1;
@@ -57,9 +59,29 @@ pub enum OutboundConfig {
         password: String,
     },
     Direct,
+    /// One WireGuard peer. Keys are standard base64, as in a `wg-quick` file;
+    /// the private and preshared keys are injected from the Keychain.
+    Wireguard {
+        private_key: String,
+        peer_public_key: String,
+        #[serde(default)]
+        preshared_key: Option<String>,
+        server: String,
+        port: u16,
+        #[serde(default)]
+        persistent_keepalive_secs: Option<u16>,
+    },
 }
 
-/// Rule-based routing: outbounds keyed by node id, `config-core` rule lines
+/// What the runtime runs for a config.
+pub enum TunnelMode {
+    /// Userspace TCP/IP stack with flows through a TCP outbound.
+    Stack(Arc<dyn TcpOutbound>),
+    /// Packets sealed straight to a WireGuard peer.
+    WireGuard(WireGuardSettings),
+}
+
+/// Rule-based routing: TCP outbounds keyed by node id, `config-core` rule lines
 /// that must end with FINAL, and policy groups over those node ids.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -239,6 +261,43 @@ impl RuntimeConfig {
         Ok(())
     }
 
+    pub fn build_mode(&self, dialer: Arc<dyn Dialer>) -> Result<TunnelMode, RuntimeError> {
+        match &self.outbound {
+            Some(OutboundConfig::Wireguard {
+                private_key,
+                peer_public_key,
+                preshared_key,
+                server,
+                port,
+                persistent_keepalive_secs,
+            }) => {
+                let private_key = decode_key(private_key)
+                    .ok_or_else(|| rejected("wireguard private key must be 32 bytes of base64"))?;
+                let peer_public_key = decode_key(peer_public_key).ok_or_else(|| {
+                    rejected("wireguard peer public key must be 32 bytes of base64")
+                })?;
+                let preshared_key = match preshared_key.as_deref() {
+                    None | Some("") => None,
+                    Some(key) => Some(decode_key(key).ok_or_else(|| {
+                        rejected("wireguard preshared key must be 32 bytes of base64")
+                    })?),
+                };
+                if server.trim().is_empty() || *port == 0 {
+                    return Err(rejected("wireguard endpoint is invalid"));
+                }
+                Ok(TunnelMode::WireGuard(WireGuardSettings {
+                    private_key,
+                    peer_public_key,
+                    preshared_key,
+                    server: server.trim().to_owned(),
+                    port: *port,
+                    persistent_keepalive_secs: *persistent_keepalive_secs,
+                }))
+            }
+            _ => self.build_outbound(dialer).map(TunnelMode::Stack),
+        }
+    }
+
     pub fn build_outbound(
         &self,
         dialer: Arc<dyn Dialer>,
@@ -274,11 +333,16 @@ impl RuntimeConfig {
     }
 }
 
+/// Builds one TCP outbound. WireGuard runs as a packet tunnel, so it cannot be
+/// used here or as a routed node.
 fn build_single_outbound(
     outbound: &OutboundConfig,
     dialer: Arc<dyn Dialer>,
 ) -> Result<Arc<dyn TcpOutbound>, RuntimeError> {
     match outbound {
+        OutboundConfig::Wireguard { .. } => {
+            Err(rejected("wireguard is a packet tunnel, not a TCP outbound"))
+        }
         OutboundConfig::Shadowsocks {
             server,
             port,
