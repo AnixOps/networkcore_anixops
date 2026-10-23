@@ -121,7 +121,7 @@ impl Ss2022Outbound {
             port,
             method,
             psk: psk.into(),
-            identity_keys: keys.into(),
+            identity_keys: keys.into_iter().map(Vec::into_boxed_slice).collect(),
             dialer,
         })
     }
