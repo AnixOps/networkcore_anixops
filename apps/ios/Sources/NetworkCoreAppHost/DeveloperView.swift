@@ -78,7 +78,7 @@ struct DeveloperView: View {
             Section("概览") {
                 row("App", "\(DeveloperMode.appVersion) (\(DeveloperMode.appBuild))")
                 row("系统", systemVersion)
-                row("连接", TunnelView.describe(tunnel.connection))
+                row("连接", ConnectPhase.describe(tunnel.connection))
                 row("出站协议", tunnel.outboundKind ?? "未导入")
             }
 
@@ -170,7 +170,7 @@ struct DeveloperView: View {
             appVersion: DeveloperMode.appVersion,
             appBuild: DeveloperMode.appBuild,
             systemVersion: systemVersion,
-            connection: TunnelView.describe(tunnel.connection),
+            connection: ConnectPhase.describe(tunnel.connection),
             outboundKind: tunnel.outboundKind,
             lastDisconnectError: tunnel.lastDisconnectError,
             diagnostics: tunnel.diagnostics,
