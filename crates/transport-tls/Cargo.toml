@@ -1,0 +1,21 @@
+[package]
+name = "transport-tls"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Standard TLS client transport (rustls, WebPKI roots) shared by outbound protocol crates."
+
+[dependencies]
+engine-outbound = { path = "../engine-outbound" }
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
+tokio = { version = "1", default-features = false, features = ["io-util"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+webpki-roots = "1.0.8"
+
+[dev-dependencies]
+rcgen = "0.14.8"
+tokio = { version = "1", default-features = false, features = ["io-util", "net", "rt", "rt-multi-thread", "macros", "time"] }
+
+[lib]
+path = "src/lib.rs"

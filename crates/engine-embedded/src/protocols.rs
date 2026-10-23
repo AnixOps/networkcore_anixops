@@ -6,6 +6,7 @@
 //! |---------------|----------------|------------------------|
 //! | (always)      | `direct`       | this crate             |
 //! | `shadowsocks` | `shadowsocks`  | `outbound-shadowsocks` |
+//! | `trojan`      | `trojan`       | `outbound-trojan`      |
 //! | `vless`       | `vless`        | `outbound-vless`       |
 //! | `wireguard`   | `wireguard`    | this crate + boringtun |
 //!
@@ -25,6 +26,8 @@ pub fn default_registry() -> OutboundRegistry {
     registry.register(Arc::new(DirectFactory));
     #[cfg(feature = "shadowsocks")]
     registry.register(Arc::new(outbound_shadowsocks::ShadowsocksFactory));
+    #[cfg(feature = "trojan")]
+    registry.register(Arc::new(outbound_trojan::TrojanFactory));
     #[cfg(feature = "vless")]
     registry.register(Arc::new(outbound_vless::VlessFactory));
     registry

@@ -16,6 +16,7 @@ Each protocol is its own crate behind a cargo feature; `src/protocols.rs` regist
 | --- | --- | --- |
 | (always) | `direct` | this crate |
 | `shadowsocks` | `shadowsocks` | `outbound-shadowsocks` |
+| `trojan` | `trojan` | `outbound-trojan` (TLS from `transport-tls`) |
 | `vless` | `vless` | `outbound-vless` |
 | `wireguard` | `wireguard` | this crate + boringtun |
 | `local-proxy` | (desktop mode, not a protocol) | `inbound-mixed` |

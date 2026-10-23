@@ -1406,6 +1406,7 @@ dependencies = [
  "inbound-mixed",
  "netstack-smoltcp",
  "outbound-shadowsocks",
+ "outbound-trojan",
  "outbound-vless",
  "ring",
  "serde",
@@ -3335,6 +3336,21 @@ dependencies = [
  "serde",
  "shadowsocks",
  "tokio",
+]
+
+[[package]]
+name = "outbound-trojan"
+version = "0.1.0"
+dependencies = [
+ "engine-outbound",
+ "rcgen",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "tokio-rustls",
+ "transport-tls",
 ]
 
 [[package]]
@@ -5514,6 +5530,18 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "transport-tls"
+version = "0.1.0"
+dependencies = [
+ "engine-outbound",
+ "rcgen",
+ "rustls",
+ "tokio",
+ "tokio-rustls",
+ "webpki-roots",
 ]
 
 [[package]]

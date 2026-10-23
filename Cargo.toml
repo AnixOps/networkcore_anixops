@@ -16,12 +16,14 @@ members = [
     "crates/mitm-anixops-sys",
     "crates/mitm-policy",
     "crates/outbound-shadowsocks",
+    "crates/outbound-trojan",
     "crates/outbound-vless",
     "crates/platform-ios",
     "crates/platform-linux",
     "crates/platform-windows",
     "crates/script-runtime",
     "crates/tls-mimic",
+    "crates/transport-tls",
 ]
 resolver = "2"
 
