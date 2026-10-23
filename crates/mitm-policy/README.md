@@ -54,7 +54,7 @@ through `BrowserCapturePacFileStore`. Command details are in
 [apps/linux-cli/README.md](../../apps/linux-cli/README.md); the per-version
 boundary index is `docs/alpha-release-feature-matrix.md`.
 
-## Loon plugin import (P0, P1 scripts)
+## Loon plugin import (P0, P1)
 
 `loon_plugin::import_loon_plugin` imports a user-supplied Loon plugin and
 grades every line as supported, partial, deferred, unsupported, or ignored.
@@ -77,7 +77,18 @@ The plugin as a whole is graded `full`, `partial`, or `unsupported`.
   `crates/script-runtime`. `binary-body-mode` is partial (bodies reach scripts
   as strings), and `cron`, `generic`, and other event scripts are unsupported.
   The iOS JavaScriptCore runtime arrives in M4.
-- `[Map Local]` and body rewrites are still deferred.
+- `[Map Local]` lines, and `[Rewrite]` `mock-response-body` lines, answer a
+  matching request locally (`HttpMitmAction::Respond`) without contacting the
+  origin. `data-type` may be `text`, `json`, `html`, `base64`, or `tiny-gif`;
+  `status-code` and `header="Name:Value|..."` are honored. A remote `data` URL
+  is not fetched and is unsupported. The URL pattern is matched by the
+  `mitm_anixops` core (`loon_map_local`).
+- `[Body Rewrite]` `http-request`/`http-response <url> <regex> <replacement>
+  ...` lines are translated into the core's url-first
+  `request-body-replace-regex`/`response-body-replace-regex` rules, one per
+  pair, and every matching body rule applies in order. Url-first body rewrite
+  lines in `[Rewrite]` are supported too. jq lines (`http-response-jq`,
+  `response-body-jq`) are unsupported because the core is built without jq.
 
 The corpus in `tests/fixtures/loon-plugins` has an expected level for each
 plugin, and `tests/loon_plugin_contracts.rs` prints the graded report for

@@ -1,0 +1,16 @@
+#!name = Example Map Local and Body Rewrite
+#!desc = Answers ad endpoints locally and rewrites feed bodies
+
+[Map Local]
+^https?://api\.example\.com/v1/ads data-type=json data="{\"ads\":[]}" header="Cache-Control:no-store"
+^https?://api\.example\.com/v1/pixel data-type=tiny-gif
+
+[Rewrite]
+^https?://api\.example\.com/v1/splash mock-response-body data-type=text data="no splash" status-code=202
+
+[Body Rewrite]
+http-response ^https?://api\.example\.com/v1/feed "\"ad\":true" "\"ad\":false" "promo" "plain"
+http-request ^https?://api\.example\.com/v1/report "tracking=1" "tracking=0"
+
+[MITM]
+hostname = %APPEND% api.example.com

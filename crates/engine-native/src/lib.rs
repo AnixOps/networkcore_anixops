@@ -3006,6 +3006,17 @@ pub fn plan_and_apply_https_request_rewrite_preview(
             set_plain_http_header(&mut headers, "Content-Length", "0");
             body.clear();
         }
+        HttpMitmAction::Respond {
+            status_code,
+            headers: response_headers,
+            body: response_body,
+        } => {
+            applied = true;
+            terminal_action = Some(LOCAL_RESPONSE_TERMINAL_ACTION.to_string());
+            final_status_code = Some(*status_code);
+            headers = local_response_headers(response_headers, response_body.len());
+            body = response_body.clone();
+        }
     }
 
     let mut header_mutation_count = 0;
@@ -3146,6 +3157,17 @@ pub fn plan_and_apply_https_response_rewrite_preview(
             set_plain_http_header(&mut headers, "Location", location);
             set_plain_http_header(&mut headers, "Content-Length", "0");
             body.clear();
+        }
+        HttpMitmAction::Respond {
+            status_code,
+            headers: response_headers,
+            body: response_body,
+        } => {
+            applied = true;
+            terminal_action = Some(LOCAL_RESPONSE_TERMINAL_ACTION.to_string());
+            final_status_code = Some(*status_code);
+            headers = local_response_headers(response_headers, response_body.len());
+            body = response_body.clone();
         }
     }
 
@@ -3812,6 +3834,16 @@ pub fn plan_and_apply_plain_http_mitm(
     }
 }
 
+/// Terminal action name for [`HttpMitmAction::Respond`].
+pub const LOCAL_RESPONSE_TERMINAL_ACTION: &str = "local-response";
+
+/// The rule's headers with a `Content-Length` that matches the local body.
+fn local_response_headers(headers: &[MetadataEntry], body_len: usize) -> Vec<MetadataEntry> {
+    let mut headers = headers.to_vec();
+    set_plain_http_header(&mut headers, "Content-Length", &body_len.to_string());
+    headers
+}
+
 pub fn apply_http_mitm_outcome_to_plain_http_message(
     message: &NativePlainHttpMessage,
     outcome: &HttpMitmOutcome,
@@ -3857,6 +3889,24 @@ pub fn apply_http_mitm_outcome_to_plain_http_message(
                 DiagnosticSeverity::Info,
                 ENGINE_NATIVE_RUNTIME_HTTP_MITM_PLAIN_TERMINAL_ACTION_APPLIED_CODE,
                 "native plain HTTP data plane applied a redirect terminal action",
+                SOURCE_ENGINE_NATIVE_MITM,
+            ));
+        }
+        HttpMitmAction::Respond {
+            status_code,
+            headers: response_headers,
+            body: response_body,
+        } => {
+            applied = true;
+            terminal_action = Some(LOCAL_RESPONSE_TERMINAL_ACTION.to_string());
+            final_status_code = Some(*status_code);
+            redirect_location = None;
+            headers = local_response_headers(response_headers, response_body.len());
+            body = response_body.clone();
+            diagnostics.push(engine_diagnostic(
+                DiagnosticSeverity::Info,
+                ENGINE_NATIVE_RUNTIME_HTTP_MITM_PLAIN_TERMINAL_ACTION_APPLIED_CODE,
+                "native plain HTTP data plane answered the request with a local response",
                 SOURCE_ENGINE_NATIVE_MITM,
             ));
         }
