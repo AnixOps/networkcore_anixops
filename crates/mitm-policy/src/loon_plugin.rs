@@ -71,7 +71,7 @@ impl LoonMitmHostnames {
             .iter()
             .filter(|pattern| {
                 let pattern = pattern.trim().to_ascii_lowercase();
-                !self.exclude.iter().any(|excluded| *excluded == pattern)
+                !self.exclude.contains(&pattern)
             })
             .cloned()
             .collect::<Vec<_>>();
