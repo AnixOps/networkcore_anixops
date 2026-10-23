@@ -107,6 +107,7 @@ CI job `Routing equivalence (sing-box)` 下载最新 sing-box 正式版和 `geoi
 ## 本地代理接入
 
 - `engine-singbox::render_sing_box_local_proxy_routing_config(request, &model)`：模型引用到的节点按节点 id 作为 tag 渲染（WireGuard 进 `endpoints`），加上策略组出站、`direct` 和 `render_sing_box_route` 的 `route`；未引用的节点不渲染。引用到的节点不能被本地代理渲染时返回错误。报告的节点是 `FINAL` 在无运行时状态时落到的节点。
+- Windows Tauri GUI 导入订阅：订阅含规则和策略组且渲染成功时写入路由配置，系统代理指向 `127.0.0.1:7890`，节点列表为空，策略组按原生 sing-box 配置的分组方式（`list_native_groups`/`select_native_group_outbound`）查看和修改默认成员；否则保持原来的选择器配置。HTTPS MITM 导入路径与 Win32 旧界面暂不使用路由。
 - `networkcore-linux run-url`：未指定 `--node` 时导入订阅中的规则和策略组，导入成功就用路由配置启动；导入失败或渲染失败时退回原来的单节点配置并给出警告。指定 `--node` 时保持单节点行为。Mieru 节点路径不变。
 
 ## engine-embedded 接入
@@ -116,4 +117,4 @@ CI job `Routing equivalence (sing-box)` 下载最新 sing-box 正式版和 `geoi
 - 隧道目前只拿到目的 IP：域名规则只在调用方传入域名目标时生效（FakeIP/嗅探尚未接入）；域名目标遇到不带 `no-resolve` 的 IP 规则时运行时不解析，按解析失败拒绝；运行时不带 GeoIP 数据库，`GEOIP` 规则不会命中。
 - Swift 侧尚未生成 `routing` 段，现有单出站配置行为不变。
 
-后续工作：Windows GUI 与选择器（Clash API）路径接入路由；engine-embedded 的 FakeIP/嗅探、GeoIP 数据、select 运行时选择与测速；Swift 侧生成 `routing` 段。
+后续工作：Windows MITM 导入路径与运行中切换（Clash API）接入路由；engine-embedded 的 FakeIP/嗅探、GeoIP 数据、select 运行时选择与测速；Swift 侧生成 `routing` 段。
