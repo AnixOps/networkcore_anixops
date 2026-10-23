@@ -11,6 +11,8 @@
 
 ### Added
 
+- `engine-embedded` 运行时配置支持 `routing` 段（与 `outbound` 二选一）：多个命名出站加 `config-core` 规则与策略组，`RoutedOutbound` 按连接选择直连、拒绝或节点。iOS App 尚未生成该段，现有配置行为不变。
+
 - 订阅规则与策略组导入：`config-core::routing_import` 从 Surge/Loon `[Proxy Group]`/`[Rule]` 与 Clash `proxy-groups`/`rules` 构建路由模型，不支持的规则和组跳过并警告；`engine-singbox` 新增 `render_sing_box_local_proxy_routing_config`；`networkcore-linux run-url` 未指定 `--node` 时按订阅规则和策略组生成 sing-box 路由，导入失败时退回单节点。
 
 - 路由规则支持 `DOMAIN-KEYWORD`：`config-core` 按域名子串匹配，`engine-singbox` 翻译为 sing-box `domain_keyword`；共享路由快照与 sing-box 等价性测试覆盖该规则。

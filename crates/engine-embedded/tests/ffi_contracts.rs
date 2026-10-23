@@ -220,3 +220,50 @@ fn header_declares_every_exported_symbol() {
         );
     }
 }
+
+#[test]
+fn routing_config_is_accepted_and_status_hides_rules_and_keys() {
+    let password = "AAECAwQFBgcICQoLDA0ODw==";
+    let config = format!(
+        r#"{{"schema_version":1,"profile_id":"routed","routing":{{"outbounds":{{"hk-1":{{"type":"shadowsocks","server":"192.0.2.10","port":8388,"method":"2022-blake3-aes-128-gcm","password":"{password}"}}}},"rules":["IP-CIDR,10.0.0.0/8,DIRECT,no-resolve","DOMAIN-SUFFIX,secret-rule.example,Proxy","FINAL,Proxy"],"groups":[{{"id":"Proxy","type":"select","members":["hk-1","DIRECT"]}}]}}}}"#
+    );
+    let (code, handle) = init(&config);
+    assert_eq!(code, NETWORKCORE_IOS_OK);
+
+    let status = status_json(handle).to_string();
+    assert!(status.contains(r#""outbound":"routed""#));
+    assert!(!status.contains(password));
+    assert!(!status.contains("192.0.2.10"));
+    assert!(!status.contains("secret-rule"));
+
+    unsafe { networkcore_ios_runtime_free_handle(handle) };
+}
+
+#[test]
+fn routing_config_rejects_ambiguous_or_invalid_sections() {
+    let routing = r#""routing":{"outbounds":{"direct-node":{"type":"direct"}},"rules":["FINAL,direct-node"]}"#;
+
+    let (code, handle) = init(&format!(
+        r#"{{"schema_version":1,"profile_id":"p",{routing}}}"#
+    ));
+    assert_eq!(code, NETWORKCORE_IOS_OK);
+    unsafe { networkcore_ios_runtime_free_handle(handle) };
+
+    let (code, _) = init(&format!(
+        r#"{{"schema_version":1,"profile_id":"p","outbound":{{"type":"direct"}},{routing}}}"#
+    ));
+    assert_eq!(code, NETWORKCORE_IOS_ERR_CONFIG_REJECTED);
+
+    let (code, _) = init(r#"{"schema_version":1,"profile_id":"p"}"#);
+    assert_eq!(code, NETWORKCORE_IOS_ERR_CONFIG_REJECTED);
+
+    let (code, _) = init(
+        r#"{"schema_version":1,"profile_id":"p","routing":{"outbounds":{"hk-1":{"type":"direct"}},"rules":["DOMAIN,a.example,missing"]}}"#,
+    );
+    assert_eq!(code, NETWORKCORE_IOS_ERR_CONFIG_REJECTED);
+
+    let (code, _) = init(
+        r#"{"schema_version":1,"profile_id":"p","routing":{"outbounds":{"bad id":{"type":"direct"}},"rules":["FINAL,DIRECT"]}}"#,
+    );
+    assert_eq!(code, NETWORKCORE_IOS_ERR_CONFIG_REJECTED);
+}

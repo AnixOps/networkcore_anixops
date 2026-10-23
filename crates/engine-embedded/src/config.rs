@@ -1,16 +1,21 @@
 //! Runtime config envelope passed across the C ABI.
 //!
-//! The envelope is JSON. It carries the one outbound the tunnel uses; the
-//! password is read from the Keychain by the Swift side right before the call
-//! and is never written back out by this crate (no `Debug`, no status field).
+//! The envelope is JSON. It carries either the one outbound the tunnel uses
+//! or a `routing` section with named outbounds, rules and policy groups.
+//! Passwords are read from the Keychain by the Swift side right before the
+//! call and are never written back out by this crate (no `Debug`, no status
+//! field).
 
+use std::collections::BTreeMap;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 
+use config_core::routing::{PolicyGroupSpec, RoutingSpec};
 use engine_outbound::{Dialer, TcpOutbound};
 use serde::Deserialize;
 
 use crate::direct::DirectOutbound;
+use crate::routing::RoutedOutbound;
 use crate::shadowsocks::{Method, Ss2022Outbound};
 use crate::{RuntimeError, RuntimeErrorCode};
 
@@ -19,6 +24,9 @@ pub const CONFIG_SCHEMA_VERSION: u32 = 1;
 const MIN_MTU: u16 = 1280;
 const MAX_MTU: u16 = 9000;
 const MAX_PROFILE_ID_LEN: usize = 128;
+const MAX_ROUTED_OUTBOUNDS: usize = 64;
+const MAX_ROUTING_RULES: usize = 4096;
+const MAX_POLICY_GROUPS: usize = 64;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -27,7 +35,12 @@ pub struct RuntimeConfig {
     pub profile_id: String,
     #[serde(default = "default_mtu")]
     pub mtu: u16,
-    pub outbound: OutboundConfig,
+    /// Single outbound for every connection. Exactly one of `outbound` and
+    /// `routing` is set.
+    #[serde(default)]
+    pub outbound: Option<OutboundConfig>,
+    #[serde(default)]
+    pub routing: Option<RoutingConfig>,
     #[serde(default)]
     pub dns: DnsConfig,
     #[serde(default)]
@@ -44,6 +57,34 @@ pub enum OutboundConfig {
         password: String,
     },
     Direct,
+}
+
+/// Rule-based routing: outbounds keyed by node id, `config-core` rule lines
+/// that must end with FINAL, and policy groups over those node ids.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RoutingConfig {
+    pub outbounds: BTreeMap<String, OutboundConfig>,
+    pub rules: Vec<String>,
+    #[serde(default)]
+    pub groups: Vec<PolicyGroupConfig>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PolicyGroupConfig {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub members: Vec<String>,
+    #[serde(default)]
+    pub default: Option<String>,
+    #[serde(default)]
+    pub url: Option<String>,
+    #[serde(default)]
+    pub interval_secs: Option<u32>,
+    #[serde(default)]
+    pub tolerance_ms: Option<u16>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -157,16 +198,29 @@ impl RuntimeConfig {
     }
 
     fn validate(&self) -> Result<(), RuntimeError> {
-        let profile_id_ok = !self.profile_id.is_empty()
-            && self.profile_id.len() <= MAX_PROFILE_ID_LEN
-            && self
-                .profile_id
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'));
+        let profile_id_ok = is_identifier(&self.profile_id);
         if !profile_id_ok {
             return Err(rejected(
                 "profile_id must be 1-128 characters of [A-Za-z0-9._-]",
             ));
+        }
+        match (&self.outbound, &self.routing) {
+            (Some(_), None) => {}
+            (None, Some(routing)) => {
+                if routing.outbounds.is_empty()
+                    || routing.outbounds.len() > MAX_ROUTED_OUTBOUNDS
+                    || routing.rules.len() > MAX_ROUTING_RULES
+                    || routing.groups.len() > MAX_POLICY_GROUPS
+                {
+                    return Err(rejected("routing section size is out of range"));
+                }
+                if !routing.outbounds.keys().all(|id| is_identifier(id)) {
+                    return Err(rejected(
+                        "routing outbound ids must be 1-128 characters of [A-Za-z0-9._-]",
+                    ));
+                }
+            }
+            _ => return Err(rejected("exactly one of outbound and routing must be set")),
         }
         if !(MIN_MTU..=MAX_MTU).contains(&self.mtu) {
             return Err(rejected("mtu is out of range"));
@@ -189,24 +243,66 @@ impl RuntimeConfig {
         &self,
         dialer: Arc<dyn Dialer>,
     ) -> Result<Arc<dyn TcpOutbound>, RuntimeError> {
-        match &self.outbound {
-            OutboundConfig::Shadowsocks {
-                server,
-                port,
-                method,
-                password,
-            } => {
-                let method = Method::parse(method)
-                    .map_err(|_| rejected("unsupported shadowsocks method"))?;
-                let outbound = Ss2022Outbound::new(server.clone(), *port, method, password, dialer)
-                    .map_err(|err| {
-                        RuntimeError::new(RuntimeErrorCode::ConfigRejected, safe_io_message(&err))
-                    })?;
-                Ok(Arc::new(outbound))
+        match (&self.outbound, &self.routing) {
+            (Some(outbound), _) => build_single_outbound(outbound, dialer),
+            (None, Some(routing)) => {
+                let mut nodes = BTreeMap::new();
+                for (id, outbound) in &routing.outbounds {
+                    nodes.insert(id.clone(), build_single_outbound(outbound, dialer.clone())?);
+                }
+                let spec = RoutingSpec {
+                    rules: routing.rules.clone(),
+                    groups: routing
+                        .groups
+                        .iter()
+                        .map(|group| PolicyGroupSpec {
+                            id: group.id.clone(),
+                            kind: group.kind.clone(),
+                            members: group.members.clone(),
+                            default: group.default.clone(),
+                            url: group.url.clone(),
+                            interval_secs: group.interval_secs,
+                            tolerance_ms: group.tolerance_ms,
+                        })
+                        .collect(),
+                };
+                let direct = Arc::new(DirectOutbound::new(dialer));
+                Ok(Arc::new(RoutedOutbound::new(&spec, direct, nodes)?))
             }
-            OutboundConfig::Direct => Ok(Arc::new(DirectOutbound::new(dialer))),
+            (None, None) => Err(rejected("exactly one of outbound and routing must be set")),
         }
     }
+}
+
+fn build_single_outbound(
+    outbound: &OutboundConfig,
+    dialer: Arc<dyn Dialer>,
+) -> Result<Arc<dyn TcpOutbound>, RuntimeError> {
+    match outbound {
+        OutboundConfig::Shadowsocks {
+            server,
+            port,
+            method,
+            password,
+        } => {
+            let method =
+                Method::parse(method).map_err(|_| rejected("unsupported shadowsocks method"))?;
+            let outbound = Ss2022Outbound::new(server.clone(), *port, method, password, dialer)
+                .map_err(|err| {
+                    RuntimeError::new(RuntimeErrorCode::ConfigRejected, safe_io_message(&err))
+                })?;
+            Ok(Arc::new(outbound))
+        }
+        OutboundConfig::Direct => Ok(Arc::new(DirectOutbound::new(dialer))),
+    }
+}
+
+fn is_identifier(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= MAX_PROFILE_ID_LEN
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
 }
 
 fn rejected(message: &'static str) -> RuntimeError {

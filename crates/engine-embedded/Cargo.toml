@@ -9,6 +9,7 @@ description = "In-process engine for the iOS Network Extension: userspace TCP/IP
 [dependencies]
 base64 = "0.22"
 blake3 = "1.8"
+config-core = { path = "../config-core" }
 engine-outbound = { path = "../engine-outbound" }
 futures = "0.3"
 netstack-smoltcp = "0.2"
