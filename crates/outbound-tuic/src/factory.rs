@@ -83,10 +83,10 @@ pub fn parse_uuid(text: &str) -> Option<[u8; 16]> {
     if hex.len() != 32 || !hex.iter().all(u8::is_ascii_hexdigit) {
         return None;
     }
+    let nibble = |digit: u8| char::from(digit).to_digit(16).map(|value| value as u8);
     let mut out = [0u8; 16];
-    for (i, pair) in hex.chunks_exact(2).enumerate() {
-        let digits = std::str::from_utf8(pair).ok()?;
-        out[i] = u8::from_str_radix(digits, 16).ok()?;
+    for (i, byte) in out.iter_mut().enumerate() {
+        *byte = (nibble(hex[2 * i])? << 4) | nibble(hex[2 * i + 1])?;
     }
     Some(out)
 }
