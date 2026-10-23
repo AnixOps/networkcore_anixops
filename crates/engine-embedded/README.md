@@ -15,7 +15,9 @@ Each protocol is its own crate behind a cargo feature; `src/protocols.rs` regist
 | feature | config `type` | crate |
 | --- | --- | --- |
 | (always) | `direct` | this crate |
+| `http` | `http` (HTTP CONNECT proxy, optional TLS and Basic auth) | `outbound-http` |
 | `shadowsocks` | `shadowsocks` | `outbound-shadowsocks` |
+| `socks` | `socks` (SOCKS5, optional username/password) | `outbound-socks` |
 | `trojan` | `trojan` | `outbound-trojan` (TLS from `transport-tls`) |
 | `vless` | `vless` | `outbound-vless` |
 | `wireguard` | `wireguard` | this crate + boringtun |

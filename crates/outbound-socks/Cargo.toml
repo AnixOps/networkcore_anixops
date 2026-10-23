@@ -1,0 +1,20 @@
+[package]
+name = "outbound-socks"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "SOCKS5 TCP outbound (RFC 1928, username/password per RFC 1929) for the embedded engine."
+
+[dependencies]
+engine-outbound = { path = "../engine-outbound" }
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", default-features = false, features = ["io-util"] }
+
+[dev-dependencies]
+inbound-mixed = { path = "../inbound-mixed" }
+serde_json = "1"
+tokio = { version = "1", default-features = false, features = ["io-util", "net", "rt", "rt-multi-thread", "macros", "time"] }
+
+[lib]
+path = "src/lib.rs"

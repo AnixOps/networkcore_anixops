@@ -2674,7 +2674,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for features in "" shadowsocks trojan vless wireguard local-proxy; do
+          for features in "" http shadowsocks socks trojan vless wireguard local-proxy; do
             echo "::group::engine-embedded features=[${features}]"
             cargo clippy --locked -p engine-embedded --no-default-features --features "${features}" --all-targets -- -D warnings
             cargo test --locked -p engine-embedded --no-default-features --features "${features}" --tests

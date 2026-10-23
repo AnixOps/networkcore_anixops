@@ -1405,7 +1405,9 @@ dependencies = [
  "futures",
  "inbound-mixed",
  "netstack-smoltcp",
+ "outbound-http",
  "outbound-shadowsocks",
+ "outbound-socks",
  "outbound-trojan",
  "outbound-vless",
  "ring",
@@ -3325,6 +3327,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "outbound-http"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "engine-outbound",
+ "inbound-mixed",
+ "serde",
+ "serde_json",
+ "tokio",
+ "transport-tls",
+]
+
+[[package]]
 name = "outbound-shadowsocks"
 version = "0.1.0"
 dependencies = [
@@ -3335,6 +3350,17 @@ dependencies = [
  "ring",
  "serde",
  "shadowsocks",
+ "tokio",
+]
+
+[[package]]
+name = "outbound-socks"
+version = "0.1.0"
+dependencies = [
+ "engine-outbound",
+ "inbound-mixed",
+ "serde",
+ "serde_json",
  "tokio",
 ]
 
