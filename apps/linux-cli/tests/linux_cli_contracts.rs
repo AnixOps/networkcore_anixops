@@ -10668,3 +10668,103 @@ fn unused_loopback_port() -> u16 {
     drop(listener);
     port
 }
+
+struct CapturingSingBoxRunner {
+    config: std::sync::Mutex<Option<String>>,
+}
+
+impl SingBoxProcessRunner for CapturingSingBoxRunner {
+    fn run(&self, request: &SingBoxProcessRunRequest) -> DomainResult<SingBoxProcessRunReport> {
+        let config = std::fs::read_to_string(&request.config_path)
+            .expect("run-url should write a sing-box config before starting the runner");
+        *self.config.lock().unwrap() = Some(config);
+        Ok(SingBoxProcessRunReport {
+            exit_code: Some(0),
+            diagnostics: Vec::new(),
+        })
+    }
+}
+
+#[test]
+fn run_url_handler_applies_subscription_rules_and_policy_groups() {
+    let install_dir = std::env::temp_dir().join(format!(
+        "networkcore-linux-run-url-routing-contract-{}",
+        std::process::id()
+    ));
+    let engine_dir = install_dir.join("networkcore-engines");
+    let _ = std::fs::remove_dir_all(&install_dir);
+    let profile = concat!(
+        "[Proxy]\n",
+        "HK = ss, 82.47.34.99, 11111, encrypt-method=aes-256-gcm, password=f43c0eee-13b9-4f07-bec9-d4b744141503\n",
+        "JP = ss, 82.47.34.98, 11112, encrypt-method=aes-256-gcm, password=f43c0eee-13b9-4f07-bec9-d4b744141503\n",
+        "[Proxy Group]\n",
+        "Proxy = select, JP, HK, DIRECT\n",
+        "[Rule]\n",
+        "DOMAIN-SUFFIX,google.com,Proxy\n",
+        "PROCESS-NAME,curl,DIRECT\n",
+        "FINAL,DIRECT\n",
+    );
+
+    let runner = CapturingSingBoxRunner {
+        config: std::sync::Mutex::new(None),
+    };
+    let response = handle_run_url_with_sing_box(
+        &TestSingBoxInstaller,
+        &runner,
+        profile,
+        "127.0.0.1",
+        7890,
+        Some(engine_dir.to_str().expect("temp path should be utf-8")),
+        false,
+    );
+
+    assert!(response.ok);
+    assert_diagnostic(&response.diagnostics, "config.core.routing_import.ready");
+    assert_diagnostic(
+        &response.diagnostics,
+        "config.core.routing_import.rule_skipped",
+    );
+    let run = response.sing_box_run.as_ref().unwrap();
+    assert_eq!(run.node_id, "direct");
+    let config = serde_json::from_str::<serde_json::Value>(
+        runner.config.lock().unwrap().as_deref().unwrap(),
+    )
+    .unwrap();
+    assert_eq!(config["route"]["final"], "direct");
+    assert_eq!(
+        config["route"]["rules"][0]["domain_suffix"],
+        serde_json::json!(["google.com"])
+    );
+    assert_eq!(config["route"]["rules"][0]["outbound"], "Proxy");
+    assert_eq!(config["outbounds"][0]["type"], "selector");
+    assert_eq!(config["outbounds"][0]["tag"], "Proxy");
+    assert_eq!(config["outbounds"].as_array().unwrap().len(), 4);
+    assert!(!render_response(&response, OutputFormat::Json).contains("f43c0eee"));
+
+    let node_runner = CapturingSingBoxRunner {
+        config: std::sync::Mutex::new(None),
+    };
+    let jp_id = config["outbounds"][0]["outbounds"][0]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let node_response = handle_run_url_with_sing_box_and_node_id(
+        &TestSingBoxInstaller,
+        &node_runner,
+        profile,
+        Some(&jp_id),
+        "127.0.0.1",
+        7890,
+        Some(engine_dir.to_str().expect("temp path should be utf-8")),
+        false,
+    );
+    assert!(node_response.ok);
+    assert_eq!(node_response.sing_box_run.as_ref().unwrap().node_id, jp_id);
+    let node_config = serde_json::from_str::<serde_json::Value>(
+        node_runner.config.lock().unwrap().as_deref().unwrap(),
+    )
+    .unwrap();
+    assert_eq!(node_config["route"], serde_json::json!({ "final": jp_id }));
+
+    let _ = std::fs::remove_dir_all(&install_dir);
+}

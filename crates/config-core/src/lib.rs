@@ -4,6 +4,7 @@
 //! It performs no file I/O, network access, platform probing, or engine work.
 
 pub mod routing;
+pub mod routing_import;
 pub mod sdwan_delivery;
 pub mod windows_tunnel;
 
