@@ -89,7 +89,8 @@ fn supported_nodes_become_registry_outbounds() {
         (vless_reality(), "vless"),
         (trojan(), "trojan"),
     ] {
-        let (envelope, chosen) = single_node_envelope("p", &[node.clone()], None).unwrap();
+        let (envelope, chosen) =
+            single_node_envelope("p", std::slice::from_ref(&node), None).unwrap();
         assert_eq!(chosen.id, node.id);
         assert_eq!(builds(&envelope), protocol);
     }
