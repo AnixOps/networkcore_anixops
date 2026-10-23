@@ -948,6 +948,17 @@ pub enum HttpMitmAction {
     Reject { status_code: u16 },
 }
 
+/// Host-level MITM decision for one connection attempt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MitmHostnameDecision {
+    /// The host is outside the plugin's MITM hostname list.
+    Bypass,
+    /// TCP TLS to the host is intercepted.
+    Intercept,
+    /// QUIC to the host must be refused so the client falls back to TCP TLS.
+    RejectQuic,
+}
+
 /// Header mutation operation selected by plugin policy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum HttpHeaderMutationOperation {
@@ -1303,6 +1314,18 @@ pub trait MitmPluginService {
             audits: result.audits,
             diagnostics: result.diagnostics,
         })
+    }
+
+    /// Evaluates the plugin's MITM hostname list for one connection attempt
+    /// on the active data plane. `is_quic` marks UDP/443 QUIC attempts.
+    /// Adapters without hostname policy bypass every host.
+    fn evaluate_mitm_hostname(
+        &self,
+        _plugin_instance: &PluginInstance,
+        _hostname: &str,
+        _is_quic: bool,
+    ) -> DomainResult<MitmHostnameDecision> {
+        Ok(MitmHostnameDecision::Bypass)
     }
 
     fn audit(&self, plugin_result: &PluginResult) -> Vec<AuditEvent>;
