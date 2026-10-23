@@ -12875,6 +12875,7 @@ fn http_mitm_action_name(action: &HttpMitmAction) -> String {
         HttpMitmAction::Continue => "continue",
         HttpMitmAction::Redirect { .. } => "redirect",
         HttpMitmAction::Reject { .. } => "reject",
+        HttpMitmAction::Respond { .. } => "respond",
     }
     .to_string()
 }
