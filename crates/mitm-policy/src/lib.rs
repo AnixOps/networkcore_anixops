@@ -5,6 +5,7 @@
 //! an alpha built-in ad-block plugin package. It does not apply live
 //! request/response mutations yet.
 
+pub mod loon_plugin;
 pub mod managed_sdwan;
 
 use control_domain::{
