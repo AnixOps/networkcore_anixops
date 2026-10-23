@@ -1315,10 +1315,12 @@ dependencies = [
  "etherparse",
  "futures",
  "netstack-smoltcp",
+ "outbound-vless",
  "ring",
  "serde",
  "serde_json",
  "shadowsocks",
+ "tls-mimic",
  "tokio",
 ]
 

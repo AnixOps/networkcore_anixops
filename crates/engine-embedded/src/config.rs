@@ -1,14 +1,19 @@
 //! Runtime config envelope passed across the C ABI.
 //!
 //! The envelope is JSON. It carries the one outbound the tunnel uses; the
-//! password is read from the Keychain by the Swift side right before the call
+//! password (or VLESS uuid) is read from the Keychain by the Swift side right before the call
 //! and is never written back out by this crate (no `Debug`, no status field).
 
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 
 use engine_outbound::{Dialer, TcpOutbound};
+use outbound_vless::{
+    parse_public_key, parse_short_id, parse_uuid, Flow, RealityConfig, VlessRealityConfig,
+    VlessRealityOutbound,
+};
 use serde::Deserialize;
+use tls_mimic::Fingerprint;
 
 use crate::direct::DirectOutbound;
 use crate::shadowsocks::{Method, Ss2022Outbound};
@@ -43,7 +48,27 @@ pub enum OutboundConfig {
         method: String,
         password: String,
     },
+    /// VLESS over REALITY, optionally with the `xtls-rprx-vision` flow.
+    Vless {
+        server: String,
+        port: u16,
+        uuid: String,
+        #[serde(default)]
+        flow: String,
+        reality: RealityOutboundConfig,
+    },
     Direct,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RealityOutboundConfig {
+    pub server_name: String,
+    pub public_key: String,
+    #[serde(default)]
+    pub short_id: String,
+    #[serde(default = "default_fingerprint")]
+    pub fingerprint: String,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -92,6 +117,10 @@ impl Default for Limits {
             connect_timeout_secs: default_connect_timeout_secs(),
         }
     }
+}
+
+fn default_fingerprint() -> String {
+    "chrome".to_owned()
 }
 
 fn default_mtu() -> u16 {
@@ -204,9 +233,51 @@ impl RuntimeConfig {
                     })?;
                 Ok(Arc::new(outbound))
             }
+            OutboundConfig::Vless {
+                server,
+                port,
+                uuid,
+                flow,
+                reality,
+            } => {
+                let config = vless_config(server, *port, uuid, flow, reality)?;
+                Ok(Arc::new(VlessRealityOutbound::new(config, dialer)))
+            }
             OutboundConfig::Direct => Ok(Arc::new(DirectOutbound::new(dialer))),
         }
     }
+}
+
+fn vless_config(
+    server: &str,
+    port: u16,
+    uuid: &str,
+    flow: &str,
+    reality: &RealityOutboundConfig,
+) -> Result<VlessRealityConfig, RuntimeError> {
+    if server.is_empty() || port == 0 {
+        return Err(rejected("vless server address is invalid"));
+    }
+    let uuid = parse_uuid(uuid).map_err(|_| rejected("vless uuid is invalid"))?;
+    let flow = Flow::from_name(flow).ok_or_else(|| rejected("unsupported vless flow"))?;
+    if reality.server_name.is_empty() {
+        return Err(rejected("reality server_name is required"));
+    }
+    let public_key = parse_public_key(&reality.public_key)
+        .map_err(|_| rejected("reality public_key is invalid"))?;
+    let short_id =
+        parse_short_id(&reality.short_id).map_err(|_| rejected("reality short_id is invalid"))?;
+    let fingerprint = Fingerprint::from_name(&reality.fingerprint)
+        .ok_or_else(|| rejected("unsupported reality fingerprint"))?;
+    let mut reality_config = RealityConfig::new(reality.server_name.clone(), public_key, short_id);
+    reality_config.fingerprint = fingerprint;
+    Ok(VlessRealityConfig {
+        server: server.to_owned(),
+        port,
+        uuid,
+        flow,
+        reality: reality_config,
+    })
 }
 
 fn rejected(message: &'static str) -> RuntimeError {

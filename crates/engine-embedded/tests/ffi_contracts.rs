@@ -105,6 +105,55 @@ fn shadowsocks_config_is_accepted_and_status_hides_the_key() {
     unsafe { networkcore_ios_runtime_free_handle(handle) };
 }
 
+const VLESS_UUID: &str = "b831381d-6324-4d53-ad4f-8cda48b30811";
+const REALITY_PUBLIC_KEY: &str = "Z84J2IelR9ch3k8VtlVhhs5ycBUlXA7wHBWcBrjqnAw";
+
+fn vless_config(flow: &str, uuid: &str, public_key: &str, short_id: &str) -> String {
+    format!(
+        r#"{{"schema_version":1,"profile_id":"node-2","outbound":{{"type":"vless","server":"192.0.2.20","port":443,"uuid":"{uuid}","flow":"{flow}","reality":{{"server_name":"www.example.com","public_key":"{public_key}","short_id":"{short_id}"}}}}}}"#
+    )
+}
+
+#[test]
+fn vless_reality_config_is_accepted_and_status_hides_credentials() {
+    for flow in ["xtls-rprx-vision", ""] {
+        let (code, handle) = init(&vless_config(
+            flow,
+            VLESS_UUID,
+            REALITY_PUBLIC_KEY,
+            "6ba85179e30d4fc2",
+        ));
+        assert_eq!(code, NETWORKCORE_IOS_OK, "flow {flow:?}");
+        let status = status_json(handle).to_string();
+        assert!(status.contains(r#""outbound":"vless""#));
+        assert!(!status.contains(VLESS_UUID));
+        assert!(!status.contains(REALITY_PUBLIC_KEY));
+        assert!(!status.contains("6ba85179e30d4fc2"));
+        assert!(!status.contains("192.0.2.20"));
+        unsafe { networkcore_ios_runtime_free_handle(handle) };
+    }
+}
+
+#[test]
+fn invalid_vless_reality_settings_are_rejected() {
+    for config in [
+        vless_config("xtls-rprx-vision", "not-a-uuid", REALITY_PUBLIC_KEY, ""),
+        vless_config("xtls-rprx-direct", VLESS_UUID, REALITY_PUBLIC_KEY, ""),
+        vless_config("", VLESS_UUID, "c2hvcnQ", ""),
+        vless_config("", VLESS_UUID, REALITY_PUBLIC_KEY, "0011223344556677889"),
+        vless_config("", VLESS_UUID, REALITY_PUBLIC_KEY, "zz"),
+    ] {
+        let (code, handle) = init(&config);
+        assert_eq!(code, NETWORKCORE_IOS_ERR_CONFIG_REJECTED, "{config}");
+        assert!(handle.is_null());
+    }
+
+    let (code, _) = init(
+        r#"{"schema_version":1,"profile_id":"p","outbound":{"type":"vless","server":"192.0.2.20","port":443,"uuid":"b831381d-6324-4d53-ad4f-8cda48b30811","reality":{"server_name":"www.example.com","public_key":"Z84J2IelR9ch3k8VtlVhhs5ycBUlXA7wHBWcBrjqnAw","spider_x":"/"}}}"#,
+    );
+    assert_eq!(code, NETWORKCORE_IOS_ERR_CONFIG_REJECTED);
+}
+
 #[test]
 fn lifecycle_is_idempotent_and_null_safe() {
     let (code, handle) = init(DIRECT_CONFIG);

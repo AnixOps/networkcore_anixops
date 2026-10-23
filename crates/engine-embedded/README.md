@@ -5,7 +5,7 @@ In-process engine for the iOS Network Extension (roadmap M1a). It never starts a
 - `ffi`: `networkcore_ios_*` C ABI, mirrored by `include/networkcore_ios_runtime.h`. Every symbol catches panics and returns a stable code that maps onto `platform.ios.embedded_runtime.*` diagnostics, following `docs/architecture/ios-embedded-runtime-ffi-boundary-design.md`.
 - `EmbeddedRuntime`: parses and validates the JSON config envelope (`schema_version` 1), builds the outbound, owns the tunnel lifecycle and reports a sanitized status (profile id, state, counters; no addresses, keys or traffic).
 - `tunnel`: one current-thread tokio runtime on a dedicated thread. Packets from `packetFlow` enter through `input_packet`; packets for `packetFlow` leave through the writer callback. TCP flows go through the outbound; UDP/53 is re-sent as DNS-over-TCP through the outbound; other UDP is dropped so QUIC falls back to TCP.
-- Outbounds implement `engine_outbound::TcpOutbound`: `shadowsocks` (Shadowsocks-2022, single PSK) and `direct`. A new protocol plugs in without changing the tunnel.
+- Outbounds implement `engine_outbound::TcpOutbound`: `shadowsocks` (Shadowsocks-2022, single PSK), `vless` (VLESS over REALITY with optional XTLS Vision, from `outbound-vless`) and `direct`. A new protocol plugs in without changing the tunnel.
 
 Config envelope:
 
@@ -31,6 +31,26 @@ Config envelope:
   }
 }
 ```
+
+A VLESS + REALITY outbound uses the same envelope with:
+
+```json
+"outbound": {
+  "type": "vless",
+  "server": "example.com",
+  "port": 443,
+  "uuid": "<uuid>",
+  "flow": "xtls-rprx-vision",
+  "reality": {
+    "server_name": "www.example.com",
+    "public_key": "<pbk>",
+    "short_id": "<sid>",
+    "fingerprint": "chrome"
+  }
+}
+```
+
+`flow` may be empty for plain VLESS; `short_id` defaults to empty and `fingerprint` to `chrome` (`chrome-nopq` drops the post-quantum key share). The uuid, like the Shadowsocks password, comes from the Keychain and never appears in status.
 
 `dns` and `limits` are optional. The defaults keep the worst case near 128 flows × (2 × 64 KiB window + relay and cipher buffers), about 25 MiB, inside the roughly 50 MiB Network Extension limit. Real peak memory is measured on an iPhone during M1 acceptance.
 

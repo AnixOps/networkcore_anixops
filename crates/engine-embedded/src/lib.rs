@@ -6,8 +6,8 @@
 //! - [`EmbeddedRuntime`]: validated config, outbound selection and lifecycle.
 //! - [`tunnel`]: userspace TCP/IP (smoltcp) that turns packets into flows.
 //! - Outbounds implementing [`engine_outbound::TcpOutbound`]: Shadowsocks-2022
-//!   ([`shadowsocks`]) and direct ([`direct`]). New protocols plug in here
-//!   without touching the tunnel.
+//!   ([`shadowsocks`]), VLESS + REALITY (`outbound-vless`) and direct
+//!   ([`direct`]). New protocols plug in here without touching the tunnel.
 //!
 //! The runtime never starts a process, never touches Apple SDK objects and
 //! never puts credentials or traffic into errors, status or logs.
