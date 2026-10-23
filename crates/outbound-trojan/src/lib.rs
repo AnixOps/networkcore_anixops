@@ -6,6 +6,10 @@
 //! is held back and written together with the first payload so it leaves in
 //! the same TLS record, like other Trojan clients do.
 //!
+//! With [`TrojanOutbound::with_websocket`] the Trojan stream runs inside a
+//! WebSocket over the TLS connection (the `ws` transport of Trojan-Go and
+//! Xray).
+//!
 //! [`TrojanFactory`] registers the outbound under `"type": "trojan"`.
 
 mod factory;
@@ -19,6 +23,7 @@ use engine_outbound::{BoxFuture, BoxStream, Dialer, TargetAddr, TcpOutbound};
 use sha2::{Digest, Sha224};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use transport_tls::{TlsConnector, TlsSettings};
+use transport_ws::WsConnector;
 
 pub use factory::{TrojanFactory, TYPE_NAME};
 
@@ -35,6 +40,7 @@ pub struct TrojanOutbound {
     /// Lowercase hex SHA-224 of the password; the password itself is dropped.
     password_hash: [u8; 56],
     tls: TlsConnector,
+    websocket: Option<WsConnector>,
     dialer: Arc<dyn Dialer>,
 }
 
@@ -58,8 +64,15 @@ impl TrojanOutbound {
             port,
             password_hash: password_hash(password),
             tls: TlsConnector::new(tls)?,
+            websocket: None,
             dialer,
         })
+    }
+
+    /// Carries the Trojan stream in a WebSocket inside the TLS connection.
+    pub fn with_websocket(mut self, websocket: WsConnector) -> Self {
+        self.websocket = Some(websocket);
+        self
     }
 }
 
@@ -72,7 +85,10 @@ impl TcpOutbound for TrojanOutbound {
         Box::pin(async move {
             let request = request_header(&self.password_hash, target)?;
             let transport = self.dialer.dial(&self.server, self.port).await?;
-            let tls = self.tls.connect(transport).await?;
+            let mut tls = self.tls.connect(transport).await?;
+            if let Some(websocket) = &self.websocket {
+                tls = websocket.connect(tls).await?;
+            }
             Ok(Box::new(TrojanStream {
                 inner: tls,
                 pending: request,

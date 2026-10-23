@@ -6,6 +6,7 @@ use engine_outbound::registry::{parse_settings, BuildError, OutboundFactory, Set
 use engine_outbound::{Dialer, TcpOutbound};
 use serde::Deserialize;
 use transport_tls::TlsSettings;
+use transport_ws::{WsConnector, WsSettings};
 
 use crate::TrojanOutbound;
 
@@ -25,6 +26,22 @@ struct TrojanSettings {
     /// Skip certificate verification (`allowInsecure=1`).
     #[serde(default)]
     insecure: bool,
+    /// `{"type": "ws", "path": ..., "host": ...}`; plain TLS when absent.
+    #[serde(default)]
+    transport: Option<TransportSettings>,
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "type", rename_all = "lowercase", deny_unknown_fields)]
+enum TransportSettings {
+    Tcp,
+    Ws {
+        #[serde(default)]
+        path: String,
+        /// `Host` header; defaults to the TLS server name.
+        #[serde(default)]
+        host: String,
+    },
 }
 
 pub struct TrojanFactory;
@@ -50,7 +67,21 @@ impl OutboundFactory for TrojanFactory {
             alpn: settings.alpn,
             insecure: settings.insecure,
         };
-        let outbound = TrojanOutbound::new(
+        let websocket = match settings.transport {
+            None | Some(TransportSettings::Tcp) => None,
+            Some(TransportSettings::Ws { path, host }) => Some(
+                WsConnector::new(
+                    &WsSettings {
+                        path,
+                        host,
+                        headers: Vec::new(),
+                    },
+                    &tls.server_name,
+                )
+                .map_err(|_| "trojan websocket settings are invalid")?,
+            ),
+        };
+        let mut outbound = TrojanOutbound::new(
             settings.server,
             settings.port,
             &settings.password,
@@ -58,6 +89,9 @@ impl OutboundFactory for TrojanFactory {
             dialer,
         )
         .map_err(|_| "trojan outbound settings are invalid")?;
+        if let Some(websocket) = websocket {
+            outbound = outbound.with_websocket(websocket);
+        }
         Ok(Arc::new(outbound))
     }
 }

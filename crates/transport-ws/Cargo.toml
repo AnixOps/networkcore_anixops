@@ -1,0 +1,21 @@
+[package]
+name = "transport-ws"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "WebSocket client transport (RFC 6455) shared by outbound protocol crates."
+
+[dependencies]
+base64 = "0.22"
+engine-outbound = { path = "../engine-outbound" }
+ring = "0.17"
+tokio = { version = "1", default-features = false, features = ["io-util"] }
+
+[dev-dependencies]
+futures = "0.3"
+tokio = { version = "1", default-features = false, features = ["io-util", "net", "rt", "rt-multi-thread", "macros", "time"] }
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
+
+[lib]
+path = "src/lib.rs"
