@@ -2644,6 +2644,42 @@ jobs:
           NETWORKCORE_REQUIRE_SING_BOX_EQUIVALENCE: "1"
         run: cargo test --locked -p engine-singbox --test route_equivalence -- --nocapture
 
+  protocol-features:
+    name: Protocol feature matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CARGO_INCREMENTAL: "0"
+    needs:
+      - detect-projects
+    if: ${{ needs.detect-projects.outputs.rust == 'true' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Rust
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy
+          rustup default stable
+
+      - name: Restore Rust build cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+
+      # Every protocol is a cargo feature of engine-embedded. Each one must build,
+      # lint and pass the contract tests alone and with every other one removed.
+      - name: Lint and test each protocol feature alone
+        shell: bash
+        run: |
+          set -euo pipefail
+          for features in "" shadowsocks vless wireguard; do
+            echo "::group::engine-embedded features=[${features}]"
+            cargo clippy --locked -p engine-embedded --no-default-features --features "${features}" --all-targets -- -D warnings
+            cargo test --locked -p engine-embedded --no-default-features --features "${features}" --test ffi_contracts
+            echo "::endgroup::"
+          done
+
   windows-managed-client-installer:
     name: Windows managed client MSI
     runs-on: windows-latest
@@ -3397,6 +3433,7 @@ jobs:
       - rust-h2-mitm-fuzz
       - maintenance-contracts
       - routing-equivalence
+      - protocol-features
       - node-build-test
       - swift-build-test
       - swift-manifest-validation
@@ -3445,6 +3482,7 @@ jobs:
           RESULT_MAINTENANCE: ${{ needs.maintenance-contracts.result }}
           RESULT_REALITY_INTEROP: ${{ needs.reality-interop.result }}
           RESULT_ROUTING_EQUIVALENCE: ${{ needs.routing-equivalence.result }}
+          RESULT_PROTOCOL_FEATURES: ${{ needs.protocol-features.result }}
           RESULT_NODE_BUILD_TEST: ${{ needs.node-build-test.result }}
           RESULT_SWIFT_BUILD_TEST: ${{ needs.swift-build-test.result }}
           RESULT_APPLE_SMOKE: ${{ needs.apple-project-smoke.result }}
@@ -3559,6 +3597,7 @@ jobs:
           record_job "Maintenance diagnostic contract" "${RESULT_MAINTENANCE}" "${rust_required}"
           record_job "REALITY interop (Linux)" "${RESULT_REALITY_INTEROP}" "${reality_interop_required}"
           record_job "Routing equivalence (sing-box)" "${RESULT_ROUTING_EQUIVALENCE}" "${rust_required}"
+          record_job "Protocol feature matrix" "${RESULT_PROTOCOL_FEATURES}" "${rust_required}"
           record_job "Node build and test" "${RESULT_NODE_BUILD_TEST}" "${node_required}"
           record_job "Swift build and test" "${RESULT_SWIFT_BUILD_TEST}" "${swift_required}"
           record_job "Swift package manifest validation" "${RESULT_SWIFT_MANIFEST}" "${swift_manifest_required}"
@@ -3629,6 +3668,7 @@ jobs:
             echo "| Rust dependency security audit | ${audit_required} | ${RESULT_RUST_AUDIT} |"
             echo "| REALITY interop (Linux) | ${reality_interop_required} | ${RESULT_REALITY_INTEROP} |"
             echo "| HTTP/2 MITM fuzz | ${rust_required} | ${RESULT_RUST_H2_FUZZ} |"
+            echo "| Protocol feature matrix | ${rust_required} | ${RESULT_PROTOCOL_FEATURES} |"
             echo "| Node build and test | ${node_required} | ${RESULT_NODE_BUILD_TEST} |"
             echo "| Swift build and test | ${swift_required} | ${RESULT_SWIFT_BUILD_TEST} |"
             echo "| Apple project smoke | ${apple_required} | ${RESULT_APPLE_SMOKE} |"

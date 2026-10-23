@@ -5,8 +5,13 @@
 //! [`Dialer`], so the Network Extension can replace [`TcpDialer`] with a
 //! dialer bound to the physical interface or using its own resolver.
 //!
+//! [`registry`] maps config `type` names to per-protocol factories, so an
+//! engine can add or drop protocols with cargo features.
+//!
 //! Errors are plain [`std::io::Error`] values. Implementations must keep
 //! credentials (UUIDs, passwords, private keys) out of error messages.
+
+pub mod registry;
 
 use std::fmt;
 use std::future::Future;

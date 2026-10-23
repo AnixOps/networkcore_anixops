@@ -2,6 +2,8 @@
 //!
 //! The envelope is JSON. It carries either the one outbound the tunnel uses
 //! or a `routing` section with named TCP outbounds, rules and policy groups.
+//! Each outbound names its protocol with `type`; which types exist depends on
+//! the cargo features this crate was built with (see [`crate::protocols`]).
 //! Secrets (the Shadowsocks password, the VLESS uuid, the WireGuard private
 //! and preshared keys) are read from the Keychain by the Swift side right
 //! before the call and are never written back out by this crate (no `Debug`,
@@ -12,18 +14,14 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 
 use config_core::routing::{PolicyGroupSpec, RoutingSpec};
+use engine_outbound::registry::{OutboundRegistry, Settings};
 use engine_outbound::{Dialer, TcpOutbound};
-use outbound_vless::{
-    parse_public_key, parse_short_id, parse_uuid, Flow, RealityConfig, VlessRealityConfig,
-    VlessRealityOutbound,
-};
 use serde::Deserialize;
-use tls_mimic::Fingerprint;
 
 use crate::direct::DirectOutbound;
 use crate::routing::RoutedOutbound;
-use crate::shadowsocks::{Method, Ss2022Outbound};
-use crate::wireguard::{decode_key, WireGuardSettings};
+#[cfg(feature = "wireguard")]
+use crate::wireguard::{self, WireGuardSettings};
 use crate::{RuntimeError, RuntimeErrorCode};
 
 pub const CONFIG_SCHEMA_VERSION: u32 = 1;
@@ -54,37 +52,17 @@ pub struct RuntimeConfig {
     pub limits: Limits,
 }
 
+/// One outbound: a `type` name looked up in the [`OutboundRegistry`] and the
+/// protocol's own settings, which only its factory parses.
+///
+/// `wireguard` is not in the registry: it replaces the TCP/IP stack instead of
+/// carrying its flows, so the runtime handles it itself.
 #[derive(Deserialize)]
-#[serde(tag = "type", rename_all = "kebab-case")]
-pub enum OutboundConfig {
-    Shadowsocks {
-        server: String,
-        port: u16,
-        method: String,
-        password: String,
-    },
-    /// VLESS over REALITY, optionally with the `xtls-rprx-vision` flow.
-    Vless {
-        server: String,
-        port: u16,
-        uuid: String,
-        #[serde(default)]
-        flow: String,
-        reality: RealityOutboundConfig,
-    },
-    Direct,
-    /// One WireGuard peer. Keys are standard base64, as in a `wg-quick` file;
-    /// the private and preshared keys are injected from the Keychain.
-    Wireguard {
-        private_key: String,
-        peer_public_key: String,
-        #[serde(default)]
-        preshared_key: Option<String>,
-        server: String,
-        port: u16,
-        #[serde(default)]
-        persistent_keepalive_secs: Option<u16>,
-    },
+pub struct OutboundConfig {
+    #[serde(rename = "type")]
+    pub kind: String,
+    #[serde(flatten)]
+    pub settings: Settings,
 }
 
 /// What the runtime runs for a config.
@@ -92,18 +70,8 @@ pub enum TunnelMode {
     /// Userspace TCP/IP stack with flows through a TCP outbound.
     Stack(Arc<dyn TcpOutbound>),
     /// Packets sealed straight to a WireGuard peer.
+    #[cfg(feature = "wireguard")]
     WireGuard(WireGuardSettings),
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct RealityOutboundConfig {
-    pub server_name: String,
-    pub public_key: String,
-    #[serde(default)]
-    pub short_id: String,
-    #[serde(default = "default_fingerprint")]
-    pub fingerprint: String,
 }
 
 /// Rule-based routing: TCP outbounds keyed by node id, `config-core` rule lines
@@ -180,10 +148,6 @@ impl Default for Limits {
             connect_timeout_secs: default_connect_timeout_secs(),
         }
     }
-}
-
-fn default_fingerprint() -> String {
-    "chrome".to_owned()
 }
 
 fn default_mtu() -> u16 {
@@ -290,53 +254,38 @@ impl RuntimeConfig {
         Ok(())
     }
 
-    pub fn build_mode(&self, dialer: Arc<dyn Dialer>) -> Result<TunnelMode, RuntimeError> {
-        match &self.outbound {
-            Some(OutboundConfig::Wireguard {
-                private_key,
-                peer_public_key,
-                preshared_key,
-                server,
-                port,
-                persistent_keepalive_secs,
-            }) => {
-                let private_key = decode_key(private_key)
-                    .ok_or_else(|| rejected("wireguard private key must be 32 bytes of base64"))?;
-                let peer_public_key = decode_key(peer_public_key).ok_or_else(|| {
-                    rejected("wireguard peer public key must be 32 bytes of base64")
-                })?;
-                let preshared_key = match preshared_key.as_deref() {
-                    None | Some("") => None,
-                    Some(key) => Some(decode_key(key).ok_or_else(|| {
-                        rejected("wireguard preshared key must be 32 bytes of base64")
-                    })?),
-                };
-                if server.trim().is_empty() || *port == 0 {
-                    return Err(rejected("wireguard endpoint is invalid"));
-                }
-                Ok(TunnelMode::WireGuard(WireGuardSettings {
-                    private_key,
-                    peer_public_key,
-                    preshared_key,
-                    server: server.trim().to_owned(),
-                    port: *port,
-                    persistent_keepalive_secs: *persistent_keepalive_secs,
-                }))
-            }
-            _ => self.build_outbound(dialer).map(TunnelMode::Stack),
+    pub fn build_mode(
+        &self,
+        registry: &OutboundRegistry,
+        dialer: Arc<dyn Dialer>,
+    ) -> Result<TunnelMode, RuntimeError> {
+        #[cfg(feature = "wireguard")]
+        if let Some(outbound) = self
+            .outbound
+            .as_ref()
+            .filter(|outbound| outbound.kind == wireguard::TYPE_NAME)
+        {
+            return wireguard::settings_from(&outbound.settings)
+                .map(TunnelMode::WireGuard)
+                .map_err(rejected);
         }
+        self.build_outbound(registry, dialer).map(TunnelMode::Stack)
     }
 
     pub fn build_outbound(
         &self,
+        registry: &OutboundRegistry,
         dialer: Arc<dyn Dialer>,
     ) -> Result<Arc<dyn TcpOutbound>, RuntimeError> {
         match (&self.outbound, &self.routing) {
-            (Some(outbound), _) => build_single_outbound(outbound, dialer),
+            (Some(outbound), _) => build_single_outbound(registry, outbound, dialer),
             (None, Some(routing)) => {
                 let mut nodes = BTreeMap::new();
                 for (id, outbound) in &routing.outbounds {
-                    nodes.insert(id.clone(), build_single_outbound(outbound, dialer.clone())?);
+                    nodes.insert(
+                        id.clone(),
+                        build_single_outbound(registry, outbound, dialer.clone())?,
+                    );
                 }
                 let spec = RoutingSpec {
                     rules: routing.rules.clone(),
@@ -362,74 +311,20 @@ impl RuntimeConfig {
     }
 }
 
-fn vless_config(
-    server: &str,
-    port: u16,
-    uuid: &str,
-    flow: &str,
-    reality: &RealityOutboundConfig,
-) -> Result<VlessRealityConfig, RuntimeError> {
-    if server.is_empty() || port == 0 {
-        return Err(rejected("vless server address is invalid"));
-    }
-    let uuid = parse_uuid(uuid).map_err(|_| rejected("vless uuid is invalid"))?;
-    let flow = Flow::from_name(flow).ok_or_else(|| rejected("unsupported vless flow"))?;
-    if reality.server_name.is_empty() {
-        return Err(rejected("reality server_name is required"));
-    }
-    let public_key = parse_public_key(&reality.public_key)
-        .map_err(|_| rejected("reality public_key is invalid"))?;
-    let short_id =
-        parse_short_id(&reality.short_id).map_err(|_| rejected("reality short_id is invalid"))?;
-    let fingerprint = Fingerprint::from_name(&reality.fingerprint)
-        .ok_or_else(|| rejected("unsupported reality fingerprint"))?;
-    let mut reality_config = RealityConfig::new(reality.server_name.clone(), public_key, short_id);
-    reality_config.fingerprint = fingerprint;
-    Ok(VlessRealityConfig {
-        server: server.to_owned(),
-        port,
-        uuid,
-        flow,
-        reality: reality_config,
-    })
-}
-
 /// Builds one TCP outbound. WireGuard runs as a packet tunnel, so it cannot be
 /// used here or as a routed node.
 fn build_single_outbound(
+    registry: &OutboundRegistry,
     outbound: &OutboundConfig,
     dialer: Arc<dyn Dialer>,
 ) -> Result<Arc<dyn TcpOutbound>, RuntimeError> {
-    match outbound {
-        OutboundConfig::Wireguard { .. } => {
-            Err(rejected("wireguard is a packet tunnel, not a TCP outbound"))
-        }
-        OutboundConfig::Shadowsocks {
-            server,
-            port,
-            method,
-            password,
-        } => {
-            let method =
-                Method::parse(method).map_err(|_| rejected("unsupported shadowsocks method"))?;
-            let outbound = Ss2022Outbound::new(server.clone(), *port, method, password, dialer)
-                .map_err(|err| {
-                    RuntimeError::new(RuntimeErrorCode::ConfigRejected, safe_io_message(&err))
-                })?;
-            Ok(Arc::new(outbound))
-        }
-        OutboundConfig::Vless {
-            server,
-            port,
-            uuid,
-            flow,
-            reality,
-        } => {
-            let config = vless_config(server, *port, uuid, flow, reality)?;
-            Ok(Arc::new(VlessRealityOutbound::new(config, dialer)))
-        }
-        OutboundConfig::Direct => Ok(Arc::new(DirectOutbound::new(dialer))),
+    #[cfg(feature = "wireguard")]
+    if outbound.kind == wireguard::TYPE_NAME {
+        return Err(rejected("wireguard is a packet tunnel, not a TCP outbound"));
     }
+    registry
+        .build(&outbound.kind, &outbound.settings, dialer)
+        .map_err(rejected)
 }
 
 fn is_identifier(value: &str) -> bool {
@@ -442,12 +337,4 @@ fn is_identifier(value: &str) -> bool {
 
 fn rejected(message: &'static str) -> RuntimeError {
     RuntimeError::new(RuntimeErrorCode::ConfigRejected, message)
-}
-
-/// Outbound constructors only use fixed messages; anything else is replaced.
-fn safe_io_message(err: &std::io::Error) -> &'static str {
-    match err.kind() {
-        std::io::ErrorKind::InvalidInput => "shadowsocks outbound settings are invalid",
-        _ => "outbound could not be created",
-    }
 }

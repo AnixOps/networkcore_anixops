@@ -9,6 +9,7 @@ description = "VLESS outbound with REALITY client authentication and XTLS Vision
 [dependencies]
 engine-outbound = { path = "../engine-outbound" }
 ring = "0.17.14"
+serde = { version = "1", features = ["derive"] }
 tls-mimic = { path = "../tls-mimic" }
 tokio = { version = "1", default-features = false, features = ["io-util"] }
 

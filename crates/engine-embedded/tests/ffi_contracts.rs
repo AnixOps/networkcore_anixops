@@ -83,8 +83,48 @@ fn init_rejects_bad_input_with_stable_codes() {
         r#"{"schema_version":1,"profile_id":"p","outbound":{"type":"shadowsocks","server":"example.com","port":8388,"method":"2022-blake3-aes-128-gcm","password":"c2hvcnQ="}}"#,
     );
     assert_eq!(code, NETWORKCORE_IOS_ERR_CONFIG_REJECTED);
+
+    let (code, _) = init(r#"{"schema_version":1,"profile_id":"p","outbound":{"server":"x"}}"#);
+    assert_eq!(code, NETWORKCORE_IOS_ERR_CONFIG_REJECTED);
 }
 
+#[test]
+fn unknown_outbound_types_are_rejected_by_the_registry() {
+    for kind in ["no-such-protocol", "Direct", ""] {
+        let config = format!(
+            r#"{{"schema_version":1,"profile_id":"p","outbound":{{"type":"{kind}","server":"192.0.2.1","port":1}}}}"#
+        );
+        let (code, handle) = init(&config);
+        assert_eq!(code, NETWORKCORE_IOS_ERR_CONFIG_REJECTED, "{kind}");
+        assert!(handle.is_null());
+    }
+}
+
+#[test]
+fn supported_types_follow_cargo_features() {
+    let types = engine_embedded::protocols::supported_types();
+    assert!(types.contains(&"direct"));
+    assert_eq!(
+        types.contains(&"shadowsocks"),
+        cfg!(feature = "shadowsocks")
+    );
+    assert_eq!(types.contains(&"vless"), cfg!(feature = "vless"));
+    assert_eq!(types.contains(&"wireguard"), cfg!(feature = "wireguard"));
+}
+
+#[cfg(feature = "wireguard")]
+#[test]
+fn wireguard_cannot_be_a_routed_node() {
+    let key = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=";
+    let config = format!(
+        r#"{{"schema_version":1,"profile_id":"p","routing":{{"outbounds":{{"wg":{{"type":"wireguard","private_key":"{key}","peer_public_key":"{key}","server":"192.0.2.1","port":51820}}}},"rules":["FINAL,wg"]}}}}"#
+    );
+    let (code, handle) = init(&config);
+    assert_eq!(code, NETWORKCORE_IOS_ERR_CONFIG_REJECTED);
+    assert!(handle.is_null());
+}
+
+#[cfg(feature = "shadowsocks")]
 #[test]
 fn shadowsocks_config_is_accepted_and_status_hides_the_key() {
     let password = "AAECAwQFBgcICQoLDA0ODw==";
@@ -105,15 +145,19 @@ fn shadowsocks_config_is_accepted_and_status_hides_the_key() {
     unsafe { networkcore_ios_runtime_free_handle(handle) };
 }
 
+#[cfg(feature = "vless")]
 const VLESS_UUID: &str = "b831381d-6324-4d53-ad4f-8cda48b30811";
+#[cfg(feature = "vless")]
 const REALITY_PUBLIC_KEY: &str = "Z84J2IelR9ch3k8VtlVhhs5ycBUlXA7wHBWcBrjqnAw";
 
+#[cfg(feature = "vless")]
 fn vless_config(flow: &str, uuid: &str, public_key: &str, short_id: &str) -> String {
     format!(
         r#"{{"schema_version":1,"profile_id":"node-2","outbound":{{"type":"vless","server":"192.0.2.20","port":443,"uuid":"{uuid}","flow":"{flow}","reality":{{"server_name":"www.example.com","public_key":"{public_key}","short_id":"{short_id}"}}}}}}"#
     )
 }
 
+#[cfg(feature = "vless")]
 #[test]
 fn vless_reality_config_is_accepted_and_status_hides_credentials() {
     for flow in ["xtls-rprx-vision", ""] {
@@ -134,6 +178,7 @@ fn vless_reality_config_is_accepted_and_status_hides_credentials() {
     }
 }
 
+#[cfg(feature = "vless")]
 #[test]
 fn invalid_vless_reality_settings_are_rejected() {
     for config in [
@@ -270,6 +315,7 @@ fn header_declares_every_exported_symbol() {
     }
 }
 
+#[cfg(feature = "shadowsocks")]
 #[test]
 fn routing_config_is_accepted_and_status_hides_rules_and_keys() {
     let password = "AAECAwQFBgcICQoLDA0ODw==";

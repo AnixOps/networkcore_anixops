@@ -7,6 +7,8 @@ repository.workspace = true
 description = "Pluggable outbound interfaces shared by the embedded engine and its protocol crates."
 
 [dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 tokio = { version = "1", default-features = false, features = ["net", "io-util"] }
 
 [dev-dependencies]

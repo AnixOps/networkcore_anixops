@@ -14,6 +14,7 @@ members = [
     "crates/engine-singbox",
     "crates/mitm-anixops-sys",
     "crates/mitm-policy",
+    "crates/outbound-shadowsocks",
     "crates/outbound-vless",
     "crates/platform-ios",
     "crates/platform-linux",

@@ -5,13 +5,14 @@
 //! - [`ffi`]: the `networkcore_ios_*` C ABI that the Swift packet tunnel calls.
 //! - [`EmbeddedRuntime`]: validated config, outbound selection and lifecycle.
 //! - [`tunnel`]: userspace TCP/IP (smoltcp) that turns packets into flows.
-//! - Outbounds implementing [`engine_outbound::TcpOutbound`]: Shadowsocks-2022
-//!   ([`shadowsocks`]), VLESS + REALITY (`outbound-vless`) and direct
-//!   ([`direct`]). New protocols plug in here without touching the tunnel.
-//!   [`routing`] wraps several of them behind the shared `config-core` rules
-//!   and policy groups.
-//! - [`wireguard`]: an IP-level tunnel that bypasses the TCP/IP stack and
-//!   seals packets straight to one peer.
+//! - Outbounds implementing [`engine_outbound::TcpOutbound`], looked up by
+//!   config `type` in the registry from [`protocols`]: Shadowsocks-2022
+//!   (`outbound-shadowsocks`), VLESS + REALITY (`outbound-vless`) and direct
+//!   ([`direct`]). Each protocol is a cargo feature, so it can be added or
+//!   left out without touching the tunnel. [`routing`] wraps several of them
+//!   behind the shared `config-core` rules and policy groups.
+//! - `wireguard` (feature `wireguard`): an IP-level tunnel that bypasses the
+//!   TCP/IP stack and seals packets straight to one peer.
 //!
 //! The runtime never starts a process, never touches Apple SDK objects and
 //! never puts credentials or traffic into errors, status or logs.
@@ -20,20 +21,26 @@ pub mod config;
 pub mod direct;
 pub mod dns;
 pub mod ffi;
+pub mod protocols;
 pub mod routing;
-pub mod shadowsocks;
 pub mod tunnel;
+#[cfg(feature = "wireguard")]
 pub mod wireguard;
+
+#[cfg(feature = "shadowsocks")]
+pub use outbound_shadowsocks as shadowsocks;
 
 use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 
+use engine_outbound::registry::OutboundRegistry;
 use engine_outbound::{Dialer, TcpDialer, TcpOutbound};
 use serde::Serialize;
 
 use crate::config::{RuntimeConfig, TunnelMode};
 use crate::tunnel::{PacketSink, Tunnel, TunnelSettings, TunnelStatsSnapshot};
+#[cfg(feature = "wireguard")]
 use crate::wireguard::WireGuardSettings;
 
 /// Stable error categories. They map one-to-one onto the FFI error codes and
@@ -106,6 +113,7 @@ pub struct RuntimeStatus {
 /// WireGuard peer that takes IP packets directly.
 enum Engine {
     Stack(Arc<dyn TcpOutbound>),
+    #[cfg(feature = "wireguard")]
     WireGuard(WireGuardSettings),
 }
 
@@ -124,9 +132,20 @@ impl EmbeddedRuntime {
     }
 
     pub fn with_dialer(bytes: &[u8], dialer: Arc<dyn Dialer>) -> Result<Self, RuntimeError> {
+        Self::with_registry(bytes, &protocols::default_registry(), dialer)
+    }
+
+    /// Builds outbounds from `registry` instead of the feature-selected one,
+    /// e.g. to add a protocol crate that lives outside this repository.
+    pub fn with_registry(
+        bytes: &[u8],
+        registry: &OutboundRegistry,
+        dialer: Arc<dyn Dialer>,
+    ) -> Result<Self, RuntimeError> {
         let config = RuntimeConfig::from_json(bytes)?;
-        let engine = match config.build_mode(dialer)? {
+        let engine = match config.build_mode(registry, dialer)? {
             TunnelMode::Stack(outbound) => Engine::Stack(outbound),
+            #[cfg(feature = "wireguard")]
             TunnelMode::WireGuard(settings) => Engine::WireGuard(settings),
         };
         Ok(Self::with_engine(config, engine))
@@ -168,6 +187,7 @@ impl EmbeddedRuntime {
         };
         let started = match &self.engine {
             Engine::Stack(outbound) => Tunnel::start(settings, outbound.clone(), sink),
+            #[cfg(feature = "wireguard")]
             Engine::WireGuard(wireguard) => Tunnel::start_wireguard(wireguard.clone(), sink),
         };
         match started {
@@ -207,6 +227,7 @@ impl EmbeddedRuntime {
             profile_id: self.config.profile_id.clone(),
             outbound: match &self.engine {
                 Engine::Stack(outbound) => outbound.protocol(),
+                #[cfg(feature = "wireguard")]
                 Engine::WireGuard(_) => wireguard::PROTOCOL,
             },
             state: self.state,

@@ -5,7 +5,7 @@
 //! produced by the userspace TCP/IP stack leave through the [`PacketSink`]
 //! callback on the tunnel thread. TCP flows are relayed through the outbound,
 //! UDP/53 is forwarded as DNS-over-TCP, and other UDP is dropped so QUIC falls
-//! back to TCP. A WireGuard tunnel ([`Tunnel::start_wireguard`]) skips the
+//! back to TCP. A WireGuard tunnel (`Tunnel::start_wireguard`) skips the
 //! stack and seals packets straight to its peer.
 
 use std::io;
@@ -26,6 +26,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tokio::sync::{mpsc, oneshot, Semaphore};
 
 use crate::dns::{self, OutboundFailure};
+#[cfg(feature = "wireguard")]
 use crate::wireguard::{self, WireGuardSettings};
 
 /// Receives every IP packet the stack emits. Called on the tunnel thread.
@@ -144,6 +145,7 @@ impl Tunnel {
 
     /// Starts a WireGuard tunnel to one peer. Resolving the endpoint and
     /// binding the UDP socket happen before this returns.
+    #[cfg(feature = "wireguard")]
     pub fn start_wireguard(settings: WireGuardSettings, sink: PacketSink) -> io::Result<Self> {
         Self::launch(move |packet_rx, stats| {
             wireguard::spawn_tasks(settings, sink, packet_rx, stats)

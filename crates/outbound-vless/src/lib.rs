@@ -3,8 +3,10 @@
 //! The outer connection is a browser-shaped TLS 1.3 handshake from
 //! `tls-mimic`, authenticated with REALITY. VLESS runs inside it, optionally
 //! with the `xtls-rprx-vision` flow. The outbound implements
-//! [`engine_outbound::TcpOutbound`].
+//! [`engine_outbound::TcpOutbound`]; [`VlessFactory`] registers it under
+//! `"type": "vless"`.
 
+mod factory;
 pub mod protocol;
 pub mod reality;
 mod stream;
@@ -17,6 +19,7 @@ use std::sync::Arc;
 use engine_outbound::{BoxFuture, BoxStream, Dialer, TargetAddr, TcpOutbound};
 use tls_mimic::ClientConfig;
 
+pub use factory::{VlessFactory, TYPE_NAME};
 pub use protocol::{parse_public_key, parse_short_id, parse_uuid, Flow, FLOW_VISION};
 pub use reality::{RealityConfig, RealityHooks};
 pub use stream::VlessStream;
