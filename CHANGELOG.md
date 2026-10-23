@@ -12,6 +12,9 @@
 
 ### Added
 
+- `engine-embedded` 的 Shadowsocks-2022 出站支持多用户 identity header（SIP022 EIH，`iPSK:uPSK` 形式的密码，仅 AES 方法），身份头用 RustCrypto `aes` 分组加密；节点密钥同时接受标准与 URL-safe base64，填充可省略。此前这类节点在 iOS 上导入后启动隧道会被内核拒绝（code 6）。
+- iOS 隧道启动失败时，App 显示扩展返回的失败原因，扩展把启停和失败原因写入系统日志（子系统 `networkcore.packet-tunnel`）。
+
 - iOS App 支持导入 `vless://` 分享链接（`security=reality`、TCP、可选 `flow=xtls-rprx-vision`），生成 `engine-embedded` 的 `vless` 出站；uuid 与其他节点密钥一样只存入 Keychain，App 侧配置不含 uuid。`fp` 参数忽略，固定使用 Chrome 指纹。
 
 - Windows Tauri GUI 导入含规则和策略组的订阅时生成路由配置，策略组在原生分组界面中查看和修改默认成员；不含规则或导入失败时保持原来的单选择器配置。
