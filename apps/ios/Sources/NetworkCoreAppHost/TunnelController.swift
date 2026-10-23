@@ -111,6 +111,7 @@ final class TunnelController: ObservableObject {
 
     func toggle() {
         guard let manager = manager else {
+            message = "请先导入节点"
             return
         }
         if isConnected {
@@ -149,9 +150,37 @@ final class TunnelController: ObservableObject {
     private func refresh() {
         let saved = manager?.isEnabled == true && manager?.protocolConfiguration != nil
         coordinator.apply(Self.platformStatus(saved: saved))
+        let previous = connection
         connection = manager?.connection.status ?? .invalid
+        if connection == .disconnected, previous != .disconnected, previous != .invalid {
+            showLastDisconnectError()
+        }
         let configuration = (manager?.protocolConfiguration as? NETunnelProviderProtocol)?.providerConfiguration
         nodeName = configuration?[TunnelProfileKeys.nodeName] as? String
+    }
+
+    /// Shows why the tunnel stopped, such as the extension's start failure, which iOS otherwise hides.
+    private func showLastDisconnectError() {
+        manager?.connection.fetchLastDisconnectError { [weak self] error in
+            guard let error = error else {
+                return
+            }
+            let text = Self.describe(disconnectError: error as NSError)
+            Task { @MainActor in
+                self?.message = text
+            }
+        }
+    }
+
+    /// The error and its underlying errors, which carry the extension's fixed failure reason.
+    nonisolated private static func describe(disconnectError: NSError) -> String {
+        var lines = ["隧道已停止：\(disconnectError.localizedDescription)"]
+        var underlying = disconnectError.userInfo[NSUnderlyingErrorKey] as? NSError
+        while let error = underlying {
+            lines.append("\(error.localizedDescription) (\(error.domain) \(error.code))")
+            underlying = error.userInfo[NSUnderlyingErrorKey] as? NSError
+        }
+        return lines.joined(separator: "\n")
     }
 
     /// The app cannot load the runtime itself: this build ships it inside the extension, which re-checks

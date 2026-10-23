@@ -627,6 +627,9 @@ ios-m1a-tunnel-profile-secret-storage=keychain-password-reference-shared-access-
 `$(AppIdentifierPrefix)networkcore.shared` 放在 `keychain-access-groups` 第一位；Apple 默认生成的描述文件已允许
 `TEAMID.*`，不需要额外开启 App ID capability。真机验收时额外确认：导入节点后锁屏重连仍可启动隧道（设备首次解锁之后）。
 
+隧道启动失败时，App 底部会显示“隧道已停止：”加上扩展返回的固定失败原因（来自 `fetchLastDisconnectError`）。需要更多
+信息时，在 Mac 的“控制台”中选中设备，过滤子系统 `networkcore.packet-tunnel`，日志只含固定原因和错误码，不含节点或密钥。
+
 ## iOS WireGuard Real-Device Acceptance
 
 WireGuard 模式由 `engine-embedded` 的 boringtun 封装直接处理 IP 包，CI 只验证与进程内 boringtun 对端的回环。

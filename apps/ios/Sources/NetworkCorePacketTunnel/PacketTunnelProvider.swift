@@ -1,6 +1,7 @@
 import Foundation
 import NetworkCoreBridge
 import NetworkExtension
+import os
 
 /// Packet tunnel backed by the embedded Rust runtime.
 ///
@@ -10,6 +11,15 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     private var session: EmbeddedRuntimeSession?
 
     override func startTunnel(options: [String: NSObject]?, completionHandler: @escaping (Error?) -> Void) {
+        Self.log.notice("startTunnel")
+        let completionHandler: (Error?) -> Void = { error in
+            if let error = error {
+                Self.log.error("startTunnel failed: \(error.localizedDescription, privacy: .public)")
+            } else {
+                Self.log.notice("startTunnel succeeded")
+            }
+            completionHandler(error)
+        }
         let runtimeFact = NetworkCoreRuntimeFFI.embeddedRuntimeFact(
             reported: EmbeddedRuntimeSession.reportedHandshake(),
             initializationSucceeded: true
@@ -90,10 +100,14 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     }
 
     override func stopTunnel(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) {
+        Self.log.notice("stopTunnel reason \(reason.rawValue, privacy: .public)")
         session?.stop()
         session = nil
         completionHandler()
     }
+
+    /// Only fixed reasons and codes are logged, never the profile or keys.
+    private static let log = Logger(subsystem: "networkcore.packet-tunnel", category: "tunnel")
 
     /// Any message from the app returns the runtime's sanitized status JSON.
     override func handleAppMessage(_ messageData: Data, completionHandler: ((Data?) -> Void)?) {
@@ -150,10 +164,23 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
 }
 
 /// Error returned to the system when the tunnel refuses to start. It carries only a fixed reason string.
-struct PacketTunnelFailure: LocalizedError {
+///
+/// The reason sits in `errorUserInfo` so it survives the trip to the app, which reads it with
+/// `fetchLastDisconnectError`.
+struct PacketTunnelFailure: LocalizedError, CustomNSError {
+    static let errorDomain = "networkcore.packet-tunnel"
+
     let reason: String
 
     var errorDescription: String? {
         reason
+    }
+
+    var errorCode: Int {
+        1
+    }
+
+    var errorUserInfo: [String: Any] {
+        [NSLocalizedDescriptionKey: reason]
     }
 }
