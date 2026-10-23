@@ -9,14 +9,22 @@ import os
 /// unavailable. It never starts another process and never logs the tunnel profile.
 final class PacketTunnelProvider: NEPacketTunnelProvider {
     private var session: EmbeddedRuntimeSession?
+    private var startedAt: Date?
+    private var memoryPressure: DispatchSourceMemoryPressure?
+    /// Recent events for the app's developer mode. Same rule as the system log: fixed reasons and codes only.
+    private let events = TunnelDiagnosticLog()
 
     override func startTunnel(options: [String: NSObject]?, completionHandler: @escaping (Error?) -> Void) {
         Self.log.notice("startTunnel")
-        let completionHandler: (Error?) -> Void = { error in
+        events.record("startTunnel")
+        watchMemoryPressure()
+        let completionHandler: (Error?) -> Void = { [events] error in
             if let error = error {
                 Self.log.error("startTunnel failed: \(error.localizedDescription, privacy: .public)")
+                events.record("startTunnel failed: \(error.localizedDescription)")
             } else {
                 Self.log.notice("startTunnel succeeded")
+                events.record("startTunnel succeeded")
             }
             completionHandler(error)
         }
@@ -62,10 +70,12 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             completionHandler(PacketTunnelFailure(reason: "tunnel profile is malformed"))
             return
         }
+        events.record("profile loaded, mtu \(interface.mtu), \(interface.addresses.count) addresses, \(interface.includedRoutes.count) routes, \(interface.dnsServers.count) dns servers")
 
         let session: EmbeddedRuntimeSession
         do {
             session = try EmbeddedRuntimeSession(config: config, packetFlow: packetFlow)
+            events.record("runtime initialized")
         } catch let failure as EmbeddedRuntimeSession.Failure {
             completionHandler(PacketTunnelFailure(reason: "embedded runtime rejected the tunnel profile (code \(failure.code))"))
             return
@@ -87,9 +97,11 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 completionHandler(error)
                 return
             }
+            self.events.record("network settings applied")
             do {
                 try session.start()
                 self.session = session
+                self.startedAt = Date()
                 completionHandler(nil)
             } catch let failure as EmbeddedRuntimeSession.Failure {
                 completionHandler(PacketTunnelFailure(reason: "embedded runtime could not start (code \(failure.code))"))
@@ -101,17 +113,74 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
 
     override func stopTunnel(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) {
         Self.log.notice("stopTunnel reason \(reason.rawValue, privacy: .public)")
+        events.record("stopTunnel reason \(reason.rawValue)")
         session?.stop()
         session = nil
+        startedAt = nil
+        memoryPressure?.cancel()
+        memoryPressure = nil
         completionHandler()
+    }
+
+    override func sleep(completionHandler: @escaping () -> Void) {
+        events.record("device sleep")
+        completionHandler()
+    }
+
+    override func wake() {
+        events.record("device wake")
     }
 
     /// Only fixed reasons and codes are logged, never the profile or keys.
     private static let log = Logger(subsystem: "networkcore.packet-tunnel", category: "tunnel")
 
-    /// Any message from the app returns the runtime's sanitized status JSON.
+    /// The diagnostics request returns `TunnelDiagnostics`; any other message returns the runtime's sanitized
+    /// status JSON.
     override func handleAppMessage(_ messageData: Data, completionHandler: ((Data?) -> Void)?) {
-        completionHandler?(session?.statusJSON())
+        switch TunnelAppMessage.decode(messageData) {
+        case .runtimeStatus:
+            completionHandler?(session?.statusJSON())
+        case .diagnostics:
+            let diagnostics = TunnelDiagnostics(
+                runtimeStatus: session?.statusJSON().flatMap { String(data: $0, encoding: .utf8) },
+                memoryFootprintBytes: Self.memoryFootprint(),
+                uptimeSeconds: startedAt.map { Date().timeIntervalSince($0) },
+                handshake: EmbeddedRuntimeSession.reportedHandshake(),
+                events: events.snapshot()
+            )
+            completionHandler?(try? diagnostics.encoded())
+        }
+    }
+
+    /// Records system memory pressure, the usual warning before iOS kills an extension over its memory limit.
+    private func watchMemoryPressure() {
+        guard memoryPressure == nil else {
+            return
+        }
+        let source = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .global())
+        source.setEventHandler { [weak self, weak source] in
+            guard let self = self, let source = source else {
+                return
+            }
+            let level = source.data.contains(.critical) ? "critical" : "warning"
+            let footprint = Self.memoryFootprint().map(DeveloperReport.megabytes) ?? "unknown"
+            Self.log.notice("memory pressure \(level, privacy: .public)")
+            self.events.record("memory pressure \(level), footprint \(footprint)")
+        }
+        source.resume()
+        memoryPressure = source
+    }
+
+    /// The extension's physical memory footprint, the figure iOS compares against the extension memory limit.
+    static func memoryFootprint() -> UInt64? {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
+        let result = withUnsafeMutablePointer(to: &info) { pointer in
+            pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+            }
+        }
+        return result == KERN_SUCCESS ? info.phys_footprint : nil
     }
 
     /// Interface settings from the saved profile. The provider's own sockets (to the proxy server or the

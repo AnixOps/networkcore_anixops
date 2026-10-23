@@ -12,6 +12,9 @@ final class TunnelController: ObservableObject {
     @Published private(set) var connection: NEVPNStatus = .invalid
     @Published private(set) var message: String?
     @Published private(set) var runtimeStatus: String?
+    /// Developer mode: the extension's diagnostics and the last stop error, kept after the message is replaced.
+    @Published private(set) var diagnostics: TunnelDiagnostics?
+    @Published private(set) var lastDisconnectError: String?
 
     private var manager: NETunnelProviderManager?
     private var statusObserver: NSObjectProtocol?
@@ -136,7 +139,7 @@ final class TunnelController: ObservableObject {
             return
         }
         do {
-            try session.sendProviderMessage(Data()) { [weak self] data in
+            try session.sendProviderMessage(TunnelAppMessage.runtimeStatus.encoded) { [weak self] data in
                 let text = data.flatMap { String(data: $0, encoding: .utf8) }
                 Task { @MainActor in
                     self?.runtimeStatus = text
@@ -145,6 +148,43 @@ final class TunnelController: ObservableObject {
         } catch {
             runtimeStatus = nil
         }
+    }
+
+    /// Asks the running extension for developer-mode diagnostics; clears them when it is not running.
+    func refreshDiagnostics() {
+        guard let session = manager?.connection as? NETunnelProviderSession, isConnected else {
+            diagnostics = nil
+            return
+        }
+        do {
+            try session.sendProviderMessage(TunnelAppMessage.diagnostics.encoded) { [weak self] data in
+                let diagnostics = data.flatMap { try? TunnelDiagnostics.decoded(from: $0) }
+                Task { @MainActor in
+                    self?.diagnostics = diagnostics
+                }
+            }
+        } catch {
+            diagnostics = nil
+        }
+    }
+
+    /// Reads the system's record of why the tunnel last stopped, for developer mode.
+    func refreshLastDisconnectError() {
+        manager?.connection.fetchLastDisconnectError { [weak self] error in
+            let text = error.map { Self.describe(disconnectError: $0 as NSError) }
+            Task { @MainActor in
+                self?.lastDisconnectError = text
+            }
+        }
+    }
+
+    /// The saved profile's outbound protocol, without address or key.
+    var outboundKind: String? {
+        let configuration = (manager?.protocolConfiguration as? NETunnelProviderProtocol)?.providerConfiguration
+        guard let data = configuration?[TunnelProfileKeys.runtimeConfig] as? Data else {
+            return nil
+        }
+        return (try? EmbeddedRuntimeConfig.decoded(from: data))?.outboundKind
     }
 
     private func refresh() {
@@ -168,6 +208,7 @@ final class TunnelController: ObservableObject {
             let text = Self.describe(disconnectError: error as NSError)
             Task { @MainActor in
                 self?.message = text
+                self?.lastDisconnectError = text
             }
         }
     }
