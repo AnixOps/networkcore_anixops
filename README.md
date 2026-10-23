@@ -56,7 +56,7 @@ current-main-cross-platform-run-plan=public-engine-run-plan-active
 | 节点选择 | Linux `node list/switch/health` 与 Windows GUI 通过仅回环 Clash API 对 NetworkCore 生成的 selector 做 PATCH/readback；不提供 `urltest` 或自动选择。 |
 | managed session 记录 | `managed-status`、`managed-event`（含 `networkcore-linux managed-event list` 有界分页查询）、`managed-log` 只读写显式 schema v1 记录，固定 `liveness_verified=false`。 |
 | Linux 系统集成 | 显式确认下安装/卸载命名 systemd unit；`proxy apply/status/rollback` 写显式环境代理文件；`mitm certificate trust-apply/trust-rollback` 管理 Ubuntu-style CA trust-file。安装 tarball 本身不创建 daemon，也不改 TUN/DNS/firewall/trust store。 |
-| Windows 客户端 | 原生 GUI（Home/Nodes/Subscriptions/Settings/Diagnostics/Advanced）+ SCM service + per-machine WiX MSI + portable ZIP。服务托管 EasyTier、`sing-box.exe` 和 Mieru，可回滚系统代理与 LocalMachine ROOT CA；MSI 不捆绑或静默下载 core。见 [Windows Managed Client Source Release Contract](docs/architecture/windows-managed-client-source-release-contract.md) 与 [Windows GUI Daily Usability](docs/architecture/windows-gui-daily-usability.md)。 |
+| Windows 客户端 | 原生 GUI（概览/代理/规则/扩展/活动/设置，AnixOps Net 品牌界面，支持跟随系统、浅色、深色和纯黑主题）+ SCM service + per-machine WiX MSI + portable ZIP。服务托管 EasyTier、`sing-box.exe` 和 Mieru，可回滚系统代理与 LocalMachine ROOT CA；MSI 不捆绑或静默下载 core。见 [Windows Managed Client Source Release Contract](docs/architecture/windows-managed-client-source-release-contract.md) 与 [Windows GUI Daily Usability](docs/architecture/windows-gui-daily-usability.md)。 |
 | iOS | `apps/ios` 已有 Swift package、XcodeGen spec 和 `NetworkCorePacketTunnel` extension target（`swift-source-gate-active`），嵌入式 Rust runtime 尚未链接；签名、archive/export、TestFlight/App Store upload 和 iOS release asset 仍 blocked。 |
 | MITM | 见下节。 |
 

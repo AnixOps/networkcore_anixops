@@ -74,6 +74,23 @@ export interface SubscriptionSummary {
   lastUpdateError?: string;
 }
 
+export type Preferences = Pick<RuntimeSnapshot, "startAfterLogin" | "autoConnect" | "autoRecoverCore" | "autoSubscriptionRefresh" | "autoSelectFastestNode" | "bilibiliWebAdBlockEnabled" | "darkTheme" | "runtimeMode">;
+
+/** The saved preferences from a snapshot with some of them changed. */
+export function preferencesFrom(snapshot: RuntimeSnapshot, changes: Partial<Preferences>): Preferences {
+  return {
+    startAfterLogin: snapshot.startAfterLogin,
+    autoConnect: snapshot.autoConnect,
+    autoRecoverCore: snapshot.autoRecoverCore,
+    autoSubscriptionRefresh: snapshot.autoSubscriptionRefresh,
+    autoSelectFastestNode: snapshot.autoSelectFastestNode,
+    bilibiliWebAdBlockEnabled: snapshot.bilibiliWebAdBlockEnabled,
+    darkTheme: snapshot.darkTheme,
+    runtimeMode: snapshot.runtimeMode,
+    ...changes,
+  };
+}
+
 export const desktop = {
   snapshot: () => invoke<RuntimeSnapshot>("runtime_snapshot"),
   nodes: () => invoke<NodeSummary[]>("list_nodes"),
@@ -91,7 +108,7 @@ export const desktop = {
   testDelay: (nodeId: string, url: string) =>
     invoke<OperationResult>("test_node_delay", { nodeId, url }),
   selectFastestNode: () => invoke<OperationResult>("select_fastest_node"),
-  savePreferences: (preferences: Pick<RuntimeSnapshot, "startAfterLogin" | "autoConnect" | "autoRecoverCore" | "autoSubscriptionRefresh" | "autoSelectFastestNode" | "bilibiliWebAdBlockEnabled" | "darkTheme" | "runtimeMode">) =>
+  savePreferences: (preferences: Preferences) =>
     invoke<OperationResult>("save_preferences", {
       preferences,
     }),
