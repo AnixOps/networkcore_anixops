@@ -4484,6 +4484,7 @@ fn parses_run_url_command_with_local_proxy_options() {
             selected_node_id: Some("ss-82-47-34-99-11111".to_string()),
             listen_host: "127.0.0.1".to_string(),
             listen_port: 7891,
+            engine: networkcore_linux::LinuxRunEngine::Auto,
             install_dir: Some("/tmp/networkcore-engines".to_string()),
             mieru_binary_path: None,
             mieru_sha256: None,
