@@ -2,9 +2,9 @@ import Foundation
 import NetworkCoreBridge
 import NetworkExtension
 
-/// Owns the app's single VPN configuration: imports an `ss://` node, saves it as the tunnel profile, and
-/// starts or stops the packet tunnel. The node key goes only into the Keychain; the saved profile holds a
-/// persistent reference to it and a config without it.
+/// Owns the app's single VPN configuration: imports an `ss://` node or a WireGuard config, saves it as the
+/// tunnel profile, and starts or stops the packet tunnel. Node secrets go only into the Keychain; the saved
+/// profile holds a persistent reference to them and a config without them.
 @MainActor
 final class TunnelController: ObservableObject {
     @Published private(set) var coordinator: AppCoordinator
@@ -50,14 +50,15 @@ final class TunnelController: ObservableObject {
     }
 
     func importLink(_ link: String) async {
-        let node: ShadowsocksNode
+        let profileID = "default"
+        let profile: TunnelProfile
         do {
-            node = try ShadowsocksNodeLink.parse(link)
-        } catch let error as ShadowsocksLinkError {
+            profile = try TunnelNodeImport.parse(link, profileID: profileID)
+        } catch let error as TunnelNodeImportError {
             message = Self.describe(error)
             return
         } catch {
-            message = "无法解析节点链接"
+            message = "无法解析节点"
             return
         }
         guard let providerBundleIdentifier = Self.tunnelBundleIdentifier() else {
@@ -65,17 +66,18 @@ final class TunnelController: ObservableObject {
             return
         }
 
-        let profileID = "default"
         let config: Data
+        let interface: Data
         let keyReference: Data
         do {
-            config = try EmbeddedRuntimeConfig(node: node, profileID: profileID).withoutSecret().encoded()
+            config = try profile.config.withoutSecret().encoded()
+            interface = try profile.interface.encoded()
         } catch {
             message = "无法生成隧道配置"
             return
         }
         do {
-            keyReference = try NodeSecretStore.save(node.password, account: profileID)
+            keyReference = try NodeSecretStore.save(profile.config.secret.keychainValue(), account: profileID)
         } catch {
             message = "无法把节点密钥保存到钥匙串"
             return
@@ -83,11 +85,12 @@ final class TunnelController: ObservableObject {
 
         let tunnelProtocol = NETunnelProviderProtocol()
         tunnelProtocol.providerBundleIdentifier = providerBundleIdentifier
-        tunnelProtocol.serverAddress = node.host
+        tunnelProtocol.serverAddress = profile.serverAddress
         tunnelProtocol.passwordReference = keyReference
         tunnelProtocol.providerConfiguration = [
             TunnelProfileKeys.runtimeConfig: config,
-            TunnelProfileKeys.nodeName: node.name ?? node.host,
+            TunnelProfileKeys.tunnelInterface: interface,
+            TunnelProfileKeys.nodeName: profile.displayName,
         ]
 
         let target = manager ?? NETunnelProviderManager()
@@ -178,16 +181,34 @@ final class TunnelController: ObservableObject {
         return nil
     }
 
-    private static func describe(_ error: ShadowsocksLinkError) -> String {
+    private static func describe(_ error: TunnelNodeImportError) -> String {
         switch error {
-        case .notShadowsocksLink:
-            return "请粘贴 ss:// 开头的链接"
-        case .malformed:
-            return "节点链接格式不正确"
-        case .unsupportedMethod:
-            return "目前只支持 Shadowsocks-2022 加密方式"
-        case .unsupportedPlugin:
-            return "暂不支持带插件的节点"
+        case .unrecognized:
+            return "请粘贴 ss:// 链接或 WireGuard 配置"
+        case let .shadowsocks(error):
+            switch error {
+            case .notShadowsocksLink, .malformed:
+                return "节点链接格式不正确"
+            case .unsupportedMethod:
+                return "目前只支持 Shadowsocks-2022 加密方式"
+            case .unsupportedPlugin:
+                return "暂不支持带插件的节点"
+            }
+        case let .wireguard(error):
+            switch error {
+            case .malformed:
+                return "WireGuard 配置格式不正确"
+            case let .missingField(field):
+                return "WireGuard 配置缺少 \(field)"
+            case .invalidKey:
+                return "WireGuard 密钥格式不正确"
+            case .invalidAddress:
+                return "WireGuard 地址或 AllowedIPs 格式不正确"
+            case .invalidEndpoint:
+                return "WireGuard Endpoint 格式不正确"
+            case .unsupportedPeerCount:
+                return "目前只支持一个 Peer 的 WireGuard 配置"
+            }
         }
     }
 }

@@ -625,6 +625,22 @@ ios-m1a-tunnel-profile-secret-storage=keychain-password-reference-shared-access-
 `$(AppIdentifierPrefix)networkcore.shared` 放在 `keychain-access-groups` 第一位；Apple 默认生成的描述文件已允许
 `TEAMID.*`，不需要额外开启 App ID capability。真机验收时额外确认：导入节点后锁屏重连仍可启动隧道（设备首次解锁之后）。
 
+## iOS WireGuard Real-Device Acceptance
+
+WireGuard 模式由 `engine-embedded` 的 boringtun 封装直接处理 IP 包，CI 只验证与进程内 boringtun 对端的回环。
+真机验收由维护者在内部 TestFlight 构建上完成，结果同样脱敏记录：
+
+1. 在 App 中粘贴一份只有一个 `[Peer]` 的 `wg-quick` 配置并保存。
+2. 连接后确认能打开网页，“运行状态”中 `outbound` 为 `wireguard`，`packets_out` 与 `bytes_down` 递增；对端
+   `wg show` 能看到最近握手。
+3. 记录 `NetworkCorePacketTunnel` 峰值内存，并确认切换 Wi-Fi 与蜂窝网络后仍能恢复（boringtun 会按计时器重新握手）。
+
+```text
+ios-wireguard-acceptance-status=pending
+ios-wireguard-acceptance-peak-memory-mb=pending
+ios-wireguard-acceptance-recorded-at=pending
+```
+
 ## iOS App Review Manual Confirmation
 
 以下字段是后续 iOS upload/release readiness 读取的机器状态。当前仍未完成 App Privacy answers、
