@@ -1418,10 +1418,12 @@ dependencies = [
  "boringtun",
  "config-core",
  "control-domain",
+ "engine-native",
  "engine-outbound",
  "etherparse",
  "futures",
  "inbound-mixed",
+ "mitm-policy",
  "netstack-smoltcp",
  "outbound-http",
  "outbound-hysteria2",
@@ -1431,10 +1433,15 @@ dependencies = [
  "outbound-tuic",
  "outbound-vless",
  "outbound-vmess",
+ "rcgen",
  "ring",
+ "rustls",
  "serde",
  "serde_json",
+ "time",
  "tokio",
+ "tokio-rustls",
+ "transport-tls",
 ]
 
 [[package]]

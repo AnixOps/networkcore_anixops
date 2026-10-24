@@ -15,6 +15,8 @@
 //!   outbounds behind a SOCKS5/HTTP listener from `inbound-mixed`.
 //! - `wireguard` (feature `wireguard`): an IP-level tunnel that bypasses the
 //!   TCP/IP stack and seals packets straight to one peer.
+//! - `mitm` (feature `mitm`): HTTPS decryption for the policy's MITM host
+//!   list, offered every new TCP flow through [`tunnel::FlowInterceptor`].
 //!
 //! The runtime never starts a process, never touches Apple SDK objects and
 //! never puts credentials or traffic into errors, status or logs.
@@ -25,6 +27,8 @@ pub mod dns;
 pub mod ffi;
 #[cfg(feature = "local-proxy")]
 pub mod local_proxy;
+#[cfg(feature = "mitm")]
+pub mod mitm;
 pub mod nodes;
 pub mod protocols;
 pub mod routing;
@@ -44,7 +48,7 @@ use engine_outbound::{Dialer, TcpDialer, TcpOutbound};
 use serde::Serialize;
 
 use crate::config::{RuntimeConfig, TunnelMode};
-use crate::tunnel::{PacketSink, Tunnel, TunnelSettings, TunnelStatsSnapshot};
+use crate::tunnel::{FlowInterceptor, PacketSink, Tunnel, TunnelSettings, TunnelStatsSnapshot};
 #[cfg(feature = "wireguard")]
 use crate::wireguard::WireGuardSettings;
 
@@ -125,6 +129,7 @@ enum Engine {
 pub struct EmbeddedRuntime {
     config: RuntimeConfig,
     engine: Engine,
+    interceptor: Option<Arc<dyn FlowInterceptor>>,
     tunnel: Option<Tunnel>,
     state: RuntimeState,
     last_error: Option<RuntimeErrorCode>,
@@ -148,12 +153,15 @@ impl EmbeddedRuntime {
         dialer: Arc<dyn Dialer>,
     ) -> Result<Self, RuntimeError> {
         let config = RuntimeConfig::from_json(bytes)?;
+        let interceptor = build_interceptor(&config)?;
         let engine = match config.build_mode(registry, dialer)? {
             TunnelMode::Stack(outbound) => Engine::Stack(outbound),
             #[cfg(feature = "wireguard")]
             TunnelMode::WireGuard(settings) => Engine::WireGuard(settings),
         };
-        Ok(Self::with_engine(config, engine))
+        let mut runtime = Self::with_engine(config, engine);
+        runtime.interceptor = interceptor;
+        Ok(runtime)
     }
 
     /// Uses a caller-provided outbound, for tests and future protocol crates.
@@ -165,6 +173,7 @@ impl EmbeddedRuntime {
         Self {
             config,
             engine,
+            interceptor: None,
             tunnel: None,
             state: RuntimeState::Initialized,
             last_error: None,
@@ -191,7 +200,12 @@ impl EmbeddedRuntime {
             dns_timeout: Duration::from_millis(self.config.dns.timeout_ms),
         };
         let started = match &self.engine {
-            Engine::Stack(outbound) => Tunnel::start(settings, outbound.clone(), sink),
+            Engine::Stack(outbound) => Tunnel::start_with_interceptor(
+                settings,
+                outbound.clone(),
+                self.interceptor.clone(),
+                sink,
+            ),
             #[cfg(feature = "wireguard")]
             Engine::WireGuard(wireguard) => Tunnel::start_wireguard(wireguard.clone(), sink),
         };
@@ -247,6 +261,29 @@ impl EmbeddedRuntime {
     fn fail(&mut self, err: RuntimeError) -> RuntimeError {
         self.last_error = Some(err.code);
         err
+    }
+}
+
+/// The HTTPS decryption interceptor for the config's `mitm` section.
+fn build_interceptor(
+    config: &RuntimeConfig,
+) -> Result<Option<Arc<dyn FlowInterceptor>>, RuntimeError> {
+    let Some(mitm) = config.mitm.as_ref() else {
+        return Ok(None);
+    };
+    #[cfg(feature = "mitm")]
+    {
+        let engine = mitm::MitmEngine::new(mitm)
+            .map_err(|message| RuntimeError::new(RuntimeErrorCode::ConfigRejected, message))?;
+        Ok(Some(Arc::new(engine)))
+    }
+    #[cfg(not(feature = "mitm"))]
+    {
+        let _ = mitm;
+        Err(RuntimeError::new(
+            RuntimeErrorCode::ConfigRejected,
+            "mitm is not supported by this build",
+        ))
     }
 }
 

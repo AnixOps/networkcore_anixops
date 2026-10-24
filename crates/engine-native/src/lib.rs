@@ -36,8 +36,10 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 mod h2_mitm;
+#[cfg(feature = "quickjs")]
 mod quickjs_script;
 
+#[cfg(feature = "quickjs")]
 pub use quickjs_script::{
     NativeQuickJsScriptExecutor, NativeQuickJsScriptRuntimeConfig,
     ENGINE_NATIVE_QUICKJS_SCRIPT_CONFIG_INVALID_CODE,
@@ -1176,6 +1178,7 @@ pub enum NativeHttpScriptExecutor {
     /// External Node.js runner inside an OS sandbox.
     Node(NativeNodeScriptExecutor),
     /// In-process QuickJS with the host-mediated `$`-API.
+    #[cfg(feature = "quickjs")]
     QuickJs(NativeQuickJsScriptExecutor),
 }
 
@@ -1183,6 +1186,7 @@ impl NativeHttpScriptExecutor {
     pub fn engine_name(&self) -> &'static str {
         match self {
             Self::Node(_) => "node",
+            #[cfg(feature = "quickjs")]
             Self::QuickJs(_) => script_runtime::QuickJsScriptRuntime::ENGINE_NAME,
         }
     }
@@ -1194,6 +1198,7 @@ impl NativeHttpScriptExecutor {
     ) -> NativeHttpScriptExecutionReport {
         match self {
             Self::Node(executor) => executor.execute(dispatch, message),
+            #[cfg(feature = "quickjs")]
             Self::QuickJs(executor) => executor.execute(dispatch, message),
         }
     }
@@ -1223,6 +1228,7 @@ impl NativeHttpMitmPluginHook {
         self
     }
 
+    #[cfg(feature = "quickjs")]
     pub fn with_quickjs_script_executor(mut self, executor: NativeQuickJsScriptExecutor) -> Self {
         self.script_executor = Some(NativeHttpScriptExecutor::QuickJs(executor));
         self
@@ -1243,6 +1249,7 @@ impl NativeHttpMitmPluginHook {
     pub fn script_sandbox(&self) -> Option<NativeNodeScriptSandbox> {
         match self.script_executor.as_ref()? {
             NativeHttpScriptExecutor::Node(executor) => Some(*executor.sandbox()),
+            #[cfg(feature = "quickjs")]
             NativeHttpScriptExecutor::QuickJs(_) => None,
         }
     }

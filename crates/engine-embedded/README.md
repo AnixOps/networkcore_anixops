@@ -32,6 +32,18 @@ Each protocol is its own crate behind a cargo feature; `src/protocols.rs` regist
 
 `local_proxy::LocalProxy::start(config, listen, settings)` takes the same config envelope and serves its outbound (single or `routing`) behind a SOCKS5/HTTP mixed listener from `inbound-mixed`, on its own thread and tokio runtime. Because applications hand the proxy a host name, domain rules match without FakeIP. WireGuard is a packet tunnel and is rejected in this mode. Bind it to loopback; `tests/local_proxy.rs` covers direct, routed and failure cases.
 
+## HTTPS decryption (MITM)
+
+The default `mitm` feature lets the packet tunnel decrypt HTTPS for host names listed in a plugin's `[MITM]` section. Add an optional `mitm` object to the config envelope:
+
+| Field | Meaning |
+| --- | --- |
+| `policy` | Plugin text (`[URL Rewrite]`, `[Header Rewrite]`, `[Map Local]`, `[MITM]`) evaluated by the same rewrite engine as the desktop proxy (`engine-native` hook plus the `mitm-policy` core). |
+| `ca_certificate` | Base64 DER of the device root that the iOS app generates and the user trusts. |
+| `ca_private_key` | Base64 X9.63 P-256 private key (`04 ‖ X ‖ Y ‖ D`), as `SecKeyCopyExternalRepresentation` returns it. |
+
+TCP flows to port 443 whose ClientHello SNI matches the hostname list are terminated with a per-host leaf signed by that root, re-encrypted to the origin through the configured outbound, and parsed as HTTP/1.1 so rewrite rules can reject, redirect, rewrite headers or answer locally. Only `http/1.1` is offered over ALPN. Requests ask for `Accept-Encoding: identity`; bodies over 1 MiB, server-sent events and protocol upgrades are relayed unchanged. Other flows are untouched. Tunnel stats count `mitm_flows` and `mitm_failed`. A build without the feature rejects a config that has a `mitm` section. `tests/mitm.rs` runs a client, the engine and a TLS origin over in-memory streams.
+
 ## Config envelope
 
 

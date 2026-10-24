@@ -50,6 +50,23 @@ pub struct RuntimeConfig {
     pub dns: DnsConfig,
     #[serde(default)]
     pub limits: Limits,
+    /// HTTPS decryption; needs the `mitm` feature.
+    #[serde(default)]
+    pub mitm: Option<MitmConfig>,
+}
+
+/// The `mitm` section: policy text and the device root (see `crate::mitm`).
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MitmConfig {
+    /// Policy text in the `mitm_anixops` format (`[MITM] hostname`, `[URL
+    /// Rewrite]`, `[Header Rewrite]`, `[Body Rewrite]`, `[Map Local]`).
+    pub policy: String,
+    /// Root certificate, base64 DER.
+    pub ca_certificate: String,
+    /// Root private key, base64 ANSI X9.63 P-256 (`04 || X || Y || D`), as
+    /// the Swift side stores it.
+    pub ca_private_key: String,
 }
 
 /// One outbound: a `type` name looked up in the [`OutboundRegistry`] and the
