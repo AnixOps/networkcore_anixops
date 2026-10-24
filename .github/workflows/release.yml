@@ -397,7 +397,7 @@ jobs:
           grep -q '^ios-upload-workflow-release-assets=blocked$' docs/manual-intervention.md
           ios_allowed='^$'
           if [[ -f apps/ios/Package.swift ]]; then
-            ios_allowed='^\./apps/ios/(Package\.swift|Sources/.+\.swift|Tests/.+\.swift|Sources/NetworkCoreApp/Resources/PrivacyInfo\.xcprivacy|Sources/NetworkCorePacketTunnel/Resources/PrivacyInfo\.xcprivacy|Entitlements/NetworkCoreApp\.entitlements|Entitlements/NetworkCorePacketTunnel\.entitlements)$'
+            ios_allowed='^\./apps/ios/(Package\.swift|Sources/.+\.swift|Tests/.+\.swift|Sources/NetworkCoreApp/Resources/PrivacyInfo\.xcprivacy|Sources/NetworkCorePacketTunnel/Resources/PrivacyInfo\.xcprivacy|Entitlements/NetworkCoreApp\.entitlements|Entitlements/NetworkCorePacketTunnel\.entitlements|Entitlements/NetworkCoreWidget\.entitlements)$'
           fi
           ios_forbidden="$(find . -path ./.git -prune -o \( -type f \( -name "Package.swift" -o -name "*.swift" -o -name "PrivacyInfo.xcprivacy" -o -name "*.entitlements" -o -name "*.mobileprovision" -o -name "*.provisionprofile" -o -name "*.p12" -o -name "*.cer" -o -name "*.key" -o -name "*.pem" -o -name "*.xcframework" -o -name "*.a" -o -name "ExportOptions.plist" -o -name "*.ipa" \) -o -type d \( -name "*.xcodeproj" -o -name "*.xcworkspace" -o -name "*.xcarchive" -o -name "*.xcresult" -o -name "*.dSYM" \) \) -print | grep -v -E "${ios_allowed}" | head -n 1 || true)"
           if [[ -n "${ios_forbidden}" ]]; then

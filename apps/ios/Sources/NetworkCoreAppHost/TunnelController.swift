@@ -1,6 +1,7 @@
 import Foundation
 import NetworkCoreBridge
 import NetworkExtension
+import WidgetKit
 
 /// Owns the app's single VPN configuration: imports an `ss://` node or a WireGuard config, saves it as the
 /// tunnel profile, and starts or stops the packet tunnel. Node secrets go only into the Keychain; the saved
@@ -267,7 +268,20 @@ final class TunnelController: ObservableObject {
             showLastDisconnectError()
         }
         let configuration = (manager?.protocolConfiguration as? NETunnelProviderProtocol)?.providerConfiguration
+        let previousNode = nodeName
         nodeName = configuration?[TunnelProfileKeys.nodeName] as? String
+        if connection != previous || nodeName != previousNode {
+            Self.reloadWidgets()
+        }
+    }
+
+    /// The Home Screen widget and the Control Center switch read the VPN configuration themselves;
+    /// this only tells them it changed.
+    private static func reloadWidgets() {
+        WidgetCenter.shared.reloadAllTimelines()
+        if #available(iOS 18.0, *) {
+            ControlCenter.shared.reloadAllControls()
+        }
     }
 
     /// Shows why the tunnel stopped, such as the extension's start failure, which iOS otherwise hides.

@@ -251,6 +251,16 @@
         }
       }
     },
+    "先在 App 里导入节点": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import a node in the app first"
+          }
+        }
+      }
+    },
     "关于": {
       "localizations": {
         "en": {
@@ -387,6 +397,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Allow the download in Safari, then install it in Settings > Profile Downloaded."
+          }
+        }
+      }
+    },
+    "在控制中心连接或断开。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect or disconnect from Control Center."
           }
         }
       }
@@ -971,6 +991,16 @@
         }
       }
     },
+    "查看是否已连接，轻点即可连接或断开。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "See whether you're connected and tap to connect or disconnect."
+          }
+        }
+      }
+    },
     "概览": {
       "localizations": {
         "en": {
@@ -1117,6 +1147,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Couldn't create the certificate (%@)"
+          }
+        }
+      }
+    },
+    "用已导入的节点连接，或断开当前连接。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connects with the imported node, or disconnects."
           }
         }
       }
@@ -1411,6 +1451,16 @@
         }
       }
     },
+    "请先在 App 里导入节点": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import a node in the app first"
+          }
+        }
+      }
+    },
     "请先导入节点": {
       "localizations": {
         "en": {
@@ -1541,12 +1591,42 @@
         }
       }
     },
+    "连接 AnixOps Net": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect AnixOps Net"
+          }
+        }
+      }
+    },
     "连接中": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Connecting"
+          }
+        }
+      }
+    },
+    "连接或断开 AnixOps Net": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect or Disconnect AnixOps Net"
+          }
+        }
+      }
+    },
+    "连接状态": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection Status"
           }
         }
       }

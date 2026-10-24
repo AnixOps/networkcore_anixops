@@ -683,6 +683,28 @@ ios-wireguard-acceptance-peak-memory-mb=pending
 ios-wireguard-acceptance-recorded-at=pending
 ```
 
+## iOS Widget And Control Center Setup
+
+The widget extension (`NetworkCoreWidget`: Home Screen and Lock Screen status widget plus the iOS 18 Control
+Center switch) builds in CI without signing. The TestFlight workflow only ships it after the maintainer does the
+Apple Developer steps below; until then each upload drops the target and prints `widget=skipped`.
+
+1. In Certificates, Identifiers & Profiles, register an App ID `<IOS_APP_BUNDLE_ID>.widget` with the Network
+   Extensions capability (the widget reads the saved VPN configuration and starts or stops it).
+2. Create an App Store distribution profile for that App ID with the same distribution certificate.
+3. In the `ios-app-store-connect` environment, add the variable `IOS_WIDGET_BUNDLE_ID` and the secret
+   `APPLE_WIDGET_PROVISIONING_PROFILE_BASE64` (base64 of the `.mobileprovision`).
+4. Run the upload workflow and confirm the log prints `widget=included`.
+5. On a real iPhone: add the small and medium widgets and the Lock Screen widgets, tap the route line to connect
+   and disconnect, add the "连接 AnixOps Net" control in Control Center (iOS 18), and confirm both follow the
+   status within a few seconds when changed from the app. Record whether the switch works while the app is not
+   running; if iOS refuses to start the tunnel from the widget process, the intent must move to the app process.
+
+```text
+ios-widget-signing-status=pending
+ios-widget-real-device-status=pending
+```
+
 ## iOS App Review Manual Confirmation
 
 以下字段是后续 iOS upload/release readiness 读取的机器状态。当前仍未完成 App Privacy answers、
