@@ -3051,6 +3051,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "networkcore-linux-gui"
+version = "0.1.0"
+dependencies = [
+ "config-core",
+ "control-domain",
+ "engine-embedded",
+ "inbound-mixed",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+]
+
+[[package]]
 name = "networkcore-windows"
 version = "0.1.0"
 dependencies = [

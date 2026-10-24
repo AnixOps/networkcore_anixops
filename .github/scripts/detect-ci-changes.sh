@@ -144,7 +144,7 @@ else
         esac
 
         case "${path}" in
-          apps/linux-cli/*|crates/platform-linux/*|docs/architecture/linux-*|docs/release-strategy.md)
+          apps/linux-cli/*|apps/linux-gui/*|crates/platform-linux/*|docs/architecture/linux-*|docs/release-strategy.md)
             mark linux
             recognized=true
             ;;

@@ -9,6 +9,8 @@ export interface StatusFact {
 }
 
 export interface RuntimeSnapshot {
+  /** Sent by the Linux client; the Windows client leaves it out. */
+  platform?: "windows" | "linux";
   connection: string;
   connectionLabel: string;
   service: StatusFact;

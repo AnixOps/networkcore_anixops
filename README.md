@@ -141,6 +141,7 @@ HTTP/2、HTTP/3/QUIC、pinning bypass、streaming、无界 CONNECT session 和 b
 | 路径 | 内容 |
 |---|---|
 | [apps/linux-cli](apps/linux-cli) | `networkcore-linux` CLI |
+| [apps/linux-gui](apps/linux-gui) | Linux 图形客户端 `anixops-net`：共用 Windows 的 Tauri + React 界面，进程内运行自研引擎（`--features gui` 构建窗口） |
 | [apps/windows-gui](apps/windows-gui)、[apps/windows-service](apps/windows-service)、[apps/windows-cli](apps/windows-cli) | Windows 原生 GUI、SCM service、`networkcore-windows` CLI；安装器在 [installer/windows](installer/windows) |
 | [apps/ios](apps/ios) | iOS/macOS Swift package、XcodeGen spec、`NetworkCorePacketTunnel`/`NetworkCoreMacTunnel` 扩展 |
 | [crates/control-domain](crates/control-domain) | 领域类型与端口 trait（含维护事件契约） |

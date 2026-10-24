@@ -1,11 +1,18 @@
-import { Check, Layers, RefreshCw } from "lucide-react";
+import { Check, Layers, RefreshCw, Route } from "lucide-react";
 import { useEffect, useState } from "react";
 import { desktop, NativeGroupSummary, RuntimeSnapshot } from "../bridge";
 import { routingModes } from "../labels";
-import { Card, Run, StatusPill } from "../ui";
+import { Card, EmptyState, Run, StatusPill } from "../ui";
 import { t } from "../i18n";
 
 export function RulesPage({ snapshot, busy, run }: { snapshot: RuntimeSnapshot | null; busy: string | null; run: Run }) {
+  if (snapshot?.platform === "linux") {
+    return (
+      <Card>
+        <EmptyState icon={Route} title={t("分流规则还没开放")} message={t("Linux 版目前把全部流量交给所选节点；分流模式、策略组和 DNS 会在后续版本提供。")} />
+      </Card>
+    );
+  }
   return (
     <div className="page-stack">
       <Card
