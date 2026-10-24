@@ -2,14 +2,24 @@
 
 本文件记录当前无法由本地自动化完成、需要人工处理的事项。
 
-## v0.2.0-beta.5 Release Acceptance Gate
+## v0.2.0 Release Acceptance Gate
 
-release-version=v0.2.0-beta.5
+release-version=v0.2.0-rc.1
+release-final-version=v0.2.0
 release-state=pending_manual_acceptance
-release-tag-status=blocked-pending-manual-acceptance
+release-tag-status=rc1-tag-pending-maintainer-approval
 release-dry-run-status=pending_github_actions_validation
-release-required-artifacts=linux-tarball-four-file-set,windows-msi-four-file-set,windows-portable-zip-four-file-set
+release-required-artifacts=linux-tarball-four-file-set,linux-gui-tarball-four-file-set,linux-gui-deb-four-file-set,windows-msi-four-file-set,windows-portable-zip-four-file-set
 release-ci-source=main-same-commit-ci-summary-success-required
+release-out-of-scope=macos,ios-release-assets
+
+`v0.2.0-beta.5` was published as a prerelease on 2026-10-23 (tag on `e5b8632`) and its real-host acceptance was never
+recorded; the features added since then make its artifacts unrepresentative, so acceptance moves to `v0.2.0-rc.1`.
+The flow is: the maintainer approves and pushes the `v0.2.0-rc.1` tag (from a maintainer machine, since cloud sessions
+cannot push tags); the operator runs the must items below on the rc.1 artifacts, plus "Windows 内置引擎真机验收" and the
+`.deb` check under "Linux GUI Real-Desktop Acceptance"; when they pass, the maintainer tags `v0.2.0` on the same commit.
+A must-item failure is fixed on main and re-tested as `v0.2.0-rc.2`. The tables below keep their beta.5 names; for
+v0.2.0 they apply to the rc.1 artifacts, with `release-version=v0.2.0-rc.1` in the evidence template.
 
 The beta feature scope is frozen. Do not add new protocols, iOS activation, HTTP/2 or HTTP/3 MITM, JavaScript dispatch, LAN controller, Web UI, urltest automation, background subscription groups, TUN/DNS interception, or other new features for this release. Only real compile, test, package, contract, documentation, or release-gate fixes may be made before the tag.
 
