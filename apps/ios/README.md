@@ -69,3 +69,12 @@ signing, archive/export or upload validation must run only in GitHub Actions on 
 (`Sources/NetworkCoreApp/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png`);
 iOS applies the corner mask. Re-export the PNG at 1024×1024 and drop the alpha
 channel whenever the SVG changes.
+
+## HTTPS decryption certificate
+
+The "扩展" tab hosts the MITM root certificate wizard (roadmap M4). The app generates a per-device P-256 root
+with the Security framework (`MitmCertificateAuthority`, no Rust in the app), stores the certificate and its private
+key in the shared Keychain group (`MitmCertificateStore`, service `networkcore.mitm-ca`) for the packet tunnel, and
+serves a `com.apple.security.root` configuration profile on `127.0.0.1` for Safari to hand to Settings.
+Trust is detected by asking `SecTrust` to accept a probe leaf with the system store: `notGenerated`, `notTrusted`
+(profile missing or full trust off; iOS does not tell these apart) or `trusted`.

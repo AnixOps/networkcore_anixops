@@ -53,14 +53,9 @@ struct RootView: View {
             )
             .tabItem { Label("规则", systemImage: "arrow.triangle.branch") }
             .tag(AppTab.rules)
-            ComingSoonView(
-                title: "扩展",
-                systemImage: "puzzlepiece.extension",
-                heading: "HTTPS 解密与插件",
-                message: "Loon 插件、重写、脚本和 HTTPS 解密证书向导会放在这里。"
-            )
-            .tabItem { Label("扩展", systemImage: "puzzlepiece.extension") }
-            .tag(AppTab.extensions)
+            ExtensionsView()
+                .tabItem { Label("扩展", systemImage: "puzzlepiece.extension") }
+                .tag(AppTab.extensions)
             SettingsView(tunnel: tunnel)
                 .tabItem { Label("设置", systemImage: "slider.horizontal.3") }
                 .tag(AppTab.settings)
