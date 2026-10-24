@@ -11,10 +11,11 @@ use super::{
 use config_core::routing_import::import_subscription_routing;
 use config_core::CoreSubscriptionService;
 use control_domain::{
-    PublicEngineKind, PublicEngineRunPlan, SubscriptionService, SubscriptionSource,
+    NodeDescriptor, PublicEngineKind, PublicEngineRunPlan, SubscriptionService, SubscriptionSource,
 };
-use engine_embedded::config::RuntimeConfig;
-use engine_embedded::nodes::{routing_envelope, single_node_envelope};
+use engine_embedded::config::{RuntimeConfig, CONFIG_SCHEMA_VERSION};
+use engine_embedded::delay::measure_delay;
+use engine_embedded::nodes::{outbound_for_node, routing_envelope, single_node_envelope};
 use engine_mieru::{
     download_latest_mieru_release, mieru_node_from_descriptor, render_mieru_client_config,
     rollback_mieru_client_config, verify_local_mieru_binary, write_mieru_client_config,
@@ -78,6 +79,9 @@ const EMBEDDED_PROFILE_ID: &str = "windows-tauri-profile";
 const EMBEDDED_LISTEN_PORT: u16 = 7890;
 /// Routed id of a single-outbound profile once a routing mode applies.
 const EMBEDDED_PROXY_OUTBOUND: &str = "proxy";
+const EMBEDDED_DELAY_TIMEOUT: Duration = Duration::from_secs(5);
+/// Nodes the fastest-node search measures at once.
+const EMBEDDED_DELAY_PARALLELISM: usize = 16;
 
 #[derive(Clone)]
 struct DesktopAppState {
@@ -1044,6 +1048,16 @@ fn switch_node_blocking(
         .clone();
     let update_running_core = node_operations_runtime_running(&state, &desktop)?;
     let node = selected_catalog_node(&desktop, &node_id)?;
+    if let Some(embedded) = active_embedded_config()? {
+        switch_embedded_node(&state, &desktop, &embedded, &node.id, update_running_core)?;
+        return Ok(OperationResult {
+            message: if update_running_core {
+                "Active node switched and the embedded engine restarted with it.".to_string()
+            } else {
+                "Active node saved. It will be applied when the core next connects.".to_string()
+            },
+        });
+    }
     let config_sha256 = desktop.profile_config_sha256.ok_or_else(|| {
         "Import the current generated profile before switching its active node.".to_string()
     })?;
@@ -1091,11 +1105,14 @@ fn select_fastest_node_blocking(state: DesktopAppState) -> Result<OperationResul
         .lock()
         .map_err(|_| "desktop state lock failed")?
         .clone();
-    ensure_node_operations_runtime_ready(&state, &desktop)?;
     let test_url = desktop
         .delay_test_url
         .as_deref()
         .unwrap_or(DEFAULT_NODE_SELECTION_URL);
+    if let Some(embedded) = active_embedded_config()? {
+        return select_fastest_embedded_node(&state, &desktop, &embedded, test_url);
+    }
+    ensure_node_operations_runtime_ready(&state, &desktop)?;
     let mut fastest: Option<(DesktopProfileNode, u64)> = None;
     for node in &desktop.profile_node_catalog {
         let report = match measure_sing_box_clash_api_outbound_delay(
@@ -1151,8 +1168,14 @@ fn test_node_delay_blocking(
         .lock()
         .map_err(|_| "desktop state lock failed")?
         .clone();
-    ensure_node_operations_runtime_ready(&state, &desktop)?;
     let node = selected_catalog_node(&desktop, &node_id)?;
+    if active_embedded_config()?.is_some() {
+        let delay = measure_embedded_node_delay(&node.id, &url)?;
+        return Ok(OperationResult {
+            message: format!("{} ms via {url}", delay.as_millis()),
+        });
+    }
+    ensure_node_operations_runtime_ready(&state, &desktop)?;
     let report = measure_sing_box_clash_api_outbound_delay(
         &SingBoxLocalControllerConfig::loopback_selector(),
         &node.outbound_tag,
@@ -1162,6 +1185,113 @@ fn test_node_delay_blocking(
     .map_err(|error| error.to_string())?;
     Ok(OperationResult {
         message: format!("{} ms via {}", report.delay_millis, report.test_url),
+    })
+}
+
+/// The embedded engine config when an imported profile runs on it.
+fn active_embedded_config() -> Result<Option<WindowsManagedEmbeddedConfig>, String> {
+    Ok(managed_config_or_default()?
+        .embedded
+        .filter(|embedded| embedded.enabled))
+}
+
+/// Envelope with the one outbound saved for `node_id` at import.
+fn embedded_node_profile(node_id: &str) -> Result<String, String> {
+    let content = fs::read_to_string(embedded_nodes_path())
+        .map_err(|error| format!("Import the profile again before using its nodes: {error}"))?;
+    let mut nodes: serde_json::Map<String, Value> =
+        serde_json::from_str(&content).map_err(|error| error.to_string())?;
+    let outbound = nodes
+        .remove(node_id)
+        .ok_or_else(|| "Selected node is not part of the current imported profile.".to_string())?;
+    Ok(json!({
+        "schema_version": CONFIG_SCHEMA_VERSION,
+        "profile_id": EMBEDDED_PROFILE_ID,
+        "outbound": outbound,
+    })
+    .to_string())
+}
+
+/// Delay of `url` through the node's own outbound, measured in this process,
+/// so it works while disconnected and never goes through the system proxy.
+fn measure_embedded_node_delay(node_id: &str, url: &str) -> Result<Duration, String> {
+    let profile = embedded_node_profile(node_id)?;
+    measure_delay(profile.as_bytes(), url, EMBEDDED_DELAY_TIMEOUT)
+        .map_err(|error| error.to_string())
+}
+
+/// Makes `node_id` the profile's outbound, reapplies the routing mode and,
+/// when the core runs, restarts it on the new envelope.
+fn switch_embedded_node(
+    state: &DesktopAppState,
+    desktop: &DesktopState,
+    embedded: &WindowsManagedEmbeddedConfig,
+    node_id: &str,
+    update_running_core: bool,
+) -> Result<(), String> {
+    let profile = embedded_node_profile(node_id)?;
+    write_managed_text_atomic(&embedded_profile_path(), &profile)
+        .map_err(|error| error.to_string())?;
+    let envelope = embedded_envelope_or_profile(profile, desktop.routing_mode);
+    write_managed_text_atomic(&embedded.envelope_path, &envelope)
+        .map_err(|error| error.to_string())?;
+    {
+        let mut persisted = state
+            .desktop
+            .lock()
+            .map_err(|_| "desktop state lock failed")?;
+        persisted.profile_node_id = Some(node_id.to_string());
+        save_desktop_state(&persisted)?;
+    }
+    if update_running_core {
+        restart_service_blocking(state.clone())?;
+    }
+    Ok(())
+}
+
+fn select_fastest_embedded_node(
+    state: &DesktopAppState,
+    desktop: &DesktopState,
+    embedded: &WindowsManagedEmbeddedConfig,
+    test_url: &str,
+) -> Result<OperationResult, String> {
+    let mut fastest: Option<(&DesktopProfileNode, Duration)> = None;
+    for chunk in desktop
+        .profile_node_catalog
+        .chunks(EMBEDDED_DELAY_PARALLELISM)
+    {
+        let delays: Vec<_> = std::thread::scope(|scope| {
+            let handles: Vec<_> = chunk
+                .iter()
+                .map(|node| scope.spawn(move || measure_embedded_node_delay(&node.id, test_url)))
+                .collect();
+            handles
+                .into_iter()
+                .map(|handle| handle.join().ok().and_then(Result::ok))
+                .collect()
+        });
+        for (node, delay) in chunk.iter().zip(delays) {
+            let Some(delay) = delay else { continue };
+            if fastest.is_none_or(|(_, best)| delay < best) {
+                fastest = Some((node, delay));
+            }
+        }
+    }
+    let (node, delay) =
+        fastest.ok_or_else(|| "No imported node returned a successful delay test.".to_string())?;
+    let delay_millis = delay.as_millis();
+    if desktop.profile_node_id.as_deref() == Some(node.id.as_str()) {
+        return Ok(OperationResult {
+            message: format!(
+                "{} is already the fastest responding node at {delay_millis} ms.",
+                node.label
+            ),
+        });
+    }
+    let update_running_core = node_operations_runtime_running(state, desktop)?;
+    switch_embedded_node(state, desktop, embedded, &node.id, update_running_core)?;
+    Ok(OperationResult {
+        message: format!("Selected fastest node: {} ({delay_millis} ms).", node.label),
     })
 }
 
@@ -1767,8 +1897,10 @@ fn import_embedded_subscription(
         .and_then(|spec| routing_envelope(EMBEDDED_PROFILE_ID, &catalog.nodes, &spec).ok())
         // The engine caps the routed node and rule counts.
         .filter(|envelope| RuntimeConfig::from_json(envelope.as_bytes()).is_ok());
-    let (envelope, selected_node_id) = match routed {
-        Some(envelope) => (envelope, None),
+    // A single-node profile lists every supported node so it can be switched
+    // and delay tested; a routed one is driven by its own groups.
+    let (envelope, selected_node_id, node_outbounds) = match routed {
+        Some(envelope) => (envelope, None, Vec::new()),
         None => {
             let selected = desktop
                 .profile_node_id
@@ -1780,22 +1912,41 @@ fn import_embedded_subscription(
                         format!("Install sing-box to run this profile; the embedded engine cannot run it: {reason}")
                     },
                 )?;
-            (envelope, Some(node.id))
+            let node_outbounds = catalog
+                .nodes
+                .iter()
+                .filter_map(|node| {
+                    outbound_for_node(node)
+                        .ok()
+                        .map(|outbound| (node.clone(), outbound))
+                })
+                .collect::<Vec<_>>();
+            (envelope, Some(node.id), node_outbounds)
         }
     };
+    let saved_outbounds: serde_json::Map<String, Value> = node_outbounds
+        .iter()
+        .map(|(node, outbound)| (node.id.clone(), outbound.clone()))
+        .collect();
+    write_managed_text_atomic(
+        &embedded_nodes_path(),
+        &Value::Object(saved_outbounds).to_string(),
+    )
+    .map_err(|error| error.to_string())?;
+    let supported_nodes: Vec<NodeDescriptor> =
+        node_outbounds.into_iter().map(|(node, _)| node).collect();
+    // Nodes are addressed by id; there is no sing-box selector tag.
+    let node_catalog: Vec<DesktopProfileNode> = profile_node_options(&supported_nodes)
+        .into_iter()
+        .map(|node| DesktopProfileNode {
+            outbound_tag: node.id.clone(),
+            ..node
+        })
+        .collect();
     // The imported envelope is kept so routing modes can be reapplied to it.
     write_managed_text_atomic(&embedded_profile_path(), &envelope)
         .map_err(|error| error.to_string())?;
-    let envelope = match embedded_envelope_for_mode(&envelope, desktop.routing_mode, false) {
-        Ok(routed) => routed,
-        Err(error) => {
-            let _ = append_managed_log(
-                APP_LOG_SCOPE,
-                &format!("routing mode was not applied to the imported profile: {error}"),
-            );
-            envelope
-        }
-    };
+    let envelope = embedded_envelope_or_profile(envelope, desktop.routing_mode);
     let envelope_path = embedded_directory().join("envelope.json");
     write_managed_text_atomic(&envelope_path, &envelope).map_err(|error| error.to_string())?;
     let mut managed = managed_config_or_default()?;
@@ -1819,7 +1970,7 @@ fn import_embedded_subscription(
     desktop.profile_source_path = source_path;
     desktop.profile_source_url = source_url;
     desktop.profile_node_id = selected_node_id;
-    desktop.profile_node_catalog.clear();
+    desktop.profile_node_catalog = node_catalog;
     desktop.profile_config_sha256 = None;
     Ok(())
 }
@@ -1830,6 +1981,26 @@ fn embedded_directory() -> PathBuf {
 
 fn embedded_profile_path() -> PathBuf {
     embedded_directory().join("profile.json")
+}
+
+/// `{node id: outbound}` for the nodes of a single-node profile.
+fn embedded_nodes_path() -> PathBuf {
+    embedded_directory().join("nodes.json")
+}
+
+/// The profile with the routing mode applied, or the profile alone (logged)
+/// when the mode's rules are unavailable.
+fn embedded_envelope_or_profile(profile: String, mode: DesktopRoutingMode) -> String {
+    match embedded_envelope_for_mode(&profile, mode, false) {
+        Ok(routed) => routed,
+        Err(error) => {
+            let _ = append_managed_log(
+                APP_LOG_SCOPE,
+                &format!("routing mode was not applied to the embedded profile: {error}"),
+            );
+            profile
+        }
+    }
 }
 
 /// The imported envelope with `mode`'s rules in place of its own, as the
