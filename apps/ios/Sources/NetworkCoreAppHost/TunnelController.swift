@@ -114,11 +114,16 @@ final class TunnelController: ObservableObject {
         tunnelProtocol.providerBundleIdentifier = providerBundleIdentifier
         tunnelProtocol.serverAddress = profile.serverAddress
         tunnelProtocol.passwordReference = keyReference
-        tunnelProtocol.providerConfiguration = [
+        var providerConfiguration: [String: Any] = [
             TunnelProfileKeys.runtimeConfig: config,
             TunnelProfileKeys.tunnelInterface: interface,
             TunnelProfileKeys.nodeName: profile.displayName,
         ]
+        let library = (try? MitmPluginLibrary.load(from: MitmPluginLibrary.defaultURL)) ?? MitmPluginLibrary()
+        if let plugins = try? MitmPluginLibrary.profileValue(library.activeTexts), !library.activeTexts.isEmpty {
+            providerConfiguration[TunnelProfileKeys.mitmPlugins] = plugins
+        }
+        tunnelProtocol.providerConfiguration = providerConfiguration
 
         let target = manager ?? NETunnelProviderManager()
         target.protocolConfiguration = tunnelProtocol
@@ -132,6 +137,44 @@ final class TunnelController: ObservableObject {
             message = nil
         } catch {
             message = "保存 VPN 配置失败或未获授权"
+            refresh()
+            return false
+        }
+        refresh()
+        return true
+    }
+
+    /// Puts the enabled HTTPS decryption plugins into the saved profile. Without a profile there is nothing to
+    /// update: the next import picks them up. A running tunnel keeps its plugins until it reconnects.
+    /// Returns whether the profile changed.
+    @discardableResult
+    func applyMitmPlugins(_ texts: [String]) async -> Bool {
+        guard let manager,
+              let tunnelProtocol = manager.protocolConfiguration as? NETunnelProviderProtocol
+        else {
+            return false
+        }
+        var configuration = tunnelProtocol.providerConfiguration ?? [:]
+        let current = MitmPluginLibrary.texts(fromProfileValue: configuration[TunnelProfileKeys.mitmPlugins] as? Data)
+        guard current != texts else {
+            return false
+        }
+        if texts.isEmpty {
+            configuration.removeValue(forKey: TunnelProfileKeys.mitmPlugins)
+        } else {
+            guard let value = try? MitmPluginLibrary.profileValue(texts) else {
+                message = "无法生成插件配置"
+                return false
+            }
+            configuration[TunnelProfileKeys.mitmPlugins] = value
+        }
+        tunnelProtocol.providerConfiguration = configuration
+        manager.protocolConfiguration = tunnelProtocol
+        do {
+            try await manager.saveToPreferences()
+            try await manager.loadFromPreferences()
+        } catch {
+            message = "保存插件到 VPN 配置失败"
             refresh()
             return false
         }

@@ -78,3 +78,14 @@ key in the shared Keychain group (`MitmCertificateStore`, service `networkcore.m
 serves a `com.apple.security.root` configuration profile on `127.0.0.1` for Safari to hand to Settings.
 Trust is detected by asking `SecTrust` to accept a probe leaf with the system store: `notGenerated`, `notTrusted`
 (profile missing or full trust off; iOS does not tell these apart) or `trusted`.
+
+## Plugins
+
+The same tab imports Loon plugins from a file or the clipboard (local only; remote plugins and scripts are open
+decision D4). `MitmPluginLibrary` keeps them in the app's Application Support folder with a master "HTTPS 解密"
+switch, which turns on only once the root is trusted. The enabled plugin texts go into the tunnel profile under
+`TunnelProfileKeys.mitmPlugins`; the extension adds the root from the Keychain and passes both to the runtime as
+the config's `mitm` section, where `mitm_policy::loon_plugin` translates and merges them (see
+`crates/engine-embedded/README.md`). The root key never enters the profile. If the root is missing or the runtime
+refuses the plugins, the tunnel starts without decryption and says why in developer-mode diagnostics. Changes reach
+a running tunnel when it reconnects. Scripts and plugin `[Rule]` lines are listed but not applied yet.

@@ -325,6 +325,82 @@ pub fn routing_model_with_plugin_rules(
     }
 }
 
+/// Combines several imported plugins into one policy text for the
+/// `mitm_anixops` core, which loads a single config. Rewrite, script and
+/// map-local lines keep plugin order under one header per section; the
+/// `[MITM]` hostname lists are merged with [`LoonMitmHostnames::apply`].
+/// Metadata, `[Argument]` and `[Rule]` lines are left out: rules belong to
+/// the routing model (see [`routing_model_with_plugin_rules`]).
+pub fn merged_plugin_source(name: &str, plugins: &[&LoonPluginImport]) -> String {
+    let mut sections: Vec<(String, Vec<String>)> = Vec::new();
+    let mut hostnames = Vec::new();
+    for plugin in plugins {
+        hostnames = plugin.mitm_hostnames.apply(&hostnames);
+        let mut current: Option<usize> = None;
+        for raw_line in plugin.source.lines() {
+            let line = raw_line.trim();
+            if line.is_empty()
+                || line.starts_with('#')
+                || line.starts_with(';')
+                || line.starts_with("//")
+            {
+                continue;
+            }
+            if line.starts_with('[') && line.ends_with(']') {
+                let header = line[1..line.len() - 1].trim();
+                current = match Section::parse(header) {
+                    Section::Rewrite
+                    | Section::HeaderRewrite
+                    | Section::BodyRewrite
+                    | Section::Script
+                    | Section::MapLocal => Some(
+                        match sections
+                            .iter()
+                            .position(|(existing, _)| existing.eq_ignore_ascii_case(header))
+                        {
+                            Some(index) => index,
+                            None => {
+                                sections.push((header.to_string(), Vec::new()));
+                                sections.len() - 1
+                            }
+                        },
+                    ),
+                    _ => None,
+                };
+                continue;
+            }
+            if let Some(index) = current {
+                sections[index].1.push(line.to_string());
+            }
+        }
+    }
+
+    // An exclusion from any plugin wins over another plugin's include.
+    let excluded = hostnames
+        .iter()
+        .filter_map(|pattern| pattern.strip_prefix('-'))
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    hostnames.retain(|pattern| pattern.starts_with('-') || !excluded.contains(pattern));
+
+    let mut text = String::new();
+    let _ = writeln!(text, "[Plugin]\nname = {}", name.trim());
+    for (header, lines) in sections.iter().filter(|(_, lines)| !lines.is_empty()) {
+        let _ = writeln!(text, "\n[{header}]");
+        for line in lines {
+            let _ = writeln!(text, "{line}");
+        }
+    }
+    if hostnames.iter().any(|pattern| !pattern.starts_with('-')) {
+        let _ = writeln!(
+            text,
+            "\n[MITM]\nenable = true\nhostname = {}",
+            hostnames.join(", ")
+        );
+    }
+    text
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Section {
     Preamble,

@@ -50,16 +50,34 @@ public struct EmbeddedRuntimeConfig: Codable, Equatable {
         public var persistentKeepaliveSecs: UInt16?
     }
 
+    /// The `mitm` section: enabled plugin texts and the device root. It holds the root's private key, so it is
+    /// never stored in the tunnel profile; the extension adds it with `withMitm(plugins:authority:)`.
+    public struct Mitm: Codable, Equatable {
+        public var plugins: [String]
+        /// Root certificate, base64 DER.
+        public var caCertificate: String
+        /// Root private key, base64 X9.63.
+        public var caPrivateKey: String
+
+        enum CodingKeys: String, CodingKey {
+            case plugins
+            case caCertificate = "ca_certificate"
+            case caPrivateKey = "ca_private_key"
+        }
+    }
+
     public let schemaVersion: Int
     public let profileID: String
     public let mtu: Int
     public private(set) var outbound: Outbound
+    public private(set) var mitm: Mitm?
 
     enum CodingKeys: String, CodingKey {
         case schemaVersion = "schema_version"
         case profileID = "profile_id"
         case mtu
         case outbound
+        case mitm
     }
 
     public init(node: ShadowsocksNode, profileID: String, mtu: Int = 1500) {
@@ -119,7 +137,27 @@ public struct EmbeddedRuntimeConfig: Codable, Equatable {
 
     /// The same config with every secret removed, for storing in the tunnel profile.
     public func withoutSecret() -> EmbeddedRuntimeConfig {
-        withSecret(NodeSecret())
+        var copy = withSecret(NodeSecret())
+        copy.mitm = nil
+        return copy
+    }
+
+    /// The same config decrypting HTTPS for the plugins' hosts with `authority`. No plugins removes the section.
+    public func withMitm(plugins: [String], authority: MitmCertificateAuthority) throws -> EmbeddedRuntimeConfig {
+        var copy = self
+        copy.mitm = plugins.isEmpty ? nil : Mitm(
+            plugins: plugins,
+            caCertificate: authority.certificateDER.base64EncodedString(),
+            caPrivateKey: try authority.privateKeyRepresentation().base64EncodedString()
+        )
+        return copy
+    }
+
+    /// The same config without HTTPS decryption.
+    public func withoutMitm() -> EmbeddedRuntimeConfig {
+        var copy = self
+        copy.mitm = nil
+        return copy
     }
 
     /// The same config with its secrets set from `secret`.
@@ -287,4 +325,7 @@ public enum TunnelProfileKeys {
     public static let tunnelInterface = "networkcore.tunnel-interface"
     /// Display name of the imported node. Not secret.
     public static let nodeName = "networkcore.node-name"
+    /// `Data` holding a JSON array of the enabled MITM plugin texts (`MitmPluginLibrary.profileValue`). Absent or
+    /// empty means no HTTPS decryption.
+    public static let mitmPlugins = "networkcore.mitm-plugins"
 }

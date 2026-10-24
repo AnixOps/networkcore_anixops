@@ -2,14 +2,17 @@ use config_core::routing::{
     PolicyTarget, RouteOutcome, RouteQuery, RoutingModel, RoutingSpec, RuleMatcher,
     StaticRoutingEnvironment,
 };
-use control_domain::{GrantedPermissions, HookPoint, MitmPluginService, PluginPermission};
+use control_domain::{
+    CertificateTrustState, GrantedPermissions, HookPoint, MitmPluginService, PluginPermission,
+};
 use mitm_policy::loon_plugin::{
-    import_loon_plugin, routing_model_with_plugin_rules, LoonLineHandler, LoonLineStatus,
-    LoonSupportLevel, LOON_PLUGIN_EMPTY_CODE, LOON_PLUGIN_ID_INVALID_CODE, LOON_PLUGIN_MAX_BYTES,
-    LOON_PLUGIN_TOO_LARGE_CODE,
+    import_loon_plugin, merged_plugin_source, routing_model_with_plugin_rules, LoonLineHandler,
+    LoonLineStatus, LoonSupportLevel, LOON_PLUGIN_EMPTY_CODE, LOON_PLUGIN_ID_INVALID_CODE,
+    LOON_PLUGIN_MAX_BYTES, LOON_PLUGIN_TOO_LARGE_CODE,
 };
 use mitm_policy::{
-    AnixOpsMitmPluginService, AnixOpsMitmPolicyEngine, MitmPolicyPhase, MitmPolicyRewriteAction,
+    AnixOpsMitmPluginService, AnixOpsMitmPolicyEngine, MitmPolicyMitmDecisionType, MitmPolicyPhase,
+    MitmPolicyRewriteAction,
 };
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -359,4 +362,55 @@ fn loon_plugin_corpus_matches_expected_support_levels() {
         graded, plugin_files,
         "every corpus plugin needs an expected level"
     );
+}
+
+#[test]
+fn merged_plugins_load_as_one_policy_with_combined_rewrites_and_hosts() {
+    let full = import_loon_plugin(FULL_FIXTURE).expect("P0 plugin should import");
+    let second = import_loon_plugin(
+        "#!name = Second\n\
+         [Rewrite]\n\
+         ^https?://cdn\\.example\\.org/ads/ reject\n\
+         [MITM]\n\
+         hostname = cdn.example.org, login.example.com\n",
+    )
+    .expect("second plugin should import");
+    let merged = merged_plugin_source("Merged", &[&full, &second]);
+
+    assert_eq!(merged.matches("[Rewrite]").count(), 1, "{merged}");
+    assert!(!merged.contains("[Rule]"), "{merged}");
+    assert!(
+        merged.contains(
+            "hostname = api.example.com, old.example.com, -login.example.com, cdn.example.org"
+        ),
+        "a later plugin cannot re-enable an excluded host: {merged}"
+    );
+
+    let mut engine = AnixOpsMitmPolicyEngine::new().expect("policy engine should allocate");
+    engine
+        .load_config(&merged)
+        .expect("merged source should load");
+    for url in [
+        "https://api.example.com/v1/ad",
+        "https://cdn.example.org/ads/banner.js",
+    ] {
+        let result = engine
+            .evaluate_url_rewrite(url, MitmPolicyPhase::Request)
+            .expect("rewrite should evaluate");
+        assert_eq!(result.action, MitmPolicyRewriteAction::Reject, "{url}");
+    }
+    engine.set_certificate_trust_state(CertificateTrustState::Trusted);
+    for (host, expected) in [
+        ("cdn.example.org", MitmPolicyMitmDecisionType::Intercept),
+        ("api.example.com", MitmPolicyMitmDecisionType::Intercept),
+        ("login.example.com", MitmPolicyMitmDecisionType::Bypass),
+    ] {
+        let decision = engine
+            .evaluate_mitm(host, false)
+            .expect("host decision should evaluate");
+        assert_eq!(decision.decision, expected, "{host}");
+    }
+
+    let empty = merged_plugin_source("Nothing", &[]);
+    assert!(!empty.contains("[MITM]"), "{empty}");
 }

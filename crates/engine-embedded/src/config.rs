@@ -59,13 +59,19 @@ pub struct RuntimeConfig {
     pub mitm: Option<MitmConfig>,
 }
 
-/// The `mitm` section: policy text and the device root (see `crate::mitm`).
+/// The `mitm` section: plugins and the device root (see `crate::mitm`).
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MitmConfig {
     /// Policy text in the `mitm_anixops` format (`[MITM] hostname`, `[URL
-    /// Rewrite]`, `[Header Rewrite]`, `[Body Rewrite]`, `[Map Local]`).
+    /// Rewrite]`, `[Header Rewrite]`, `[Body Rewrite]`, `[Map Local]`),
+    /// imported like the first plugin. May be empty.
+    #[serde(default)]
     pub policy: String,
+    /// Loon plugin texts, in order. Each is imported with
+    /// `mitm_policy::loon_plugin` and all are merged into one policy.
+    #[serde(default)]
+    pub plugins: Vec<String>,
     /// Root certificate, base64 DER.
     pub ca_certificate: String,
     /// Root private key, base64 ANSI X9.63 P-256 (`04 || X || Y || D`), as
