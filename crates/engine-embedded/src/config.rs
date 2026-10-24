@@ -14,6 +14,7 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 
 use config_core::routing::{PolicyGroupSpec, RoutingSpec};
+use config_core::rule_set::RuleSet;
 use engine_outbound::registry::{OutboundRegistry, Settings};
 use engine_outbound::{Dialer, TcpOutbound};
 use serde::Deserialize;
@@ -32,6 +33,9 @@ const MAX_PROFILE_ID_LEN: usize = 128;
 const MAX_ROUTED_OUTBOUNDS: usize = 64;
 const MAX_ROUTING_RULES: usize = 4096;
 const MAX_POLICY_GROUPS: usize = 64;
+const MAX_RULE_SETS: usize = 16;
+/// Room for the mainland China domain and network lists with headroom.
+const MAX_RULE_SET_ENTRIES: usize = 500_000;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -83,6 +87,19 @@ pub struct RoutingConfig {
     pub rules: Vec<String>,
     #[serde(default)]
     pub groups: Vec<PolicyGroupConfig>,
+    /// Lists named by `RULE-SET,<name>,<target>` rules.
+    #[serde(default)]
+    pub rule_sets: BTreeMap<String, RuleSetConfig>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RuleSetConfig {
+    #[serde(default)]
+    pub domain_suffix: Vec<String>,
+    /// Networks or bare addresses.
+    #[serde(default)]
+    pub ip_cidr: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -222,12 +239,24 @@ impl RuntimeConfig {
         match (&self.outbound, &self.routing) {
             (Some(_), None) => {}
             (None, Some(routing)) => {
+                let rule_set_entries: usize = routing
+                    .rule_sets
+                    .values()
+                    .map(|set| set.domain_suffix.len() + set.ip_cidr.len())
+                    .sum();
                 if routing.outbounds.is_empty()
                     || routing.outbounds.len() > MAX_ROUTED_OUTBOUNDS
                     || routing.rules.len() > MAX_ROUTING_RULES
                     || routing.groups.len() > MAX_POLICY_GROUPS
+                    || routing.rule_sets.len() > MAX_RULE_SETS
+                    || rule_set_entries > MAX_RULE_SET_ENTRIES
                 {
                     return Err(rejected("routing section size is out of range"));
+                }
+                if !routing.rule_sets.keys().all(|name| is_identifier(name)) {
+                    return Err(rejected(
+                        "rule set names must be 1-128 characters of [A-Za-z0-9._-]",
+                    ));
                 }
                 if !routing.outbounds.keys().all(|id| is_identifier(id)) {
                     return Err(rejected(
@@ -303,8 +332,22 @@ impl RuntimeConfig {
                         })
                         .collect(),
                 };
+                let rule_sets = routing
+                    .rule_sets
+                    .iter()
+                    .map(|(name, set)| {
+                        RuleSet::new(
+                            set.domain_suffix.iter().map(String::as_str),
+                            set.ip_cidr.iter().map(String::as_str),
+                        )
+                        .map(|set| (name.clone(), set))
+                        .map_err(|_| rejected("rule set entries are invalid"))
+                    })
+                    .collect::<Result<BTreeMap<_, _>, _>>()?;
                 let direct = Arc::new(DirectOutbound::new(dialer));
-                Ok(Arc::new(RoutedOutbound::new(&spec, direct, nodes)?))
+                Ok(Arc::new(RoutedOutbound::with_rule_sets(
+                    &spec, direct, nodes, rule_sets,
+                )?))
             }
             (None, None) => Err(rejected("exactly one of outbound and routing must be set")),
         }

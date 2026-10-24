@@ -6,17 +6,21 @@
 //! wired yet, and a domain target that reaches an IP rule without
 //! `no-resolve` is rejected because the runtime does not resolve it (the same
 //! result sing-box gives for a failed resolve). GeoIP rules never match
-//! because the runtime ships no GeoIP database. Policy groups use their
+//! because the runtime ships no GeoIP database. `RULE-SET` rules match the
+//! named [`RuleSet`] from the config, never resolving a domain for its
+//! networks. Policy groups use their
 //! static choice (select default or first member); live selection and health
 //! checks come later.
 
 use std::collections::BTreeMap;
 use std::io;
+use std::net::IpAddr;
 use std::sync::Arc;
 
 use config_core::routing::{
-    RouteOutcome, RouteQuery, RoutingModel, RoutingSpec, StaticRoutingEnvironment,
+    RouteOutcome, RouteQuery, RoutingEnvironment, RoutingModel, RoutingSpec, RuleMatcher,
 };
+use config_core::rule_set::RuleSet;
 use engine_outbound::{BoxFuture, BoxStream, TargetAddr, TcpOutbound};
 
 use crate::{RuntimeError, RuntimeErrorCode};
@@ -25,8 +29,20 @@ pub const PROTOCOL: &str = "routed";
 
 pub struct RoutedOutbound {
     model: RoutingModel,
+    rule_sets: RuleSets,
     direct: Arc<dyn TcpOutbound>,
     nodes: BTreeMap<String, Arc<dyn TcpOutbound>>,
+}
+
+/// The routing environment: the configured rule sets. Select groups keep
+/// their default and health-checked groups their first member, as with
+/// `StaticRoutingEnvironment`.
+struct RuleSets(BTreeMap<String, RuleSet>);
+
+impl RoutingEnvironment for RuleSets {
+    fn rule_set_matches(&self, name: &str, domain: Option<&str>, ip: Option<IpAddr>) -> bool {
+        self.0.get(name).is_some_and(|set| set.matches(domain, ip))
+    }
 }
 
 impl RoutedOutbound {
@@ -37,6 +53,17 @@ impl RoutedOutbound {
         direct: Arc<dyn TcpOutbound>,
         nodes: BTreeMap<String, Arc<dyn TcpOutbound>>,
     ) -> Result<Self, RuntimeError> {
+        Self::with_rule_sets(spec, direct, nodes, BTreeMap::new())
+    }
+
+    /// As [`RoutedOutbound::new`], with the sets `RULE-SET` rules name; a rule
+    /// naming a missing set is rejected.
+    pub fn with_rule_sets(
+        spec: &RoutingSpec,
+        direct: Arc<dyn TcpOutbound>,
+        nodes: BTreeMap<String, Arc<dyn TcpOutbound>>,
+        rule_sets: BTreeMap<String, RuleSet>,
+    ) -> Result<Self, RuntimeError> {
         let node_ids = nodes.keys().cloned().collect();
         let model = RoutingModel::from_spec(spec, &node_ids).map_err(|_| {
             RuntimeError::new(
@@ -44,8 +71,18 @@ impl RoutedOutbound {
                 "routing rules or policy groups are invalid",
             )
         })?;
+        let unknown_set = model.rules.iter().any(|rule| {
+            matches!(&rule.matcher, RuleMatcher::RuleSet(name) if !rule_sets.contains_key(name))
+        });
+        if unknown_set {
+            return Err(RuntimeError::new(
+                RuntimeErrorCode::ConfigRejected,
+                "a routing rule names a rule set that is not configured",
+            ));
+        }
         Ok(Self {
             model,
+            rule_sets: RuleSets(rule_sets),
             direct,
             nodes,
         })
@@ -61,7 +98,7 @@ impl RoutedOutbound {
             TargetAddr::Ip(addr) => RouteQuery::ip(addr.ip()),
             TargetAddr::Domain(domain, _) => RouteQuery::domain(domain.clone()),
         };
-        self.model.decide(&query, &StaticRoutingEnvironment).outcome
+        self.model.decide(&query, &self.rule_sets).outcome
     }
 }
 

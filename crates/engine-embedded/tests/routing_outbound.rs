@@ -6,6 +6,7 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
 use config_core::routing::{PolicyGroupSpec, RouteOutcome, RoutingSpec};
+use config_core::rule_set::RuleSet;
 use engine_embedded::routing::RoutedOutbound;
 use engine_outbound::{BoxFuture, BoxStream, TargetAddr, TcpOutbound};
 
@@ -129,4 +130,50 @@ fn connect_dispatches_to_the_routed_outbound() {
         .err()
         .expect("rejected target should fail");
     assert_eq!(rejected.kind(), io::ErrorKind::PermissionDenied);
+}
+
+#[test]
+fn rule_sets_route_large_lists_without_resolving_domains() {
+    let hits = Arc::new(Mutex::new(Vec::new()));
+    let recording = |name| -> Arc<dyn TcpOutbound> {
+        Arc::new(Recording {
+            name,
+            hits: hits.clone(),
+        })
+    };
+    let nodes = BTreeMap::from([("proxy".to_string(), recording("proxy"))]);
+    let spec = RoutingSpec {
+        rules: vec![
+            "RULE-SET,china,DIRECT".to_string(),
+            "FINAL,proxy".to_string(),
+        ],
+        groups: Vec::new(),
+    };
+    let domains: Vec<String> = (0..50_000).map(|i| format!("site{i}.cn")).collect();
+    let china = RuleSet::new(domains.iter().map(String::as_str), ["192.0.2.0/24"]).unwrap();
+    let outbound = RoutedOutbound::with_rule_sets(
+        &spec,
+        recording("direct"),
+        nodes.clone(),
+        BTreeMap::from([("china".to_string(), china)]),
+    )
+    .expect("rule set is configured");
+
+    let domain = |name: &str| TargetAddr::Domain(name.to_string(), 443);
+    assert_eq!(
+        outbound.route(&domain("www.site49999.cn")),
+        RouteOutcome::Direct
+    );
+    assert_eq!(outbound.route(&ip("192.0.2.9:443")), RouteOutcome::Direct);
+    assert_eq!(
+        outbound.route(&domain("example.com")),
+        RouteOutcome::Node("proxy".to_string())
+    );
+    assert_eq!(
+        outbound.route(&ip("203.0.113.9:443")),
+        RouteOutcome::Node("proxy".to_string())
+    );
+
+    // A RULE-SET rule naming a set the config does not carry is rejected.
+    assert!(RoutedOutbound::new(&spec, recording("direct"), nodes).is_err());
 }

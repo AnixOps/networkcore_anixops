@@ -93,6 +93,31 @@ fn routing_rules_apply_to_local_proxy_connections() {
 }
 
 #[test]
+fn rule_sets_in_the_envelope_apply_to_local_proxy_connections() {
+    let echo = echo_server();
+    let proxy = LocalProxy::start(
+        br#"{"schema_version":1,"profile_id":"routed","routing":{"outbounds":{"node":{"type":"direct"}},"rules":["RULE-SET,blocked,REJECT","FINAL,node"],"rule_sets":{"blocked":{"domain_suffix":["blocked.example"],"ip_cidr":["127.0.0.0/8"]}}}}"#,
+        loopback(),
+        MixedSettings::default(),
+    )
+    .unwrap();
+    let (_stream, reply) = socks_connect(proxy.local_addr(), echo);
+    assert_eq!(reply, 0x01, "rejected by the rule set");
+
+    for bad in [
+        // The rule names a set the envelope does not carry.
+        br#"{"schema_version":1,"profile_id":"p","routing":{"outbounds":{"node":{"type":"direct"}},"rules":["RULE-SET,missing,REJECT","FINAL,node"]}}"#.as_slice(),
+        br#"{"schema_version":1,"profile_id":"p","routing":{"outbounds":{"node":{"type":"direct"}},"rules":["FINAL,node"],"rule_sets":{"bad":{"ip_cidr":["10.0.0.0/40"]}}}}"#.as_slice(),
+        br#"{"schema_version":1,"profile_id":"p","routing":{"outbounds":{"node":{"type":"direct"}},"rules":["FINAL,node"],"rule_sets":{"bad name":{}}}}"#.as_slice(),
+    ] {
+        let err = LocalProxy::start(bad, loopback(), MixedSettings::default())
+            .err()
+            .unwrap();
+        assert_eq!(err.code, RuntimeErrorCode::ConfigRejected);
+    }
+}
+
+#[test]
 fn bad_configs_and_busy_ports_are_reported() {
     let err = LocalProxy::start(
         br#"{"schema_version":1,"profile_id":"p","outbound":{"type":"no-such-protocol"}}"#,
