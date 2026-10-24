@@ -42,12 +42,13 @@ public enum NodeSecretStore {
 
     /// Reads the value saved for `account`, or nil when there is none.
     public static func value(account: String) throws -> String? {
-        let query: [String: Any] = [
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
             kSecReturnData as String: true,
         ]
+        query.merge(platformAttributes) { _, new in new }
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         if status == errSecItemNotFound {
@@ -62,11 +63,12 @@ public enum NodeSecretStore {
 
     /// Removes the value saved for `account`, if any.
     public static func delete(account: String) throws {
-        let identity: [String: Any] = [
+        var identity: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
         ]
+        identity.merge(platformAttributes) { _, new in new }
         let status = SecItemDelete(identity as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
             throw Failure(status: status)

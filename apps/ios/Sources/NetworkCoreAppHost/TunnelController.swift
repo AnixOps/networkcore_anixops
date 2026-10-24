@@ -102,7 +102,7 @@ final class TunnelController: ObservableObject {
     @discardableResult
     func importLink(_ link: String) async -> Bool {
         if let url = SubscriptionLink.url(from: link) {
-            return await importSubscription(url, keeping: nil)
+            return await importSubscription(url, refreshing: nil)
         }
         let imported: TunnelImport
         do {
@@ -119,25 +119,65 @@ final class TunnelController: ObservableObject {
             return false
         }
         let nodes = imported.report.map { NodeLibrary(report: $0, subscriptionURL: nil, keeping: nil) }
-        guard await save(imported.profile) else {
+        guard await save(imported.profile, routed: nodes?.routesByRules == true) else {
             return false
         }
         storeLibrary(nodes)
         return true
     }
 
-    /// Re-downloads the current subscription and keeps the selected node when it is still listed.
+    /// Re-downloads the current subscription and keeps the selected node, the rules switch and the group picks
+    /// where they still apply.
     @discardableResult
     func refreshSubscription() async -> Bool {
-        guard let link = library?.subscriptionURL, let url = URL(string: link) else {
+        guard let current = library, let link = current.subscriptionURL, let url = URL(string: link) else {
             return false
         }
         refreshingSubscription = true
         defer { refreshingSubscription = false }
-        return await importSubscription(url, keeping: library?.selectedID)
+        return await importSubscription(url, refreshing: current)
     }
 
-    /// Makes `id` the tunnel's node. A running tunnel restarts on it.
+    /// Switches between the subscription's rules and groups and the selected node alone. A running tunnel
+    /// restarts on the new setting.
+    func setFollowsRules(_ on: Bool) async {
+        guard var nodes = library, nodes.routing != nil, nodes.followsRules != on, let selected = nodes.selected else {
+            return
+        }
+        let profile: TunnelProfile
+        do {
+            profile = try TunnelProfile(node: selected, profileID: Self.profileID)
+        } catch {
+            message = String(localized: "无法生成隧道配置")
+            return
+        }
+        nodes.followsRules = on
+        let wasRunning = isConnected
+        guard await save(profile, routed: nodes.routesByRules) else {
+            return
+        }
+        storeLibrary(nodes)
+        if wasRunning {
+            restart()
+        }
+    }
+
+    /// Picks the member a `select` group uses. A tunnel running by the rules restarts on it.
+    func selectMember(_ member: String, inGroup groupID: String) async {
+        guard var nodes = library,
+              let group = nodes.routing?.groups.first(where: { $0.id == groupID }),
+              group.isSelectable, group.members.contains(member), nodes.selection(in: group) != member
+        else {
+            return
+        }
+        nodes.groupSelections[groupID] = member
+        storeLibrary(nodes)
+        if nodes.routesByRules, isConnected {
+            restart()
+        }
+    }
+
+    /// Makes `id` the tunnel's node. A running tunnel restarts on it unless the subscription's rules pick the nodes.
     func selectNode(_ id: String) async {
         guard var nodes = library, let node = nodes.node(id: id), nodes.selectedID != id else {
             return
@@ -150,15 +190,20 @@ final class TunnelController: ObservableObject {
             return
         }
         let wasRunning = isConnected
-        guard await save(profile) else {
+        guard await save(profile, routed: nodes.routesByRules) else {
             return
         }
         nodes.selectedID = id
         storeLibrary(nodes)
-        if wasRunning {
-            restartAfterStop = true
-            manager?.connection.stopVPNTunnel()
+        if wasRunning, !nodes.routesByRules {
+            restart()
         }
+    }
+
+    /// Stops the tunnel and starts it again once it is down, so the extension reads the new profile and node list.
+    private func restart() {
+        restartAfterStop = true
+        manager?.connection.stopVPNTunnel()
     }
 
     /// Measures every listed node's TCP connect time, a few at a time.
@@ -192,7 +237,8 @@ final class TunnelController: ObservableObject {
         }
     }
 
-    private func importSubscription(_ url: URL, keeping previousID: String?) async -> Bool {
+    /// Downloads and imports a subscription; `refreshing` is the library it replaces, nil for a new subscription.
+    private func importSubscription(_ url: URL, refreshing previous: NodeLibrary?) async -> Bool {
         let text: String
         do {
             text = try await Self.download(url)
@@ -210,7 +256,8 @@ final class TunnelController: ObservableObject {
             message = Self.describe(.native(.unavailable))
             return false
         }
-        let nodes = NodeLibrary(report: report, subscriptionURL: url.absoluteString, keeping: previousID)
+        let nodes = previous?.refreshed(with: report)
+            ?? NodeLibrary(report: report, subscriptionURL: url.absoluteString, keeping: nil)
         guard let selected = nodes.selected else {
             message = Self.describe(.native(.noSupportedNode(
                 protocols: report.unsupported.map(\.protocol),
@@ -225,10 +272,10 @@ final class TunnelController: ObservableObject {
             message = String(localized: "无法生成隧道配置")
             return false
         }
-        // A refresh that keeps the same node leaves the running tunnel alone.
-        let unchanged = previousID == selected.id && library?.selected == selected
+        // A refresh that keeps the same node and rules switch leaves the saved profile and the running tunnel alone.
+        let unchanged = previous?.selected == selected && previous?.routesByRules == nodes.routesByRules
         if !unchanged {
-            guard await save(profile) else {
+            guard await save(profile, routed: nodes.routesByRules) else {
                 return false
             }
         }
@@ -252,8 +299,10 @@ final class TunnelController: ObservableObject {
     }
 
     private func storeLibrary(_ nodes: NodeLibrary?) {
+        if library?.nodes != nodes?.nodes {
+            latencies = [:]
+        }
         library = nodes
-        latencies = [:]
         if let nodes, let value = try? nodes.keychainValue() {
             _ = try? NodeSecretStore.save(value, account: NodeLibrary.keychainAccount)
         } else {
@@ -261,8 +310,8 @@ final class TunnelController: ObservableObject {
         }
     }
 
-    /// Saves `profile` as the tunnel profile.
-    private func save(_ profile: TunnelProfile) async -> Bool {
+    /// Saves `profile` as the tunnel profile; `routed` makes the extension follow the node library's rules.
+    private func save(_ profile: TunnelProfile, routed: Bool = false) async -> Bool {
         let profileID = Self.profileID
         guard let providerBundleIdentifier = Self.tunnelBundleIdentifier() else {
             message = String(localized: "找不到隧道扩展")
@@ -295,6 +344,9 @@ final class TunnelController: ObservableObject {
             TunnelProfileKeys.tunnelInterface: interface,
             TunnelProfileKeys.nodeName: profile.displayName,
         ]
+        if routed {
+            providerConfiguration[TunnelProfileKeys.routing] = true
+        }
         let library = (try? MitmPluginLibrary.load(from: MitmPluginLibrary.defaultURL)) ?? MitmPluginLibrary()
         if let plugins = try? MitmPluginLibrary.profileValue(library.activeTexts), !library.activeTexts.isEmpty {
             providerConfiguration[TunnelProfileKeys.mitmPlugins] = plugins

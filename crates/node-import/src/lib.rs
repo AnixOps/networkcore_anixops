@@ -1,7 +1,8 @@
 //! Converts normalized subscription nodes (`control_domain::NodeDescriptor`)
 //! into outbound entries (`{"type": ..., ...}`) of the embedded engine's
 //! config envelope, and turns pasted or downloaded subscription text into a
-//! list of them.
+//! list of them, with the subscription's rules and policy groups when the
+//! engine can run them.
 //!
 //! This crate carries no protocol code and no runtime, so the iOS app can link
 //! it (see [`ffi`]) to import nodes without linking the packet tunnel engine.
@@ -10,6 +11,8 @@
 
 pub mod ffi;
 
+use config_core::routing::RoutingSpec;
+use config_core::routing_import::import_subscription_routing;
 use control_domain::{
     NodeCatalog, NodeDescriptor, Protocol, SubscriptionService, SubscriptionSource,
     NODE_METADATA_HYSTERIA2_OBFS_PASSWORD, NODE_METADATA_HYSTERIA2_OBFS_TYPE,
@@ -46,11 +49,24 @@ pub fn outbound_json(node: &NodeDescriptor) -> Result<Value, Unsupported> {
 /// Largest subscription text [`import_text`] accepts.
 pub const MAX_IMPORT_TEXT_LEN: usize = 4 * 1024 * 1024;
 
+/// Most nodes, rules and policy groups a routed config may carry. The engine
+/// (`engine_embedded::config`) enforces the same limits.
+pub const MAX_ROUTED_OUTBOUNDS: usize = 64;
+pub const MAX_ROUTING_RULES: usize = 4096;
+pub const MAX_POLICY_GROUPS: usize = 64;
+
 /// Nodes found in a subscription text, in its order.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ImportReport {
     pub nodes: Vec<ImportedNode>,
     pub unsupported: Vec<UnsupportedNode>,
+    /// The subscription's rules and policy groups as the engine's `routing`
+    /// section without `outbounds` (see [`routing_json`]). Present only when
+    /// every node can run, every node id is a valid outbound id and the result
+    /// fits the limits above; rules and groups name nodes by
+    /// [`ImportedNode::id`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub routing: Option<Value>,
 }
 
 /// A node the engine can run. `outbound` holds its credentials.
@@ -110,7 +126,56 @@ pub fn import_text(text: &str) -> Result<ImportReport, ImportError> {
         .and_then(|raw| service.parse(&raw))
         .and_then(|document| service.normalize(&document))
         .map_err(|_| ImportError::Unrecognized)?;
-    Ok(report(&catalog.nodes))
+    let mut report = report(&catalog.nodes);
+    report.routing = subscription_routing(text, &catalog.nodes, &report);
+    Ok(report)
+}
+
+/// `rules` and `groups` of the engine's `routing` section for `spec`.
+pub fn routing_json(spec: &RoutingSpec) -> Value {
+    let groups: Vec<Value> = spec
+        .groups
+        .iter()
+        .map(|group| {
+            json!({
+                "id": group.id,
+                "type": group.kind,
+                "members": group.members,
+                "default": group.default,
+                "url": group.url,
+                "interval_secs": group.interval_secs,
+                "tolerance_ms": group.tolerance_ms,
+            })
+        })
+        .collect();
+    json!({ "rules": spec.rules, "groups": groups })
+}
+
+fn subscription_routing(
+    text: &str,
+    nodes: &[NodeDescriptor],
+    report: &ImportReport,
+) -> Option<Value> {
+    if !report.unsupported.is_empty()
+        || report.nodes.is_empty()
+        || report.nodes.len() > MAX_ROUTED_OUTBOUNDS
+        || !report.nodes.iter().all(|node| is_outbound_id(&node.id))
+    {
+        return None;
+    }
+    let spec = import_subscription_routing(text, nodes).spec?;
+    if spec.rules.len() > MAX_ROUTING_RULES || spec.groups.len() > MAX_POLICY_GROUPS {
+        return None;
+    }
+    Some(routing_json(&spec))
+}
+
+/// Same rule as the engine's routing outbound ids: 1-128 of `[A-Za-z0-9._-]`.
+fn is_outbound_id(id: &str) -> bool {
+    (1..=128).contains(&id.len())
+        && id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
 }
 
 /// Splits `nodes` into runnable entries and unsupported ones.
@@ -118,6 +183,7 @@ pub fn report(nodes: &[NodeDescriptor]) -> ImportReport {
     let mut report = ImportReport {
         nodes: Vec::new(),
         unsupported: Vec::new(),
+        routing: None,
     };
     for node in nodes {
         match outbound_json(node) {

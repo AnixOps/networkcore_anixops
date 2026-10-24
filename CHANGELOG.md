@@ -12,6 +12,7 @@
 
 ### Added
 
+- iOS 隧道支持订阅规则和策略组：`node-import` 的导入结果新增 `routing`（订阅的规则和 select/url-test/fallback 策略组，节点按 id 引用）。只有全部节点都能运行、节点 id 合法、数量不超过引擎上限时才提供；上限常量移到 `node-import`，由引擎共用，`engine_embedded::nodes::routing_envelope` 也改用 `node_import::routing_json`。App 把规则和策略组跟节点列表一起存在钥匙串里，隧道配置里只有一个“按规则分流”的标记。扩展启动时从钥匙串读取节点列表，生成带全部节点的 `routing` 配置；读不到节点列表或运行时拒绝这份配置时，退回只用所选节点，原因记入诊断。新的“规则”页可以开关按订阅规则分流，也可以切换 select 策略组的成员（连接中会自动重连）。按规则分流时，代理页的节点不可点选。刷新订阅时保留规则开关和仍然有效的策略组选择。
 - 发布流程加入 Linux 图形客户端：tag 发布新增 `package-linux-gui` 与 `attest-linux-gui` 任务，在 Ubuntu 上构建共用界面和 `anixops-net`，产出 tarball（`bin/`、桌面入口、图标、LICENSE、CHANGELOG、INSTALL.md）和 Debian 包（`/usr/bin/anixops-net`、菜单项与图标，依赖 `libwebkit2gtk-4.1-0`），各带 manifest 与 sha256，统一做 GitHub artifact attestation 后随 Release 发布。`gui` feature 现在包含 `tauri/custom-protocol`，直接 `cargo build --release` 得到的窗口也内嵌界面而不是去连开发服务器。
 - Windows 内置引擎支持订阅自带的规则和策略组：导入带 `[Rule]`/`[Proxy Group]` 或 Clash `rules`/`proxy-groups` 的订阅后，节点列表不再为空，新增“规则”分流模式（导入这类订阅时自动选中，只对内置引擎提供）按订阅规则分流；“规则”页列出订阅的策略组，可切换手动选择组的出口（已连接时自动重启内核），节点页切换节点改主策略组的出口，“选择最快节点”只在主策略组成员里挑，刷新订阅保留原选择。其他四种分流模式下 FINAL 的策略组选择同样生效。
 - `engine-embedded` 的自动测速组生效：桌面本地代理（Windows 桌面/服务模式、Linux）运行路由配置时在后台对 url-test/fallback 组的每个成员按组的 URL 测速（`RoutedOutbound::run_health_checks`，间隔取各组最短值且不少于 30 秒，单次超时 5 秒），url-test 选延迟最低的成员，fallback 选第一个测通的成员；首次测速完成前用第一个成员。新增 `delay::probe` 在调用方运行时里测一次 URL。iOS 隧道暂不运行测速。

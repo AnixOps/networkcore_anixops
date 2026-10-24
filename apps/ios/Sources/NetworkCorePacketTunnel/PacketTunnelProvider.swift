@@ -56,7 +56,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             completionHandler(PacketTunnelFailure(reason: "tunnel profile has no node key; import the node again"))
             return
         }
-        let config: EmbeddedRuntimeConfig
+        var config: EmbeddedRuntimeConfig
         let interface: TunnelInterface
         do {
             let secret = NodeSecret.fromKeychainValue(try NodeSecretStore.password(for: keyReference))
@@ -69,6 +69,9 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         } catch {
             completionHandler(PacketTunnelFailure(reason: "tunnel profile is malformed"))
             return
+        }
+        if tunnelProtocol.providerConfiguration?[TunnelProfileKeys.routing] as? Bool == true {
+            config = withSubscriptionRules(config)
         }
         events.record("profile loaded, mtu \(interface.mtu), \(interface.addresses.count) addresses, \(interface.includedRoutes.count) routes, \(interface.dnsServers.count) dns servers")
 
@@ -154,10 +157,46 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         }
     }
 
+    /// Adds the subscription's rules and groups from the node library in the Keychain. They are an extra like HTTPS
+    /// decryption: without a readable library the selected node carries all traffic, and the reason goes to the
+    /// diagnostics.
+    private func withSubscriptionRules(_ config: EmbeddedRuntimeConfig) -> EmbeddedRuntimeConfig {
+        do {
+            guard let value = try NodeSecretStore.value(account: NodeLibrary.keychainAccount),
+                  let routing = try NodeLibrary.fromKeychainValue(value).runtimeRouting()
+            else {
+                events.record("subscription rules off: no node list with rules")
+                return config
+            }
+            events.record("subscription rules on, \(routing.outbounds.count) nodes, \(routing.rules.count) rules, \(routing.groups.count) groups")
+            return config.withRouting(routing)
+        } catch let failure as NodeSecretStore.Failure {
+            events.record("subscription rules off: node list unavailable (keychain status \(failure.status))")
+        } catch {
+            events.record("subscription rules off: node list is malformed")
+        }
+        return config
+    }
+
+    /// Creates the runtime. When it refuses the subscription's rules, the selected node runs alone.
+    private func makeSession(_ config: EmbeddedRuntimeConfig, mitmPlugins: [String]) throws -> EmbeddedRuntimeSession {
+        guard config.routing != nil else {
+            return try makeRuntimeSession(config, mitmPlugins: mitmPlugins)
+        }
+        do {
+            return try makeRuntimeSession(config, mitmPlugins: mitmPlugins)
+        } catch let failure as EmbeddedRuntimeSession.Failure {
+            events.record("subscription rules off: runtime refused them (code \(failure.code))")
+        } catch {
+            events.record("subscription rules off: runtime refused them")
+        }
+        return try makeRuntimeSession(config.withRouting(nil), mitmPlugins: mitmPlugins)
+    }
+
     /// Creates the runtime, decrypting HTTPS for the enabled plugins when the device root is in the Keychain.
     /// HTTPS decryption is an extra: when the root is missing or the runtime refuses the plugins, the tunnel
     /// starts without it and the reason goes to the diagnostics.
-    private func makeSession(_ config: EmbeddedRuntimeConfig, mitmPlugins: [String]) throws -> EmbeddedRuntimeSession {
+    private func makeRuntimeSession(_ config: EmbeddedRuntimeConfig, mitmPlugins: [String]) throws -> EmbeddedRuntimeSession {
         if !mitmPlugins.isEmpty {
             do {
                 if let authority = try MitmCertificateStore.load() {

@@ -59,9 +59,10 @@ struct ProxiesView: View {
                             await tunnel.selectNode(node.id)
                         }
                     } label: {
-                        row(node, selected: node.id == library.selectedID)
+                        row(node, selected: !library.routesByRules && node.id == library.selectedID)
                     }
                     .buttonStyle(.plain)
+                    .disabled(library.routesByRules)
                     .listRowBackground(brand.surface)
                 }
             } header: {
@@ -71,7 +72,12 @@ struct ProxiesView: View {
                     Text("节点")
                 }
             } footer: {
-                Text("延迟为到服务器端口的 TCP 连接时间；Hysteria2、TUIC 走 UDP，不在此测量。连接中切换节点会自动重连。")
+                VStack(alignment: .leading, spacing: 6) {
+                    if library.routesByRules {
+                        Text("正在按订阅规则分流，节点由策略组决定；可以在“规则”页切换策略组或关闭规则。")
+                    }
+                    Text("延迟为到服务器端口的 TCP 连接时间；Hysteria2、TUIC 走 UDP，不在此测量。连接中切换节点会自动重连。")
+                }
             }
         }
         .scrollContentBackground(.hidden)
