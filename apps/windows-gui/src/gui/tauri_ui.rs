@@ -76,6 +76,8 @@ const CHINA_IP_URL: &str =
 const ROUTING_RULE_DIRECTORY: &str = "routing-rules";
 const EMBEDDED_PROFILE_ID: &str = "windows-tauri-profile";
 const EMBEDDED_LISTEN_PORT: u16 = 7890;
+/// Routed id of a single-outbound profile once a routing mode applies.
+const EMBEDDED_PROXY_OUTBOUND: &str = "proxy";
 
 #[derive(Clone)]
 struct DesktopAppState {
@@ -1781,9 +1783,20 @@ fn import_embedded_subscription(
             (envelope, Some(node.id))
         }
     };
-    let envelope_path = windows_managed_data_directory()
-        .join("embedded")
-        .join("envelope.json");
+    // The imported envelope is kept so routing modes can be reapplied to it.
+    write_managed_text_atomic(&embedded_profile_path(), &envelope)
+        .map_err(|error| error.to_string())?;
+    let envelope = match embedded_envelope_for_mode(&envelope, desktop.routing_mode, false) {
+        Ok(routed) => routed,
+        Err(error) => {
+            let _ = append_managed_log(
+                APP_LOG_SCOPE,
+                &format!("routing mode was not applied to the imported profile: {error}"),
+            );
+            envelope
+        }
+    };
+    let envelope_path = embedded_directory().join("envelope.json");
     write_managed_text_atomic(&envelope_path, &envelope).map_err(|error| error.to_string())?;
     let mut managed = managed_config_or_default()?;
     managed.system_proxy = Some(WindowsProxySettings {
@@ -1809,6 +1822,123 @@ fn import_embedded_subscription(
     desktop.profile_node_catalog.clear();
     desktop.profile_config_sha256 = None;
     Ok(())
+}
+
+fn embedded_directory() -> PathBuf {
+    windows_managed_data_directory().join("embedded")
+}
+
+fn embedded_profile_path() -> PathBuf {
+    embedded_directory().join("profile.json")
+}
+
+/// The imported envelope with `mode`'s rules in place of its own, as the
+/// sing-box path replaces `route.rules`: the profile's FINAL target (or its
+/// single outbound) is the proxy, and the mode's lists become rule sets.
+fn embedded_envelope_for_mode(
+    profile: &str,
+    mode: DesktopRoutingMode,
+    force_refresh: bool,
+) -> Result<String, String> {
+    let rule_directory = windows_managed_data_directory().join(ROUTING_RULE_DIRECTORY);
+    if mode != DesktopRoutingMode::Direct {
+        refresh_routing_rule_assets(&rule_directory, mode, force_refresh)?;
+    }
+    let mut envelope: Value = serde_json::from_str(profile).map_err(|error| error.to_string())?;
+    let object = envelope
+        .as_object_mut()
+        .ok_or_else(|| "embedded profile must be a JSON object".to_string())?;
+    let (mut routing, proxy) = match (object.remove("outbound"), object.remove("routing")) {
+        (Some(outbound), None) => (
+            json!({ "outbounds": { EMBEDDED_PROXY_OUTBOUND: outbound } }),
+            EMBEDDED_PROXY_OUTBOUND.to_string(),
+        ),
+        (None, Some(routing)) => {
+            let proxy = routing
+                .get("rules")
+                .and_then(Value::as_array)
+                .and_then(|rules| rules.last())
+                .and_then(Value::as_str)
+                .and_then(|rule| rule.strip_prefix("FINAL,"))
+                .map(str::to_string)
+                .ok_or_else(|| "embedded profile routing must end with FINAL".to_string())?;
+            (routing, proxy)
+        }
+        _ => return Err("embedded profile must carry one outbound or routing".to_string()),
+    };
+    let list = |name: &str| read_rule_set_asset(&rule_directory.join(name));
+    let (rules, rule_sets) = match mode {
+        DesktopRoutingMode::BypassChina | DesktopRoutingMode::ReturnChina => {
+            let (mut domain_suffix, _) = list("china-domains.json")?;
+            let (more_domains, ip_cidr) = list("china-ips.json")?;
+            domain_suffix.extend(more_domains);
+            let (china_target, final_target) = if mode == DesktopRoutingMode::BypassChina {
+                ("DIRECT".to_string(), proxy)
+            } else {
+                (proxy, "DIRECT".to_string())
+            };
+            (
+                vec![
+                    format!("RULE-SET,china,{china_target}"),
+                    format!("FINAL,{final_target}"),
+                ],
+                json!({ "china": { "domain_suffix": domain_suffix, "ip_cidr": ip_cidr } }),
+            )
+        }
+        DesktopRoutingMode::GfwList => {
+            let (domain_suffix, ip_cidr) = list("gfw-domains.json")?;
+            (
+                vec![format!("RULE-SET,gfw,{proxy}"), "FINAL,DIRECT".to_string()],
+                json!({ "gfw": { "domain_suffix": domain_suffix, "ip_cidr": ip_cidr } }),
+            )
+        }
+        DesktopRoutingMode::Direct => (vec!["FINAL,DIRECT".to_string()], json!({})),
+    };
+    let routing_object = routing
+        .as_object_mut()
+        .ok_or_else(|| "embedded profile routing must be a JSON object".to_string())?;
+    routing_object.insert("rules".to_string(), json!(rules));
+    routing_object.insert("rule_sets".to_string(), rule_sets);
+    object.insert("routing".to_string(), routing);
+    let rendered = serde_json::to_string(&envelope).map_err(|error| error.to_string())?;
+    RuntimeConfig::from_json(rendered.as_bytes())
+        .map_err(|error| format!("routed embedded profile was rejected: {}", error.message))?;
+    Ok(rendered)
+}
+
+/// Domain suffixes and networks of a rule asset written by
+/// [`write_rule_set_asset`].
+fn read_rule_set_asset(path: &Path) -> Result<(Vec<String>, Vec<String>), String> {
+    let content = fs::read_to_string(path).map_err(|error| {
+        format!(
+            "routing rules could not be read from {}: {error}",
+            path.display()
+        )
+    })?;
+    let source: Value = serde_json::from_str(&content).map_err(|error| error.to_string())?;
+    let mut domain_suffix = Vec::new();
+    let mut ip_cidr = Vec::new();
+    for rule in source
+        .get("rules")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        for (key, entries) in [
+            ("domain_suffix", &mut domain_suffix),
+            ("ip_cidr", &mut ip_cidr),
+        ] {
+            entries.extend(
+                rule.get(key)
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string),
+            );
+        }
+    }
+    Ok((domain_suffix, ip_cidr))
 }
 
 fn import_mieru_subscription_plan(
@@ -2144,6 +2274,22 @@ fn set_routing_mode_blocking(
         .lock()
         .map_err(|_| "desktop state lock failed")?;
     let managed = managed_config_or_default()?;
+    if let Some(embedded) = managed.embedded.filter(|embedded| embedded.enabled) {
+        let profile = fs::read_to_string(embedded_profile_path()).map_err(|error| {
+            format!("Import the profile again before applying a routing mode: {error}")
+        })?;
+        let envelope = embedded_envelope_for_mode(&profile, mode, force_refresh)?;
+        write_managed_text_atomic(&embedded.envelope_path, &envelope)
+            .map_err(|error| error.to_string())?;
+        desktop.routing_mode = mode;
+        save_desktop_state(&desktop)?;
+        return Ok(OperationResult {
+            message: format!(
+                "{} routing mode saved. Connect to apply the updated route.",
+                routing_mode_label(mode)
+            ),
+        });
+    }
     let sing_box = managed
         .sing_box
         .ok_or_else(|| "Import a sing-box profile before applying a routing mode.".to_string())?;

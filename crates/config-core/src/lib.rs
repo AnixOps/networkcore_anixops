@@ -5,6 +5,7 @@
 
 pub mod routing;
 pub mod routing_import;
+pub mod rule_set;
 pub mod sdwan_delivery;
 pub mod windows_tunnel;
 
