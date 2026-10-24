@@ -1,0 +1,2042 @@
+{
+  "sourceLanguage": "zh-Hans",
+  "strings": {
+    "%lld 个主机": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld hosts"
+          }
+        }
+      }
+    },
+    "%lld 个脚本暂不运行": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld scripts not run yet"
+          }
+        }
+      }
+    },
+    "%lld 条规则暂不生效": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld rules not applied yet"
+          }
+        }
+      }
+    },
+    "%lld 条重写": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld rewrites"
+          }
+        }
+      }
+    },
+    "HTTPS 解密": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTPS Decryption"
+          }
+        }
+      }
+    },
+    "HTTPS 解密与插件": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTPS Decryption and Plugins"
+          }
+        }
+      }
+    },
+    "HTTPS 解密证书": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTPS Decryption Certificate"
+          }
+        }
+      }
+    },
+    "Mac 版的根证书信任和插件管理还在开发中，目前请在 iPhone 上使用。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Root certificate trust and plugin management are still in progress on Mac. Use them on iPhone for now."
+          }
+        }
+      }
+    },
+    "REALITY 参数（sni、pbk、sid）不正确": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The REALITY parameters (sni, pbk, sid) aren't valid"
+          }
+        }
+      }
+    },
+    "SHA-256 指纹": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SHA-256 Fingerprint"
+          }
+        }
+      }
+    },
+    "VLESS 用户 ID 格式不正确": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The VLESS user ID isn't valid"
+          }
+        }
+      }
+    },
+    "WireGuard Endpoint 格式不正确": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The WireGuard Endpoint isn't valid"
+          }
+        }
+      }
+    },
+    "WireGuard 地址或 AllowedIPs 格式不正确": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A WireGuard address or AllowedIPs entry isn't valid"
+          }
+        }
+      }
+    },
+    "WireGuard 密钥格式不正确": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A WireGuard key isn't valid"
+          }
+        }
+      }
+    },
+    "WireGuard 配置格式不正确": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The WireGuard config isn't valid"
+          }
+        }
+      }
+    },
+    "WireGuard 配置缺少 %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The WireGuard config is missing %@"
+          }
+        }
+      }
+    },
+    "action.connect": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接"
+          }
+        }
+      }
+    },
+    "“%@”已设为当前节点。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” is now the current node."
+          }
+        }
+      }
+    },
+    "上次停止原因": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last Stop Reason"
+          }
+        }
+      }
+    },
+    "不收集你的流量和浏览记录": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your traffic and browsing aren't collected"
+          }
+        }
+      }
+    },
+    "从剪贴板导入": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import from Clipboard"
+          }
+        }
+      }
+    },
+    "从文件导入": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import from File"
+          }
+        }
+      }
+    },
+    "从文件导入 WireGuard 配置": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import WireGuard Config from File"
+          }
+        }
+      }
+    },
+    "代理": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proxies"
+          }
+        }
+      }
+    },
+    "保存 VPN 配置失败或未获授权": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saving the VPN configuration failed or wasn't allowed"
+          }
+        }
+      }
+    },
+    "保存插件列表失败": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't save the plugin list"
+          }
+        }
+      }
+    },
+    "保存插件到 VPN 配置失败": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't save plugins to the VPN configuration"
+          }
+        }
+      }
+    },
+    "先在 App 里导入节点": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import a node in the app first"
+          }
+        }
+      }
+    },
+    "关于": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "About"
+          }
+        }
+      }
+    },
+    "关闭开发者模式": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn Off Developer Mode"
+          }
+        }
+      }
+    },
+    "关闭提示": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dismiss"
+          }
+        }
+      }
+    },
+    "内存占用": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Memory"
+          }
+        }
+      }
+    },
+    "内容为空": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The content is empty"
+          }
+        }
+      }
+    },
+    "再点 %lld 次开启开发者模式": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap %lld more times to turn on developer mode"
+          }
+        }
+      }
+    },
+    "出站协议": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Outbound protocol"
+          }
+        }
+      }
+    },
+    "剪贴板里没有文本": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "There's no text on the clipboard"
+          }
+        }
+      }
+    },
+    "去连接": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect"
+          }
+        }
+      }
+    },
+    "取消": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        }
+      }
+    },
+    "只解密插件 [MITM] 列出的主机，仅支持 HTTP/1.1。脚本和插件里的分流规则暂不生效。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only hosts listed under a plugin's [MITM] are decrypted, over HTTP/1.1 only. Scripts and routing rules in plugins don't take effect yet."
+          }
+        }
+      }
+    },
+    "可以解密 MITM 主机列表中的 HTTPS 流量。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTPS traffic to hosts in the MITM list can be decrypted."
+          }
+        }
+      }
+    },
+    "名称": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name"
+          }
+        }
+      }
+    },
+    "启动": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Startup"
+          }
+        }
+      }
+    },
+    "启用的插件合计超过 512 KB，请先停用一些插件": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enabled plugins exceed 512 KB in total. Turn some off first."
+          }
+        }
+      }
+    },
+    "在 Safari 中允许下载，然后到 设置 > 已下载描述文件 安装。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow the download in Safari, then install it in Settings > Profile Downloaded."
+          }
+        }
+      }
+    },
+    "在控制中心连接或断开。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect or disconnect from Control Center."
+          }
+        }
+      }
+    },
+    "复制诊断信息": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Diagnostics"
+          }
+        }
+      }
+    },
+    "外观": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appearance"
+          }
+        }
+      }
+    },
+    "安全隧道已建立": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Secure tunnel established"
+          }
+        }
+      }
+    },
+    "安装描述文件": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Install Profile"
+          }
+        }
+      }
+    },
+    "完成": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Done"
+          }
+        }
+      }
+    },
+    "密码和密钥只保存在钥匙串里，界面和诊断信息都不会显示。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passwords and keys are kept only in the keychain and are never shown in the app or in diagnostics."
+          }
+        }
+      }
+    },
+    "导入": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import"
+          }
+        }
+      }
+    },
+    "导入失败": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import failed"
+          }
+        }
+      }
+    },
+    "导入完成": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Imported"
+          }
+        }
+      }
+    },
+    "导入插件": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import Plugin"
+          }
+        }
+      }
+    },
+    "导入新节点会替换当前节点。多节点、订阅和策略组会在内核支持后开放。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importing a new node replaces the current one. Multiple nodes, subscriptions and policy groups will open up once the core supports them."
+          }
+        }
+      }
+    },
+    "导入第一个节点后即可连接": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import your first node to connect"
+          }
+        }
+      }
+    },
+    "导入组件不可用，请更新 App": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The import component is unavailable. Update the app."
+          }
+        }
+      }
+    },
+    "导入节点": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import Node"
+          }
+        }
+      }
+    },
+    "导入节点…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import Node…"
+          }
+        }
+      }
+    },
+    "导入节点（⌘I）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import Node (⌘I)"
+          }
+        }
+      }
+    },
+    "导出证书（.cer）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Export Certificate (.cer)"
+          }
+        }
+      }
+    },
+    "将替换当前节点“%@”": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Replaces the current node “%@”"
+          }
+        }
+      }
+    },
+    "尚未生成证书": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No certificate yet"
+          }
+        }
+      }
+    },
+    "已保存，重新连接后生效。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved. Reconnect to apply."
+          }
+        }
+      }
+    },
+    "已复制": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copied"
+          }
+        }
+      }
+    },
+    "已开启开发者模式": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Developer mode turned on"
+          }
+        }
+      }
+    },
+    "已连接": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connected"
+          }
+        }
+      }
+    },
+    "开发者模式": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Developer Mode"
+          }
+        }
+      }
+    },
+    "开发者模式已开启": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Developer mode is on"
+          }
+        }
+      }
+    },
+    "开启前请先在上面生成并信任 HTTPS 解密证书。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Before turning this on, create and trust the HTTPS decryption certificate above."
+          }
+        }
+      }
+    },
+    "开启完全信任": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn On Full Trust"
+          }
+        }
+      }
+    },
+    "当前会话": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Current Session"
+          }
+        }
+      }
+    },
+    "当前节点": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Current node"
+          }
+        }
+      }
+    },
+    "或手动输入": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Or type it in"
+          }
+        }
+      }
+    },
+    "打开 AnixOps Net": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open AnixOps Net"
+          }
+        }
+      }
+    },
+    "扩展": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Extensions"
+          }
+        }
+      }
+    },
+    "扩展事件（最近 %lld 条）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Extension Events (last %lld)"
+          }
+        }
+      }
+    },
+    "扩展没有响应": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The extension isn't responding"
+          }
+        }
+      }
+    },
+    "找不到隧道扩展": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The tunnel extension wasn't found"
+          }
+        }
+      }
+    },
+    "按域名和 IP 分流、规则集和规则测试会放在这里。当前版本按节点配置转发全部流量。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Routing by domain and IP, rule sets and rule testing will live here. This version sends all traffic through the node."
+          }
+        }
+      }
+    },
+    "描述文件可能未安装，或尚未在证书信任设置中开启完全信任。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The profile may not be installed, or full trust is not turned on in Certificate Trust Settings."
+          }
+        }
+      }
+    },
+    "插件": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plugins"
+          }
+        }
+      }
+    },
+    "插件内容为空": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The plugin is empty"
+          }
+        }
+      }
+    },
+    "插件超过 256 KB": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The plugin is larger than 256 KB"
+          }
+        }
+      }
+    },
+    "支持 Shadowsocks-2022、VLESS 链接和单个 Peer 的 WireGuard 配置。订阅、Clash / Loon / Surge 配置会在后续版本支持。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supports Shadowsocks-2022 and VLESS links and WireGuard configs with one peer. Subscriptions and Clash / Loon / Surge configs are coming in a later version."
+          }
+        }
+      }
+    },
+    "文件不是 UTF-8 文本或超过 256 KB": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The file isn't UTF-8 text or is larger than 256 KB"
+          }
+        }
+      }
+    },
+    "文件不是可识别的文本配置": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The file isn't a text config this app recognizes"
+          }
+        }
+      }
+    },
+    "断开": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disconnect"
+          }
+        }
+      }
+    },
+    "断开中": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disconnecting"
+          }
+        }
+      }
+    },
+    "断开，当前已连接": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disconnect, currently connected"
+          }
+        }
+      }
+    },
+    "断开，正在连接": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disconnect, currently connecting"
+          }
+        }
+      }
+    },
+    "无": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "None"
+          }
+        }
+      }
+    },
+    "无法启动隧道": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't start the tunnel"
+          }
+        }
+      }
+    },
+    "无法把节点密钥保存到钥匙串": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't save the node key to the keychain"
+          }
+        }
+      }
+    },
+    "无法提供描述文件（%@）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't serve the profile (%@)"
+          }
+        }
+      }
+    },
+    "无法更改登录项，请在 系统设置 > 通用 > 登录项 中调整。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't change the login item. Adjust it in System Settings > General > Login Items."
+          }
+        }
+      }
+    },
+    "无法生成插件配置": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't build the plugin configuration"
+          }
+        }
+      }
+    },
+    "无法生成隧道配置": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't build the tunnel configuration"
+          }
+        }
+      }
+    },
+    "无法解析节点": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't parse the node"
+          }
+        }
+      }
+    },
+    "无法识别的节点链接或订阅格式": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unrecognized node link or subscription format"
+          }
+        }
+      }
+    },
+    "无法读取 VPN 配置": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't read the VPN configuration"
+          }
+        }
+      }
+    },
+    "无法读取文件": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't read the file"
+          }
+        }
+      }
+    },
+    "无记录": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing recorded"
+          }
+        }
+      }
+    },
+    "暂不支持带插件的节点": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nodes with plugins aren't supported yet"
+          }
+        }
+      }
+    },
+    "未启动": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not started"
+          }
+        }
+      }
+    },
+    "未命名插件": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Untitled Plugin"
+          }
+        }
+      }
+    },
+    "未导入": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not imported"
+          }
+        }
+      }
+    },
+    "未知": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown"
+          }
+        }
+      }
+    },
+    "未知协议": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown protocol"
+          }
+        }
+      }
+    },
+    "未知状态": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown state"
+          }
+        }
+      }
+    },
+    "未连接": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not connected"
+          }
+        }
+      }
+    },
+    "未配置": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not configured"
+          }
+        }
+      }
+    },
+    "查看": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "View"
+          }
+        }
+      }
+    },
+    "查看是否已连接，轻点即可连接或断开。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "See whether you're connected and tap to connect or disconnect."
+          }
+        }
+      }
+    },
+    "概览": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overview"
+          }
+        }
+      }
+    },
+    "正在建立安全隧道": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Setting up the secure tunnel"
+          }
+        }
+      }
+    },
+    "正在断开": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disconnecting"
+          }
+        }
+      }
+    },
+    "正在断开…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disconnecting…"
+          }
+        }
+      }
+    },
+    "正在连接…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecting…"
+          }
+        }
+      }
+    },
+    "步骤": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Steps"
+          }
+        }
+      }
+    },
+    "每 2 秒自动刷新": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refresh every 2 seconds"
+          }
+        }
+      }
+    },
+    "每条连接命中的规则、策略和插件标记需要内核提供数据，会在后续版本显示在这里。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The rule, policy and plugin tags each connection matches need data from the core and will show here in a later version."
+          }
+        }
+      }
+    },
+    "没有可用的节点": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No usable node"
+          }
+        }
+      }
+    },
+    "没有可用的节点（暂不支持：%@）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No usable node (not supported yet: %@)"
+          }
+        }
+      }
+    },
+    "没有找到可用的重写、脚本或 [MITM] 主机": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No usable rewrites, scripts or [MITM] hosts were found"
+          }
+        }
+      }
+    },
+    "没有读取到文件": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No file was read"
+          }
+        }
+      }
+    },
+    "活动": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activity"
+          }
+        }
+      }
+    },
+    "浅色": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Light"
+          }
+        }
+      }
+    },
+    "深色": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dark"
+          }
+        }
+      }
+    },
+    "点击连接，或按 ⇧⌘C": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Click to connect, or press ⇧⌘C"
+          }
+        }
+      }
+    },
+    "版本": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Version"
+          }
+        }
+      }
+    },
+    "生成本机专属的根证书后才能解密 HTTPS。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create a root certificate for this device before decrypting HTTPS."
+          }
+        }
+      }
+    },
+    "生成根证书": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create Root Certificate"
+          }
+        }
+      }
+    },
+    "生成证书失败（%@）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't create the certificate (%@)"
+          }
+        }
+      }
+    },
+    "用已导入的节点连接，或断开当前连接。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connects with the imported node, or disconnects."
+          }
+        }
+      }
+    },
+    "登录 Mac 后打开 AnixOps Net": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open AnixOps Net when you log in"
+          }
+        }
+      }
+    },
+    "目前只支持 REALITY 安全类型的 VLESS 节点": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only VLESS nodes with REALITY security are supported for now"
+          }
+        }
+      }
+    },
+    "目前只支持 Shadowsocks-2022 加密方式": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only Shadowsocks-2022 ciphers are supported for now"
+          }
+        }
+      }
+    },
+    "目前只支持 TCP 传输的 VLESS 节点": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only VLESS nodes over TCP are supported for now"
+          }
+        }
+      }
+    },
+    "目前只支持 xtls-rprx-vision 流控或不使用流控": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only the xtls-rprx-vision flow or no flow is supported for now"
+          }
+        }
+      }
+    },
+    "目前只支持一个 Peer 的 WireGuard 配置": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only WireGuard configs with one peer are supported for now"
+          }
+        }
+      }
+    },
+    "确认导入": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confirm Import"
+          }
+        }
+      }
+    },
+    "立即刷新": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refresh Now"
+          }
+        }
+      }
+    },
+    "第 %lld 步，共 3 步": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Step %lld of 3"
+          }
+        }
+      }
+    },
+    "粘贴 ss://、vless:// 链接，或导入 WireGuard 配置。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paste an ss:// or vless:// link, or import a WireGuard config."
+          }
+        }
+      }
+    },
+    "粘贴 ss://、vless://、trojan://、vmess://、hysteria2://、tuic:// 等链接或订阅内容，或导入 WireGuard 配置。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paste an ss://, vless://, trojan://, vmess://, hysteria2:// or tuic:// link or subscription content, or import a WireGuard config."
+          }
+        }
+      }
+    },
+    "系统": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System"
+          }
+        }
+      }
+    },
+    "纯黑": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Black"
+          }
+        }
+      }
+    },
+    "纯黑主题适合 OLED 屏幕。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The black theme suits OLED screens."
+          }
+        }
+      }
+    },
+    "继续导入": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import Another"
+          }
+        }
+      }
+    },
+    "网络变化，正在重连": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Network changed, reconnecting"
+          }
+        }
+      }
+    },
+    "网络已切换，马上恢复": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Network changed, reconnecting"
+          }
+        }
+      }
+    },
+    "节点": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nodes"
+          }
+        }
+      }
+    },
+    "节点密码和密钥只保存在本机钥匙串": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Node passwords and keys stay in this device's keychain"
+          }
+        }
+      }
+    },
+    "节点链接 · 订阅内容 · WireGuard 配置": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Node link · Subscription · WireGuard config"
+          }
+        }
+      }
+    },
+    "节点链接或配置": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Node link or config"
+          }
+        }
+      }
+    },
+    "节点链接格式不正确": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The node link isn't valid"
+          }
+        }
+      }
+    },
+    "规则": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rules"
+          }
+        }
+      }
+    },
+    "规则与分流": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rules and Routing"
+          }
+        }
+      }
+    },
+    "解密 HTTPS 需要先在本机生成并信任一张根证书。证书和私钥只保存在本机钥匙串。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To decrypt HTTPS, first create and trust a root certificate on this device. The certificate and its private key stay in this device's keychain."
+          }
+        }
+      }
+    },
+    "订阅内容过大": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The subscription content is too large"
+          }
+        }
+      }
+    },
+    "设置": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Settings"
+          }
+        }
+      }
+    },
+    "设置 > 通用 > 关于本机 > 证书信任设置，打开这张证书的开关。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In Settings > General > About > Certificate Trust Settings, turn on the switch for this certificate."
+          }
+        }
+      }
+    },
+    "设置…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Settings…"
+          }
+        }
+      }
+    },
+    "证书": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Certificate"
+          }
+        }
+      }
+    },
+    "证书尚未被信任，请先完成证书设置。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The certificate isn't trusted yet. Finish the certificate setup first."
+          }
+        }
+      }
+    },
+    "证书已信任": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Certificate trusted"
+          }
+        }
+      }
+    },
+    "证书未被信任": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Certificate not trusted"
+          }
+        }
+      }
+    },
+    "识别": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recognize"
+          }
+        }
+      }
+    },
+    "诊断信息不含节点名称、服务器地址和密钥。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diagnostics never include node names, server addresses or keys."
+          }
+        }
+      }
+    },
+    "请先在 App 里导入节点": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import a node in the app first"
+          }
+        }
+      }
+    },
+    "请先导入节点": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import a node first"
+          }
+        }
+      }
+    },
+    "请求记录还没开放": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Request log not available yet"
+          }
+        }
+      }
+    },
+    "请粘贴节点链接、订阅内容或 WireGuard 配置": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paste a node link, subscription content or a WireGuard config"
+          }
+        }
+      }
+    },
+    "读取插件列表失败": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't read the plugin list"
+          }
+        }
+      }
+    },
+    "读取证书失败（%@）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't read the certificate (%@)"
+          }
+        }
+      }
+    },
+    "跟随系统": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System"
+          }
+        }
+      }
+    },
+    "轻点导入第一个节点": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap to import your first node"
+          }
+        }
+      }
+    },
+    "轻点连接": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap to connect"
+          }
+        }
+      }
+    },
+    "运行时 ABI": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Runtime ABI"
+          }
+        }
+      }
+    },
+    "运行时长": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uptime"
+          }
+        }
+      }
+    },
+    "运行状态": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Runtime Status"
+          }
+        }
+      }
+    },
+    "返回修改": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Go Back and Edit"
+          }
+        }
+      }
+    },
+    "还没有节点": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No nodes yet"
+          }
+        }
+      }
+    },
+    "连接": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection"
+          }
+        }
+      }
+    },
+    "连接 AnixOps Net": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect AnixOps Net"
+          }
+        }
+      }
+    },
+    "连接中": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecting"
+          }
+        }
+      }
+    },
+    "连接或断开 AnixOps Net": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect or Disconnect AnixOps Net"
+          }
+        }
+      }
+    },
+    "连接或断开（⇧⌘C）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect or disconnect (⇧⌘C)"
+          }
+        }
+      }
+    },
+    "连接状态": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection Status"
+          }
+        }
+      }
+    },
+    "连接，当前未连接": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect, currently not connected"
+          }
+        }
+      }
+    },
+    "退出 AnixOps Net": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quit AnixOps Net"
+          }
+        }
+      }
+    },
+    "重新检测信任状态": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check Trust Again"
+          }
+        }
+      }
+    },
+    "重新生成": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recreate"
+          }
+        }
+      }
+    },
+    "重新生成后旧证书立即失效，需要重新安装并信任。请同时在 设置 > 通用 > VPN与设备管理 删除旧描述文件。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The old certificate stops working immediately and the new one must be installed and trusted again. Also delete the old profile in Settings > General > VPN & Device Management."
+          }
+        }
+      }
+    },
+    "重新生成根证书": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recreate Root Certificate"
+          }
+        }
+      }
+    },
+    "重新生成根证书？": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recreate the root certificate?"
+          }
+        }
+      }
+    },
+    "重新连接中": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconnecting"
+          }
+        }
+      }
+    },
+    "隐私": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Privacy"
+          }
+        }
+      }
+    },
+    "隧道已停止：%@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The tunnel stopped: %@"
+          }
+        }
+      }
+    },
+    "隧道未运行": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The tunnel isn't running"
+          }
+        }
+      }
+    },
+    "首页": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Home"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

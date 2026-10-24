@@ -2227,7 +2227,7 @@ jobs:
           grep -q 'IosPlatformSnapshotDTO' docs/architecture/ios-swift-xcode-bridge-source-contract.md
           ios_allowed='^$'
           if [[ -f apps/ios/Package.swift ]]; then
-            ios_allowed='^\./apps/ios/(Package\.swift|Sources/.+\.swift|Tests/.+\.swift|Sources/NetworkCoreApp/Resources/PrivacyInfo\.xcprivacy|Sources/NetworkCorePacketTunnel/Resources/PrivacyInfo\.xcprivacy|Entitlements/NetworkCoreApp\.entitlements|Entitlements/NetworkCorePacketTunnel\.entitlements)$'
+            ios_allowed='^\./apps/ios/(Package\.swift|Sources/.+\.swift|Tests/.+\.swift|Sources/NetworkCoreApp/Resources/PrivacyInfo\.xcprivacy|Sources/NetworkCorePacketTunnel/Resources/PrivacyInfo\.xcprivacy|Entitlements/NetworkCore(App|PacketTunnel|Widget|Mac|MacTunnel)\.entitlements)$'
           fi
           ios_forbidden="$(find . -path ./.git -prune -o \( -type f \( -name "Package.swift" -o -name "*.swift" -o -name "PrivacyInfo.xcprivacy" -o -name "*.entitlements" -o -name "*.mobileprovision" -o -name "*.provisionprofile" -o -name "*.p12" -o -name "*.cer" -o -name "*.key" -o -name "*.pem" -o -name "*.xcframework" -o -name "*.a" -o -name "ExportOptions.plist" -o -name "*.ipa" \) -o -type d \( -name "*.xcodeproj" -o -name "*.xcworkspace" -o -name "*.xcarchive" -o -name "*.xcresult" -o -name "*.dSYM" \) \) -print | grep -v -E "${ios_allowed}" | head -n 1 || true)"
           if [[ -n "${ios_forbidden}" ]]; then
@@ -2725,6 +2725,78 @@ jobs:
           IPHONEOS_DEPLOYMENT_TARGET=17.0 cargo build --locked -p script-runtime --no-default-features --features javascriptcore --target aarch64-apple-ios
           # The packet tunnel runtime, MITM (engine-native, mitm-policy and its C core) included, must build for the iPhone.
           IPHONEOS_DEPLOYMENT_TARGET=17.0 cargo build --locked -p engine-embedded --lib --target aarch64-apple-ios
+
+  linux-gui:
+    name: Linux GUI build
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      CARGO_INCREMENTAL: "0"
+    needs:
+      - changes
+      - policy-fast
+      - detect-projects
+    if: >-
+      ${{
+        needs.detect-projects.outputs.rust == 'true' &&
+        needs.detect-projects.outputs.node == 'true' &&
+        (
+          needs.changes.outputs.full_matrix == 'true' ||
+          needs.changes.outputs.linux == 'true' ||
+          needs.changes.outputs.node == 'true'
+        )
+      }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      # Tauri on Linux renders through WebKitGTK.
+      - name: Install WebKitGTK
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/windows-gui/ui/pnpm-lock.yaml
+
+      # The Linux window shares the Windows React interface.
+      - name: Build the shared interface
+        shell: bash
+        run: |
+          pnpm --dir apps/windows-gui/ui install --frozen-lockfile
+          pnpm --dir apps/windows-gui/ui run build
+
+      - name: Setup Rust
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy
+          rustup default stable
+
+      - name: Restore Rust build cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: linux-gui
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+
+      - name: Lint, test and build the Linux GUI
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo clippy --locked -p networkcore-linux-gui --features gui --all-targets -- -D warnings
+          cargo test --locked -p networkcore-linux-gui
+          cargo build --locked -p networkcore-linux-gui --features gui --release
+          test -x target/release/anixops-net
 
   windows-managed-client-installer:
     name: Windows managed client MSI
@@ -3335,7 +3407,7 @@ jobs:
   ios-xcode-build:
     name: iOS Xcode project build
     runs-on: macos-26
-    timeout-minutes: 45
+    timeout-minutes: 60
     needs:
       - changes
       - policy-fast
@@ -3387,6 +3459,9 @@ jobs:
           git diff --exit-code -- Entitlements
           grep -q 'CODE_SIGN_ENTITLEMENTS = Entitlements/NetworkCoreApp.entitlements;' NetworkCore.xcodeproj/project.pbxproj
           grep -q 'CODE_SIGN_ENTITLEMENTS = Entitlements/NetworkCorePacketTunnel.entitlements;' NetworkCore.xcodeproj/project.pbxproj
+          grep -q 'CODE_SIGN_ENTITLEMENTS = Entitlements/NetworkCoreWidget.entitlements;' NetworkCore.xcodeproj/project.pbxproj
+          grep -q 'CODE_SIGN_ENTITLEMENTS = Entitlements/NetworkCoreMac.entitlements;' NetworkCore.xcodeproj/project.pbxproj
+          grep -q 'CODE_SIGN_ENTITLEMENTS = Entitlements/NetworkCoreMacTunnel.entitlements;' NetworkCore.xcodeproj/project.pbxproj
 
       - name: Build the app without signing
         shell: bash
@@ -3410,6 +3485,8 @@ jobs:
           test -f "${appex}/PrivacyInfo.xcprivacy"
           /usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "${appex}/Info.plist" \
             | grep -qx 'com.apple.networkextension.packet-tunnel'
+          /usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "${app}/PlugIns/NetworkCoreWidget.appex/Info.plist" \
+            | grep -qx 'com.apple.widgetkit-extension'
           # App Store Connect rejects uploads without an asset-catalog icon or declared orientations.
           # actool records the icon under CFBundleIcons:CFBundlePrimaryIcon; some Xcode versions also add it at the top level.
           icon="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIcons:CFBundlePrimaryIcon:CFBundleIconName' "${app}/Info.plist" 2>/dev/null \
@@ -3444,6 +3521,48 @@ jobs:
             exit 1
           fi
           grep -q '_networkcore_import_nodes$' "${RUNNER_TEMP}/app-symbols.txt"
+
+      - name: Build the macOS app without signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project apps/ios/NetworkCore.xcodeproj \
+            -scheme NetworkCoreMac \
+            -destination 'generic/platform=macOS' \
+            -derivedDataPath apps/ios/build \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Check the macOS app bundle and its tunnel extension
+        shell: bash
+        run: |
+          set -euo pipefail
+          app="apps/ios/build/Build/Products/Debug/AnixOps Net.app"
+          appex="${app}/Contents/PlugIns/NetworkCoreMacTunnel.appex"
+          test -f "${app}/Contents/Resources/PrivacyInfo.xcprivacy"
+          test -f "${app}/Contents/Resources/Assets.car"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIconName' "${app}/Contents/Info.plist" | grep -qx 'AppIcon'
+          /usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "${appex}/Contents/Info.plist" \
+            | grep -qx 'com.apple.networkextension.packet-tunnel'
+          test -d "${app}/Contents/Resources/en.lproj"
+          symbols() {
+            local dir="$1" name="$2" out="$3"
+            : > "${out}"
+            find "${dir}" -maxdepth 1 -type f -name "${name}*" -print0 | while IFS= read -r -d '' file; do
+              nm "${file}" >> "${out}" 2>/dev/null || true
+            done
+          }
+          symbols "${appex}/Contents/MacOS" NetworkCoreMacTunnel "${RUNNER_TEMP}/mac-appex-symbols.txt"
+          symbols "${app}/Contents/MacOS" "AnixOps Net" "${RUNNER_TEMP}/mac-app-symbols.txt"
+          grep -q '_networkcore_ios_runtime_init$' "${RUNNER_TEMP}/mac-appex-symbols.txt"
+          if grep -q '_networkcore_ios_runtime_init$' "${RUNNER_TEMP}/mac-app-symbols.txt"; then
+            echo "::error::the macOS app must not link the embedded runtime"
+            exit 1
+          fi
+          grep -q '_networkcore_import_nodes$' "${RUNNER_TEMP}/mac-app-symbols.txt"
+          lipo -archs "${appex}/Contents/MacOS/NetworkCoreMacTunnel" | tee "${RUNNER_TEMP}/mac-archs.txt"
+          grep -q arm64 "${RUNNER_TEMP}/mac-archs.txt"
 
   apple-project-smoke:
     name: Apple project smoke
@@ -3494,6 +3613,7 @@ jobs:
       - routing-equivalence
       - protocol-features
       - script-runtime-jsc
+      - linux-gui
       - node-build-test
       - swift-build-test
       - swift-manifest-validation
@@ -3544,6 +3664,7 @@ jobs:
           RESULT_ROUTING_EQUIVALENCE: ${{ needs.routing-equivalence.result }}
           RESULT_PROTOCOL_FEATURES: ${{ needs.protocol-features.result }}
           RESULT_SCRIPT_RUNTIME_JSC: ${{ needs.script-runtime-jsc.result }}
+          RESULT_LINUX_GUI: ${{ needs.linux-gui.result }}
           RESULT_NODE_BUILD_TEST: ${{ needs.node-build-test.result }}
           RESULT_SWIFT_BUILD_TEST: ${{ needs.swift-build-test.result }}
           RESULT_APPLE_SMOKE: ${{ needs.apple-project-smoke.result }}
@@ -3563,6 +3684,7 @@ jobs:
           ios_xcode_required=false
           apple_required=false
           reality_interop_required=false
+          linux_gui_required=false
 
           if [[ "${CHANGE_FULL_MATRIX}" == true || "${CHANGE_GO}" == true || "${CHANGE_RUST}" == true ||
                 "${CHANGE_NODE}" == true || "${CHANGE_WINDOWS}" == true || "${CHANGE_LINUX}" == true ||
@@ -3583,6 +3705,10 @@ jobs:
           fi
           if [[ "${CHANGE_FULL_MATRIX}" == true || "${CHANGE_WINDOWS}" == true ]]; then
             windows_required=true
+          fi
+          if [[ "${DETECTED_RUST}" == true && "${DETECTED_NODE}" == true &&
+                ("${CHANGE_FULL_MATRIX}" == true || "${CHANGE_LINUX}" == true || "${CHANGE_NODE}" == true) ]]; then
+            linux_gui_required=true
           fi
           if [[ "${DETECTED_NODE}" == true && ("${CHANGE_FULL_MATRIX}" == true || "${CHANGE_WINDOWS}" == true) ]]; then
             windows_gui_frontend_required=true
@@ -3660,6 +3786,7 @@ jobs:
           record_job "Routing equivalence (sing-box)" "${RESULT_ROUTING_EQUIVALENCE}" "${rust_required}"
           record_job "Protocol feature matrix" "${RESULT_PROTOCOL_FEATURES}" "${rust_required}"
           record_job "JavaScriptCore script conformance" "${RESULT_SCRIPT_RUNTIME_JSC}" "${rust_required}"
+          record_job "Linux GUI build" "${RESULT_LINUX_GUI}" "${linux_gui_required}"
           record_job "Node build and test" "${RESULT_NODE_BUILD_TEST}" "${node_required}"
           record_job "Swift build and test" "${RESULT_SWIFT_BUILD_TEST}" "${swift_required}"
           record_job "Swift package manifest validation" "${RESULT_SWIFT_MANIFEST}" "${swift_manifest_required}"
@@ -3732,6 +3859,7 @@ jobs:
             echo "| HTTP/2 MITM fuzz | ${rust_required} | ${RESULT_RUST_H2_FUZZ} |"
             echo "| Protocol feature matrix | ${rust_required} | ${RESULT_PROTOCOL_FEATURES} |"
             echo "| JavaScriptCore script conformance | ${rust_required} | ${RESULT_SCRIPT_RUNTIME_JSC} |"
+            echo "| Linux GUI build | ${linux_gui_required} | ${RESULT_LINUX_GUI} |"
             echo "| Node build and test | ${node_required} | ${RESULT_NODE_BUILD_TEST} |"
             echo "| Swift build and test | ${swift_required} | ${RESULT_SWIFT_BUILD_TEST} |"
             echo "| Apple project smoke | ${apple_required} | ${RESULT_APPLE_SMOKE} |"

@@ -1,4 +1,5 @@
 import type { RuntimeSnapshot } from "./bridge";
+import { t } from "./i18n";
 
 export type ConnectPhase = "loading" | "off" | "connecting" | "on" | "disconnecting" | "failed";
 
@@ -24,6 +25,7 @@ export function connectPhase(connection: string | undefined, busy: string | null
   }
 }
 
+// Labels below stay in Chinese, the source language; the functions translate them when they are shown.
 export const phaseTitles: Record<ConnectPhase, string> = {
   loading: "正在读取状态",
   off: "未连接",
@@ -40,7 +42,7 @@ const connectionTitles: Record<string, string> = {
 };
 
 export function connectionTitle(connection: string | undefined, phase: ConnectPhase): string {
-  return (connection && connectionTitles[connection]) || phaseTitles[phase];
+  return t((connection && connectionTitles[connection]) || phaseTitles[phase]);
 }
 
 export const routingModes: Array<{ value: RuntimeSnapshot["routingMode"]; label: string; hint: string }> = [
@@ -51,7 +53,7 @@ export const routingModes: Array<{ value: RuntimeSnapshot["routingMode"]; label:
 ];
 
 export function routingLabel(mode: RuntimeSnapshot["routingMode"] | undefined): string {
-  return routingModes.find((item) => item.value === mode)?.label ?? routingModes[0].label;
+  return t(routingModes.find((item) => item.value === mode)?.label ?? routingModes[0].label);
 }
 
 const exactFacts: Record<string, string> = {
@@ -72,12 +74,12 @@ const exactFacts: Record<string, string> = {
 
 /** Translates the short status labels the Rust side reports; anything unknown is shown as is. */
 export function factLabel(label: string | undefined): string {
-  if (!label) return "读取中";
-  if (exactFacts[label]) return exactFacts[label];
-  if (label.startsWith("Running (")) return "运行中";
-  if (label.startsWith("Mieru running")) return "运行中";
-  if (label.startsWith("Exited")) return "已退出";
-  if (label.startsWith("Status unavailable")) return "状态不可用";
+  if (!label) return t("读取中");
+  if (exactFacts[label]) return t(exactFacts[label]);
+  if (label.startsWith("Running (")) return t("运行中");
+  if (label.startsWith("Mieru running")) return t("运行中");
+  if (label.startsWith("Exited")) return t("已退出");
+  if (label.startsWith("Status unavailable")) return t("状态不可用");
   return label;
 }
 

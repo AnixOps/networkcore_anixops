@@ -14,13 +14,13 @@ enum Appearance: String, CaseIterable, Identifiable {
     var label: String {
         switch self {
         case .system:
-            return "跟随系统"
+            return String(localized: "跟随系统")
         case .light:
-            return "浅色"
+            return String(localized: "浅色")
         case .dark:
-            return "深色"
+            return String(localized: "深色")
         case .oled:
-            return "纯黑"
+            return String(localized: "纯黑")
         }
     }
 
@@ -181,7 +181,7 @@ struct ProtocolBadge: View {
 
     static func spokenName(for kind: String?) -> String {
         guard let kind = kind?.lowercased() else {
-            return "未知协议"
+            return String(localized: "未知协议")
         }
         if kind.hasPrefix("shadowsocks") {
             return "Shadowsocks"
@@ -201,8 +201,8 @@ struct ProtocolBadge: View {
 struct BrandEmptyState<Actions: View>: View {
     @Environment(\.brand) private var brand
     let systemImage: String
-    let title: String
-    let message: String
+    let title: LocalizedStringKey
+    let message: LocalizedStringKey
     @ViewBuilder var actions: Actions
 
     var body: some View {
@@ -227,7 +227,7 @@ struct BrandEmptyState<Actions: View>: View {
 }
 
 extension BrandEmptyState where Actions == EmptyView {
-    init(systemImage: String, title: String, message: String) {
+    init(systemImage: String, title: LocalizedStringKey, message: LocalizedStringKey) {
         self.init(systemImage: systemImage, title: title, message: message) {
             EmptyView()
         }

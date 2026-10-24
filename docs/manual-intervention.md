@@ -691,6 +691,74 @@ ios-wireguard-acceptance-peak-memory-mb=pending
 ios-wireguard-acceptance-recorded-at=pending
 ```
 
+## iOS Widget And Control Center Setup
+
+The widget extension (`NetworkCoreWidget`: Home Screen and Lock Screen status widget plus the iOS 18 Control
+Center switch) builds in CI without signing. The TestFlight workflow only ships it after the maintainer does the
+Apple Developer steps below; until then each upload drops the target and prints `widget=skipped`.
+
+1. In Certificates, Identifiers & Profiles, register an App ID `<IOS_APP_BUNDLE_ID>.widget` with the Network
+   Extensions capability (the widget reads the saved VPN configuration and starts or stops it).
+2. Create an App Store distribution profile for that App ID with the same distribution certificate.
+3. In the `ios-app-store-connect` environment, add the variable `IOS_WIDGET_BUNDLE_ID` and the secret
+   `APPLE_WIDGET_PROVISIONING_PROFILE_BASE64` (base64 of the `.mobileprovision`).
+4. Run the upload workflow and confirm the log prints `widget=included`.
+5. On a real iPhone: add the small and medium widgets and the Lock Screen widgets, tap the route line to connect
+   and disconnect, add the "连接 AnixOps Net" control in Control Center (iOS 18), and confirm both follow the
+   status within a few seconds when changed from the app. Record whether the switch works while the app is not
+   running; if iOS refuses to start the tunnel from the widget process, the intent must move to the app process.
+
+```text
+ios-widget-signing-status=pending
+ios-widget-real-device-status=pending
+```
+
+## macOS App Signing And TestFlight
+
+The macOS app (`NetworkCoreMac`, product "AnixOps Net.app") and its packet tunnel app extension
+(`NetworkCoreMacTunnel`) are defined in `apps/ios/project.yml` and build in CI without signing (scheme
+`NetworkCoreMac`). Distribution is planned through the Mac App Store / TestFlight, where a Network Extension ships
+as an app extension; Developer ID distribution outside the store would need a System Extension instead and is not
+built. Nothing below can be automated without the maintainer's Apple account.
+
+1. In Certificates, Identifiers & Profiles, register the macOS App IDs `<MACOS_APP_BUNDLE_ID>` and
+   `<MACOS_APP_BUNDLE_ID>.packettunnel`, both with the Network Extensions capability and the shared keychain group
+   `networkcore.shared` (or reuse the iOS App ID as a universal purchase).
+2. Create the app record (or add the macOS platform to the existing one) in App Store Connect.
+3. Create Mac App Store distribution profiles for both App IDs, plus a "Mac App Distribution" and a
+   "Mac Installer Distribution" certificate.
+4. Give the go to add a macOS upload workflow; it needs the profiles, both certificates and the bundle IDs as
+   secrets and variables in the `ios-app-store-connect` environment.
+5. On a real Mac: import a node, allow the VPN configuration prompt, connect from the window, the menu bar item
+   and ⇧⌘C, check the elapsed time and the Activity page, and toggle "登录 Mac 后打开 AnixOps Net".
+
+```text
+macos-signing-status=pending
+macos-real-device-status=pending
+```
+
+## Linux GUI Real-Desktop Acceptance
+
+The Linux window (`apps/linux-gui`, binary `anixops-net`) builds and lints in the "Linux GUI build" CI job, but
+CI has no desktop session, so the window itself and the system proxy switch must be checked on a real Linux
+desktop. Build it there with `pnpm --dir apps/windows-gui/ui install && pnpm --dir apps/windows-gui/ui build`
+and `cargo build --release -p networkcore-linux-gui --features gui` (WebKitGTK 4.1 development packages needed).
+
+1. On GNOME and on KDE Plasma: import a subscription link, pasted share links and a local file; connect, and check
+   that the desktop's proxy setting points at `127.0.0.1:7890` and that a browser goes through the node.
+2. Switch nodes while connected, run a delay test and "选择最快节点", then disconnect and check the proxy mode is
+   back to what it was before connecting.
+3. Kill the process while connected, start it again, and check the previous proxy mode is restored at startup.
+4. Toggle "登录后启动", log out and back in, and check the window opens; toggle it off and check
+   `~/.config/autostart/anixops-net.desktop` is gone.
+5. Switch the language to English and the appearance to dark and OLED black.
+
+There is no package yet; AppImage/deb packaging and a tray icon come later.
+
+```text
+linux-gui-real-desktop-status=pending
+```
+
 ## iOS App Review Manual Confirmation
 
 以下字段是后续 iOS upload/release readiness 读取的机器状态。当前仍未完成 App Privacy answers、

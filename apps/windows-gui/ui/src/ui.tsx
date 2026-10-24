@@ -2,6 +2,7 @@ import { LoaderCircle } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import type { Tone } from "./bridge";
+import { t } from "./i18n";
 
 /** Runs one named operation, shows its result message and refreshes the runtime state. */
 export type Run = (operation: string, task: () => Promise<{ message: string }>) => Promise<void>;
@@ -109,7 +110,7 @@ export function EmptyState({ icon: Icon, title, message, children }: {
 }
 
 export function Loading() {
-  return <div className="loading"><LoaderCircle className="spin" size={20} />正在读取客户端状态</div>;
+  return <div className="loading"><LoaderCircle className="spin" size={20} />{t("正在读取客户端状态")}</div>;
 }
 
 export function Detail({ term, value }: { term: string; value: string }) {
