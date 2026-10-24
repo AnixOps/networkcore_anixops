@@ -6,6 +6,11 @@ license.workspace = true
 repository.workspace = true
 description = "Minimal native proxy engine adapter contracts for the AnixOps network control kernel."
 
+[features]
+default = ["quickjs"]
+# In-process QuickJS script executor; off for the iOS runtime, whose script engine is chosen separately.
+quickjs = ["script-runtime/quickjs"]
+
 [dependencies]
 bytes = "1"
 control-domain = { path = "../control-domain" }
@@ -13,7 +18,7 @@ h2 = "0.4"
 http = "1"
 rcgen = { version = "0.14.8", features = ["x509-parser"] }
 rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
-script-runtime = { path = "../script-runtime" }
+script-runtime = { path = "../script-runtime", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"

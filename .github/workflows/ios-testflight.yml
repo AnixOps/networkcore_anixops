@@ -58,6 +58,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          # mitm-policy builds the mitm_anixops C core from this submodule.
+          submodules: true
 
       - name: Check secrets and variables are present
         shell: bash

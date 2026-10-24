@@ -17,7 +17,7 @@ use std::task::{Context, Poll};
 use std::thread;
 use std::time::Duration;
 
-use engine_outbound::{TargetAddr, TcpOutbound};
+use engine_outbound::{BoxFuture, BoxStream, TargetAddr, TcpOutbound};
 use futures::{SinkExt, StreamExt};
 use netstack_smoltcp::udp::UdpMsg;
 use netstack_smoltcp::StackBuilder;
@@ -31,6 +31,30 @@ use crate::wireguard::{self, WireGuardSettings};
 
 /// Receives every IP packet the stack emits. Called on the tunnel thread.
 pub type PacketSink = Box<dyn Fn(&[u8]) + Send + Sync + 'static>;
+
+/// A TCP flow handed to a [`FlowInterceptor`]: the app's stream, the bytes it
+/// sent first, the host name the interceptor claimed and the destination.
+pub struct InterceptedFlow {
+    pub inbound: BoxStream,
+    pub first: Vec<u8>,
+    pub host: String,
+    pub target: SocketAddr,
+}
+
+/// Takes over TCP flows before they are relayed, e.g. HTTPS decryption.
+pub trait FlowInterceptor: Send + Sync {
+    /// The host name to take the flow for, judged from its first bytes.
+    fn claim(&self, first: &[u8], target: SocketAddr) -> Option<String>;
+
+    /// Serves a claimed flow to the end, connecting through `outbound`.
+    fn serve<'a>(
+        &'a self,
+        flow: InterceptedFlow,
+        outbound: &'a dyn TcpOutbound,
+        settings: &'a TunnelSettings,
+        stats: &'a TunnelStats,
+    ) -> BoxFuture<'a, ()>;
+}
 
 /// Packets queued from the TUN side before the stack drops new ones.
 const INPUT_QUEUE_PACKETS: usize = 512;
@@ -71,6 +95,8 @@ pub struct TunnelStats {
     /// Last `OutboundFailure` code, 0 for none.
     pub(crate) dns_last_failure: AtomicU8,
     pub(crate) tcp_last_failure: AtomicU8,
+    pub(crate) mitm_flows: AtomicU64,
+    pub(crate) mitm_failed: AtomicU64,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
@@ -89,6 +115,8 @@ pub struct TunnelStatsSnapshot {
     pub bytes_down: u64,
     pub dns_last_failure: Option<&'static str>,
     pub tcp_last_failure: Option<&'static str>,
+    pub mitm_flows: u64,
+    pub mitm_failed: u64,
 }
 
 impl TunnelStats {
@@ -109,6 +137,8 @@ impl TunnelStats {
             bytes_down: get(&self.bytes_down),
             dns_last_failure: last_failure(&self.dns_last_failure),
             tcp_last_failure: last_failure(&self.tcp_last_failure),
+            mitm_flows: get(&self.mitm_flows),
+            mitm_failed: get(&self.mitm_failed),
         }
     }
 }
@@ -138,8 +168,19 @@ impl Tunnel {
         outbound: Arc<dyn TcpOutbound>,
         sink: PacketSink,
     ) -> io::Result<Self> {
+        Self::start_with_interceptor(settings, outbound, None, sink)
+    }
+
+    /// Like [`Tunnel::start`], offering each new TCP flow to `interceptor`
+    /// first.
+    pub fn start_with_interceptor(
+        settings: TunnelSettings,
+        outbound: Arc<dyn TcpOutbound>,
+        interceptor: Option<Arc<dyn FlowInterceptor>>,
+        sink: PacketSink,
+    ) -> io::Result<Self> {
         Self::launch(move |packet_rx, stats| {
-            spawn_tasks(settings, outbound, sink, packet_rx, stats)
+            spawn_tasks(settings, outbound, interceptor, sink, packet_rx, stats)
         })
     }
 
@@ -248,6 +289,7 @@ impl Drop for Tunnel {
 fn spawn_tasks(
     settings: TunnelSettings,
     outbound: Arc<dyn TcpOutbound>,
+    interceptor: Option<Arc<dyn FlowInterceptor>>,
     sink: PacketSink,
     mut packet_rx: mpsc::Receiver<Vec<u8>>,
     stats: Arc<TunnelStats>,
@@ -304,10 +346,19 @@ fn spawn_tasks(
             let outbound = tcp_outbound.clone();
             let stats = tcp_stats.clone();
             let settings = tcp_settings.clone();
+            let interceptor = interceptor.clone();
             tokio::spawn(async move {
                 let _permit = permit;
                 stats.tcp_active.fetch_add(1, Ordering::Relaxed);
-                handle_tcp(stream, remote, outbound.as_ref(), &stats, &settings).await;
+                handle_tcp(
+                    stream,
+                    remote,
+                    outbound.as_ref(),
+                    interceptor.as_deref(),
+                    &stats,
+                    &settings,
+                )
+                .await;
                 stats.tcp_active.fetch_sub(1, Ordering::Relaxed);
             });
         }
@@ -363,6 +414,7 @@ async fn handle_tcp(
     mut inbound: netstack_smoltcp::TcpStream,
     target: SocketAddr,
     outbound: &dyn TcpOutbound,
+    interceptor: Option<&dyn FlowInterceptor>,
     stats: &TunnelStats,
     settings: &TunnelSettings,
 ) {
@@ -373,6 +425,20 @@ async fn handle_tcp(
         Err(_) => 0,
     };
     first.truncate(first_len);
+
+    if let Some(interceptor) = interceptor {
+        if let Some(host) = interceptor.claim(&first, target) {
+            bump(&stats.mitm_flows);
+            let flow = InterceptedFlow {
+                inbound: Box::new(inbound),
+                first,
+                host,
+                target,
+            };
+            interceptor.serve(flow, outbound, settings, stats).await;
+            return;
+        }
+    }
 
     let target = TargetAddr::Ip(target);
     let mut remote =

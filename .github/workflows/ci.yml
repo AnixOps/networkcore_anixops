@@ -2656,6 +2656,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          # mitm-policy builds the mitm_anixops C core from this submodule.
+          submodules: true
 
       - name: Setup Rust
         run: |
@@ -2674,7 +2677,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for features in "" http hysteria2 shadowsocks socks trojan tuic vless vmess wireguard local-proxy; do
+          for features in "" http hysteria2 shadowsocks socks trojan tuic vless vmess wireguard local-proxy mitm; do
             echo "::group::engine-embedded features=[${features}]"
             cargo clippy --locked -p engine-embedded --no-default-features --features "${features}" --all-targets -- -D warnings
             cargo test --locked -p engine-embedded --no-default-features --features "${features}" --tests
@@ -2693,6 +2696,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          # mitm-policy builds the mitm_anixops C core from this submodule.
+          submodules: true
 
       - name: Setup Rust
         run: |
@@ -2717,6 +2723,8 @@ jobs:
           # The binding must also build for the iPhone without QuickJS, whose crate ships no iOS bindings.
           rustup target add aarch64-apple-ios
           IPHONEOS_DEPLOYMENT_TARGET=17.0 cargo build --locked -p script-runtime --no-default-features --features javascriptcore --target aarch64-apple-ios
+          # The packet tunnel runtime, MITM (engine-native, mitm-policy and its C core) included, must build for the iPhone.
+          IPHONEOS_DEPLOYMENT_TARGET=17.0 cargo build --locked -p engine-embedded --lib --target aarch64-apple-ios
 
   windows-managed-client-installer:
     name: Windows managed client MSI
@@ -3344,6 +3352,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          # mitm-policy builds the mitm_anixops C core from this submodule.
+          submodules: true
 
       - name: Setup Rust
         shell: bash
