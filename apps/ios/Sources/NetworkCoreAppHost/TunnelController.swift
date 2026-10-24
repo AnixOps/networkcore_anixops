@@ -49,7 +49,7 @@ final class TunnelController: ObservableObject {
             manager = try await NETunnelProviderManager.loadAllFromPreferences().first
             message = nil
         } catch {
-            message = "无法读取 VPN 配置"
+            message = String(localized: "无法读取 VPN 配置")
         }
         refresh()
     }
@@ -66,7 +66,7 @@ final class TunnelController: ObservableObject {
         } catch let error as TunnelNodeImportError {
             return .failure(ImportFailure(message: Self.describe(error)))
         } catch {
-            return .failure(ImportFailure(message: "无法解析节点"))
+            return .failure(ImportFailure(message: String(localized: "无法解析节点")))
         }
     }
 
@@ -85,11 +85,11 @@ final class TunnelController: ObservableObject {
             message = Self.describe(error)
             return false
         } catch {
-            message = "无法解析节点"
+            message = String(localized: "无法解析节点")
             return false
         }
         guard let providerBundleIdentifier = Self.tunnelBundleIdentifier() else {
-            message = "找不到隧道扩展"
+            message = String(localized: "找不到隧道扩展")
             return false
         }
 
@@ -100,13 +100,13 @@ final class TunnelController: ObservableObject {
             config = try profile.config.withoutSecret().encoded()
             interface = try profile.interface.encoded()
         } catch {
-            message = "无法生成隧道配置"
+            message = String(localized: "无法生成隧道配置")
             return false
         }
         do {
             keyReference = try NodeSecretStore.save(profile.config.secret.keychainValue(), account: profileID)
         } catch {
-            message = "无法把节点密钥保存到钥匙串"
+            message = String(localized: "无法把节点密钥保存到钥匙串")
             return false
         }
 
@@ -136,7 +136,7 @@ final class TunnelController: ObservableObject {
             manager = target
             message = nil
         } catch {
-            message = "保存 VPN 配置失败或未获授权"
+            message = String(localized: "保存 VPN 配置失败或未获授权")
             refresh()
             return false
         }
@@ -163,7 +163,7 @@ final class TunnelController: ObservableObject {
             configuration.removeValue(forKey: TunnelProfileKeys.mitmPlugins)
         } else {
             guard let value = try? MitmPluginLibrary.profileValue(texts) else {
-                message = "无法生成插件配置"
+                message = String(localized: "无法生成插件配置")
                 return false
             }
             configuration[TunnelProfileKeys.mitmPlugins] = value
@@ -174,7 +174,7 @@ final class TunnelController: ObservableObject {
             try await manager.saveToPreferences()
             try await manager.loadFromPreferences()
         } catch {
-            message = "保存插件到 VPN 配置失败"
+            message = String(localized: "保存插件到 VPN 配置失败")
             refresh()
             return false
         }
@@ -184,7 +184,7 @@ final class TunnelController: ObservableObject {
 
     func toggle() {
         guard let manager = manager else {
-            message = "请先导入节点"
+            message = String(localized: "请先导入节点")
             return
         }
         if isConnected {
@@ -198,7 +198,7 @@ final class TunnelController: ObservableObject {
             try manager.connection.startVPNTunnel()
             message = nil
         } catch {
-            message = "无法启动隧道"
+            message = String(localized: "无法启动隧道")
         }
     }
 
@@ -286,7 +286,7 @@ final class TunnelController: ObservableObject {
 
     /// The error and its underlying errors, which carry the extension's fixed failure reason.
     nonisolated private static func describe(disconnectError: NSError) -> String {
-        var lines = ["隧道已停止：\(disconnectError.localizedDescription)"]
+        var lines = [String(localized: "隧道已停止：\(disconnectError.localizedDescription)")]
         var underlying = disconnectError.userInfo[NSUnderlyingErrorKey] as? NSError
         while let error = underlying {
             lines.append("\(error.localizedDescription) (\(error.domain) \(error.code))")
@@ -327,45 +327,45 @@ final class TunnelController: ObservableObject {
     private static func describe(_ error: TunnelNodeImportError) -> String {
         switch error {
         case .unrecognized:
-            return "请粘贴 ss://、vless:// 链接或 WireGuard 配置"
+            return String(localized: "请粘贴 ss://、vless:// 链接或 WireGuard 配置")
         case let .shadowsocks(error):
             switch error {
             case .notShadowsocksLink, .malformed:
-                return "节点链接格式不正确"
+                return String(localized: "节点链接格式不正确")
             case .unsupportedMethod:
-                return "目前只支持 Shadowsocks-2022 加密方式"
+                return String(localized: "目前只支持 Shadowsocks-2022 加密方式")
             case .unsupportedPlugin:
-                return "暂不支持带插件的节点"
+                return String(localized: "暂不支持带插件的节点")
             }
         case let .vless(error):
             switch error {
             case .notVlessLink, .malformed:
-                return "节点链接格式不正确"
+                return String(localized: "节点链接格式不正确")
             case .invalidUUID:
-                return "VLESS 用户 ID 格式不正确"
+                return String(localized: "VLESS 用户 ID 格式不正确")
             case .unsupportedSecurity:
-                return "目前只支持 REALITY 安全类型的 VLESS 节点"
+                return String(localized: "目前只支持 REALITY 安全类型的 VLESS 节点")
             case .unsupportedTransport:
-                return "目前只支持 TCP 传输的 VLESS 节点"
+                return String(localized: "目前只支持 TCP 传输的 VLESS 节点")
             case .unsupportedFlow:
-                return "目前只支持 xtls-rprx-vision 流控或不使用流控"
+                return String(localized: "目前只支持 xtls-rprx-vision 流控或不使用流控")
             case .invalidRealitySettings:
-                return "REALITY 参数（sni、pbk、sid）不正确"
+                return String(localized: "REALITY 参数（sni、pbk、sid）不正确")
             }
         case let .wireguard(error):
             switch error {
             case .malformed:
-                return "WireGuard 配置格式不正确"
+                return String(localized: "WireGuard 配置格式不正确")
             case let .missingField(field):
-                return "WireGuard 配置缺少 \(field)"
+                return String(localized: "WireGuard 配置缺少 \(field)")
             case .invalidKey:
-                return "WireGuard 密钥格式不正确"
+                return String(localized: "WireGuard 密钥格式不正确")
             case .invalidAddress:
-                return "WireGuard 地址或 AllowedIPs 格式不正确"
+                return String(localized: "WireGuard 地址或 AllowedIPs 格式不正确")
             case .invalidEndpoint:
-                return "WireGuard Endpoint 格式不正确"
+                return String(localized: "WireGuard Endpoint 格式不正确")
             case .unsupportedPeerCount:
-                return "目前只支持一个 Peer 的 WireGuard 配置"
+                return String(localized: "目前只支持一个 Peer 的 WireGuard 配置")
             }
         }
     }

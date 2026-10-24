@@ -77,12 +77,12 @@ private struct PluginRow: View {
     }
 
     private static func detail(_ summary: MitmPluginSummary) -> String {
-        var parts = ["\(summary.hostnames.count) 个主机", "\(summary.rewriteLines) 条重写"]
+        var parts = [String(localized: "\(summary.hostnames.count) 个主机"), String(localized: "\(summary.rewriteLines) 条重写")]
         if summary.scriptLines > 0 {
-            parts.append("\(summary.scriptLines) 个脚本暂不运行")
+            parts.append(String(localized: "\(summary.scriptLines) 个脚本暂不运行"))
         }
         if summary.ruleLines > 0 {
-            parts.append("\(summary.ruleLines) 条规则暂不生效")
+            parts.append(String(localized: "\(summary.ruleLines) 条规则暂不生效"))
         }
         return parts.joined(separator: " · ")
     }
@@ -101,7 +101,7 @@ final class PluginsModel: ObservableObject {
         do {
             library = try MitmPluginLibrary.load(from: MitmPluginLibrary.defaultURL)
         } catch {
-            note = "读取插件列表失败"
+            note = String(localized: "读取插件列表失败")
         }
         trustState = (try? MitmCertificateStore.load())?.trustState() ?? .notGenerated
     }
@@ -112,9 +112,9 @@ final class PluginsModel: ObservableObject {
         }
         switch trustState {
         case .trusted:
-            return "只解密插件 [MITM] 列出的主机，仅支持 HTTP/1.1。脚本和插件里的分流规则暂不生效。"
+            return String(localized: "只解密插件 [MITM] 列出的主机，仅支持 HTTP/1.1。脚本和插件里的分流规则暂不生效。")
         case .notTrusted, .notGenerated:
-            return "开启前请先在上面生成并信任 HTTPS 解密证书。"
+            return String(localized: "开启前请先在上面生成并信任 HTTPS 解密证书。")
         }
     }
 
@@ -122,7 +122,7 @@ final class PluginsModel: ObservableObject {
         if enabled {
             trustState = (try? MitmCertificateStore.load())?.trustState() ?? .notGenerated
             guard trustState == .trusted else {
-                note = "证书尚未被信任，请先完成证书设置。"
+                note = String(localized: "证书尚未被信任，请先完成证书设置。")
                 return
             }
         }
@@ -150,7 +150,7 @@ final class PluginsModel: ObservableObject {
 
     func importFile(_ result: Result<URL, Error>, tunnel: TunnelController) async {
         guard case let .success(url) = result else {
-            note = "没有读取到文件"
+            note = String(localized: "没有读取到文件")
             return
         }
         let scoped = url.startAccessingSecurityScopedResource()
@@ -162,7 +162,7 @@ final class PluginsModel: ObservableObject {
         guard let data = try? Data(contentsOf: url), data.count <= MitmPlugin.maxBytes,
               let text = String(data: data, encoding: .utf8)
         else {
-            note = "文件不是 UTF-8 文本或超过 256 KB"
+            note = String(localized: "文件不是 UTF-8 文本或超过 256 KB")
             return
         }
         await importText(text, name: url.deletingPathExtension().lastPathComponent, tunnel: tunnel)
@@ -170,12 +170,12 @@ final class PluginsModel: ObservableObject {
 
     func importText(_ text: String?, name: String?, tunnel: TunnelController) async {
         guard let text else {
-            note = "剪贴板里没有文本"
+            note = String(localized: "剪贴板里没有文本")
             return
         }
         var next = library
         do {
-            let plugin = try MitmPlugin(text: text, fallbackName: name ?? "未命名插件")
+            let plugin = try MitmPlugin(text: text, fallbackName: name ?? String(localized: "未命名插件"))
             try next.add(plugin)
         } catch {
             note = Self.describe(error)
@@ -189,26 +189,26 @@ final class PluginsModel: ObservableObject {
         do {
             try next.save(to: MitmPluginLibrary.defaultURL)
         } catch {
-            note = "保存插件列表失败"
+            note = String(localized: "保存插件列表失败")
             return
         }
         library = next
         let changed = await tunnel.applyMitmPlugins(next.activeTexts)
-        note = changed && tunnel.isConnected ? "已保存，重新连接后生效。" : nil
+        note = changed && tunnel.isConnected ? String(localized: "已保存，重新连接后生效。") : nil
     }
 
     private static func describe(_ error: Error) -> String {
         switch error as? MitmPluginError {
         case .empty:
-            return "插件内容为空"
+            return String(localized: "插件内容为空")
         case .tooLarge:
-            return "插件超过 256 KB"
+            return String(localized: "插件超过 256 KB")
         case .nothingToApply:
-            return "没有找到可用的重写、脚本或 [MITM] 主机"
+            return String(localized: "没有找到可用的重写、脚本或 [MITM] 主机")
         case .libraryFull:
-            return "启用的插件合计超过 512 KB，请先停用一些插件"
+            return String(localized: "启用的插件合计超过 512 KB，请先停用一些插件")
         case nil:
-            return "导入失败"
+            return String(localized: "导入失败")
         }
     }
 }

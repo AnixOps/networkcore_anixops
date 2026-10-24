@@ -12,6 +12,7 @@
 
 ### Added
 
+- iOS App 支持英文界面：中文为源语言，新增 `Localizable.xcstrings` 提供全部界面文案、错误提示和开发者模式文案的英文翻译，跟随 iPhone 系统语言切换；代码里拼出的文案改用 `String(localized:)`。
 - Windows 客户端在内置引擎下支持节点切换和延迟测试（Phase 2c-3）：`engine-embedded` 新增 `delay::measure_delay`，用配置信封自建出站，测量连接 HTTP(S) URL 并收到响应状态行的耗时（与 Clash `url-test` 口径一致，不经系统代理，错误信息不含节点参数）。单节点导入时保存全部受支持节点的出站（`embedded/nodes.json`）并填充节点列表；切换节点重写配置信封、重新套用当前分流模式，已连接时重启内核；延迟测试和“选择最快节点”在 GUI 进程内进行（每批 16 个并发、单节点 5 秒超时），未连接时也可用。订阅带规则和策略组的配置暂不提供节点列表。
 - 自研路由支持 `RULE-SET` 规则集（Phase 2c-2）：`config-core` 新增 `rule_set::RuleSet`（域名后缀哈希查找 + 合并后的网段二分查找，十万级条目每次匹配开销不变；网段只匹配本身就是 IP 的目标，不为它解析域名，与 sing-box 无 resolve 动作的 rule_set 一致），路由规则新增 `RULE-SET,<名称>,<目标>`。`engine-embedded` 配置信封的 `routing.rule_sets` 携带具名列表（最多 16 个、合计 50 万条），引用未配置的规则集会被拒绝。订阅导入仍跳过 `RULE-SET` 行。Windows 客户端在内置引擎下支持全部四种分流模式（绕过大陆、GFW 列表、回国、直连）：导入时保留原始配置信封，切换模式时用下载的规则列表重新生成路由；导入时也会按当前模式生成（规则列表下载失败时退回全局代理并记录日志）。
 - Windows 客户端接入自研引擎（Phase 2c-1）：托管配置新增 `embedded`（配置信封路径和回环监听地址，与 sing-box、Mieru 三者只能启用一个），托管状态新增 `embedded_running`、`embedded_listener`、`embedded_last_error`。Windows 服务在进程内启动 `engine-embedded` 本地代理并纳入健康检查和回滚；GUI 桌面模式由 GUI 进程自己运行它，不再需要外部内核进程。未安装 sing-box 时导入订阅会直接生成自研引擎配置（全部节点都支持时带上订阅规则和策略组，否则运行选中或第一个节点），不再要求先安装 sing-box；已安装 sing-box 的现有用法不变。分流模式、DNS、HTTPS 解密和节点切换仍只支持 sing-box 配置，后续补齐后再把 Windows 默认切到自研引擎。
