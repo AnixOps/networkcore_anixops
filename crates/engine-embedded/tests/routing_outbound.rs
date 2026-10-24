@@ -2,12 +2,12 @@
 
 use std::collections::BTreeMap;
 use std::io;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex};
 
 use config_core::routing::{PolicyGroupSpec, RouteOutcome, RoutingSpec};
 use config_core::rule_set::RuleSet;
-use engine_embedded::routing::RoutedOutbound;
+use engine_embedded::routing::{DomainResolver, RoutedOutbound};
 use engine_outbound::{BoxFuture, BoxStream, TargetAddr, TcpOutbound};
 
 /// Records the target and fails, so tests see which outbound was chosen.
@@ -105,6 +105,72 @@ fn routes_targets_by_rules_and_groups() {
     );
 }
 
+/// Answers from a fixed table and records every lookup.
+struct FixedResolver {
+    lookups: Arc<Mutex<Vec<String>>>,
+}
+
+impl DomainResolver for FixedResolver {
+    fn resolve<'a>(&'a self, domain: &'a str) -> BoxFuture<'a, io::Result<IpAddr>> {
+        Box::pin(async move {
+            self.lookups.lock().unwrap().push(domain.to_string());
+            match domain {
+                "v6.example" => Ok("2001:db8::5".parse().unwrap()),
+                "v4.example" => Ok("203.0.113.9".parse().unwrap()),
+                _ => Err(io::Error::new(io::ErrorKind::NotFound, "no such domain")),
+            }
+        })
+    }
+}
+
+#[test]
+fn domains_are_resolved_only_when_an_ip_rule_needs_them() {
+    let hits = Arc::new(Mutex::new(Vec::new()));
+    let lookups = Arc::new(Mutex::new(Vec::new()));
+    let outbound = routed(&hits).with_resolver(Arc::new(FixedResolver {
+        lookups: lookups.clone(),
+    }));
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap();
+    let domain = |name: &str| TargetAddr::Domain(name.to_string(), 443);
+
+    runtime.block_on(async {
+        // A domain rule matches before any IP rule asks for an address.
+        assert_eq!(
+            outbound.route_resolving(&domain("www.example.jp")).await,
+            RouteOutcome::Node("jp-1".to_string())
+        );
+        // The resolved address matches the IP-CIDR6 rule (Auto -> hk-1).
+        assert_eq!(
+            outbound.route_resolving(&domain("v6.example")).await,
+            RouteOutcome::Node("hk-1".to_string())
+        );
+        // An address no IP rule holds falls through to FINAL.
+        assert_eq!(
+            outbound.route_resolving(&domain("v4.example")).await,
+            RouteOutcome::Node("jp-1".to_string())
+        );
+        // A failed lookup rejects the connection, as in sing-box.
+        assert_eq!(
+            outbound.route_resolving(&domain("missing.example")).await,
+            RouteOutcome::Reject
+        );
+        // IP targets never trigger a lookup.
+        assert_eq!(
+            outbound.route_resolving(&ip("10.1.2.3:443")).await,
+            RouteOutcome::Direct
+        );
+        let _ = outbound.connect(&domain("v6.example")).await;
+    });
+
+    assert_eq!(
+        *lookups.lock().unwrap(),
+        vec!["v6.example", "v4.example", "missing.example", "v6.example"]
+    );
+    assert_eq!(*hits.lock().unwrap(), vec!["hk-1"]);
+}
+
 #[test]
 fn connect_dispatches_to_the_routed_outbound() {
     let hits = Arc::new(Mutex::new(Vec::new()));
@@ -176,4 +242,22 @@ fn rule_sets_route_large_lists_without_resolving_domains() {
 
     // A RULE-SET rule naming a set the config does not carry is rejected.
     assert!(RoutedOutbound::new(&spec, recording("direct"), nodes).is_err());
+}
+
+#[test]
+fn url_test_groups_follow_recorded_latencies() {
+    let hits = Arc::new(Mutex::new(Vec::new()));
+    let outbound = routed(&hits);
+    let v6 = ip("[2001:db8::1]:443");
+
+    // Until a check finishes, the url-test group uses its first member.
+    assert_eq!(outbound.route(&v6), RouteOutcome::Node("hk-1".to_string()));
+
+    outbound.record_latency("Auto", "hk-1", Some(240));
+    outbound.record_latency("Auto", "jp-1", Some(80));
+    assert_eq!(outbound.route(&v6), RouteOutcome::Node("jp-1".to_string()));
+
+    // A failed check removes the member from the choice.
+    outbound.record_latency("Auto", "jp-1", None);
+    assert_eq!(outbound.route(&v6), RouteOutcome::Node("hk-1".to_string()));
 }

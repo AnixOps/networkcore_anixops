@@ -12,6 +12,10 @@
 
 ### Added
 
+- 发布流程加入 Linux 图形客户端：tag 发布新增 `package-linux-gui` 与 `attest-linux-gui` 任务，在 Ubuntu 上构建共用界面和 `anixops-net`，产出 tarball（`bin/`、桌面入口、图标、LICENSE、CHANGELOG、INSTALL.md）和 Debian 包（`/usr/bin/anixops-net`、菜单项与图标，依赖 `libwebkit2gtk-4.1-0`），各带 manifest 与 sha256，统一做 GitHub artifact attestation 后随 Release 发布。`gui` feature 现在包含 `tauri/custom-protocol`，直接 `cargo build --release` 得到的窗口也内嵌界面而不是去连开发服务器。
+- Windows 内置引擎支持订阅自带的规则和策略组：导入带 `[Rule]`/`[Proxy Group]` 或 Clash `rules`/`proxy-groups` 的订阅后，节点列表不再为空，新增“规则”分流模式（导入这类订阅时自动选中，只对内置引擎提供）按订阅规则分流；“规则”页列出订阅的策略组，可切换手动选择组的出口（已连接时自动重启内核），节点页切换节点改主策略组的出口，“选择最快节点”只在主策略组成员里挑，刷新订阅保留原选择。其他四种分流模式下 FINAL 的策略组选择同样生效。
+- `engine-embedded` 的自动测速组生效：桌面本地代理（Windows 桌面/服务模式、Linux）运行路由配置时在后台对 url-test/fallback 组的每个成员按组的 URL 测速（`RoutedOutbound::run_health_checks`，间隔取各组最短值且不少于 30 秒，单次超时 5 秒），url-test 选延迟最低的成员，fallback 选第一个测通的成员；首次测速完成前用第一个成员。新增 `delay::probe` 在调用方运行时里测一次 URL。iOS 隧道暂不运行测速。
+- `engine-embedded` 的规则路由支持 DNS：域名目标遇到未写 `no-resolve` 的 IP 规则时，用系统解析器（`DomainResolver`，默认 `SystemResolver`）解析一次，并用该地址匹配后续 IP 规则；连接本身仍按域名发出，经节点时由节点服务器解析；解析失败拒绝连接（与 sing-box 一致）。此前这类连接一律被拒绝。Windows 设置里的 DNS 卡片在内置引擎下说明这一行为，不再显示只对 sing-box 生效的 DNS JSON。
 - iOS 订阅链接、多节点列表与切换：导入框粘贴一个 http(s) 订阅链接时，App 下载订阅（30 秒超时、最多 4 MB，只接受 2xx），保存全部可运行节点并选中第一个；节点列表连同出站参数只存在钥匙串里。代理页列出全部节点，点选即切换，已连接时自动断开并用新节点重连；订阅链接导入的列表支持下拉更新，更新后仍选中原节点（不在列表里时选第一个）。延迟测试在 App 内测 TCP 握手耗时（每批 8 个并发，5 秒超时），Hysteria2、TUIC 等 QUIC 节点标为 UDP、不测。
 - iOS 导入接入自研协议栈：新增 `node-import` crate（订阅文本 → 自研引擎出站，不含协议实现和隧道引擎），带 `networkcore_import_*` C 接口，App 只链接它构建出的 `NetworkCoreImport.xcframework`，隧道引擎仍只在扩展里（CI 检查 App 含导入符号、不含 `networkcore_ios_runtime_init`）。App 现在可以粘贴 Trojan、VMess、VLESS（TLS/WS/gRPC）、Shadowsocks AEAD、Hysteria2、TUIC 链接，或订阅内容（base64 链接列表、Clash YAML、JSON 出站配置、Surge/Loon/Quantumult X 节点行），取第一个可运行节点；非 Shadowsocks/REALITY 节点作为通用出站保存，出站参数整体存入钥匙串，隧道配置里只留类型和地址。`engine-embedded::nodes::outbound_for_node` 改为调用 `node_import::outbound_json`。
 - Linux 图形客户端（P4）：新增 `apps/linux-gui`（可执行文件 `anixops-net`），复用 Windows 的 Tauri + React 界面和中英文文案，在进程内运行自研引擎，所选节点在 `127.0.0.1:7890` 提供 SOCKS5/HTTP 本地代理。连接时把 GNOME（`gsettings`）或 KDE（`kwriteconfig6/5`）的系统代理指向本地端口，断开、退出或下次启动时改回原来的设置；支持导入订阅链接、分享链接或本地文件，切换节点、延迟测试和选择最快节点，“登录后启动”写入 XDG 自启动项，配置保存在 `$XDG_CONFIG_HOME/anixops-net`（文件权限 0600）。界面根据快照里的 `platform` 隐藏 Windows 服务、附加内核、驱动、TUN、分流规则和 HTTPS 解密等 Linux 版暂未提供的功能。窗口依赖 WebKitGTK，放在 `gui` feature 后面，工作区任务只编译和测试后端；新增 CI 任务“Linux GUI build”在 Ubuntu 上构建共用界面、lint 并编译窗口。AppImage/deb 打包、托盘、TUN 和分流模式留待后续。
@@ -81,8 +85,8 @@ to generate candidate artifacts for that acceptance.
 
 ```text
 current-main-release-state=pending_manual_acceptance
-current-main-source-candidate=v0.2.0-beta.5
-current-main-latest-published-tag=v0.2.0-beta.4
+current-main-source-candidate=v0.2.0-rc.1
+current-main-latest-published-tag=v0.2.0-beta.5
 current-main-latest-stable-tag=v0.1.0
 current-main-subscription-foreground=public-engine-run-plan-mieru-and-sing-box-active
 current-main-subscription-refresh=explicit-http-single-source-status-stop-active
@@ -105,6 +109,7 @@ current-main-cross-platform-run-plan=public-engine-run-plan-active
 
 ### Changed
 
+- 版本号统一为 `0.2.0`，为 v0.2.0 正式版做准备：工作区 `Cargo.toml`（及 `Cargo.lock` 中的工作区成员）、Windows/Linux 图形客户端的 `tauri.conf.json`、共用界面 `package.json`，以及 iOS/macOS 的 `MARKETING_VERSION`。命令行 `version` 输出和脚本环境字符串随之变为 `0.2.0`。
 - `config-core` now parses optional `rules` and `policy_groups` fields into a
   routing model (DOMAIN/DOMAIN-SUFFIX/IP-CIDR/GEOIP/FINAL rules and
   select/url-test/fallback groups), and `engine-singbox` can translate it to a

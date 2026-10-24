@@ -39,7 +39,9 @@ export interface RuntimeSnapshot {
   scriptRuntimeConfigured: boolean;
   darkTheme: boolean;
   runtimeMode: "desktop" | "service";
-  routingMode: "bypass_china" | "gfw_list" | "direct" | "return_china";
+  routingMode: "bypass_china" | "gfw_list" | "direct" | "return_china" | "rule";
+  /** The imported profile runs on the embedded engine (Windows). */
+  embeddedEngine?: boolean;
 }
 
 export interface NodeSummary {
@@ -54,6 +56,9 @@ export interface NativeGroupSummary {
   groupType: string;
   selected?: string;
   outbounds: string[];
+  /** Display names for `outbounds`; empty when they are the names. */
+  outboundLabels?: string[];
+  /** Editable JSON; empty when the group cannot be edited as JSON. */
   json: string;
 }
 

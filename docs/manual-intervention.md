@@ -2,14 +2,24 @@
 
 本文件记录当前无法由本地自动化完成、需要人工处理的事项。
 
-## v0.2.0-beta.5 Release Acceptance Gate
+## v0.2.0 Release Acceptance Gate
 
-release-version=v0.2.0-beta.5
+release-version=v0.2.0-rc.1
+release-final-version=v0.2.0
 release-state=pending_manual_acceptance
-release-tag-status=blocked-pending-manual-acceptance
+release-tag-status=rc1-tag-pending-maintainer-approval
 release-dry-run-status=pending_github_actions_validation
-release-required-artifacts=linux-tarball-four-file-set,windows-msi-four-file-set,windows-portable-zip-four-file-set
+release-required-artifacts=linux-tarball-four-file-set,linux-gui-tarball-four-file-set,linux-gui-deb-four-file-set,windows-msi-four-file-set,windows-portable-zip-four-file-set
 release-ci-source=main-same-commit-ci-summary-success-required
+release-out-of-scope=macos,ios-release-assets
+
+`v0.2.0-beta.5` was published as a prerelease on 2026-10-23 (tag on `e5b8632`) and its real-host acceptance was never
+recorded; the features added since then make its artifacts unrepresentative, so acceptance moves to `v0.2.0-rc.1`.
+The flow is: the maintainer approves and pushes the `v0.2.0-rc.1` tag (from a maintainer machine, since cloud sessions
+cannot push tags); the operator runs the must items below on the rc.1 artifacts, plus "Windows 内置引擎真机验收" and the
+`.deb` check under "Linux GUI Real-Desktop Acceptance"; when they pass, the maintainer tags `v0.2.0` on the same commit.
+A must-item failure is fixed on main and re-tested as `v0.2.0-rc.2`. The tables below keep their beta.5 names; for
+v0.2.0 they apply to the rc.1 artifacts, with `release-version=v0.2.0-rc.1` in the evidence template.
 
 The beta feature scope is frozen. Do not add new protocols, iOS activation, HTTP/2 or HTTP/3 MITM, JavaScript dispatch, LAN controller, Web UI, urltest automation, background subscription groups, TUN/DNS interception, or other new features for this release. Only real compile, test, package, contract, documentation, or release-gate fixes may be made before the tag.
 
@@ -460,8 +470,16 @@ CI 只验证托管配置、服务进程内启停和健康检查（`managed_runti
   列表时只有列表内域名走代理；回国和直连同理（Phase 2c-2）。
 - 内置引擎下单节点配置的节点列表：切换节点后（已连接时自动重启内核）出口 IP 随之变化；
   延迟测试在未连接时也能出结果且与浏览器体感一致；“选择最快节点”切到延迟最低的节点
-  （Phase 2c-3）。订阅带规则和策略组时节点列表为空，策略组切换尚未接入。
-- DNS 和 HTTPS 解密暂时只支持 sing-box 配置，这是已知限制。
+  （Phase 2c-3）。
+- 内置引擎下导入带规则和策略组的 Clash/Surge/Loon 订阅：导入后分流模式自动切到“规则”，
+  节点列表列出全部节点；“规则”页的策略组可切换手动选择组的出口，已连接时内核自动重启，
+  出口 IP 随之变化；节点页切换节点会改主策略组（FINAL 经过的第一个手动选择组）的出口；
+  刷新订阅后原来的选择保留。订阅里 `IP-CIDR` 等需要 IP 的规则（未写 `no-resolve`）对域名
+  先用系统 DNS 解析再匹配，解析失败的连接被拒绝；切回其他四种分流模式时订阅规则不用，
+  但 FINAL 的策略组选择仍然生效。自动测速组连接后按实测延迟选节点（url-test 取最快，fallback
+  取第一个能用的，按组的间隔重测，最短 30 秒）；界面上显示的是组里第一个成员。
+- 内置引擎没有自定义 DNS 段：规则匹配用系统 DNS，经节点的连接由节点服务器解析域名。
+  HTTPS 解密暂时只支持 sing-box 配置，这是已知限制。
 
 ## 当前待处理
 
@@ -761,7 +779,12 @@ and `cargo build --release -p networkcore-linux-gui --features gui` (WebKitGTK 4
    `~/.config/autostart/anixops-net.desktop` is gone.
 5. Switch the language to English and the appearance to dark and OLED black.
 
-Confirmed by the maintainer on 2026-10-24. There is no package yet; AppImage/deb packaging and a tray icon come later.
+Confirmed by the maintainer on 2026-10-24. From v0.2.0 the tag release also publishes the window as a tarball
+(`anixops-net-linux-<version>-x86_64-unknown-linux-gnu.tar.gz`) and a Debian package (`anixops-net_<version>_amd64.deb`),
+each with a manifest and checksums. Before v0.2.0 is called stable, install the `.deb` from the release candidate on
+Ubuntu 22.04 or later (`sudo apt install ./anixops-net_*.deb`), check that "AnixOps Net" appears in the app menu with its
+icon and opens the interface (not a blank window), repeat step 1, then remove it with `sudo apt remove anixops-net`.
+AppImage and a tray icon come later.
 
 ```text
 linux-gui-real-desktop-status=confirmed

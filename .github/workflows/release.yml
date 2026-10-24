@@ -457,7 +457,7 @@ jobs:
           contract=docs/architecture/windows-managed-client-source-release-contract.md
           grep -q '^windows-managed-client-source-release-contract=present$' "${contract}"
           grep -q '^windows-managed-client-release-state=implementation-active$' "${contract}"
-          grep -q '^windows-managed-client-version-scope=v0.2.0-beta.5$' "${contract}"
+          grep -q '^windows-managed-client-version-scope=v0.2.0$' "${contract}"
           grep -q '^windows-managed-client-gui-daily-usability=home-nodes-subscriptions-settings-diagnostics-advanced-active$' "${contract}"
           grep -q '^windows-managed-client-gui-runtime-status=scm-core-config-validation-loopback-listener-selector-readback-pid-current-user-proxy-active$' "${contract}"
           grep -q '^windows-managed-client-gui-background-commands=active$' "${contract}"
@@ -848,6 +848,252 @@ jobs:
             ${{ steps.package.outputs.checksum_file }}
             ${{ steps.package.outputs.artifact_manifest_path }}
             ${{ steps.package.outputs.artifact_manifest_checksum_file }}
+          retention-days: 14
+          if-no-files-found: error
+
+  package-linux-gui:
+    name: Package Linux desktop client
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs:
+      - release-policy
+      - release-ci-gate
+      - linux-artifact-readiness
+    permissions:
+      contents: read
+    outputs:
+      bundle_name: ${{ steps.package.outputs.bundle_name }}
+      archive_name: ${{ steps.package.outputs.archive_name }}
+      archive_checksum_value: ${{ steps.package.outputs.archive_checksum_value }}
+      archive_manifest_name: ${{ steps.package.outputs.archive_manifest_name }}
+      deb_name: ${{ steps.package.outputs.deb_name }}
+      deb_checksum_value: ${{ steps.package.outputs.deb_checksum_value }}
+      deb_manifest_name: ${{ steps.package.outputs.deb_manifest_name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      # Tauri on Linux renders through WebKitGTK.
+      - name: Install WebKitGTK
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/windows-gui/ui/pnpm-lock.yaml
+
+      # The Linux window shares the Windows React interface.
+      - name: Build the shared interface
+        shell: bash
+        run: |
+          pnpm --dir apps/windows-gui/ui install --frozen-lockfile
+          pnpm --dir apps/windows-gui/ui run build
+
+      - name: Build and package the Linux desktop client
+        id: package
+        shell: bash
+        env:
+          VERSION: ${{ needs.release-policy.outputs.version }}
+          TARGET: ${{ env.LINUX_TARGET }}
+          RUST_TOOLCHAIN: ${{ env.LINUX_RUST_TOOLCHAIN }}
+          RUST_PROFILE: ${{ env.LINUX_RUST_PROFILE }}
+          CI_RUN_URL: ${{ needs.release-ci-gate.outputs.ci_run_url }}
+          RELEASE_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RELEASE_SHA: ${{ github.sha }}
+          SOURCE_REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          checkout_sha="$(git rev-parse HEAD)"
+          if [ "${checkout_sha}" != "${RELEASE_SHA}" ]; then
+            echo "::error::Checkout SHA ${checkout_sha} does not match release SHA ${RELEASE_SHA}."
+            exit 1
+          fi
+
+          rustup toolchain install "${RUST_TOOLCHAIN}" --profile "${RUST_PROFILE}"
+          rustup default "${RUST_TOOLCHAIN}"
+          rustup target add "${TARGET}" --toolchain "${RUST_TOOLCHAIN}"
+          test -f Cargo.lock
+          cargo build --locked --release --package networkcore-linux-gui --features gui --bin anixops-net --target "${TARGET}"
+          binary_path="target/${TARGET}/release/anixops-net"
+          test -x "${binary_path}"
+
+          version="${VERSION}"
+          stem="anixops-net-linux-${version}-${TARGET}"
+          dist_dir="dist/linux-gui"
+          output_dir="${dist_dir}/artifacts"
+          rm -rf "${dist_dir}"
+          mkdir -p "${output_dir}"
+
+          desktop_entry() {
+            cat <<EOF
+          [Desktop Entry]
+          Type=Application
+          Name=AnixOps Net
+          Comment=Proxy client with subscriptions, node switching and delay tests
+          Exec=$1
+          Icon=anixops-net
+          Terminal=false
+          Categories=Network;
+          EOF
+          }
+
+          # Tarball: run in place from a versioned directory.
+          staging="${dist_dir}/staging/${stem}"
+          mkdir -p "${staging}/bin" "${staging}/share/applications" "${staging}/share/icons/hicolor/256x256/apps"
+          install -m 0755 "${binary_path}" "${staging}/bin/anixops-net"
+          install -m 0644 apps/linux-gui/icons/networkcore.png "${staging}/share/icons/hicolor/256x256/apps/anixops-net.png"
+          desktop_entry anixops-net > "${staging}/share/applications/anixops-net.desktop"
+          install -m 0644 LICENSE "${staging}/LICENSE"
+          install -m 0644 CHANGELOG.md "${staging}/CHANGELOG.md"
+          cat > "${staging}/INSTALL.md" <<EOF
+          # AnixOps Net for Linux ${version}
+
+          Needs WebKitGTK 4.1 (Ubuntu 22.04+/Debian 12+: libwebkit2gtk-4.1-0) and a GNOME or KDE desktop.
+
+          Extract this archive into a directory you control and run bin/anixops-net. To add a menu entry,
+          copy share/applications/anixops-net.desktop to ~/.local/share/applications (set Exec to the full
+          path of bin/anixops-net) and share/icons to ~/.local/share/icons. The .deb package of the same
+          release installs these for you.
+
+          Connecting points the desktop proxy setting at 127.0.0.1:7890 and restores the previous setting
+          on disconnect, exit or next start. Settings live in \$XDG_CONFIG_HOME/anixops-net.
+
+          Uninstall: quit the app, delete this directory and ~/.config/autostart/anixops-net.desktop if
+          you enabled start after login. Rollback: run the previous version's extracted directory.
+          EOF
+          archive_name="${stem}.tar.gz"
+          tar -czf "${output_dir}/${archive_name}" -C "${dist_dir}/staging" "${stem}"
+
+          # Debian package: system install with a menu entry.
+          # Debian sorts "~" before release, so 0.2.0~rc.1 < 0.2.0.
+          deb_version="$(printf '%s' "${version#v}" | tr '-' '~')"
+          deb_root="${dist_dir}/deb"
+          mkdir -p "${deb_root}/DEBIAN" "${deb_root}/usr/bin" "${deb_root}/usr/share/applications" \
+            "${deb_root}/usr/share/icons/hicolor/256x256/apps" "${deb_root}/usr/share/doc/anixops-net"
+          install -m 0755 "${binary_path}" "${deb_root}/usr/bin/anixops-net"
+          install -m 0644 apps/linux-gui/icons/networkcore.png "${deb_root}/usr/share/icons/hicolor/256x256/apps/anixops-net.png"
+          desktop_entry /usr/bin/anixops-net > "${deb_root}/usr/share/applications/anixops-net.desktop"
+          install -m 0644 LICENSE "${deb_root}/usr/share/doc/anixops-net/copyright"
+          installed_size="$(du -sk "${deb_root}/usr" | cut -f1)"
+          cat > "${deb_root}/DEBIAN/control" <<EOF
+          Package: anixops-net
+          Version: ${deb_version}
+          Section: net
+          Priority: optional
+          Architecture: amd64
+          Depends: libwebkit2gtk-4.1-0, libgtk-3-0
+          Installed-Size: ${installed_size}
+          Maintainer: AnixOps <noreply@github.com>
+          Homepage: https://github.com/AnixOps/networkcore_anixops
+          Description: AnixOps Net desktop proxy client
+           Imports subscriptions and share links, switches nodes, runs delay tests and
+           points the desktop proxy setting at a local SOCKS5/HTTP port while connected.
+          EOF
+          deb_name="anixops-net_${deb_version}_amd64.deb"
+          dpkg-deb --root-owner-group --build "${deb_root}" "${output_dir}/${deb_name}"
+          dpkg-deb --info "${output_dir}/${deb_name}" >/dev/null
+
+          manifest() {
+            local file="$1" kind="$2" format="$3" checksum="$4"
+            jq -n \
+              --arg artifact_name "${file}" --arg artifact_kind "${kind}" --arg package_format "${format}" \
+              --arg target_triple "${TARGET}" --arg version "${version}" --arg commit_sha "${RELEASE_SHA}" \
+              --arg source_ref "${SOURCE_REF}" --arg ci_run_url "${CI_RUN_URL}" \
+              --arg release_run_url "${RELEASE_RUN_URL}" --arg rust_toolchain "${RUST_TOOLCHAIN}" \
+              --arg checksum_value "${checksum}" \
+              '{
+                schema_version: 1,
+                artifact_kind: $artifact_kind,
+                package_format: $package_format,
+                artifact_name: $artifact_name,
+                target_triple: $target_triple,
+                version: $version,
+                commit_sha: $commit_sha,
+                source_ref: $source_ref,
+                ci_run_url: $ci_run_url,
+                release_run_url: $release_run_url,
+                runner: "ubuntu-latest",
+                rust_toolchain: $rust_toolchain,
+                source: "apps/linux-gui+apps/windows-gui/ui",
+                checksum: {algorithm: "sha256", file_name: ($artifact_name + ".sha256"), value: $checksum_value},
+                runtime_dependencies: ["libwebkit2gtk-4.1-0", "libgtk-3-0"],
+                system_mutation_policy: "desktop-proxy-setting-while-connected-restored-on-disconnect",
+                signing: {
+                  signing_policy: "unsigned-no-detached-signature",
+                  attestation_policy: "github-artifact-attestation-required",
+                  provenance_file: "github-artifact-attestation"
+                },
+                rollback: {
+                  rollback_scope: "linux-desktop-client",
+                  rollback_steps: "withdraw-release-asset-and-publish-replacement-version",
+                  replacement_version: "next-version-required",
+                  rollback_owner: "maintainer"
+                }
+              }'
+          }
+
+          (
+            cd "${output_dir}"
+            sha256sum "${archive_name}" > "${archive_name}.sha256"
+            sha256sum "${deb_name}" > "${deb_name}.sha256"
+          )
+          archive_checksum_value="$(cut -d' ' -f1 "${output_dir}/${archive_name}.sha256")"
+          deb_checksum_value="$(cut -d' ' -f1 "${output_dir}/${deb_name}.sha256")"
+          archive_manifest_name="${stem}.manifest.json"
+          deb_manifest_name="anixops-net_${deb_version}_amd64.manifest.json"
+          manifest "${archive_name}" linux-desktop-tarball tar.gz "${archive_checksum_value}" > "${output_dir}/${archive_manifest_name}"
+          manifest "${deb_name}" linux-desktop-deb deb "${deb_checksum_value}" > "${output_dir}/${deb_manifest_name}"
+          (
+            cd "${output_dir}"
+            sha256sum "${archive_manifest_name}" > "${archive_manifest_name}.sha256"
+            sha256sum "${deb_manifest_name}" > "${deb_manifest_name}.sha256"
+            sha256sum -c ./*.sha256
+          )
+          file_count="$(find "${output_dir}" -maxdepth 1 -type f | wc -l | tr -d ' ')"
+          if [ "${file_count}" != "8" ]; then
+            echo "::error::Linux desktop output must hold the tarball and deb four-file sets."
+            find "${output_dir}" -maxdepth 1 -type f -print
+            exit 1
+          fi
+
+          {
+            echo "bundle_name=${stem}-release-bundle"
+            echo "output_dir=${output_dir}"
+            echo "archive_name=${archive_name}"
+            echo "archive_checksum_value=${archive_checksum_value}"
+            echo "archive_manifest_name=${archive_manifest_name}"
+            echo "deb_name=${deb_name}"
+            echo "deb_checksum_value=${deb_checksum_value}"
+            echo "deb_manifest_name=${deb_manifest_name}"
+          } >> "${GITHUB_OUTPUT}"
+          {
+            echo "### Linux Desktop Client"
+            echo
+            echo "| Item | Value |"
+            echo "| --- | --- |"
+            echo "| Tarball | ${archive_name} |"
+            echo "| Tarball sha256 | ${archive_checksum_value} |"
+            echo "| Debian package | ${deb_name} |"
+            echo "| Debian package sha256 | ${deb_checksum_value} |"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload Linux desktop release bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.bundle_name }}
+          path: ${{ steps.package.outputs.output_dir }}/*
           retention-days: 14
           if-no-files-found: error
 
@@ -1391,6 +1637,46 @@ jobs:
           echo "provenance_file=github-artifact-attestation" >> "${GITHUB_OUTPUT}"
           echo "linux-package-artifact-attestation-execution-status=attested"
 
+  attest-linux-gui:
+    name: Attest Linux desktop client bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs:
+      - release-policy
+      - package-linux-gui
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    outputs:
+      attestation_status: ${{ steps.attestation-output.outputs.attestation_status }}
+    steps:
+      - name: Download Linux desktop release bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.package-linux-gui.outputs.bundle_name }}
+          path: dist/linux-gui-attestation
+
+      - name: Validate attestation subjects
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(find dist/linux-gui-attestation -maxdepth 1 -type f | wc -l | tr -d ' ')" = "8"
+          (
+            cd dist/linux-gui-attestation
+            sha256sum -c ./*.sha256
+          )
+
+      - name: Generate Linux desktop artifact attestation
+        uses: actions/attest@v4
+        with:
+          subject-path: dist/linux-gui-attestation/*
+
+      - name: Emit attestation status
+        id: attestation-output
+        shell: bash
+        run: echo "attestation_status=attested" >> "${GITHUB_OUTPUT}"
+
   attest-windows:
     name: Attest Windows managed client bundle
     runs-on: ubuntu-latest
@@ -1671,8 +1957,10 @@ jobs:
       - release-policy
       - release-ci-gate
       - package-linux
+      - package-linux-gui
       - package-windows
       - attest-linux
+      - attest-linux-gui
       - attest-windows
       - post-release-summary
       - windows-release-summary
@@ -1693,6 +1981,12 @@ jobs:
         with:
           name: ${{ needs.package-linux.outputs.bundle_name }}
           path: dist/linux-release
+
+      - name: Download Linux desktop release bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.package-linux-gui.outputs.bundle_name }}
+          path: dist/linux-gui-release
 
       - name: Download Windows release bundle
         uses: actions/download-artifact@v4
@@ -1724,6 +2018,11 @@ jobs:
           WINDOWS_PORTABLE_MANIFEST_CHECKSUM_VALUE: ${{ needs.package-windows.outputs.portable_manifest_checksum_value }}
           CI_RUN_URL: ${{ needs.release-ci-gate.outputs.ci_run_url }}
           ATTESTATION_STATUS: ${{ needs.attest-linux.outputs.attestation_status }}
+          LINUX_GUI_ATTESTATION_STATUS: ${{ needs.attest-linux-gui.outputs.attestation_status }}
+          LINUX_GUI_ARCHIVE_NAME: ${{ needs.package-linux-gui.outputs.archive_name }}
+          LINUX_GUI_ARCHIVE_CHECKSUM_VALUE: ${{ needs.package-linux-gui.outputs.archive_checksum_value }}
+          LINUX_GUI_DEB_NAME: ${{ needs.package-linux-gui.outputs.deb_name }}
+          LINUX_GUI_DEB_CHECKSUM_VALUE: ${{ needs.package-linux-gui.outputs.deb_checksum_value }}
           WINDOWS_ATTESTATION_STATUS: ${{ needs.attest-windows.outputs.attestation_status }}
           RELEASE_NOTES_STATUS: ${{ needs.post-release-summary.outputs.release_notes_status }}
           WINDOWS_RELEASE_NOTES_STATUS: ${{ needs.windows-release-summary.outputs.release_notes_status }}
@@ -1741,6 +2040,16 @@ jobs:
           set -euo pipefail
           test "${ELIGIBILITY_STATUS}" = "eligible"
           test "${WINDOWS_ELIGIBILITY_STATUS}" = "eligible"
+          test "${LINUX_GUI_ATTESTATION_STATUS}" = "attested"
+          linux_gui_assets=()
+          while IFS= read -r file; do
+            linux_gui_assets+=("${file}")
+          done < <(find dist/linux-gui-release -maxdepth 1 -type f | sort)
+          test "${#linux_gui_assets[@]}" = "8"
+          (
+            cd dist/linux-gui-release
+            sha256sum -c ./*.sha256
+          )
           archive_path="dist/linux-release/${ARTIFACT_NAME}"
           archive_checksum_path="${archive_path}.sha256"
           manifest_path="dist/linux-release/${MANIFEST_NAME}"
@@ -1796,6 +2105,13 @@ jobs:
           - Attestation: ${ATTESTATION_STATUS} via GitHub artifact attestation
           - Install model: manual-extract
           - System mutation policy: extraction performs no system mutation; named systemd service, explicit environment-proxy snapshot, and Ubuntu trust-file changes require separate confirmed CLI commands with snapshot/readback/rollback boundaries
+
+          ## Linux Desktop Client
+
+          - Tarball: ${LINUX_GUI_ARCHIVE_NAME} (sha256 ${LINUX_GUI_ARCHIVE_CHECKSUM_VALUE})
+          - Debian package: ${LINUX_GUI_DEB_NAME} (sha256 ${LINUX_GUI_DEB_CHECKSUM_VALUE})
+          - Each with a manifest and checksum files; attestation: ${LINUX_GUI_ATTESTATION_STATUS} via GitHub artifact attestation
+          - Needs WebKitGTK 4.1; connecting points the desktop proxy setting at 127.0.0.1:7890 and restores it on disconnect
 
           ## Windows Managed Client
 
@@ -1861,6 +2177,7 @@ jobs:
             "${windows_portable_archive_checksum_path}" \
             "${windows_portable_manifest_path}" \
             "${windows_portable_manifest_checksum_path}" \
+            "${linux_gui_assets[@]}" \
             --title "${VERSION}" \
             --notes-file "${body_path}" \
             --verify-tag \

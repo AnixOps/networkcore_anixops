@@ -11,7 +11,8 @@ description = "Linux desktop client for AnixOps Net: the shared Tauri + React in
 # which the workspace jobs test; the Linux GUI job builds and lints the window with `--features gui`.
 [features]
 default = []
-gui = ["dep:tauri", "dep:tauri-build", "dep:reqwest"]
+# `tauri/custom-protocol` embeds the built interface; without it a release binary loads the dev server URL.
+gui = ["dep:tauri", "dep:tauri-build", "dep:reqwest", "tauri/custom-protocol"]
 
 [dependencies]
 config-core = { path = "../../crates/config-core" }

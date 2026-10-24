@@ -19,8 +19,8 @@ GitHub Release asset 为准；`main` 中 tag 之后的源码增量不等于用�
 
 ```text
 current-main-release-state=pending_manual_acceptance
-current-main-source-candidate=v0.2.0-beta.5
-current-main-latest-published-tag=v0.2.0-beta.4
+current-main-source-candidate=v0.2.0-rc.1
+current-main-latest-published-tag=v0.2.0-beta.5
 current-main-latest-stable-tag=v0.1.0
 current-main-subscription-foreground=public-engine-run-plan-mieru-and-sing-box-active
 current-main-subscription-background=linux-systemd-oneshot-timer-and-windows-opt-in-single-source-active
@@ -354,9 +354,26 @@ trust artifact 为核心，固定 `MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-life
 
 ## 当前 Windows 发布切片
 
+### `v0.2.0-rc.1`
+
+状态：v0.2.0 正式版的 release candidate，pending_manual_acceptance。macOS 不在 v0.2.0
+范围内，iOS 走 TestFlight，不产生 release asset。rc.1 tag 需要维护者明确同意；rc.1 产物上的
+Windows/Linux 必须项真机验收通过后，在同一 commit 打 `v0.2.0`，验收中发现的问题以 `rc.2` 修复。
+
+相对 `v0.2.0-beta.5` 新增：
+
+- Windows 内置引擎（未安装 sing-box 时在 GUI 或服务进程内运行）：分流模式、节点切换与延迟测试、
+  订阅自带的规则与策略组（“规则”模式、策略组切换、自动测速组按实测延迟选择）、规则里需要 IP 的
+  域名用系统 DNS 解析；中英文界面与 AnixOps Net 品牌界面。
+- Linux 图形客户端 `anixops-net`（Tauri + 共用 React 界面，进程内引擎，GNOME/KDE 系统代理），
+  随 tag 发布 tarball 与 `.deb` 两套四件套。
+- 版本号统一为 `0.2.0`。
+
+明确不包含：macOS 产物与签名、Windows Authenticode 签名、Linux AppImage/托盘、Linux TUN 与分流模式。
+
 ### `v0.2.0-beta.5`
 
-状态：Beta release candidate pending_manual_acceptance；同 commit GitHub Actions CI
+状态：已发布 prerelease（tag `e5b8632`）；同 commit GitHub Actions CI
 已作为发布门禁来源，workflow_dispatch dry-run 可验证 Linux/Windows 产物名称、版本、
 checksum、manifest、attestation 和 bundle 内容。维护者可创建 beta tag 生成候选工件，
 但真实 Windows/Linux 系统验收和 tag release 全部成功前，不得描述为 production-ready。
@@ -985,7 +1002,7 @@ GitHub Actions release workflow 结果为准。
 
 ## 当前 main source 状态
 
-当前 Windows source release 候选切片是 `v0.2.0-beta.5`，Linux source slice 是 `v0.1.2-alpha.3`，最新 stable artifact 仍是 `v0.1.0`。它保留
+当前 Windows source release 候选切片是 `v0.2.0-rc.1`（`v0.2.0-beta.5` 已发布），Linux source slice 是 `v0.1.2-alpha.3`，最新 stable artifact 仍是 `v0.1.0`。它保留
 `v0.1.1-alpha.2` 的 Linux/Windows package、checksum、manifest、attestation 和 publish gate，并把
 受控 TLS HTTP/1.1 rewrite 与 explicit-local Node script runtime 加入 Linux CLI；Windows path 已切换到
 managed-client MSI，service、driver、installer、system proxy mutation、system trust store mutation 和 managed lifecycle

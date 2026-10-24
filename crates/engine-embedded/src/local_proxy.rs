@@ -13,7 +13,7 @@ use std::thread;
 use std::time::Duration;
 
 use engine_outbound::registry::OutboundRegistry;
-use engine_outbound::{Dialer, TcpDialer};
+use engine_outbound::{Dialer, TcpDialer, TcpOutbound};
 use inbound_mixed::{MixedSettings, MixedStats};
 use tokio::sync::oneshot;
 
@@ -54,7 +54,12 @@ impl LocalProxy {
         dialer: Arc<dyn Dialer>,
     ) -> Result<Self, RuntimeError> {
         let config = RuntimeConfig::from_json(config)?;
-        let outbound = config.build_outbound(registry, dialer)?;
+        // A routing config keeps its routed outbound to run group health checks.
+        let routed = config.build_routed(registry, dialer.clone())?;
+        let outbound: Arc<dyn TcpOutbound> = match &routed {
+            Some(routed) => routed.clone() as Arc<dyn TcpOutbound>,
+            None => config.build_outbound(registry, dialer)?,
+        };
         let protocol = outbound.protocol();
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -79,8 +84,15 @@ impl LocalProxy {
             .name("networkcore-local-proxy".into())
             .spawn(move || {
                 runtime.block_on(async move {
+                    let health_checks = async move {
+                        match routed {
+                            Some(routed) => routed.run_health_checks().await,
+                            None => std::future::pending().await,
+                        }
+                    };
                     tokio::select! {
                         _ = inbound_mixed::serve(listener, outbound, settings, thread_stats) => {}
+                        _ = health_checks => {}
                         _ = shutdown_rx => {}
                     }
                 });

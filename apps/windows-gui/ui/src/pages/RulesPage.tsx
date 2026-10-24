@@ -1,7 +1,7 @@
 import { Check, Layers, RefreshCw, Route } from "lucide-react";
 import { useEffect, useState } from "react";
 import { desktop, NativeGroupSummary, RuntimeSnapshot } from "../bridge";
-import { routingModes } from "../labels";
+import { availableRoutingModes, groupMemberLabel } from "../labels";
 import { Card, EmptyState, Run, StatusPill } from "../ui";
 import { t } from "../i18n";
 
@@ -21,7 +21,7 @@ export function RulesPage({ snapshot, busy, run }: { snapshot: RuntimeSnapshot |
         actions={<button className="secondary" disabled={Boolean(busy)} onClick={() => void run("routing rules", desktop.refreshRoutingRules)}><RefreshCw size={15} />{t("刷新规则资源")}</button>}
       >
         <div className="mode-grid" role="radiogroup" aria-label={t("分流模式")}>
-          {routingModes.map((mode) => {
+          {availableRoutingModes(snapshot).map((mode) => {
             const selected = snapshot?.routingMode === mode.value;
             return (
               <button
@@ -67,7 +67,7 @@ function PolicyGroups({ busy, run }: { busy: string | null; run: Run }) {
           {groups.map((group) => (
             <li key={group.tag}>
               <Layers size={16} className="list-icon" />
-              <span className="list-main"><strong>{group.tag}</strong><small>{group.groupType === "selector" ? t("手动选择") : group.groupType === "urltest" ? t("自动测速") : group.groupType}{group.selected ? ` · ${group.selected}` : ""}</small></span>
+              <span className="list-main"><strong>{group.tag}</strong><small>{group.groupType === "selector" ? t("手动选择") : group.groupType === "urltest" ? t("自动测速") : group.groupType}{group.selected ? ` · ${groupMemberLabel(group, group.selected)}` : ""}</small></span>
               <div className="group-options">
                 {group.groupType === "selector" && group.outbounds.map((outbound) => (
                   <button
@@ -81,10 +81,10 @@ function PolicyGroups({ busy, run }: { busy: string | null; run: Run }) {
                       return result;
                     })}
                   >
-                    {outbound}
+                    {groupMemberLabel(group, outbound)}
                   </button>
                 ))}
-                <button className="secondary compact" disabled={Boolean(busy)} onClick={() => { setEditing(group.tag); setJson(group.json); }}>{t("编辑 JSON")}</button>
+                {group.json && <button className="secondary compact" disabled={Boolean(busy)} onClick={() => { setEditing(group.tag); setJson(group.json); }}>{t("编辑 JSON")}</button>}
               </div>
             </li>
           ))}
@@ -112,6 +112,13 @@ function PolicyGroups({ busy, run }: { busy: string | null; run: Run }) {
 
 function DnsCard({ snapshot, busy, run }: { snapshot: RuntimeSnapshot | null; busy: string | null; run: Run }) {
   const [dns, setDns] = useState("");
+  if (snapshot?.embeddedEngine) {
+    return (
+      <Card title="DNS" actions={<StatusPill label={t("系统 DNS")} tone="success" />}>
+        <p className="muted">{t("内置引擎用系统 DNS 解析规则里需要 IP 的域名；经节点的连接由节点服务器解析域名。")}</p>
+      </Card>
+    );
+  }
   return (
     <Card
       title="DNS"

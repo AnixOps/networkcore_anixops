@@ -121,7 +121,7 @@ nav { display: grid; gap: 2px; }
 .hero-title { font-size: 24px; font-weight: 600; }
 .hero-subtitle { margin-top: 6px; overflow: hidden; color: rgb(240 253 250 / 75%); font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
 .hero.failed .hero-subtitle { white-space: normal; }
-.hero-modes { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; width: 320px; padding: 4px; background: rgb(4 47 46 / 45%); border-radius: var(--radius-card); }
+.hero-modes { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 4px; width: 360px; padding: 4px; background: rgb(4 47 46 / 45%); border-radius: var(--radius-card); }
 .hero-modes button { height: 32px; color: rgb(240 253 250 / 80%); font-size: 13px; font-weight: 600; background: transparent; border: 0; border-radius: 7px; transition: background var(--fast), color var(--fast); }
 .hero-modes button:hover:not(:disabled) { background: rgb(240 253 250 / 10%); }
 .hero-modes button.selected { color: #042f2e; background: var(--line); }
