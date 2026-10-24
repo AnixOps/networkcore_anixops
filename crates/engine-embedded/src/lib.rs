@@ -12,7 +12,8 @@
 //!   left out without touching the tunnel. [`routing`] wraps several of them
 //!   behind the shared `config-core` rules and policy groups.
 //! - `local_proxy` (feature `local-proxy`): the desktop mode, the same
-//!   outbounds behind a SOCKS5/HTTP listener from `inbound-mixed`.
+//!   outbounds behind a SOCKS5/HTTP listener from `inbound-mixed`, and
+//!   `delay`, URL delay tests of a node's outbound.
 //! - `wireguard` (feature `wireguard`): an IP-level tunnel that bypasses the
 //!   TCP/IP stack and seals packets straight to one peer.
 //!
@@ -20,6 +21,8 @@
 //! never puts credentials or traffic into errors, status or logs.
 
 pub mod config;
+#[cfg(feature = "local-proxy")]
+pub mod delay;
 pub mod direct;
 pub mod dns;
 pub mod ffi;
