@@ -58,6 +58,7 @@ current-main-cross-platform-run-plan=public-engine-run-plan-active
 | Linux 系统集成 | 显式确认下安装/卸载命名 systemd unit；`proxy apply/status/rollback` 写显式环境代理文件；`mitm certificate trust-apply/trust-rollback` 管理 Ubuntu-style CA trust-file。安装 tarball 本身不创建 daemon，也不改 TUN/DNS/firewall/trust store。 |
 | Windows 客户端 | 原生 GUI（概览/代理/规则/扩展/活动/设置，AnixOps Net 品牌界面，支持跟随系统、浅色、深色和纯黑主题）+ SCM service + per-machine WiX MSI + portable ZIP。服务托管 EasyTier、`sing-box.exe` 和 Mieru，可回滚系统代理与 LocalMachine ROOT CA；MSI 不捆绑或静默下载 core。见 [Windows Managed Client Source Release Contract](docs/architecture/windows-managed-client-source-release-contract.md) 与 [Windows GUI Daily Usability](docs/architecture/windows-gui-daily-usability.md)。 |
 | iOS | `apps/ios` 已有 Swift package、XcodeGen spec 和 `NetworkCorePacketTunnel` extension target（`swift-source-gate-active`），嵌入式 Rust runtime 尚未链接；签名、archive/export、TestFlight/App Store upload 和 iOS release asset 仍 blocked。 |
+| macOS | `apps/ios/project.yml` 中的 `NetworkCoreMac` SwiftUI App（概览/代理/规则/扩展/活动/设置 + 菜单栏开关）和 `NetworkCoreMacTunnel` 包隧道扩展，复用 iOS 隧道与导入流程，CI 无签名构建；签名与 Mac TestFlight 待人工配置。 |
 | MITM | 见下节。 |
 
 ## MITM
@@ -141,7 +142,7 @@ HTTP/2、HTTP/3/QUIC、pinning bypass、streaming、无界 CONNECT session 和 b
 |---|---|
 | [apps/linux-cli](apps/linux-cli) | `networkcore-linux` CLI |
 | [apps/windows-gui](apps/windows-gui)、[apps/windows-service](apps/windows-service)、[apps/windows-cli](apps/windows-cli) | Windows 原生 GUI、SCM service、`networkcore-windows` CLI；安装器在 [installer/windows](installer/windows) |
-| [apps/ios](apps/ios) | iOS Swift package、XcodeGen spec、`NetworkCorePacketTunnel` 扩展 |
+| [apps/ios](apps/ios) | iOS/macOS Swift package、XcodeGen spec、`NetworkCorePacketTunnel`/`NetworkCoreMacTunnel` 扩展 |
 | [crates/control-domain](crates/control-domain) | 领域类型与端口 trait（含维护事件契约） |
 | [crates/control-runtime](crates/control-runtime) | 纯运行层编排（含 subscription catalog runtime gate） |
 | [crates/config-core](crates/config-core) | 配置/订阅解析与归一化、规则与策略组模型 |

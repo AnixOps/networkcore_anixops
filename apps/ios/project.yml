@@ -11,6 +11,7 @@ options:
   developmentLanguage: zh-Hans
   deploymentTarget:
     iOS: "17.0"
+    macOS: "14.0"
 
 packages:
   NetworkCoreIOS:
@@ -114,6 +115,76 @@ targets:
       - package: NetworkCoreIOS
         product: NetworkCoreIOS
 
+  # The macOS app: the same tunnel controller, import flow and brand views as iOS, with a sidebar window and a
+  # menu bar item. Distributed through the Mac App Store / TestFlight, where a Network Extension ships as an app
+  # extension inside the app (Developer ID distribution would need a System Extension instead).
+  NetworkCoreMac:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/NetworkCoreMac
+      - path: Sources/NetworkCoreApp
+        excludes:
+          - "Resources/**"
+      - path: Sources/NetworkCoreApp/Resources/Localizable.xcstrings
+      - path: Sources/NetworkCoreApp/Resources/PrivacyInfo.xcprivacy
+      - path: Sources/NetworkCoreAppHost/BrandPalette.swift
+      - path: Sources/NetworkCoreAppHost/ImportView.swift
+      - path: Sources/NetworkCoreAppHost/RouteLine.swift
+      - path: Sources/NetworkCoreAppHost/TunnelController.swift
+    info:
+      path: Generated/NetworkCoreMac-Info.plist
+      properties:
+        CFBundleDisplayName: AnixOps Net
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSApplicationCategoryType: public.app-category.utilities
+        LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
+        ITSAppUsesNonExemptEncryption: false
+    settings:
+      base:
+        PRODUCT_NAME: AnixOps Net
+        PRODUCT_MODULE_NAME: NetworkCoreMac
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.networkcore.macos
+        CODE_SIGN_ENTITLEMENTS: Entitlements/NetworkCoreMac.entitlements
+        ENABLE_HARDENED_RUNTIME: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        COMBINE_HIDPI_IMAGES: YES
+    dependencies:
+      - package: NetworkCoreIOS
+        product: NetworkCoreIOS
+      - target: NetworkCoreMacTunnel
+        embed: true
+
+  # The packet tunnel for macOS: the same provider sources as iOS, linked with the macOS slice of the runtime.
+  NetworkCoreMacTunnel:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: Sources/NetworkCorePacketTunnel
+    info:
+      path: Generated/NetworkCoreMacTunnel-Info.plist
+      properties:
+        CFBundleDisplayName: AnixOps Net Tunnel
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
+        ITSAppUsesNonExemptEncryption: false
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.networkextension.packet-tunnel
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).PacketTunnelProvider
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.networkcore.macos.packettunnel
+        CODE_SIGN_ENTITLEMENTS: Entitlements/NetworkCoreMacTunnel.entitlements
+        ENABLE_HARDENED_RUNTIME: YES
+    dependencies:
+      - package: NetworkCoreIOS
+        product: NetworkCoreIOS
+      - framework: Generated/NetworkCoreRuntime.xcframework
+        embed: false
+      - sdk: Security.framework
+
 schemes:
   NetworkCoreApp:
     build:
@@ -121,3 +192,9 @@ schemes:
         NetworkCoreApp: all
         NetworkCorePacketTunnel: all
         NetworkCoreWidget: all
+
+  NetworkCoreMac:
+    build:
+      targets:
+        NetworkCoreMac: all
+        NetworkCoreMacTunnel: all

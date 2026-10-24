@@ -176,6 +176,9 @@ jobs:
           ruby -ryaml -e '
             spec = YAML.load_file("project.yml")
             spec["settings"]["base"]["CURRENT_PROJECT_VERSION"] = ENV.fetch("BUILD_NUMBER")
+            # This upload is iOS only; the macOS targets would need their own profiles.
+            %w[NetworkCoreMac NetworkCoreMacTunnel].each { |name| spec["targets"].delete(name) }
+            spec["schemes"].delete("NetworkCoreMac")
             targets = {
               "NetworkCoreApp" => [ENV.fetch("IOS_APP_BUNDLE_ID"), ENV.fetch("APP_PROFILE_NAME")],
               "NetworkCorePacketTunnel" => [ENV.fetch("IOS_TUNNEL_BUNDLE_ID"), ENV.fetch("TUNNEL_PROFILE_NAME")],
