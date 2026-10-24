@@ -122,6 +122,12 @@ final class TunnelController: ObservableObject {
         let library = (try? MitmPluginLibrary.load(from: MitmPluginLibrary.defaultURL)) ?? MitmPluginLibrary()
         if let plugins = try? MitmPluginLibrary.profileValue(library.activeTexts), !library.activeTexts.isEmpty {
             providerConfiguration[TunnelProfileKeys.mitmPlugins] = plugins
+            let scripts = (try? MitmScriptLibrary.load(from: MitmScriptLibrary.defaultURL)) ?? MitmScriptLibrary()
+            if let sources = try? scripts.sources(for: library.activeScriptReferences), !sources.isEmpty,
+               let value = try? MitmScriptLibrary.profileValue(sources)
+            {
+                providerConfiguration[TunnelProfileKeys.mitmScripts] = value
+            }
         }
         tunnelProtocol.providerConfiguration = providerConfiguration
 
@@ -144,11 +150,11 @@ final class TunnelController: ObservableObject {
         return true
     }
 
-    /// Puts the enabled HTTPS decryption plugins into the saved profile. Without a profile there is nothing to
-    /// update: the next import picks them up. A running tunnel keeps its plugins until it reconnects.
-    /// Returns whether the profile changed.
+    /// Puts the enabled HTTPS decryption plugins and the scripts the user allowed in them into the saved profile.
+    /// Without a profile there is nothing to update: the next import picks them up. A running tunnel keeps its
+    /// plugins until it reconnects. Returns whether the profile changed.
     @discardableResult
-    func applyMitmPlugins(_ texts: [String]) async -> Bool {
+    func applyMitmPlugins(_ texts: [String], scripts: [String: String] = [:]) async -> Bool {
         guard let manager,
               let tunnelProtocol = manager.protocolConfiguration as? NETunnelProviderProtocol
         else {
@@ -156,7 +162,9 @@ final class TunnelController: ObservableObject {
         }
         var configuration = tunnelProtocol.providerConfiguration ?? [:]
         let current = MitmPluginLibrary.texts(fromProfileValue: configuration[TunnelProfileKeys.mitmPlugins] as? Data)
-        guard current != texts else {
+        let currentScripts = MitmScriptLibrary.sources(fromProfileValue: configuration[TunnelProfileKeys.mitmScripts] as? Data)
+        let scripts = texts.isEmpty ? [:] : scripts
+        guard current != texts || currentScripts != scripts else {
             return false
         }
         if texts.isEmpty {
@@ -167,6 +175,15 @@ final class TunnelController: ObservableObject {
                 return false
             }
             configuration[TunnelProfileKeys.mitmPlugins] = value
+        }
+        if scripts.isEmpty {
+            configuration.removeValue(forKey: TunnelProfileKeys.mitmScripts)
+        } else {
+            guard let value = try? MitmScriptLibrary.profileValue(scripts) else {
+                message = "无法生成脚本配置"
+                return false
+            }
+            configuration[TunnelProfileKeys.mitmScripts] = value
         }
         tunnelProtocol.providerConfiguration = configuration
         manager.protocolConfiguration = tunnelProtocol

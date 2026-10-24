@@ -10,8 +10,10 @@ public struct MitmPlugin: Codable, Equatable, Identifiable {
     public var name: String
     public var text: String
     public var isEnabled: Bool
+    /// Where a remote plugin was downloaded from; relative `script-path`s resolve against it.
+    public var sourceURL: URL?
 
-    public init(text: String, fallbackName: String = "未命名插件", id: UUID = UUID()) throws {
+    public init(text: String, fallbackName: String = "未命名插件", sourceURL: URL? = nil, id: UUID = UUID()) throws {
         if text.utf8.count > Self.maxBytes {
             throw MitmPluginError.tooLarge
         }
@@ -26,6 +28,50 @@ public struct MitmPlugin: Codable, Equatable, Identifiable {
         name = summary.name ?? fallbackName
         self.text = text
         isEnabled = true
+        self.sourceURL = sourceURL
+    }
+
+    /// The `script-path` of every `[Script]` line, in order and without repeats.
+    public var scriptReferences: [MitmScriptReference] {
+        var references: [MitmScriptReference] = []
+        var inScript = false
+        for rawLine in text.components(separatedBy: .newlines) {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("["), line.hasSuffix("]") {
+                inScript = line.dropFirst().dropLast().trimmingCharacters(in: .whitespaces).lowercased() == "script"
+                continue
+            }
+            guard inScript, !line.hasPrefix("#"), let path = Self.attribute("script-path", in: line) else {
+                continue
+            }
+            if !references.contains(where: { $0.path == path }) {
+                references.append(
+                    MitmScriptReference(path: path, tag: Self.attribute("tag", in: line), base: sourceURL)
+                )
+            }
+        }
+        return references
+    }
+
+    /// The value of `name=value` (or `name = value`) in a comma-separated script line. The first item also holds
+    /// the type and pattern, so the attribute may start at any word of an item.
+    static func attribute(_ name: String, in line: String) -> String? {
+        for item in line.split(separator: ",") {
+            let words = item.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+            for (index, word) in words.enumerated() {
+                let candidate = words[index...].joined(separator: " ")
+                guard word.lowercased().hasPrefix(name) else {
+                    continue
+                }
+                let rest = candidate.dropFirst(name.count).trimmingCharacters(in: .whitespaces)
+                guard rest.hasPrefix("=") else {
+                    continue
+                }
+                let value = rest.dropFirst().trimmingCharacters(in: CharacterSet(charactersIn: " \"'"))
+                return value.isEmpty ? nil : value
+            }
+        }
+        return nil
     }
 
     public var summary: MitmPluginSummary {
@@ -106,7 +152,7 @@ public struct MitmPluginSummary: Equatable {
     public var hostnames: [String] = []
     /// URL, header and body rewrites and Map Local lines.
     public var rewriteLines = 0
-    /// `[Script]` lines. Scripts do not run in the tunnel yet.
+    /// `[Script]` lines. A script runs only after the user allows it (`MitmScriptLibrary`).
     public var scriptLines = 0
     /// `[Rule]` lines. Routing rules from plugins are not applied on iOS yet.
     public var ruleLines = 0
@@ -189,5 +235,21 @@ public struct MitmPluginLibrary: Codable, Equatable {
 
     public static func texts(fromProfileValue value: Data?) -> [String] {
         value.flatMap { try? JSONDecoder().decode([String].self, from: $0) } ?? []
+    }
+}
+
+/// A `script-path` in a plugin. `path` is the text as written, which is how the runtime looks the script up;
+/// `url` is where the app downloads it from, `nil` when it is not an `https` URL (or a path relative to a
+/// remote plugin's address).
+public struct MitmScriptReference: Equatable, Hashable {
+    public var path: String
+    public var tag: String?
+    public var url: URL?
+
+    public init(path: String, tag: String?, base: URL?) {
+        self.path = path
+        self.tag = tag
+        let resolved = URL(string: path, relativeTo: base)?.absoluteURL
+        url = resolved?.scheme?.lowercased() == "https" ? resolved : nil
     }
 }

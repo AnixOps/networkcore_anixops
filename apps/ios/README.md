@@ -81,11 +81,21 @@ Trust is detected by asking `SecTrust` to accept a probe leaf with the system st
 
 ## Plugins
 
-The same tab imports Loon plugins from a file or the clipboard (local only; remote plugins and scripts are open
-decision D4). `MitmPluginLibrary` keeps them in the app's Application Support folder with a master "HTTPS 解密"
-switch, which turns on only once the root is trusted. The enabled plugin texts go into the tunnel profile under
+The same tab imports Loon plugins from a file, the clipboard or an `https` address the user types (D4: remote
+import only on the user's request; downloads are capped and a redirect to plain HTTP is refused).
+`MitmPluginLibrary` keeps them in the app's Application Support folder with a master "HTTPS 解密" switch, which
+turns on only once the root is trusted. The enabled plugin texts go into the tunnel profile under
 `TunnelProfileKeys.mitmPlugins`; the extension adds the root from the Keychain and passes both to the runtime as
 the config's `mitm` section, where `mitm_policy::loon_plugin` translates and merges them (see
 `crates/engine-embedded/README.md`). The root key never enters the profile. If the root is missing or the runtime
 refuses the plugins, the tunnel starts without decryption and says why in developer-mode diagnostics. Changes reach
-a running tunnel when it reconnects. Scripts and plugin `[Rule]` lines are listed but not applied yet.
+a running tunnel when it reconnects. Plugin `[Rule]` lines are listed but not applied yet.
+
+Scripts never run on import. The "脚本" section lists each `script-path` of the enabled plugins (relative paths
+resolve against a remote plugin's address; anything that is not `https` cannot be allowed). Allowing one shows its
+address, downloads it (at most 1 MiB) and stores that copy with its SHA-256 in `MitmScriptLibrary`; a changed file at
+the same address needs a new agreement, and a swipe revokes it. The allowed sources of the enabled plugins (at most
+2 MiB) go into the profile under `TunnelProfileKeys.mitmScripts`. The extension writes them to its Caches folder by
+digest and passes them as `script_assets`, with `$persistentStore` in its Application Support folder; scripts run in
+QuickJS inside the tunnel without `$httpClient`. If the runtime refuses the scripts, the tunnel keeps decryption
+without them.

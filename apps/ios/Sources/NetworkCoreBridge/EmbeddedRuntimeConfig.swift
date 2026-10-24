@@ -58,11 +58,17 @@ public struct EmbeddedRuntimeConfig: Codable, Equatable {
         public var caCertificate: String
         /// Root private key, base64 X9.63.
         public var caPrivateKey: String
+        /// `script-path` to the local file holding the copy the user allowed.
+        public var scriptAssets: [String: String]
+        /// File backing `$persistentStore`.
+        public var scriptStorePath: String?
 
         enum CodingKeys: String, CodingKey {
             case plugins
             case caCertificate = "ca_certificate"
             case caPrivateKey = "ca_private_key"
+            case scriptAssets = "script_assets"
+            case scriptStorePath = "script_store_path"
         }
     }
 
@@ -142,13 +148,21 @@ public struct EmbeddedRuntimeConfig: Codable, Equatable {
         return copy
     }
 
-    /// The same config decrypting HTTPS for the plugins' hosts with `authority`. No plugins removes the section.
-    public func withMitm(plugins: [String], authority: MitmCertificateAuthority) throws -> EmbeddedRuntimeConfig {
+    /// The same config decrypting HTTPS for the plugins' hosts with `authority`, running the allowed scripts in
+    /// `scriptAssets`. No plugins removes the section.
+    public func withMitm(
+        plugins: [String],
+        authority: MitmCertificateAuthority,
+        scriptAssets: [String: String] = [:],
+        scriptStorePath: String? = nil
+    ) throws -> EmbeddedRuntimeConfig {
         var copy = self
         copy.mitm = plugins.isEmpty ? nil : Mitm(
             plugins: plugins,
             caCertificate: authority.certificateDER.base64EncodedString(),
-            caPrivateKey: try authority.privateKeyRepresentation().base64EncodedString()
+            caPrivateKey: try authority.privateKeyRepresentation().base64EncodedString(),
+            scriptAssets: scriptAssets,
+            scriptStorePath: scriptStorePath
         )
         return copy
     }
@@ -185,6 +199,19 @@ public struct EmbeddedRuntimeConfig: Codable, Equatable {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         return try encoder.encode(self)
+    }
+}
+
+extension EmbeddedRuntimeConfig.Mitm {
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            plugins: try container.decode([String].self, forKey: .plugins),
+            caCertificate: try container.decode(String.self, forKey: .caCertificate),
+            caPrivateKey: try container.decode(String.self, forKey: .caPrivateKey),
+            scriptAssets: try container.decodeIfPresent([String: String].self, forKey: .scriptAssets) ?? [:],
+            scriptStorePath: try container.decodeIfPresent(String.self, forKey: .scriptStorePath)
+        )
     }
 }
 
@@ -328,4 +355,7 @@ public enum TunnelProfileKeys {
     /// `Data` holding a JSON array of the enabled MITM plugin texts (`MitmPluginLibrary.profileValue`). Absent or
     /// empty means no HTTPS decryption.
     public static let mitmPlugins = "networkcore.mitm-plugins"
+    /// `Data` holding a JSON object of `script-path` to source for the scripts the user allowed in the enabled
+    /// plugins (`MitmScriptLibrary.profileValue`). Scripts left out do nothing.
+    public static let mitmScripts = "networkcore.mitm-scripts"
 }
