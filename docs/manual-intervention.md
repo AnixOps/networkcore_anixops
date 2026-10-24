@@ -753,10 +753,10 @@ and `cargo build --release -p networkcore-linux-gui --features gui` (WebKitGTK 4
    `~/.config/autostart/anixops-net.desktop` is gone.
 5. Switch the language to English and the appearance to dark and OLED black.
 
-There is no package yet; AppImage/deb packaging and a tray icon come later.
+Confirmed by the maintainer on 2026-10-24. There is no package yet; AppImage/deb packaging and a tray icon come later.
 
 ```text
-linux-gui-real-desktop-status=pending
+linux-gui-real-desktop-status=confirmed
 ```
 
 ## iOS App Review Manual Confirmation
