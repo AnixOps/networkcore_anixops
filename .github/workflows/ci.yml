@@ -2677,7 +2677,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for features in "" http hysteria2 shadowsocks socks trojan tuic vless vmess wireguard local-proxy mitm; do
+          for features in "" http hysteria2 shadowsocks socks trojan tuic vless vmess wireguard local-proxy mitm scripts; do
             echo "::group::engine-embedded features=[${features}]"
             cargo clippy --locked -p engine-embedded --no-default-features --features "${features}" --all-targets -- -D warnings
             cargo test --locked -p engine-embedded --no-default-features --features "${features}" --tests
@@ -2723,8 +2723,10 @@ jobs:
           # The binding must also build for the iPhone without QuickJS, whose crate ships no iOS bindings.
           rustup target add aarch64-apple-ios
           IPHONEOS_DEPLOYMENT_TARGET=17.0 cargo build --locked -p script-runtime --no-default-features --features javascriptcore --target aarch64-apple-ios
-          # The packet tunnel runtime, MITM (engine-native, mitm-policy and its C core) included, must build for the iPhone.
-          IPHONEOS_DEPLOYMENT_TARGET=17.0 cargo build --locked -p engine-embedded --lib --target aarch64-apple-ios
+          # The packet tunnel runtime, MITM (engine-native, mitm-policy and its C core) and QuickJS scripts
+          # included, must build for the iPhone. rquickjs has no iOS bindings, so bindgen needs the SDK.
+          BINDGEN_EXTRA_CLANG_ARGS_aarch64_apple_ios="-isysroot $(xcrun --sdk iphoneos --show-sdk-path)" \
+            IPHONEOS_DEPLOYMENT_TARGET=17.0 cargo build --locked -p engine-embedded --lib --target aarch64-apple-ios
 
   windows-managed-client-installer:
     name: Windows managed client MSI

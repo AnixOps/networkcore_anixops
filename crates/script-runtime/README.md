@@ -27,7 +27,9 @@ The desktop binding is QuickJS-ng through rquickjs (`QuickJsScriptRuntime`).
 Each dispatch gets a fresh runtime with a heap limit and an interrupt handler
 for the wall-clock timeout, so Loon's `timeout` and `max-size` hold even for
 busy loops. Scripts have no file system, process, or network access of their
-own.
+own. The iOS packet tunnel uses this binding too (decided 2026-10-24, until an
+App Store build moves to JavaScriptCore); rquickjs ships no iOS bindings, so on
+iOS targets the `bindgen` feature generates them from Xcode's libclang.
 
 The Apple binding is JavaScriptCore through its public C API
 (`JscScriptRuntime`, cargo feature `javascriptcore`, Apple targets only; roadmap
