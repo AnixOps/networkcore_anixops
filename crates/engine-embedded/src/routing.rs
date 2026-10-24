@@ -2,10 +2,13 @@
 //! `config-core` routing model.
 //!
 //! The tunnel only sees destination addresses, so domain rules match only
-//! when a caller passes a [`TargetAddr::Domain`]; FakeIP and sniffing are not
-//! wired yet, and a domain target that reaches an IP rule without
-//! `no-resolve` is rejected because the runtime does not resolve it (the same
-//! result sing-box gives for a failed resolve). GeoIP rules never match
+//! when a caller passes a [`TargetAddr::Domain`] (the desktop local proxy
+//! does); FakeIP and sniffing are not wired yet. A domain target that reaches
+//! an IP rule without `no-resolve` is resolved once with the
+//! [`DomainResolver`] (the system resolver by default), and that address is
+//! matched by every later IP rule; the connection itself still goes out by
+//! name, so a proxy node resolves it remotely. A failed lookup rejects the
+//! connection, the same result sing-box gives. GeoIP rules never match
 //! because the runtime ships no GeoIP database. `RULE-SET` rules match the
 //! named [`RuleSet`] from the config, never resolving a domain for its
 //! networks. Policy groups use their
@@ -18,7 +21,8 @@ use std::net::IpAddr;
 use std::sync::Arc;
 
 use config_core::routing::{
-    RouteOutcome, RouteQuery, RoutingEnvironment, RoutingModel, RoutingSpec, RuleMatcher,
+    RouteMatch, RouteOutcome, RouteQuery, RoutingEnvironment, RoutingModel, RoutingSpec,
+    RuleMatcher,
 };
 use config_core::rule_set::RuleSet;
 use engine_outbound::{BoxFuture, BoxStream, TargetAddr, TcpOutbound};
@@ -32,6 +36,28 @@ pub struct RoutedOutbound {
     rule_sets: RuleSets,
     direct: Arc<dyn TcpOutbound>,
     nodes: BTreeMap<String, Arc<dyn TcpOutbound>>,
+    resolver: Arc<dyn DomainResolver>,
+}
+
+/// Looks up a domain for IP rules that allow resolution.
+pub trait DomainResolver: Send + Sync {
+    fn resolve<'a>(&'a self, domain: &'a str) -> BoxFuture<'a, io::Result<IpAddr>>;
+}
+
+/// The operating system resolver (`getaddrinfo`), first address returned.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SystemResolver;
+
+impl DomainResolver for SystemResolver {
+    fn resolve<'a>(&'a self, domain: &'a str) -> BoxFuture<'a, io::Result<IpAddr>> {
+        Box::pin(async move {
+            tokio::net::lookup_host((domain, 0))
+                .await?
+                .next()
+                .map(|addr| addr.ip())
+                .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "domain has no address"))
+        })
+    }
 }
 
 /// The routing environment: the configured rule sets. Select groups keep
@@ -42,6 +68,22 @@ struct RuleSets(BTreeMap<String, RuleSet>);
 impl RoutingEnvironment for RuleSets {
     fn rule_set_matches(&self, name: &str, domain: Option<&str>, ip: Option<IpAddr>) -> bool {
         self.0.get(name).is_some_and(|set| set.matches(domain, ip))
+    }
+}
+
+/// The rule sets plus the address looked up for the connection being routed.
+struct QueryEnvironment<'a> {
+    rule_sets: &'a RuleSets,
+    resolved: Option<IpAddr>,
+}
+
+impl RoutingEnvironment for QueryEnvironment<'_> {
+    fn rule_set_matches(&self, name: &str, domain: Option<&str>, ip: Option<IpAddr>) -> bool {
+        self.rule_sets.rule_set_matches(name, domain, ip)
+    }
+
+    fn resolve(&self, _domain: &str) -> Option<IpAddr> {
+        self.resolved
     }
 }
 
@@ -85,20 +127,50 @@ impl RoutedOutbound {
             rule_sets: RuleSets(rule_sets),
             direct,
             nodes,
+            resolver: Arc::new(SystemResolver),
         })
+    }
+
+    /// Replaces the resolver used for IP rules (tests inject a fixed one).
+    pub fn with_resolver(mut self, resolver: Arc<dyn DomainResolver>) -> Self {
+        self.resolver = resolver;
+        self
     }
 
     pub fn model(&self) -> &RoutingModel {
         &self.model
     }
 
-    /// Where a connection to `target` goes, before any connect attempt.
+    /// Where a connection to `target` goes without resolving its domain: a
+    /// domain that reaches an IP rule without `no-resolve` is rejected.
     pub fn route(&self, target: &TargetAddr) -> RouteOutcome {
-        let query = match target {
-            TargetAddr::Ip(addr) => RouteQuery::ip(addr.ip()),
-            TargetAddr::Domain(domain, _) => RouteQuery::domain(domain.clone()),
+        self.model.decide(&query(target), &self.rule_sets).outcome
+    }
+
+    /// Where a connection to `target` goes, resolving its domain only when an
+    /// IP rule asks for an address before another rule matches.
+    pub async fn route_resolving(&self, target: &TargetAddr) -> RouteOutcome {
+        let query = query(target);
+        let first = self.model.decide(&query, &self.rule_sets);
+        let (TargetAddr::Domain(domain, _), RouteMatch::ResolveFailed(_)) = (target, first.matched)
+        else {
+            return first.outcome;
         };
-        self.model.decide(&query, &self.rule_sets).outcome
+        let Ok(resolved) = self.resolver.resolve(domain).await else {
+            return first.outcome;
+        };
+        let environment = QueryEnvironment {
+            rule_sets: &self.rule_sets,
+            resolved: Some(resolved),
+        };
+        self.model.decide(&query, &environment).outcome
+    }
+}
+
+fn query(target: &TargetAddr) -> RouteQuery {
+    match target {
+        TargetAddr::Ip(addr) => RouteQuery::ip(addr.ip()),
+        TargetAddr::Domain(domain, _) => RouteQuery::domain(domain.clone()),
     }
 }
 
@@ -109,7 +181,7 @@ impl TcpOutbound for RoutedOutbound {
 
     fn connect<'a>(&'a self, target: &'a TargetAddr) -> BoxFuture<'a, io::Result<BoxStream>> {
         Box::pin(async move {
-            let outbound = match self.route(target) {
+            let outbound = match self.route_resolving(target).await {
                 RouteOutcome::Reject => {
                     return Err(io::Error::new(
                         io::ErrorKind::PermissionDenied,
