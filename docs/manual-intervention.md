@@ -753,7 +753,12 @@ and `cargo build --release -p networkcore-linux-gui --features gui` (WebKitGTK 4
    `~/.config/autostart/anixops-net.desktop` is gone.
 5. Switch the language to English and the appearance to dark and OLED black.
 
-Confirmed by the maintainer on 2026-10-24. There is no package yet; AppImage/deb packaging and a tray icon come later.
+Confirmed by the maintainer on 2026-10-24. From v0.2.0 the tag release also publishes the window as a tarball
+(`anixops-net-linux-<version>-x86_64-unknown-linux-gnu.tar.gz`) and a Debian package (`anixops-net_<version>_amd64.deb`),
+each with a manifest and checksums. Before v0.2.0 is called stable, install the `.deb` from the release candidate on
+Ubuntu 22.04 or later (`sudo apt install ./anixops-net_*.deb`), check that "AnixOps Net" appears in the app menu with its
+icon and opens the interface (not a blank window), repeat step 1, then remove it with `sudo apt remove anixops-net`.
+AppImage and a tray icon come later.
 
 ```text
 linux-gui-real-desktop-status=confirmed

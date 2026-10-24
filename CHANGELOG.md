@@ -12,6 +12,7 @@
 
 ### Added
 
+- 发布流程加入 Linux 图形客户端：tag 发布新增 `package-linux-gui` 与 `attest-linux-gui` 任务，在 Ubuntu 上构建共用界面和 `anixops-net`，产出 tarball（`bin/`、桌面入口、图标、LICENSE、CHANGELOG、INSTALL.md）和 Debian 包（`/usr/bin/anixops-net`、菜单项与图标，依赖 `libwebkit2gtk-4.1-0`），各带 manifest 与 sha256，统一做 GitHub artifact attestation 后随 Release 发布。`gui` feature 现在包含 `tauri/custom-protocol`，直接 `cargo build --release` 得到的窗口也内嵌界面而不是去连开发服务器。
 - Windows 内置引擎支持订阅自带的规则和策略组：导入带 `[Rule]`/`[Proxy Group]` 或 Clash `rules`/`proxy-groups` 的订阅后，节点列表不再为空，新增“规则”分流模式（导入这类订阅时自动选中，只对内置引擎提供）按订阅规则分流；“规则”页列出订阅的策略组，可切换手动选择组的出口（已连接时自动重启内核），节点页切换节点改主策略组的出口，“选择最快节点”只在主策略组成员里挑，刷新订阅保留原选择。其他四种分流模式下 FINAL 的策略组选择同样生效。
 - `engine-embedded` 的自动测速组生效：桌面本地代理（Windows 桌面/服务模式、Linux）运行路由配置时在后台对 url-test/fallback 组的每个成员按组的 URL 测速（`RoutedOutbound::run_health_checks`，间隔取各组最短值且不少于 30 秒，单次超时 5 秒），url-test 选延迟最低的成员，fallback 选第一个测通的成员；首次测速完成前用第一个成员。新增 `delay::probe` 在调用方运行时里测一次 URL。iOS 隧道暂不运行测速。
 - `engine-embedded` 的规则路由支持 DNS：域名目标遇到未写 `no-resolve` 的 IP 规则时，用系统解析器（`DomainResolver`，默认 `SystemResolver`）解析一次，并用该地址匹配后续 IP 规则；连接本身仍按域名发出，经节点时由节点服务器解析；解析失败拒绝连接（与 sing-box 一致）。此前这类连接一律被拒绝。Windows 设置里的 DNS 卡片在内置引擎下说明这一行为，不再显示只对 sing-box 生效的 DNS JSON。

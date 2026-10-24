@@ -7,7 +7,7 @@
 - 当前最新已发布 Linux artifact 是 `v0.1.0` 正式版 stable CLI 四件套。
 - 最新已发布 prerelease 是 `v0.2.0-beta.4`（`v0.2.0-beta.3`、`v0.2.0-beta.4` 均为维护者授权的验收候选，未通过真实主机验收）。
 - 当前 Beta candidate 是 `v0.2.0-beta.5`，状态 `pending_manual_acceptance`。维护者已授权其 tag 用于生成候选工件，但在 Windows/Linux 真实系统验收完成前不得描述为 production-ready。
-- 每次 tag release 同时产出 Linux CLI 四件套、Windows managed client MSI 四件套和 Windows portable ZIP 四件套（archive、sha256、manifest、manifest sha256）。MSI/portable ZIP 不捆绑或静默下载第三方 core。`workflow_dispatch` 只验证，不发布。
+- 每次 tag release 同时产出 Linux CLI 四件套、Linux 图形客户端 tarball 与 `.deb` 各一套四件套（自 `v0.2.0` 起）、Windows managed client MSI 四件套和 Windows portable ZIP 四件套（archive、sha256、manifest、manifest sha256）。MSI/portable ZIP 不捆绑或静默下载第三方 core。`workflow_dispatch` 只验证，不发布。
 - 没有本机打包或发布路径；用户可下载状态以同名 tag workflow 成功结果为准。
 
 Linux artifact release state consistency：
@@ -95,6 +95,7 @@ linux-artifact-publish-scope=tag-release-after-all-gates
 | --- | --- | --- | --- |
 | Rust crates | 暂不发布到 crates.io | `ubuntu-latest` | 公共 API 稳定、license 与 README 完整、crate publishing policy 单独评审 |
 | Linux | `networkcore-linux` CLI tarball | `ubuntu-latest` | 已激活；需满足上方 Linux 打包合同和全部门禁 |
+| Linux 图形客户端 | `anixops-net` tarball 与 `.deb` | `ubuntu-latest` | 自 `v0.2.0` 起激活（`package-linux-gui`、`attest-linux-gui`）；未签名，依赖 WebKitGTK 4.1 |
 | Windows | `networkcore-windows` managed-client MSI 与 portable ZIP | `windows-latest` | 已激活；当前候选 `v0.2.0-beta.5` |
 | macOS | 待定义 CLI、app bundle、`.pkg` 或 `.dmg` | `macos-26` | 签名、notarization、entitlement 和 Gatekeeper 路径完成 |
 | iOS | TestFlight / App Store Connect | `macos-26` | `ios-upload-readiness` 仍 blocked：需嵌入式 runtime、签名与 Provisioning Profile、Privacy Manifest、App Privacy、隐私政策、App Review Notes、人工确认与 upload enabled marker、protected environment、manual approval、App Store Connect API 和 VPN compliance（各 iOS 合同见 [docs/README.md](README.md#ios)） |
