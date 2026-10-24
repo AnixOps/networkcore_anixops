@@ -2656,6 +2656,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          # mitm-policy builds the mitm_anixops C core from this submodule.
+          submodules: true
 
       - name: Setup Rust
         run: |
@@ -2693,6 +2696,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          # mitm-policy builds the mitm_anixops C core from this submodule.
+          submodules: true
 
       - name: Setup Rust
         run: |
@@ -3346,6 +3352,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          # mitm-policy builds the mitm_anixops C core from this submodule.
+          submodules: true
 
       - name: Setup Rust
         shell: bash
