@@ -5,7 +5,8 @@ import NetworkExtension
 import WidgetKit
 #endif
 
-/// Owns the app's single VPN configuration: imports an `ss://` node or a WireGuard config, saves it as the
+/// Owns the app's single VPN configuration: imports a node (a share link of any protocol the engine runs, a
+/// subscription text or a WireGuard config), saves it as the
 /// tunnel profile, and starts or stops the packet tunnel. Node secrets go only into the Keychain; the saved
 /// profile holds a persistent reference to them and a config without them.
 @MainActor
@@ -60,7 +61,7 @@ final class TunnelController: ObservableObject {
     /// Parses pasted text for the import preview without saving anything.
     func preview(_ link: String) -> Result<ImportPreview, ImportFailure> {
         do {
-            let profile = try TunnelNodeImport.parse(link, profileID: Self.profileID)
+            let profile = try TunnelNodeImport.parse(link, profileID: Self.profileID, native: NativeNodeImporterFFI.importNodes)
             return .success(ImportPreview(
                 name: profile.displayName,
                 outboundKind: profile.config.outboundKind,
@@ -83,7 +84,7 @@ final class TunnelController: ObservableObject {
         let profileID = Self.profileID
         let profile: TunnelProfile
         do {
-            profile = try TunnelNodeImport.parse(link, profileID: profileID)
+            profile = try TunnelNodeImport.parse(link, profileID: profileID, native: NativeNodeImporterFFI.importNodes)
         } catch let error as TunnelNodeImportError {
             message = Self.describe(error)
             return false
@@ -345,7 +346,23 @@ final class TunnelController: ObservableObject {
     private static func describe(_ error: TunnelNodeImportError) -> String {
         switch error {
         case .unrecognized:
-            return String(localized: "请粘贴 ss://、vless:// 链接或 WireGuard 配置")
+            return String(localized: "请粘贴节点链接、订阅内容或 WireGuard 配置")
+        case let .native(failure):
+            switch failure {
+            case .unrecognized:
+                return String(localized: "无法识别的节点链接或订阅格式")
+            case .empty:
+                return String(localized: "内容为空")
+            case .tooLarge:
+                return String(localized: "订阅内容过大")
+            case let .noSupportedNode(protocols, _):
+                let names = Array(Set(protocols)).sorted().joined(separator: "、")
+                return names.isEmpty
+                    ? String(localized: "没有可用的节点")
+                    : String(localized: "没有可用的节点（暂不支持：\(names)）")
+            case .unavailable:
+                return String(localized: "导入组件不可用，请更新 App")
+            }
         case let .shadowsocks(error):
             switch error {
             case .notShadowsocksLink, .malformed:

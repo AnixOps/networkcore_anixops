@@ -431,6 +431,14 @@ Before describing VLESS + REALITY as usable on iOS, the maintainer records here
 - a multi-hour transfer on the target network with no resets or blocks, once
   through `engine-embedded` on an iPhone after M1a wires the outbound in.
 
+## iOS 全协议导入真机验收
+
+CI 只验证 Rust 导入库、Swift 解析与密钥拆分，以及 App 和扩展分别链接的库。需要在 iPhone 上确认：
+
+- 粘贴 Trojan、VMess、VLESS（TLS/WS）、Hysteria2、TUIC 链接各一条，预览显示正确协议，保存后能连接上网。
+- 粘贴一段 Clash YAML 或 base64 订阅内容，导入第一个可用节点并能连接；全部不支持时提示具体协议。
+- 设备锁屏后按需重连仍能读取钥匙串里的出站参数。
+
 ## Windows 内置引擎真机验收（Phase 2c-1）
 
 CI 只验证托管配置、服务进程内启停和健康检查（`managed_runtime_contracts`），

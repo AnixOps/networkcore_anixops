@@ -3520,6 +3520,7 @@ jobs:
             echo "::error::the containing app must not link the embedded runtime"
             exit 1
           fi
+          grep -q '_networkcore_import_nodes$' "${RUNNER_TEMP}/app-symbols.txt"
 
       - name: Build the macOS app without signing
         shell: bash
@@ -3559,6 +3560,7 @@ jobs:
             echo "::error::the macOS app must not link the embedded runtime"
             exit 1
           fi
+          grep -q '_networkcore_import_nodes$' "${RUNNER_TEMP}/mac-app-symbols.txt"
           lipo -archs "${appex}/Contents/MacOS/NetworkCoreMacTunnel" | tee "${RUNNER_TEMP}/mac-archs.txt"
           grep -q arm64 "${RUNNER_TEMP}/mac-archs.txt"
 

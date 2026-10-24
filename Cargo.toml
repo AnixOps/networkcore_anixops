@@ -16,6 +16,7 @@ members = [
     "crates/inbound-mixed",
     "crates/mitm-anixops-sys",
     "crates/mitm-policy",
+    "crates/node-import",
     "crates/outbound-http",
     "crates/outbound-hysteria2",
     "crates/outbound-shadowsocks",

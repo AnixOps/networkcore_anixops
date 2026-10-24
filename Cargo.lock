@@ -1425,6 +1425,7 @@ dependencies = [
  "inbound-mixed",
  "mitm-policy",
  "netstack-smoltcp",
+ "node-import",
  "outbound-http",
  "outbound-hysteria2",
  "outbound-shadowsocks",
@@ -3133,6 +3134,16 @@ dependencies = [
  "cfg-if",
  "cfg_aliases",
  "libc",
+]
+
+[[package]]
+name = "node-import"
+version = "0.1.0"
+dependencies = [
+ "config-core",
+ "control-domain",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

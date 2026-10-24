@@ -177,16 +177,6 @@
         }
       }
     },
-    "ss:// · vless:// · WireGuard 配置": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ss:// · vless:// · WireGuard config"
-          }
-        }
-      }
-    },
     "“%@”已设为当前节点。": {
       "localizations": {
         "en": {
@@ -333,6 +323,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Memory"
+          }
+        }
+      }
+    },
+    "内容为空": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The content is empty"
           }
         }
       }
@@ -573,6 +573,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Import your first node to connect"
+          }
+        }
+      }
+    },
+    "导入组件不可用，请更新 App": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The import component is unavailable. Update the app."
           }
         }
       }
@@ -997,6 +1007,16 @@
         }
       }
     },
+    "无法识别的节点链接或订阅格式": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unrecognized node link or subscription format"
+          }
+        }
+      }
+    },
     "无法读取 VPN 配置": {
       "localizations": {
         "en": {
@@ -1217,6 +1237,26 @@
         }
       }
     },
+    "没有可用的节点": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No usable node"
+          }
+        }
+      }
+    },
+    "没有可用的节点（暂不支持：%@）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No usable node (not supported yet: %@)"
+          }
+        }
+      }
+    },
     "没有找到可用的重写、脚本或 [MITM] 主机": {
       "localizations": {
         "en": {
@@ -1427,6 +1467,16 @@
         }
       }
     },
+    "粘贴 ss://、vless://、trojan://、vmess://、hysteria2://、tuic:// 等链接或订阅内容，或导入 WireGuard 配置。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paste an ss://, vless://, trojan://, vmess://, hysteria2:// or tuic:// link or subscription content, or import a WireGuard config."
+          }
+        }
+      }
+    },
     "系统": {
       "localizations": {
         "en": {
@@ -1507,6 +1557,16 @@
         }
       }
     },
+    "节点链接 · 订阅内容 · WireGuard 配置": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Node link · Subscription · WireGuard config"
+          }
+        }
+      }
+    },
     "节点链接或配置": {
       "localizations": {
         "en": {
@@ -1553,6 +1613,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "To decrypt HTTPS, first create and trust a root certificate on this device. The certificate and its private key stay in this device's keychain."
+          }
+        }
+      }
+    },
+    "订阅内容过大": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The subscription content is too large"
           }
         }
       }
@@ -1677,12 +1747,12 @@
         }
       }
     },
-    "请粘贴 ss://、vless:// 链接或 WireGuard 配置": {
+    "请粘贴节点链接、订阅内容或 WireGuard 配置": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Paste an ss:// or vless:// link or a WireGuard config"
+            "value": "Paste a node link, subscription content or a WireGuard config"
           }
         }
       }
