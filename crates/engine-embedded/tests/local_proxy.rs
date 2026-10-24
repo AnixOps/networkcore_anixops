@@ -8,6 +8,7 @@ use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::thread;
 use std::time::Duration;
 
+use engine_embedded::delay::{measure_delay, DelayError};
 use engine_embedded::local_proxy::LocalProxy;
 use engine_embedded::RuntimeErrorCode;
 use inbound_mixed::MixedSettings;
@@ -137,4 +138,77 @@ fn bad_configs_and_busy_ports_are_reported() {
     .err()
     .unwrap();
     assert_eq!(err.code, RuntimeErrorCode::ResourceExhausted);
+}
+
+const DIRECT: &[u8] =
+    br#"{"schema_version":1,"profile_id":"desktop","outbound":{"type":"direct"}}"#;
+
+/// Answers every connection with `reply` once it has read the request head.
+fn http_server(reply: &'static [u8]) -> SocketAddr {
+    let listener = TcpListener::bind(loopback()).unwrap();
+    let addr = listener.local_addr().unwrap();
+    thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { break };
+            thread::spawn(move || {
+                let mut head = Vec::new();
+                let mut byte = [0u8; 1];
+                while !head.ends_with(b"\r\n\r\n") {
+                    if stream.read(&mut byte).unwrap_or(0) == 0 {
+                        return;
+                    }
+                    head.push(byte[0]);
+                }
+                assert!(head.starts_with(b"GET /generate_204 HTTP/1.1\r\n"));
+                let _ = stream.write_all(reply);
+                // The client closes once it has the status line.
+                let _ = stream.read(&mut byte);
+            });
+        }
+    });
+    addr
+}
+
+#[test]
+fn delay_test_times_the_status_line_through_the_outbound() {
+    let server = http_server(b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n");
+    let delay = measure_delay(DIRECT, &format!("http://{server}/generate_204"), WAIT).unwrap();
+    assert!(delay < WAIT);
+}
+
+#[test]
+fn delay_test_reports_non_http_unreachable_and_bad_input() {
+    let server = http_server(b"SSH-2.0-OpenSSH_9.6\r\n");
+    assert_eq!(
+        measure_delay(DIRECT, &format!("http://{server}/generate_204"), WAIT),
+        Err(DelayError::NotHttp)
+    );
+
+    let closed = TcpListener::bind(loopback()).unwrap().local_addr().unwrap();
+    assert!(matches!(
+        measure_delay(DIRECT, &format!("http://{closed}/generate_204"), WAIT),
+        Err(DelayError::Failed(_))
+    ));
+
+    // Accepts but never answers.
+    let silent = TcpListener::bind(loopback()).unwrap();
+    let silent_addr = silent.local_addr().unwrap();
+    assert_eq!(
+        measure_delay(
+            DIRECT,
+            &format!("http://{silent_addr}/generate_204"),
+            Duration::from_millis(200)
+        ),
+        Err(DelayError::Timeout)
+    );
+    drop(silent);
+
+    assert_eq!(
+        measure_delay(DIRECT, "ftp://example.com/", WAIT),
+        Err(DelayError::InvalidUrl)
+    );
+    assert!(matches!(
+        measure_delay(b"{}", "http://example.com/", WAIT),
+        Err(DelayError::Config(_))
+    ));
 }
