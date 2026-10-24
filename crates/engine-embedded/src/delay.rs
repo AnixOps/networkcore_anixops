@@ -143,10 +143,8 @@ impl ProbeUrl {
         let url = url.trim();
         let (tls, rest) = if let Some(rest) = url.strip_prefix("https://") {
             (true, rest)
-        } else if let Some(rest) = url.strip_prefix("http://") {
-            (false, rest)
         } else {
-            return None;
+            (false, url.strip_prefix("http://")?)
         };
         let rest = rest.split('#').next().unwrap_or_default();
         let (authority, path) = match rest.find(['/', '?']) {
