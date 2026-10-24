@@ -198,8 +198,6 @@ export const english: Record<string, string> = {
   // Linux client
   "本地代理": "Local proxy",
   "未启动": "Not running",
-  "分流规则还没开放": "Routing rules are not available yet",
-  "Linux 版目前把全部流量交给所选节点；分流模式、策略组和 DNS 会在后续版本提供。": "The Linux version sends all traffic through the selected node for now; routing modes, policy groups and DNS will come in a later version.",
   "HTTPS 解密和插件还没开放": "HTTPS decryption and plugins are not available yet",
   "Linux 版的根证书和插件管理会在后续版本提供。": "Root certificates and plugin management will come to the Linux version later.",
   "登录后启动": "Start after login",

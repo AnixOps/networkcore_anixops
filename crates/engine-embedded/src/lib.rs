@@ -33,6 +33,7 @@ pub mod local_proxy;
 #[cfg(feature = "mitm")]
 pub mod mitm;
 pub mod nodes;
+pub mod profile;
 pub mod protocols;
 pub mod routing;
 pub mod tunnel;

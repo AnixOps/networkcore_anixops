@@ -8,11 +8,12 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread;
 use std::time::Duration;
 
+use engine_embedded::profile::RoutingMode;
 use networkcore_linux_gui::backend::engine;
 use networkcore_linux_gui::backend::state::Store;
 use networkcore_linux_gui::backend::system_proxy::Desktop;
 use networkcore_linux_gui::backend::{
-    autostart, format_delay, Backend, NodeSummary, OperationResult, PreferencesInput,
+    autostart, format_delay, Backend, GroupSummary, NodeSummary, OperationResult, PreferencesInput,
     RuntimeSnapshot, SubscriptionSummary, PASTED_LOCATION,
 };
 use tauri::{RunEvent, State};
@@ -51,19 +52,21 @@ where
         .map_err(|error| error.to_string())?
 }
 
+fn http_get(url: &str) -> Result<String, reqwest::Error> {
+    reqwest::blocking::Client::builder()
+        .timeout(FETCH_TIMEOUT)
+        .build()?
+        .get(url)
+        .send()
+        .and_then(reqwest::blocking::Response::error_for_status)?
+        .text()
+}
+
 /// A URL's body, a local file, or the pasted share links themselves.
 fn fetch(location: &str) -> Result<String, String> {
     if location.starts_with("https://") || location.starts_with("http://") {
-        return reqwest::blocking::Client::builder()
-            .timeout(FETCH_TIMEOUT)
-            .build()
-            .map_err(|error| error.to_string())?
-            .get(location)
-            .send()
-            .and_then(reqwest::blocking::Response::error_for_status)
-            .map_err(|error| format!("the subscription could not be downloaded: {error}"))?
-            .text()
-            .map_err(|error| format!("the subscription could not be read: {error}"));
+        return http_get(location)
+            .map_err(|error| format!("the subscription could not be downloaded: {error}"));
     }
     if location.contains("://") {
         return Ok(location.to_string());
@@ -77,6 +80,48 @@ fn fetch(location: &str) -> Result<String, String> {
     };
     fs::read_to_string(&path)
         .map_err(|error| format!("{} could not be read: {error}", path.display()))
+}
+
+/// Downloads the public rule lists `mode` needs (all of them with `force`, else the missing ones) outside the
+/// lock and caches them.
+async fn download_rule_lists(
+    state: &AppState,
+    mode: RoutingMode,
+    force: bool,
+) -> Result<usize, String> {
+    let (store, lists) = {
+        let backend = lock(&state.0);
+        (backend.store(), backend.rule_lists_to_download(mode, force))
+    };
+    off_lock(move || {
+        for list in &lists {
+            let content = http_get(list.url()).map_err(|error| {
+                format!(
+                    "the routing rules could not be downloaded from {}: {error}",
+                    list.url()
+                )
+            })?;
+            let entries = list.parse(&content);
+            if entries.is_empty() {
+                return Err(format!("{} returned no usable entries", list.url()));
+            }
+            store
+                .write_rule_list(*list, &entries)
+                .map_err(|error| format!("the routing rules could not be saved: {error}"))?;
+        }
+        Ok(lists.len())
+    })
+    .await
+}
+
+/// Connects after fetching any rule list the routing mode still lacks.
+async fn connect_with_rules(state: &AppState) -> Result<OperationResult, String> {
+    let mode = lock(&state.0).routing_mode();
+    if let Err(error) = download_rule_lists(state, mode, false).await {
+        lock(&state.0).record_error(&error);
+        return Err(error);
+    }
+    with_backend(state, Backend::connect).await
 }
 
 #[tauri::command]
@@ -94,15 +139,50 @@ fn list_subscriptions(state: State<'_, AppState>) -> Vec<SubscriptionSummary> {
     lock(&state.0).subscriptions()
 }
 
-/// Policy groups need subscription routing, which the Linux client does not run yet.
 #[tauri::command]
-fn list_native_groups() -> Vec<serde_json::Value> {
-    Vec::new()
+fn list_native_groups(state: State<'_, AppState>) -> Vec<GroupSummary> {
+    lock(&state.0).groups()
+}
+
+#[tauri::command]
+async fn select_native_group_outbound(
+    state: State<'_, AppState>,
+    group_tag: String,
+    outbound_tag: String,
+) -> Result<OperationResult, String> {
+    with_backend(&state, move |backend| {
+        backend.select_group_member(&group_tag, &outbound_tag)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn set_routing_mode(
+    state: State<'_, AppState>,
+    mode: String,
+) -> Result<OperationResult, String> {
+    let mode = RoutingMode::parse(&mode).ok_or("unknown routing mode")?;
+    download_rule_lists(&state, mode, false).await?;
+    with_backend(&state, move |backend| backend.set_routing_mode(mode)).await
+}
+
+/// Downloads the current mode's public rule lists again; they apply on the next connection.
+#[tauri::command]
+async fn refresh_routing_rules(state: State<'_, AppState>) -> Result<OperationResult, String> {
+    let mode = lock(&state.0).routing_mode();
+    let count = download_rule_lists(&state, mode, true).await?;
+    Ok(OperationResult {
+        message: if count == 0 {
+            "The current routing mode uses no public rule lists".to_string()
+        } else {
+            format!("Routing rules refreshed ({count} lists); they apply on the next connection")
+        },
+    })
 }
 
 #[tauri::command]
 async fn connect(state: State<'_, AppState>) -> Result<OperationResult, String> {
-    with_backend(&state, Backend::connect).await
+    connect_with_rules(&state).await
 }
 
 #[tauri::command]
@@ -113,7 +193,7 @@ async fn disconnect(state: State<'_, AppState>) -> Result<OperationResult, Strin
 /// "Restart core": starts the engine again with the current node.
 #[tauri::command]
 async fn restart_service(state: State<'_, AppState>) -> Result<OperationResult, String> {
-    with_backend(&state, Backend::connect).await
+    connect_with_rules(&state).await
 }
 
 #[tauri::command]
@@ -246,10 +326,7 @@ macro_rules! unavailable {
 }
 
 unavailable!(
-    select_native_group_outbound,
     replace_native_group,
-    set_routing_mode,
-    refresh_routing_rules,
     install_core,
     install_mieru,
     verify_mieru,
@@ -286,9 +363,9 @@ pub fn run() -> Result<(), String> {
     let auto_connect = backend.auto_connect();
     let shared = Arc::new(Mutex::new(backend));
     if auto_connect {
-        let backend = shared.clone();
+        let state = AppState(shared.clone());
         thread::spawn(move || {
-            let _ = lock(&backend).connect();
+            let _ = tauri::async_runtime::block_on(connect_with_rules(&state));
         });
     }
 

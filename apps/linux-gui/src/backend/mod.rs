@@ -11,7 +11,9 @@ use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use control_domain::NodeDescriptor;
+use engine_embedded::profile::{self, RoutingMode, RuleList};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use self::engine::Engine;
 use self::state::{SavedState, Store};
@@ -74,6 +76,8 @@ pub struct RuntimeSnapshot {
     pub dark_theme: bool,
     pub runtime_mode: &'static str,
     pub routing_mode: &'static str,
+    /// Always true: the interface then offers the subscription rules mode and explains the engine's DNS.
+    pub embedded_engine: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -83,6 +87,21 @@ pub struct NodeSummary {
     pub label: String,
     pub protocol: String,
     pub selected: bool,
+}
+
+/// A policy group in the interface's `NativeGroupSummary` shape.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GroupSummary {
+    pub tag: String,
+    /// `selector`, `urltest` or `fallback`, as the interface labels them.
+    pub group_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub selected: Option<String>,
+    pub outbounds: Vec<String>,
+    pub outbound_labels: Vec<String>,
+    /// Groups cannot be edited as JSON here.
+    pub json: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -127,6 +146,8 @@ pub struct Backend {
     engine: Engine,
     /// Nodes of the selected source.
     nodes: Vec<NodeDescriptor>,
+    /// The selected source's envelope with every node, rules and policy groups, when it has them.
+    routed_profile: Option<String>,
     desktop: Option<Desktop>,
     autostart_dir: Option<PathBuf>,
     executable: PathBuf,
@@ -148,6 +169,7 @@ impl Backend {
             state,
             engine: Engine::default(),
             nodes: Vec::new(),
+            routed_profile: None,
             desktop,
             autostart_dir,
             executable,
@@ -171,6 +193,7 @@ impl Backend {
 
     fn reload_nodes(&mut self) {
         self.nodes.clear();
+        self.routed_profile = None;
         self.configuration_error = None;
         let Some(source) = self.state.selected_source() else {
             return;
@@ -179,11 +202,98 @@ impl Backend {
             .store
             .read_source(&source.id)
             .map_err(|error| error.to_string())
-            .and_then(|content| engine::parse_nodes(&content))
+            .and_then(|content| engine::parse_nodes(&content).map(|nodes| (content, nodes)))
         {
-            Ok(nodes) => self.nodes = nodes,
+            Ok((content, nodes)) => {
+                self.routed_profile = engine::subscription_routing(&content, &nodes);
+                self.nodes = nodes;
+            }
             Err(error) => self.configuration_error = Some(error),
         }
+    }
+
+    /// The selected source's routed profile with the saved group choices, if it has rules and groups.
+    fn routed(&self) -> Option<Value> {
+        let mut profile: Value = serde_json::from_str(self.routed_profile.as_deref()?).ok()?;
+        for (group, member) in &self.state.group_choices {
+            // A choice the subscription no longer offers is skipped.
+            let _ = profile::set_group_default(&mut profile, group, member);
+        }
+        Some(profile)
+    }
+
+    /// The node traffic goes to: FINAL's node in a routed profile, else the chosen node.
+    fn current_node_id(&self) -> Option<String> {
+        match self.routed() {
+            Some(profile) => profile::selected_node(&profile),
+            None => engine::choose_node(&self.nodes, self.state.selected_node.as_deref())
+                .map(|node| node.id.clone()),
+        }
+    }
+
+    /// The envelope to run: the profile (routed, or the chosen node) in the routing mode.
+    fn envelope(&self) -> Result<String, String> {
+        let profile = match self.routed() {
+            Some(profile) => profile.to_string(),
+            None => {
+                let node = engine::choose_node(&self.nodes, self.state.selected_node.as_deref())
+                    .ok_or(
+                        "import a subscription with a node the embedded engine supports first",
+                    )?;
+                engine::envelope(&self.nodes, &node.id)?
+            }
+        };
+        profile::envelope_for_mode(&profile, self.state.routing_mode, |list| {
+            self.store.read_rule_list(list).ok_or_else(|| {
+                "the routing rules have not been downloaded yet; refresh them on the Rules page"
+                    .to_string()
+            })
+        })
+    }
+
+    /// Public rule lists the routing mode needs: the missing ones, or all of them with `force`. The window
+    /// downloads them outside the lock and saves them with `store()`.
+    pub fn rule_lists_to_download(&self, mode: RoutingMode, force: bool) -> Vec<RuleList> {
+        mode.rule_lists()
+            .iter()
+            .copied()
+            .filter(|list| force || !self.store.has_rule_list(*list))
+            .collect()
+    }
+
+    pub fn store(&self) -> Store {
+        self.store.clone()
+    }
+
+    pub fn routing_mode(&self) -> RoutingMode {
+        self.state.routing_mode
+    }
+
+    /// Starts (or restarts) the engine on the current envelope and returns what it routes through.
+    fn launch(&mut self) -> Result<(String, std::net::SocketAddr), String> {
+        let envelope = self.envelope()?;
+        let node_id = self.current_node_id().unwrap_or_default();
+        let address = self
+            .engine
+            .start(&envelope, &node_id, self.state.listen_port)?;
+        let label =
+            if self.routed_profile.is_some() && self.state.routing_mode != RoutingMode::Direct {
+                "the subscription's policy groups".to_string()
+            } else if self.state.routing_mode == RoutingMode::Direct {
+                "direct connections".to_string()
+            } else {
+                self.node_name(&node_id).unwrap_or(node_id)
+            };
+        Ok((label, address))
+    }
+
+    /// Restarts a running engine so a changed choice takes effect. Returns whether it was running.
+    fn restart_if_running(&mut self) -> Result<bool, String> {
+        if !self.engine.is_running() {
+            return Ok(false);
+        }
+        self.launch()?;
+        Ok(true)
     }
 
     fn proxy_fact(&self) -> StatusFact {
@@ -225,7 +335,6 @@ impl Backend {
             "Not connected"
         };
         let source = self.state.selected_source();
-        let selected = engine::choose_node(&self.nodes, self.state.selected_node.as_deref());
         RuntimeSnapshot {
             platform: "linux",
             connection: connection.to_string(),
@@ -241,7 +350,7 @@ impl Backend {
                 StatusFact::new("Stopped", None, if crashed { "danger" } else { "neutral" })
             },
             proxy: self.proxy_fact(),
-            selected_node: selected.map(|node| node.id.clone()),
+            selected_node: self.current_node_id(),
             subscription: source.map(|source| source.location.clone()),
             subscription_last_updated: source
                 .and_then(|source| source.last_success)
@@ -271,13 +380,13 @@ impl Backend {
             script_runtime_configured: false,
             dark_theme: false,
             runtime_mode: "desktop",
-            routing_mode: "bypass_china",
+            routing_mode: self.state.routing_mode.as_str(),
+            embedded_engine: true,
         }
     }
 
     pub fn nodes(&self) -> Vec<NodeSummary> {
-        let selected = engine::choose_node(&self.nodes, self.state.selected_node.as_deref())
-            .map(|node| node.id.clone());
+        let selected = self.current_node_id();
         self.nodes
             .iter()
             .filter(|node| engine::is_supported(node))
@@ -288,6 +397,71 @@ impl Backend {
                 selected: selected.as_deref() == Some(node.id.as_str()),
             })
             .collect()
+    }
+
+    /// The routed profile's policy groups, members labelled with node names.
+    pub fn groups(&self) -> Vec<GroupSummary> {
+        let Some(profile) = self.routed() else {
+            return Vec::new();
+        };
+        profile::groups(&profile)
+            .into_iter()
+            .map(|group| GroupSummary {
+                tag: group.id,
+                group_type: match group.kind.as_str() {
+                    "select" => "selector".to_string(),
+                    "url-test" => "urltest".to_string(),
+                    other => other.to_string(),
+                },
+                selected: group.choice,
+                outbound_labels: group
+                    .members
+                    .iter()
+                    .map(|member| self.node_name(member).unwrap_or_else(|| member.clone()))
+                    .collect(),
+                outbounds: group.members,
+                json: String::new(),
+            })
+            .collect()
+    }
+
+    /// Picks `member` for the select group `group`; a running engine restarts on it.
+    pub fn select_group_member(
+        &mut self,
+        group: &str,
+        member: &str,
+    ) -> Result<OperationResult, String> {
+        let mut profile = self
+            .routed()
+            .ok_or("the current subscription has no policy groups")?;
+        profile::set_group_default(&mut profile, group, member)?;
+        self.state
+            .group_choices
+            .insert(group.to_string(), member.to_string());
+        self.save();
+        let label = self.node_name(member).unwrap_or_else(|| member.to_string());
+        if self.restart_if_running()? {
+            done(format!(
+                "Policy group {group} now uses {label}; reconnected"
+            ))
+        } else {
+            done(format!("Policy group {group} now uses {label}"))
+        }
+    }
+
+    /// Switches the routing mode; its rule lists must already be downloaded. A running engine restarts on it.
+    pub fn set_routing_mode(&mut self, mode: RoutingMode) -> Result<OperationResult, String> {
+        if !self.rule_lists_to_download(mode, false).is_empty() {
+            return Err("the routing rules for this mode could not be downloaded".to_string());
+        }
+        let previous = self.state.routing_mode;
+        self.state.routing_mode = mode;
+        if let Err(error) = self.restart_if_running() {
+            self.state.routing_mode = previous;
+            return Err(error);
+        }
+        self.save();
+        done(format!("Routing mode set to {}", mode.as_str()))
     }
 
     pub fn subscriptions(&self) -> Vec<SubscriptionSummary> {
@@ -316,6 +490,11 @@ impl Backend {
             .collect()
     }
 
+    /// Records why a connection could not start before the engine was reached.
+    pub fn record_error(&mut self, error: &str) {
+        self.last_error = Some(error.to_string());
+    }
+
     pub fn connect(&mut self) -> Result<OperationResult, String> {
         let result = self.start();
         self.last_error = result.as_ref().err().cloned();
@@ -323,13 +502,7 @@ impl Backend {
     }
 
     fn start(&mut self) -> Result<OperationResult, String> {
-        let node = engine::choose_node(&self.nodes, self.state.selected_node.as_deref())
-            .ok_or("import a subscription with a node the embedded engine supports first")?
-            .clone();
-        let envelope = engine::envelope(&self.nodes, &node.id)?;
-        let address = self
-            .engine
-            .start(&envelope, &node.id, self.state.listen_port)?;
+        let (label, address) = self.launch()?;
         if self.state.preferences.system_proxy && self.state.proxy_backup.is_none() {
             if let Some(desktop) = self.desktop {
                 match system_proxy::apply(desktop, address.port()) {
@@ -344,7 +517,7 @@ impl Backend {
                 }
             }
         }
-        done(format!("Connected through {} on {address}", node.name))
+        done(format!("Connected through {label} on {address}"))
     }
 
     pub fn disconnect(&mut self) -> Result<OperationResult, String> {
@@ -393,13 +566,16 @@ impl Backend {
             .find(|node| node.id == node_id && engine::is_supported(node))
             .ok_or("the node is not in the current subscription")?
             .clone();
+        // In a routed profile a node switch picks the node in the main select group.
+        if let Some(profile) = self.routed() {
+            let group = profile::switch_group_for_node(&profile, &node.id).ok_or(
+                "the policy groups choose this subscription's nodes; switch them on the Rules page",
+            )?;
+            return self.select_group_member(&group, &node.id);
+        }
         self.state.selected_node = Some(node.id.clone());
         self.save();
-        if self.engine.is_running() {
-            let envelope = engine::envelope(&self.nodes, &node.id)?;
-            self.engine
-                .start(&envelope, &node.id, self.state.listen_port)?;
-        }
+        self.restart_if_running()?;
         done(format!("Switched to {}", node.name))
     }
 
@@ -431,6 +607,7 @@ impl Backend {
             return Err(format!("the subscription could not be saved: {error}"));
         }
         self.state.selected_node = None;
+        self.state.group_choices.clear();
         self.save();
         self.reload_nodes();
         done(format!("Imported {supported} of {} nodes", nodes.len()))
@@ -483,14 +660,22 @@ impl Backend {
             return Err("the subscription was not found".to_string());
         }
         self.state.selected_node = None;
+        self.state.group_choices.clear();
         self.save();
         self.reload_nodes();
         done("Subscription selected; reconnect to use it")
     }
 
     pub fn remove_subscription(&mut self, id: &str) -> Result<OperationResult, String> {
+        let was_selected = self
+            .state
+            .selected_source()
+            .is_some_and(|source| source.id == id);
         if !self.state.remove_source(id) {
             return Err("the subscription was not found".to_string());
+        }
+        if was_selected {
+            self.state.group_choices.clear();
         }
         self.store.remove_source(id);
         self.save();
@@ -641,6 +826,113 @@ mod tests {
             json.get("connectionLabel").is_some(),
             "fields use the interface's camelCase names"
         );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    const CLASH: &str = r#"
+proxies:
+  - name: HK
+    type: ss
+    server: 82.47.34.99
+    port: 11111
+    cipher: aes-256-gcm
+    password: f43c0eee-13b9-4f07-bec9-d4b744141503
+  - name: JP
+    type: ss
+    server: 82.47.34.100
+    port: 11112
+    cipher: aes-256-gcm
+    password: f43c0eee-13b9-4f07-bec9-d4b744141504
+proxy-groups:
+  - name: Proxy
+    type: select
+    proxies:
+      - Auto
+      - HK
+      - DIRECT
+  - name: Auto
+    type: url-test
+    proxies:
+      - JP
+      - HK
+    url: http://www.gstatic.com/generate_204
+    interval: 300
+rules:
+  - DOMAIN-SUFFIX,example.org,DIRECT
+  - MATCH,Proxy
+"#;
+
+    #[test]
+    fn subscription_rules_route_and_policy_groups_switch() {
+        let (mut backend, dir) = backend("routed");
+        backend.import("https://example.com/sub", CLASH).unwrap();
+        let groups = backend.groups();
+        assert_eq!(
+            groups
+                .iter()
+                .map(|group| group.tag.as_str())
+                .collect::<Vec<_>>(),
+            ["Proxy", "Auto"]
+        );
+        assert_eq!(groups[0].group_type, "selector");
+        assert_eq!(groups[0].selected.as_deref(), Some("Auto"));
+        assert_eq!(groups[1].group_type, "urltest");
+        assert!(groups[1].outbound_labels.contains(&"JP".to_string()));
+        let hk = backend
+            .node_list()
+            .into_iter()
+            .find(|node| node.name == "HK")
+            .unwrap()
+            .id;
+        let jp = groups[1].outbounds[0].clone();
+        assert_eq!(
+            backend.snapshot().selected_node.as_deref(),
+            Some(jp.as_str())
+        );
+
+        // A node switch picks the node in the main select group, and the choice is saved.
+        backend.switch_node(&hk).unwrap();
+        assert_eq!(backend.groups()[0].selected.as_deref(), Some(hk.as_str()));
+        assert_eq!(
+            backend.snapshot().selected_node.as_deref(),
+            Some(hk.as_str())
+        );
+        assert!(backend.select_group_member("Auto", &hk).is_err());
+        backend.select_group_member("Proxy", "DIRECT").unwrap();
+        assert_eq!(backend.snapshot().selected_node, None);
+        let routed: serde_json::Value = serde_json::from_str(&backend.envelope().unwrap()).unwrap();
+        assert_eq!(routed["routing"]["groups"][0]["default"], "DIRECT");
+
+        // List modes need their downloaded lists; direct and rule modes need none.
+        assert_eq!(backend.snapshot().routing_mode, "rule");
+        assert!(backend.set_routing_mode(RoutingMode::BypassChina).is_err());
+        assert_eq!(
+            backend.rule_lists_to_download(RoutingMode::BypassChina, false),
+            [RuleList::ChinaDomains, RuleList::ChinaIps]
+        );
+        let store = backend.store();
+        store
+            .write_rule_list(RuleList::ChinaDomains, &["cn".to_string()])
+            .unwrap();
+        store
+            .write_rule_list(RuleList::ChinaIps, &["1.0.1.0/24".to_string()])
+            .unwrap();
+        assert!(backend
+            .rule_lists_to_download(RoutingMode::BypassChina, false)
+            .is_empty());
+        backend.set_routing_mode(RoutingMode::BypassChina).unwrap();
+        let bypass: serde_json::Value = serde_json::from_str(&backend.envelope().unwrap()).unwrap();
+        assert_eq!(bypass["routing"]["rules"][0], "RULE-SET,china,DIRECT");
+        assert_eq!(
+            bypass["routing"]["rule_sets"]["china"]["domain_suffix"][0],
+            "cn"
+        );
+        backend.set_routing_mode(RoutingMode::Direct).unwrap();
+        assert_eq!(backend.snapshot().routing_mode, "direct");
+
+        // Choices belong to the subscription they were made in.
+        let _ = backend.import(PASTED_LOCATION, LINK);
+        assert!(backend.state.group_choices.is_empty());
         let _ = std::fs::remove_dir_all(dir);
     }
 

@@ -799,6 +799,10 @@ and `cargo build --release -p networkcore-linux-gui --features gui` (WebKitGTK 4
 4. Toggle "登录后启动", log out and back in, and check the window opens; toggle it off and check
    `~/.config/autostart/anixops-net.desktop` is gone.
 5. Switch the language to English and the appearance to dark and OLED black.
+6. Import a Clash subscription with `proxy-groups` and `rules`: the Rules page lists its groups, switching a select
+   group while connected reconnects through the new member, and a node switch on the Proxies page changes the main
+   group. Switch to 绕过大陆, GFW 列表, 回国 and 直连 and check a mainland site and a blocked site take the expected path;
+   the first switch downloads the rule lists into `~/.config/anixops-net/rules/`.
 
 Confirmed by the maintainer on 2026-10-24. From v0.2.0 the tag release also publishes the window as a tarball
 (`anixops-net-linux-<version>-x86_64-unknown-linux-gnu.tar.gz`) and a Debian package (`anixops-net_<version>_amd64.deb`),
