@@ -51,12 +51,32 @@
         }
       }
     },
+    "HTTPS 解密与插件": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTPS Decryption and Plugins"
+          }
+        }
+      }
+    },
     "HTTPS 解密证书": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "HTTPS Decryption Certificate"
+          }
+        }
+      }
+    },
+    "Mac 版的根证书信任和插件管理还在开发中，目前请在 iPhone 上使用。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Root certificate trust and plugin management are still in progress on Mac. Use them on iPhone for now."
           }
         }
       }
@@ -137,6 +157,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "The WireGuard config is missing %@"
+          }
+        }
+      }
+    },
+    "action.connect": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接"
           }
         }
       }
@@ -381,6 +417,16 @@
         }
       }
     },
+    "启动": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Startup"
+          }
+        }
+      }
+    },
     "启用的插件合计超过 512 KB，请先停用一些插件": {
       "localizations": {
         "en": {
@@ -427,6 +473,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Appearance"
+          }
+        }
+      }
+    },
+    "安全隧道已建立": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Secure tunnel established"
           }
         }
       }
@@ -511,12 +567,42 @@
         }
       }
     },
+    "导入第一个节点后即可连接": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import your first node to connect"
+          }
+        }
+      }
+    },
     "导入节点": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Import Node"
+          }
+        }
+      }
+    },
+    "导入节点…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import Node…"
+          }
+        }
+      }
+    },
+    "导入节点（⌘I）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import Node (⌘I)"
           }
         }
       }
@@ -631,6 +717,16 @@
         }
       }
     },
+    "当前会话": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Current Session"
+          }
+        }
+      }
+    },
     "当前节点": {
       "localizations": {
         "en": {
@@ -647,6 +743,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Or type it in"
+          }
+        }
+      }
+    },
+    "打开 AnixOps Net": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open AnixOps Net"
           }
         }
       }
@@ -771,6 +877,16 @@
         }
       }
     },
+    "断开": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disconnect"
+          }
+        }
+      }
+    },
     "断开中": {
       "localizations": {
         "en": {
@@ -837,6 +953,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Couldn't serve the profile (%@)"
+          }
+        }
+      }
+    },
+    "无法更改登录项，请在 系统设置 > 通用 > 登录项 中调整。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't change the login item. Adjust it in System Settings > General > Login Items."
           }
         }
       }
@@ -991,6 +1117,16 @@
         }
       }
     },
+    "查看": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "View"
+          }
+        }
+      }
+    },
     "查看是否已连接，轻点即可连接或断开。": {
       "localizations": {
         "en": {
@@ -1071,6 +1207,16 @@
         }
       }
     },
+    "每条连接命中的规则、策略和插件标记需要内核提供数据，会在后续版本显示在这里。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The rule, policy and plugin tags each connection matches need data from the core and will show here in a later version."
+          }
+        }
+      }
+    },
     "没有找到可用的重写、脚本或 [MITM] 主机": {
       "localizations": {
         "en": {
@@ -1091,6 +1237,16 @@
         }
       }
     },
+    "活动": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activity"
+          }
+        }
+      }
+    },
     "浅色": {
       "localizations": {
         "en": {
@@ -1107,6 +1263,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Dark"
+          }
+        }
+      }
+    },
+    "点击连接，或按 ⇧⌘C": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Click to connect, or press ⇧⌘C"
           }
         }
       }
@@ -1157,6 +1323,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Connects with the imported node, or disconnects."
+          }
+        }
+      }
+    },
+    "登录 Mac 后打开 AnixOps Net": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open AnixOps Net when you log in"
           }
         }
       }
@@ -1267,6 +1443,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Black"
+          }
+        }
+      }
+    },
+    "纯黑主题适合 OLED 屏幕。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The black theme suits OLED screens."
           }
         }
       }
@@ -1391,6 +1577,16 @@
         }
       }
     },
+    "设置…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Settings…"
+          }
+        }
+      }
+    },
     "证书": {
       "localizations": {
         "en": {
@@ -1467,6 +1663,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Import a node first"
+          }
+        }
+      }
+    },
+    "请求记录还没开放": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Request log not available yet"
           }
         }
       }
@@ -1621,6 +1827,16 @@
         }
       }
     },
+    "连接或断开（⇧⌘C）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect or disconnect (⇧⌘C)"
+          }
+        }
+      }
+    },
     "连接状态": {
       "localizations": {
         "en": {
@@ -1637,6 +1853,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Connect, currently not connected"
+          }
+        }
+      }
+    },
+    "退出 AnixOps Net": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quit AnixOps Net"
           }
         }
       }

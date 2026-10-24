@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Builds engine-embedded as a static XCFramework for the iOS packet tunnel.
+# Builds engine-embedded as a static XCFramework for the iOS and macOS packet tunnels.
 # Runs only in GitHub Actions on macos-26; the output is never committed.
 #
 # Usage: build-ios-runtime-xcframework.sh [device|all]
 #   device: iPhone slice only (archive and upload)
-#   all:    iPhone plus simulator slices (default, CI Xcode build)
+#   all:    iPhone, simulator and universal macOS slices (default, CI Xcode build)
 #
 # Output: apps/ios/Generated/NetworkCoreRuntime.xcframework, whose headers expose the
-# Clang module NetworkCoreRuntimeC to the NetworkCorePacketTunnel target.
+# Clang module NetworkCoreRuntimeC to the NetworkCorePacketTunnel and NetworkCoreMacTunnel targets.
 set -euo pipefail
 
 slices="${1:-all}"
@@ -26,15 +26,17 @@ lib=libengine_embedded.a
 
 device_target=aarch64-apple-ios
 sim_targets=(aarch64-apple-ios-sim x86_64-apple-ios)
+mac_targets=(aarch64-apple-darwin x86_64-apple-darwin)
 targets=("${device_target}")
 if [[ "${slices}" == all ]]; then
-  targets+=("${sim_targets[@]}")
+  targets+=("${sim_targets[@]}" "${mac_targets[@]}")
 fi
 
 rustup target add "${targets[@]}"
 
-# Matches the app's deployment target; release settings keep the extension binary small.
+# Matches the apps' deployment targets; release settings keep the extension binary small.
 export IPHONEOS_DEPLOYMENT_TARGET=17.0
+export MACOSX_DEPLOYMENT_TARGET=14.0
 export CARGO_PROFILE_RELEASE_LTO=thin
 export CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1
 export CARGO_PROFILE_RELEASE_DEBUG=0
@@ -64,6 +66,14 @@ if [[ "${slices}" == all ]]; then
   done
   lipo -create "${sim_libs[@]}" -output "${work}/simulator/${lib}"
   args+=(-library "${work}/simulator/${lib}" -headers "${work}/headers")
+
+  mkdir -p "${work}/macos"
+  mac_libs=()
+  for target in "${mac_targets[@]}"; do
+    mac_libs+=("${root}/target/${target}/release/${lib}")
+  done
+  lipo -create "${mac_libs[@]}" -output "${work}/macos/${lib}"
+  args+=(-library "${work}/macos/${lib}" -headers "${work}/headers")
 fi
 
 xcodebuild -create-xcframework "${args[@]}" -output "${out}"

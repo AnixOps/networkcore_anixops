@@ -705,6 +705,30 @@ ios-widget-signing-status=pending
 ios-widget-real-device-status=pending
 ```
 
+## macOS App Signing And TestFlight
+
+The macOS app (`NetworkCoreMac`, product "AnixOps Net.app") and its packet tunnel app extension
+(`NetworkCoreMacTunnel`) are defined in `apps/ios/project.yml` and build in CI without signing (scheme
+`NetworkCoreMac`). Distribution is planned through the Mac App Store / TestFlight, where a Network Extension ships
+as an app extension; Developer ID distribution outside the store would need a System Extension instead and is not
+built. Nothing below can be automated without the maintainer's Apple account.
+
+1. In Certificates, Identifiers & Profiles, register the macOS App IDs `<MACOS_APP_BUNDLE_ID>` and
+   `<MACOS_APP_BUNDLE_ID>.packettunnel`, both with the Network Extensions capability and the shared keychain group
+   `networkcore.shared` (or reuse the iOS App ID as a universal purchase).
+2. Create the app record (or add the macOS platform to the existing one) in App Store Connect.
+3. Create Mac App Store distribution profiles for both App IDs, plus a "Mac App Distribution" and a
+   "Mac Installer Distribution" certificate.
+4. Give the go to add a macOS upload workflow; it needs the profiles, both certificates and the bundle IDs as
+   secrets and variables in the `ios-app-store-connect` environment.
+5. On a real Mac: import a node, allow the VPN configuration prompt, connect from the window, the menu bar item
+   and ⇧⌘C, check the elapsed time and the Activity page, and toggle "登录 Mac 后打开 AnixOps Net".
+
+```text
+macos-signing-status=pending
+macos-real-device-status=pending
+```
+
 ## iOS App Review Manual Confirmation
 
 以下字段是后续 iOS upload/release readiness 读取的机器状态。当前仍未完成 App Privacy answers、

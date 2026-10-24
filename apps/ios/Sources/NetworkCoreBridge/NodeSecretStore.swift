@@ -16,11 +16,12 @@ public enum NodeSecretStore {
     /// Replaces the key saved for `account` and returns its persistent reference, for
     /// `NEVPNProtocol.passwordReference`.
     public static func save(_ password: String, account: String) throws -> Data {
-        let identity: [String: Any] = [
+        var identity: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
         ]
+        identity.merge(platformAttributes) { _, new in new }
         let deleted = SecItemDelete(identity as CFDictionary)
         guard deleted == errSecSuccess || deleted == errSecItemNotFound else {
             throw Failure(status: deleted)
@@ -41,11 +42,12 @@ public enum NodeSecretStore {
 
     /// Reads the key behind a persistent reference returned by `save(_:account:)`.
     public static func password(for reference: Data) throws -> String {
-        let query: [String: Any] = [
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecValuePersistentRef as String: reference,
             kSecReturnData as String: true,
         ]
+        query.merge(platformAttributes) { _, new in new }
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         guard status == errSecSuccess, let data = result as? Data, let password = String(data: data, encoding: .utf8)
@@ -53,5 +55,15 @@ public enum NodeSecretStore {
             throw Failure(status: status == errSecSuccess ? errSecDecode : status)
         }
         return password
+    }
+
+    /// On macOS only the data protection keychain honors `keychain-access-groups`, which the app and the tunnel
+    /// extension share; the legacy file keychain would keep the key out of the extension's reach.
+    private static var platformAttributes: [String: Any] {
+        #if os(macOS)
+        return [kSecUseDataProtectionKeychain as String: true]
+        #else
+        return [:]
+        #endif
     }
 }

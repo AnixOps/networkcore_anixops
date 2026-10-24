@@ -12,6 +12,7 @@
 
 ### Added
 
+- macOS 客户端（P4）：新增 SwiftUI 的 `NetworkCoreMac` App 和 `NetworkCoreMacTunnel` 包隧道扩展（复用 iOS 的隧道、导入流程、品牌组件和中英文文案）。主窗口左侧导航为概览、代理、规则、扩展、活动、设置六页，概览页用“路由 N”连接按钮和连接时长；菜单栏常驻图标可随时连接或断开；⌘I 导入节点，⇧⌘C 连接或断开，⌘, 打开设置；支持跟随系统、浅色、深色、纯黑外观和登录后自动打开。节点密钥在 macOS 上写入数据保护钥匙串，App 与扩展通过共享钥匙串组读取。运行时 XCFramework 增加 arm64 + x86_64 的 macOS 切片，CI 无签名构建并检查扩展链接了运行时。规则页和扩展页暂为说明页；签名和 TestFlight 上传见 `docs/manual-intervention.md`。
 - iOS 小组件与控制中心开关：新增 `NetworkCoreWidget` 扩展，主屏幕小号/中号小组件和锁屏小组件显示连接状态、当前节点和协议，轻点路由线即可连接或断开；iOS 18 起可在控制中心、锁屏和操作按钮添加“连接 AnixOps Net”开关。小组件直接读取已保存的 VPN 配置（不读取节点密钥），App 内状态变化时立即刷新。TestFlight 上传在配置小组件描述文件前会跳过该扩展（见 `docs/manual-intervention.md`）。
 - iOS App 支持英文界面：中文为源语言，新增 `Localizable.xcstrings` 提供全部界面文案、错误提示和开发者模式文案的英文翻译，跟随 iPhone 系统语言切换；代码里拼出的文案改用 `String(localized:)`。
 - Windows 客户端在内置引擎下支持节点切换和延迟测试（Phase 2c-3）：`engine-embedded` 新增 `delay::measure_delay`，用配置信封自建出站，测量连接 HTTP(S) URL 并收到响应状态行的耗时（与 Clash `url-test` 口径一致，不经系统代理，错误信息不含节点参数）。单节点导入时保存全部受支持节点的出站（`embedded/nodes.json`）并填充节点列表；切换节点重写配置信封、重新套用当前分流模式，已连接时重启内核；延迟测试和“选择最快节点”在 GUI 进程内进行（每批 16 个并发、单节点 5 秒超时），未连接时也可用。订阅带规则和策略组的配置暂不提供节点列表。

@@ -41,7 +41,9 @@ struct ImportView: View {
             }
             .background(brand.bg.ignoresSafeArea())
             .navigationTitle(title)
+            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(isDone ? "完成" : "取消") {
@@ -134,7 +136,9 @@ struct ImportView: View {
                         }
                         TextEditor(text: $text)
                             .font(.footnote.monospaced())
+                            #if os(iOS)
                             .textInputAutocapitalization(.never)
+                            #endif
                             .autocorrectionDisabled()
                             .scrollContentBackground(.hidden)
                             .padding(8)

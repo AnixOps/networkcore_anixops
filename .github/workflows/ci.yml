@@ -2227,7 +2227,7 @@ jobs:
           grep -q 'IosPlatformSnapshotDTO' docs/architecture/ios-swift-xcode-bridge-source-contract.md
           ios_allowed='^$'
           if [[ -f apps/ios/Package.swift ]]; then
-            ios_allowed='^\./apps/ios/(Package\.swift|Sources/.+\.swift|Tests/.+\.swift|Sources/NetworkCoreApp/Resources/PrivacyInfo\.xcprivacy|Sources/NetworkCorePacketTunnel/Resources/PrivacyInfo\.xcprivacy|Entitlements/NetworkCoreApp\.entitlements|Entitlements/NetworkCorePacketTunnel\.entitlements|Entitlements/NetworkCoreWidget\.entitlements)$'
+            ios_allowed='^\./apps/ios/(Package\.swift|Sources/.+\.swift|Tests/.+\.swift|Sources/NetworkCoreApp/Resources/PrivacyInfo\.xcprivacy|Sources/NetworkCorePacketTunnel/Resources/PrivacyInfo\.xcprivacy|Entitlements/NetworkCore(App|PacketTunnel|Widget|Mac|MacTunnel)\.entitlements)$'
           fi
           ios_forbidden="$(find . -path ./.git -prune -o \( -type f \( -name "Package.swift" -o -name "*.swift" -o -name "PrivacyInfo.xcprivacy" -o -name "*.entitlements" -o -name "*.mobileprovision" -o -name "*.provisionprofile" -o -name "*.p12" -o -name "*.cer" -o -name "*.key" -o -name "*.pem" -o -name "*.xcframework" -o -name "*.a" -o -name "ExportOptions.plist" -o -name "*.ipa" \) -o -type d \( -name "*.xcodeproj" -o -name "*.xcworkspace" -o -name "*.xcarchive" -o -name "*.xcresult" -o -name "*.dSYM" \) \) -print | grep -v -E "${ios_allowed}" | head -n 1 || true)"
           if [[ -n "${ios_forbidden}" ]]; then
@@ -3335,7 +3335,7 @@ jobs:
   ios-xcode-build:
     name: iOS Xcode project build
     runs-on: macos-26
-    timeout-minutes: 45
+    timeout-minutes: 60
     needs:
       - changes
       - policy-fast
@@ -3388,6 +3388,8 @@ jobs:
           grep -q 'CODE_SIGN_ENTITLEMENTS = Entitlements/NetworkCoreApp.entitlements;' NetworkCore.xcodeproj/project.pbxproj
           grep -q 'CODE_SIGN_ENTITLEMENTS = Entitlements/NetworkCorePacketTunnel.entitlements;' NetworkCore.xcodeproj/project.pbxproj
           grep -q 'CODE_SIGN_ENTITLEMENTS = Entitlements/NetworkCoreWidget.entitlements;' NetworkCore.xcodeproj/project.pbxproj
+          grep -q 'CODE_SIGN_ENTITLEMENTS = Entitlements/NetworkCoreMac.entitlements;' NetworkCore.xcodeproj/project.pbxproj
+          grep -q 'CODE_SIGN_ENTITLEMENTS = Entitlements/NetworkCoreMacTunnel.entitlements;' NetworkCore.xcodeproj/project.pbxproj
 
       - name: Build the app without signing
         shell: bash
@@ -3446,6 +3448,47 @@ jobs:
             echo "::error::the containing app must not link the embedded runtime"
             exit 1
           fi
+
+      - name: Build the macOS app without signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project apps/ios/NetworkCore.xcodeproj \
+            -scheme NetworkCoreMac \
+            -destination 'generic/platform=macOS' \
+            -derivedDataPath apps/ios/build \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Check the macOS app bundle and its tunnel extension
+        shell: bash
+        run: |
+          set -euo pipefail
+          app="apps/ios/build/Build/Products/Debug/AnixOps Net.app"
+          appex="${app}/Contents/PlugIns/NetworkCoreMacTunnel.appex"
+          test -f "${app}/Contents/Resources/PrivacyInfo.xcprivacy"
+          test -f "${app}/Contents/Resources/Assets.car"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIconName' "${app}/Contents/Info.plist" | grep -qx 'AppIcon'
+          /usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "${appex}/Contents/Info.plist" \
+            | grep -qx 'com.apple.networkextension.packet-tunnel'
+          test -d "${app}/Contents/Resources/en.lproj"
+          symbols() {
+            local dir="$1" name="$2" out="$3"
+            : > "${out}"
+            find "${dir}" -maxdepth 1 -type f -name "${name}*" -print0 | while IFS= read -r -d '' file; do
+              nm "${file}" >> "${out}" 2>/dev/null || true
+            done
+          }
+          symbols "${appex}/Contents/MacOS" NetworkCoreMacTunnel "${RUNNER_TEMP}/mac-appex-symbols.txt"
+          symbols "${app}/Contents/MacOS" "AnixOps Net" "${RUNNER_TEMP}/mac-app-symbols.txt"
+          grep -q '_networkcore_ios_runtime_init$' "${RUNNER_TEMP}/mac-appex-symbols.txt"
+          if grep -q '_networkcore_ios_runtime_init$' "${RUNNER_TEMP}/mac-app-symbols.txt"; then
+            echo "::error::the macOS app must not link the embedded runtime"
+            exit 1
+          fi
+          lipo -archs "${appex}/Contents/MacOS/NetworkCoreMacTunnel" | tee "${RUNNER_TEMP}/mac-archs.txt"
+          grep -q arm64 "${RUNNER_TEMP}/mac-archs.txt"
 
   apple-project-smoke:
     name: Apple project smoke
