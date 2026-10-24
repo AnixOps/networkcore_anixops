@@ -44,6 +44,7 @@ export function HomePage({ snapshot, nodes, phase, busy, run, toggle, goTo }: {
     }
   })();
 
+  const linux = snapshot?.platform === "linux";
   const label = phase === "on" ? t("断开，当前已连接") : phase === "connecting" ? t("正在连接") : unconfigured ? t("导入第一个订阅") : t("连接，当前未连接");
 
   return (
@@ -61,7 +62,7 @@ export function HomePage({ snapshot, nodes, phase, busy, run, toggle, goTo }: {
           <div className="hero-title">{connectionTitle(snapshot?.connection, phase)}</div>
           <div className="hero-subtitle">{subtitle}</div>
         </div>
-        <div className="hero-modes" role="radiogroup" aria-label={t("分流模式")}>
+        {!linux && <div className="hero-modes" role="radiogroup" aria-label={t("分流模式")}>
           {routingModes.map((mode) => (
             <button
               key={mode.value}
@@ -75,18 +76,20 @@ export function HomePage({ snapshot, nodes, phase, busy, run, toggle, goTo }: {
               {t(mode.label)}
             </button>
           ))}
-        </div>
+        </div>}
       </section>
 
       <div className="fact-grid">
         <FactCard icon={Gauge} title={t("当前节点")} fact={{ label: nodeName ?? t("未选择"), detail: node?.protocol, tone: node ? "success" : "neutral" }} raw onClick={() => goTo("proxies")} />
         <FactCard icon={Cpu} title={t("代理内核")} fact={snapshot ? { ...snapshot.core, detail: undefined } : undefined} />
         <FactCard icon={ShieldCheck} title={t("系统代理")} fact={snapshot?.proxy} />
-        <FactCard icon={Cable} title={t("Windows 服务")} fact={snapshot ? { ...snapshot.service, detail: snapshot.runtimeMode === "desktop" ? t("桌面模式不需要服务") : snapshot.service.detail } : undefined} />
+        {linux
+          ? <FactCard icon={Cable} title={t("本地代理")} fact={snapshot ? { label: snapshot.core.detail ?? t("未启动"), detail: t("SOCKS5 / HTTP"), tone: snapshot.core.detail ? "success" : "neutral" } : undefined} raw />
+          : <FactCard icon={Cable} title={t("Windows 服务")} fact={snapshot ? { ...snapshot.service, detail: snapshot.runtimeMode === "desktop" ? t("桌面模式不需要服务") : snapshot.service.detail } : undefined} />}
       </div>
 
       <div className="two-column">
-        <Card title={t("策略组")} actions={<button className="link-button" onClick={() => goTo("rules")}>{t("管理")}<ChevronRight size={15} /></button>}>
+        {!linux && <Card title={t("策略组")} actions={<button className="link-button" onClick={() => goTo("rules")}>{t("管理")}<ChevronRight size={15} /></button>}>
           {groups.length === 0
             ? <p className="muted">{t("当前配置里没有策略组。")}</p>
             : <ul className="list">{groups.slice(0, 4).map((group) => (
@@ -96,7 +99,7 @@ export function HomePage({ snapshot, nodes, phase, busy, run, toggle, goTo }: {
                 {group.selected && <span className="chip">{group.selected}</span>}
               </li>
             ))}</ul>}
-        </Card>
+        </Card>}
         <Card title={t("订阅")} actions={<button className="link-button" onClick={() => goTo("proxies")}>{t("管理")}<ChevronRight size={15} /></button>}>
           {snapshot?.subscription
             ? <ul className="list">

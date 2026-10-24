@@ -26,6 +26,11 @@ export function SettingsPage({ snapshot, busy, run, appearance, setAppearance, l
 }) {
   if (!snapshot) return <Loading />;
   const save = (changes: Partial<Preferences>) => void run("preferences", () => desktop.savePreferences(preferencesFrom(snapshot, changes)));
+  // The Linux client runs the engine in-process and has no service, external cores, driver or TUN yet.
+  const linux = snapshot.platform === "linux";
+  const startup = linux
+    ? startupOptions.filter((option) => option.key === "startAfterLogin" || option.key === "autoConnect")
+    : startupOptions;
 
   return (
     <div className="page-stack">
@@ -35,7 +40,7 @@ export function SettingsPage({ snapshot, busy, run, appearance, setAppearance, l
           <div className="setting-label">{t("语言")}</div>
           <Segmented label={t("语言")} options={languages.map((option) => ({ ...option, label: t(option.label) }))} value={language} onChange={setLanguage} />
         </Card>
-        <Card title={t("运行方式")} description={t("桌面模式只为当前用户运行内核；TUN、附加协议内核和 HTTPS 解密需要 Windows 服务模式。")}>
+        {linux ? <LinuxProxyCard busy={busy} run={run} /> : <Card title={t("运行方式")} description={t("桌面模式只为当前用户运行内核；TUN、附加协议内核和 HTTPS 解密需要 Windows 服务模式。")}>
           <Segmented
             label={t("运行方式")}
             options={[{ value: "desktop", label: t("桌面模式") }, { value: "service", label: t("Windows 服务") }]}
@@ -43,14 +48,14 @@ export function SettingsPage({ snapshot, busy, run, appearance, setAppearance, l
             disabled={Boolean(busy)}
             onChange={(runtimeMode) => save({ runtimeMode })}
           />
-        </Card>
+        </Card>}
       </div>
 
       <Card title={t("启动与自动化")}>
-        {startupOptions.map((option) => (
+        {startup.map((option) => (
           <ToggleRow
             key={option.key}
-            label={t(option.label)}
+            label={linux && option.key === "startAfterLogin" ? t("登录后启动") : t(option.label)}
             hint={option.hint && t(option.hint)}
             checked={snapshot[option.key]}
             disabled={Boolean(busy)}
@@ -60,19 +65,31 @@ export function SettingsPage({ snapshot, busy, run, appearance, setAppearance, l
       </Card>
 
       <div className="two-column">
-        <Card title={t("代理内核")} description={t("安装并校验内核后再导入配置。")}>
+        <Card title={t("代理内核")} description={linux ? t("内核随应用一起运行，无需单独安装。") : t("安装并校验内核后再导入配置。")}>
           <div className="button-row">
-            <button className="primary" disabled={Boolean(busy)} onClick={() => void run("core", desktop.installCore)}><Cpu size={16} />{t("安装内核")}</button>
+            {!linux && <button className="primary" disabled={Boolean(busy)} onClick={() => void run("core", desktop.installCore)}><Cpu size={16} />{t("安装内核")}</button>}
             <button className="secondary" disabled={Boolean(busy)} onClick={() => void run("validate", desktop.validate)}><BadgeCheck size={16} />{t("校验配置")}</button>
             <button className="secondary" disabled={Boolean(busy)} onClick={() => void run("restart", desktop.restart)}><RotateCcw size={16} />{snapshot.runtimeMode === "desktop" ? t("重启内核") : t("重启服务")}</button>
           </div>
         </Card>
-        <ServiceCard busy={busy} run={run} />
+        {!linux && <ServiceCard busy={busy} run={run} />}
       </div>
 
-      <ExternalCoreCard busy={busy} run={run} />
-      <SystemCard busy={busy} run={run} />
+      {!linux && <ExternalCoreCard busy={busy} run={run} />}
+      {!linux && <SystemCard busy={busy} run={run} />}
     </div>
+  );
+}
+
+/** Linux: the desktop's proxy settings, which connecting points at the local listener. */
+function LinuxProxyCard({ busy, run }: { busy: string | null; run: Run }) {
+  return (
+    <Card title={t("系统代理")} description={t("连接时把 GNOME 或 KDE 的系统代理指向本地端口，断开或退出时改回原来的设置。")}>
+      <div className="inline-action">
+        <span><strong>{t("恢复网络设置")}</strong><small>{t("只恢复本应用这次改过、且仍归它管理的代理设置。")}</small></span>
+        <button className="secondary" disabled={Boolean(busy)} onClick={() => void run("network recovery", desktop.restoreNetworkSettings)}>{t("恢复")}</button>
+      </div>
+    </Card>
   );
 }
 

@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "apps/linux-cli",
+    "apps/linux-gui",
     "apps/windows-cli",
     "apps/windows-gui",
     "apps/windows-service",

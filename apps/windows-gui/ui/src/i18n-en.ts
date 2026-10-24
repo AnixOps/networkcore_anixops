@@ -191,4 +191,14 @@ export const english: Record<string, string> = {
   "只恢复由本应用启动的内核": "Only cores started by this app are recovered",
   "每小时自动更新订阅": "Update subscriptions every hour",
   "每 30 分钟自动选择最快节点": "Pick the fastest node every 30 minutes",
+  // Linux client
+  "本地代理": "Local proxy",
+  "未启动": "Not running",
+  "分流规则还没开放": "Routing rules are not available yet",
+  "Linux 版目前把全部流量交给所选节点；分流模式、策略组和 DNS 会在后续版本提供。": "The Linux version sends all traffic through the selected node for now; routing modes, policy groups and DNS will come in a later version.",
+  "HTTPS 解密和插件还没开放": "HTTPS decryption and plugins are not available yet",
+  "Linux 版的根证书和插件管理会在后续版本提供。": "Root certificates and plugin management will come to the Linux version later.",
+  "登录后启动": "Start after login",
+  "内核随应用一起运行，无需单独安装。": "The core runs inside the app, so there is nothing to install.",
+  "连接时把 GNOME 或 KDE 的系统代理指向本地端口，断开或退出时改回原来的设置。": "Connecting points the GNOME or KDE system proxy at the local port; disconnecting or quitting puts the previous settings back.",
 };

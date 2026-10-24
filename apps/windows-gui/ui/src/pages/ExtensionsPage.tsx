@@ -1,12 +1,20 @@
-import { FileCode2, KeyRound, ShieldAlert } from "lucide-react";
+import { FileCode2, KeyRound, Puzzle, ShieldAlert } from "lucide-react";
 import { useState } from "react";
 import { desktop, preferencesFrom, RuntimeSnapshot } from "../bridge";
-import { Card, Field, Run, StatusPill, ToggleRow } from "../ui";
+import { Card, EmptyState, Field, Run, StatusPill, ToggleRow } from "../ui";
 import { t } from "../i18n";
 
 export function ExtensionsPage({ snapshot, busy, run }: { snapshot: RuntimeSnapshot | null; busy: string | null; run: Run }) {
   const [certificatePath, setCertificatePath] = useState("");
   const [scriptRuntime, setScriptRuntime] = useState("");
+
+  if (snapshot?.platform === "linux") {
+    return (
+      <Card>
+        <EmptyState icon={Puzzle} title={t("HTTPS 解密和插件还没开放")} message={t("Linux 版的根证书和插件管理会在后续版本提供。")} />
+      </Card>
+    );
+  }
 
   return (
     <div className="page-stack">
