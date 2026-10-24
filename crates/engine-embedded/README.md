@@ -32,6 +32,8 @@ Each protocol is its own crate behind a cargo feature; `src/protocols.rs` regist
 
 `local_proxy::LocalProxy::start(config, listen, settings)` takes the same config envelope and serves its outbound (single or `routing`) behind a SOCKS5/HTTP mixed listener from `inbound-mixed`, on its own thread and tokio runtime. Because applications hand the proxy a host name, domain rules match without FakeIP. WireGuard is a packet tunnel and is rejected in this mode. Bind it to loopback; `tests/local_proxy.rs` covers direct, routed and failure cases.
 
+`routing.rule_sets` carries named lists for `RULE-SET,<name>,<target>` rules: `{"china": {"domain_suffix": [...], "ip_cidr": [...]}}`, up to 16 sets and 500,000 entries in all. A set is one rule, matched by a hash lookup per domain suffix and a binary search over merged networks, so a list the size of the mainland China domains costs the same per connection as a short one. Its networks match only a destination that is already an address; a domain is never resolved for them. A rule naming a set the envelope does not carry is rejected.
+
 ## HTTPS decryption (MITM)
 
 The default `mitm` feature lets the packet tunnel decrypt HTTPS for host names listed in a plugin's `[MITM]` section. Add an optional `mitm` object to the config envelope:

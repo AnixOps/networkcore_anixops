@@ -63,6 +63,8 @@ pub fn render_sing_box_route(model: &RoutingModel) -> SingBoxRouteFragment {
                 }
                 json!({ "rule_set": [tag] })
             }
+            // The caller defines the rule set under the same tag.
+            RuleMatcher::RuleSet(name) => json!({ "rule_set": [name] }),
         };
         apply_rule_target(&mut rendered, &rule.target);
         rules.push(rendered);

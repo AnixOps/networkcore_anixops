@@ -1,7 +1,7 @@
 //! First-class routing rules and policy groups.
 //!
 //! This module owns the platform-neutral routing model: ordered
-//! DOMAIN/DOMAIN-SUFFIX/DOMAIN-KEYWORD/IP-CIDR/GEOIP rules, a mandatory FINAL target, and
+//! DOMAIN/DOMAIN-SUFFIX/DOMAIN-KEYWORD/IP-CIDR/GEOIP/RULE-SET rules, a mandatory FINAL target, and
 //! select/url-test/fallback policy groups. Adapters translate the model into
 //! engine configuration (for example `engine-singbox` renders a sing-box
 //! `route`), while in-process engines call [`RoutingModel::decide`] directly.
@@ -150,6 +150,8 @@ pub enum RuleMatcher {
     IpCidr(IpCidr),
     /// Upper-case ISO 3166-1 alpha-2 country code.
     GeoIp(String),
+    /// Name of a [`crate::rule_set::RuleSet`] the environment supplies.
+    RuleSet(String),
 }
 
 impl RuleMatcher {
@@ -253,9 +255,10 @@ pub fn parse_rule_line(line: &str) -> DomainResult<RuleLine> {
             )
         })?),
         "GEOIP" => RuleMatcher::GeoIp(normalize_country_code(value)?),
+        "RULE-SET" => RuleMatcher::RuleSet(value.to_string()),
         _ => return Err(routing_error(
             ROUTING_RULE_TYPE_UNSUPPORTED_CODE,
-            "routing rule type must be DOMAIN, DOMAIN-SUFFIX, DOMAIN-KEYWORD, IP-CIDR, IP-CIDR6, GEOIP, or FINAL",
+            "routing rule type must be DOMAIN, DOMAIN-SUFFIX, DOMAIN-KEYWORD, IP-CIDR, IP-CIDR6, GEOIP, RULE-SET, or FINAL",
         )),
     };
 
@@ -473,6 +476,12 @@ pub trait RoutingEnvironment {
     fn member_latency_ms(&self, _group_id: &str, _member: &PolicyTarget) -> Option<u32> {
         None
     }
+
+    /// Whether the named rule set holds the destination; an unknown set
+    /// matches nothing.
+    fn rule_set_matches(&self, _name: &str, _domain: Option<&str>, _ip: Option<IpAddr>) -> bool {
+        false
+    }
 }
 
 /// Environment with no runtime state: select groups use their default and
@@ -531,6 +540,7 @@ fn rule_matches(
         RuleMatcher::GeoIp(country) => ip
             .and_then(|ip| environment.geoip_country(ip))
             .is_some_and(|found| found.eq_ignore_ascii_case(country)),
+        RuleMatcher::RuleSet(name) => environment.rule_set_matches(name, domain, ip),
     }
 }
 
@@ -786,7 +796,7 @@ fn reject_group_cycles(groups: &[PolicyGroup]) -> DomainResult<()> {
     Ok(())
 }
 
-fn normalize_rule_domain(value: &str) -> DomainResult<String> {
+pub(crate) fn normalize_rule_domain(value: &str) -> DomainResult<String> {
     let domain = normalize_query_domain(value);
     let valid = !domain.is_empty()
         && domain
@@ -836,6 +846,6 @@ fn with_rule_index(error: DomainError, index: usize) -> DomainError {
     )
 }
 
-fn routing_error(code: &'static str, message: impl Into<String>) -> DomainError {
+pub(crate) fn routing_error(code: &'static str, message: impl Into<String>) -> DomainError {
     DomainError::new(code, message)
 }
