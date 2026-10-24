@@ -58,11 +58,11 @@ struct ImportView: View {
     private var title: String {
         switch step {
         case .input:
-            return "导入"
+            return String(localized: "导入")
         case .preview:
-            return "确认导入"
+            return String(localized: "确认导入")
         case .done:
-            return "完成"
+            return String(localized: "完成")
         }
     }
 
@@ -255,7 +255,7 @@ struct ImportView: View {
                     step = .done(preview.name)
                 }
             } else {
-                error = tunnel.message ?? "导入失败"
+                error = tunnel.message ?? String(localized: "导入失败")
                 tunnel.clearMessage()
             }
         }
@@ -263,7 +263,7 @@ struct ImportView: View {
 
     private func readFile(_ result: Result<URL, Error>) {
         guard case let .success(url) = result else {
-            error = "无法读取文件"
+            error = String(localized: "无法读取文件")
             return
         }
         let scoped = url.startAccessingSecurityScopedResource()
@@ -276,7 +276,7 @@ struct ImportView: View {
         guard let data = try? Data(contentsOf: url), data.count <= 64 * 1024,
               let contents = String(data: data, encoding: .utf8)
         else {
-            error = "文件不是可识别的文本配置"
+            error = String(localized: "文件不是可识别的文本配置")
             return
         }
         text = contents

@@ -73,10 +73,10 @@ struct RootView: View {
 /// A section whose kernel support is still on the roadmap: says what will live here instead of showing fake data.
 struct ComingSoonView: View {
     @Environment(\.brand) private var brand
-    let title: String
+    let title: LocalizedStringKey
     let systemImage: String
-    let heading: String
-    let message: String
+    let heading: LocalizedStringKey
+    let message: LocalizedStringKey
 
     var body: some View {
         NavigationStack {

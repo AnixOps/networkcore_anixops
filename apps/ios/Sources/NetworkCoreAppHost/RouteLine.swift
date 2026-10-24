@@ -34,32 +34,32 @@ enum ConnectPhase: Equatable {
     var title: String {
         switch self {
         case .unconfigured:
-            return "还没有节点"
+            return String(localized: "还没有节点")
         case .off:
-            return "未连接"
+            return String(localized: "未连接")
         case .connecting:
-            return "正在连接…"
+            return String(localized: "正在连接…")
         case .on:
-            return "已连接"
+            return String(localized: "已连接")
         case .reasserting:
-            return "网络变化，正在重连"
+            return String(localized: "网络变化，正在重连")
         case .disconnecting:
-            return "正在断开…"
+            return String(localized: "正在断开…")
         }
     }
 
     var accessibilityLabel: String {
         switch self {
         case .unconfigured:
-            return "导入节点"
+            return String(localized: "导入节点")
         case .off:
-            return "连接，当前未连接"
+            return String(localized: "连接，当前未连接")
         case .connecting, .reasserting:
-            return "断开，正在连接"
+            return String(localized: "断开，正在连接")
         case .on:
-            return "断开，当前已连接"
+            return String(localized: "断开，当前已连接")
         case .disconnecting:
-            return "正在断开"
+            return String(localized: "正在断开")
         }
     }
 
@@ -67,19 +67,19 @@ enum ConnectPhase: Equatable {
     static func describe(_ status: NEVPNStatus) -> String {
         switch status {
         case .connected:
-            return "已连接"
+            return String(localized: "已连接")
         case .connecting:
-            return "连接中"
+            return String(localized: "连接中")
         case .disconnecting:
-            return "断开中"
+            return String(localized: "断开中")
         case .reasserting:
-            return "重新连接中"
+            return String(localized: "重新连接中")
         case .disconnected:
-            return "未连接"
+            return String(localized: "未连接")
         case .invalid:
-            return "未配置"
+            return String(localized: "未配置")
         @unknown default:
-            return "未知状态"
+            return String(localized: "未知状态")
         }
     }
 }

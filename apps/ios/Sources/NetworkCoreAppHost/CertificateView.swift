@@ -158,17 +158,17 @@ struct CertificateView: View {
 extension MitmTrustState {
     var title: String {
         switch self {
-        case .notGenerated: "尚未生成证书"
-        case .notTrusted: "证书未被信任"
-        case .trusted: "证书已信任"
+        case .notGenerated: String(localized: "尚未生成证书")
+        case .notTrusted: String(localized: "证书未被信任")
+        case .trusted: String(localized: "证书已信任")
         }
     }
 
     var detail: String {
         switch self {
-        case .notGenerated: "生成本机专属的根证书后才能解密 HTTPS。"
-        case .notTrusted: "描述文件可能未安装，或尚未在证书信任设置中开启完全信任。"
-        case .trusted: "可以解密 MITM 主机列表中的 HTTPS 流量。"
+        case .notGenerated: String(localized: "生成本机专属的根证书后才能解密 HTTPS。")
+        case .notTrusted: String(localized: "描述文件可能未安装，或尚未在证书信任设置中开启完全信任。")
+        case .trusted: String(localized: "可以解密 MITM 主机列表中的 HTTPS 流量。")
         }
     }
 
@@ -193,7 +193,7 @@ final class CertificateModel: ObservableObject {
             authority = try MitmCertificateStore.load()
             error = nil
         } catch {
-            self.error = "读取证书失败（\(Self.describe(error))）"
+            self.error = String(localized: "读取证书失败（\(Self.describe(error))）")
         }
         refresh()
     }
@@ -205,7 +205,7 @@ final class CertificateModel: ObservableObject {
             authority = created
             error = nil
         } catch {
-            self.error = "生成证书失败（\(Self.describe(error))）"
+            self.error = String(localized: "生成证书失败（\(Self.describe(error))）")
         }
         refresh()
     }
@@ -222,7 +222,7 @@ final class CertificateModel: ObservableObject {
         do {
             return try server.serve(authority.configurationProfile(), contentType: MitmCertificateAuthority.profileContentType)
         } catch {
-            self.error = "无法提供描述文件（\(Self.describe(error))）"
+            self.error = String(localized: "无法提供描述文件（\(Self.describe(error))）")
             return nil
         }
     }

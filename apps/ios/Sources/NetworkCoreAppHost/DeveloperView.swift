@@ -50,7 +50,7 @@ struct AboutSection: View {
 
     private func countTap() {
         guard !developerMode else {
-            hint = "开发者模式已开启"
+            hint = String(localized: "开发者模式已开启")
             return
         }
         taps += 1
@@ -58,9 +58,9 @@ struct AboutSection: View {
         if remaining <= 0 {
             developerMode = true
             taps = 0
-            hint = "已开启开发者模式"
+            hint = String(localized: "已开启开发者模式")
         } else if remaining <= 3 {
-            hint = "再点 \(remaining) 次开启开发者模式"
+            hint = String(localized: "再点 \(remaining) 次开启开发者模式")
         }
     }
 }
@@ -77,17 +77,17 @@ struct DeveloperView: View {
         Form {
             Section("概览") {
                 row("App", "\(DeveloperMode.appVersion) (\(DeveloperMode.appBuild))")
-                row("系统", systemVersion)
-                row("连接", ConnectPhase.describe(tunnel.connection))
-                row("出站协议", tunnel.outboundKind ?? "未导入")
+                row(String(localized: "系统"), systemVersion)
+                row(String(localized: "连接"), ConnectPhase.describe(tunnel.connection))
+                row(String(localized: "出站协议"), tunnel.outboundKind ?? String(localized: "未导入"))
             }
 
             Section("扩展") {
                 if let diagnostics = tunnel.diagnostics {
-                    row("内存占用", diagnostics.memoryFootprintBytes.map(DeveloperReport.megabytes) ?? "未知")
-                    row("运行时长", diagnostics.uptimeSeconds.map(DeveloperReport.duration) ?? "未启动")
+                    row(String(localized: "内存占用"), diagnostics.memoryFootprintBytes.map(DeveloperReport.megabytes) ?? String(localized: "未知"))
+                    row(String(localized: "运行时长"), diagnostics.uptimeSeconds.map(DeveloperReport.duration) ?? String(localized: "未启动"))
                     row(
-                        "运行时 ABI",
+                        String(localized: "运行时 ABI"),
                         "\(diagnostics.runtimeABIVersion)/\(diagnostics.runtimeSchemaVersion)/\(diagnostics.runtimeFeatureSetVersion)"
                     )
                 } else {
@@ -101,13 +101,13 @@ struct DeveloperView: View {
             }
 
             Section("上次停止原因") {
-                Text(tunnel.lastDisconnectError ?? "无记录")
+                Text(tunnel.lastDisconnectError ?? String(localized: "无记录"))
                     .font(.footnote.monospaced())
                     .textSelection(.enabled)
             }
 
             Section("运行状态") {
-                Text(tunnel.diagnostics?.runtimeStatus.map(DeveloperReport.prettyJSON) ?? "无")
+                Text(tunnel.diagnostics?.runtimeStatus.map(DeveloperReport.prettyJSON) ?? String(localized: "无"))
                     .font(.caption.monospaced())
                     .textSelection(.enabled)
             }

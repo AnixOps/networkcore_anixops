@@ -31,6 +31,9 @@ their own gates pass.
   extension reads the item the app saved. The default team-prefixed profiles already allow this group.
 - UI: the app follows the AnixOps Net brand (five tabs: 首页, 代理, 规则, 扩展, 设置). Brand colors, radii and motion
   timings live in `apps/ios/Design/tokens.json`; `Sources/NetworkCoreAppHost/BrandPalette.swift` mirrors them.
+- Languages: Chinese (zh-Hans) is the source language and English comes from
+  `Sources/NetworkCoreApp/Resources/Localizable.xcstrings`; the app follows the iPhone language. SwiftUI text literals are
+  keys as written; strings built in code use `String(localized:)`. Add every new user-visible string to the catalog.
 - Swift sources may only live under `apps/ios/Sources` or `apps/ios/Tests`.
 - Future Xcode project or workspace files must reference this source tree and must not become the only source of truth.
 
