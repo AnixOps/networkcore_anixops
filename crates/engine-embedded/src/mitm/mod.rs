@@ -13,8 +13,13 @@
 //! [`MAX_BODY_BYTES`], `text/event-stream` responses and protocol upgrades
 //! stop rewriting for the rest of the connection and are relayed as they
 //! are. Intercepted requests ask for `Accept-Encoding: identity`, so body
-//! rules see plain text. Only HTTP/1.1 is offered to the client; script
-//! dispatches are not executed yet.
+//! rules see plain text. Only HTTP/1.1 is offered to the client.
+//!
+//! With the `scripts` feature, `[Script]` dispatches run in QuickJS from the
+//! consented local copies in `script_assets`, on the blocking pool so a
+//! script never stalls the tunnel's single-threaded runtime. Each dispatch
+//! gets [`SCRIPT_MEMORY_LIMIT_BYTES`] of heap and at most
+//! [`SCRIPT_MAX_TIMEOUT_MS`]; `$httpClient` is disabled.
 
 mod http1;
 pub mod sni;
@@ -33,7 +38,11 @@ use control_domain::{
     GrantedPermissions, HookPoint, HttpMitmPhase, MetadataEntry, MitmHostnameDecision,
     MitmPluginService, PluginInstance, PluginManifest, PluginPackage, PluginPermission,
 };
-use engine_native::{NativeHttpMitmPluginHook, NativePlainHttpMessage};
+use engine_native::{
+    NativeHttpMitmPluginHook, NativePlainHttpMessage, NativePlainHttpRewriteReport,
+};
+#[cfg(feature = "scripts")]
+use engine_native::{NativeQuickJsScriptExecutor, NativeQuickJsScriptRuntimeConfig};
 use engine_outbound::{BoxFuture, TargetAddr, TcpOutbound};
 use mitm_policy::loon_plugin::{import_loon_plugin, merged_plugin_source};
 use mitm_policy::AnixOpsMitmPluginService;
@@ -52,6 +61,10 @@ pub const PLUGIN_ID: &str = "networkcore.ios.mitm";
 /// Largest request or response body the rewrite hook sees.
 pub const MAX_BODY_BYTES: usize = 1024 * 1024;
 const MAX_POLICY_BYTES: usize = 512 * 1024;
+/// QuickJS heap per script dispatch; the extension's whole budget is ~50 MB.
+pub const SCRIPT_MEMORY_LIMIT_BYTES: usize = 8 * 1024 * 1024;
+/// Upper bound for a script's own `timeout`.
+pub const SCRIPT_MAX_TIMEOUT_MS: usize = 3_000;
 const LEAF_CACHE_ENTRIES: usize = 64;
 const DECISION_CACHE_ENTRIES: usize = 512;
 const HTTPS_PORT: u16 = 443;
@@ -59,7 +72,9 @@ const HTTPS_PORT: u16 = 443;
 pub struct MitmEngine {
     service: Arc<AnixOpsMitmPluginService>,
     instance: PluginInstance,
-    hook: NativeHttpMitmPluginHook,
+    hook: Arc<NativeHttpMitmPluginHook>,
+    /// Whether the hook can run scripts, which must leave the runtime thread.
+    scripts: bool,
     issuer: Issuer<'static, KeyPair>,
     upstream: Arc<ClientConfig>,
     leaves: Mutex<HashMap<String, Arc<ServerConfig>>>,
@@ -121,6 +136,12 @@ impl MitmEngine {
             )
             .map_err(|_| "mitm policy is invalid")?;
         let hook = NativeHttpMitmPluginHook::new(instance.clone(), service.clone());
+        let scripts = !config.script_assets.is_empty();
+        let hook = if scripts {
+            with_scripts(hook, config)?
+        } else {
+            hook
+        };
         let upstream = transport_tls::client_config(&transport_tls::TlsSettings {
             server_name: String::new(),
             alpn: vec!["http/1.1".to_string()],
@@ -130,13 +151,29 @@ impl MitmEngine {
         Ok(Self {
             service,
             instance,
-            hook,
+            hook: Arc::new(hook),
+            scripts,
             issuer,
             upstream: Arc::new(upstream),
             leaves: Mutex::new(HashMap::new()),
             decisions: Mutex::new(HashMap::new()),
             next_request: AtomicU64::new(1),
         })
+    }
+
+    /// Runs the rewrite hook. Script dispatches block, so with scripts the
+    /// plan runs on the blocking pool.
+    async fn plan(
+        &self,
+        message: NativePlainHttpMessage,
+    ) -> io::Result<NativePlainHttpRewriteReport> {
+        if !self.scripts {
+            return Ok(self.hook.plan_plain_http(&message));
+        }
+        let hook = self.hook.clone();
+        tokio::task::spawn_blocking(move || hook.plan_plain_http(&message))
+            .await
+            .map_err(|_| io::Error::other("mitm rewrite failed"))
     }
 
     /// Replaces the verifying upstream client, e.g. to trust a test origin.
@@ -288,15 +325,17 @@ impl MitmEngine {
                 .next_request
                 .fetch_add(1, Ordering::Relaxed)
                 .to_string();
-            let report = self.hook.plan_plain_http(&NativePlainHttpMessage {
-                request_id: request_id.clone(),
-                url: url.clone(),
-                method: Some(method.clone()),
-                phase: HttpMitmPhase::Request,
-                status_code: None,
-                headers: to_metadata(&request.headers),
-                body: request_body,
-            });
+            let report = self
+                .plan(NativePlainHttpMessage {
+                    request_id: request_id.clone(),
+                    url: url.clone(),
+                    method: Some(method.clone()),
+                    phase: HttpMitmPhase::Request,
+                    status_code: None,
+                    headers: to_metadata(&request.headers),
+                    body: request_body,
+                })
+                .await?;
             let client_close = request.has_token("Connection", "close") || version == "HTTP/1.0";
 
             if report.terminal_action.is_some() {
@@ -381,15 +420,17 @@ impl MitmEngine {
                     return passthrough(client, origin).await;
                 }
             };
-            let report = self.hook.plan_plain_http(&NativePlainHttpMessage {
-                request_id,
-                url,
-                method: Some(method.clone()),
-                phase: HttpMitmPhase::Response,
-                status_code: Some(status),
-                headers: to_metadata(&response.headers),
-                body: response_body,
-            });
+            let report = self
+                .plan(NativePlainHttpMessage {
+                    request_id,
+                    url,
+                    method: Some(method.clone()),
+                    phase: HttpMitmPhase::Response,
+                    status_code: Some(status),
+                    headers: to_metadata(&response.headers),
+                    body: response_body,
+                })
+                .await?;
             let close = client_close
                 || framing == Framing::UntilClose
                 || response.has_token("Connection", "close");
@@ -552,6 +593,30 @@ fn from_metadata(headers: &[MetadataEntry]) -> Vec<(String, String)> {
 
 fn remove(headers: &mut Vec<(String, String)>, name: &str) {
     headers.retain(|(key, _)| !key.eq_ignore_ascii_case(name));
+}
+
+#[cfg(feature = "scripts")]
+fn with_scripts(
+    hook: NativeHttpMitmPluginHook,
+    config: &MitmConfig,
+) -> Result<NativeHttpMitmPluginHook, &'static str> {
+    let executor = NativeQuickJsScriptExecutor::new(NativeQuickJsScriptRuntimeConfig {
+        script_assets: config.script_assets.clone(),
+        persistent_store_path: config.script_store_path.clone(),
+        max_timeout_ms: SCRIPT_MAX_TIMEOUT_MS,
+        max_body_bytes: MAX_BODY_BYTES,
+        memory_limit_bytes: SCRIPT_MEMORY_LIMIT_BYTES,
+    })
+    .map_err(|_| "mitm scripts are unavailable")?;
+    Ok(hook.with_quickjs_script_executor(executor))
+}
+
+#[cfg(not(feature = "scripts"))]
+fn with_scripts(
+    _hook: NativeHttpMitmPluginHook,
+    _config: &MitmConfig,
+) -> Result<NativeHttpMitmPluginHook, &'static str> {
+    Err("mitm scripts are not supported by this build")
 }
 
 /// PKCS#8 for a P-256 key given as ANSI X9.63 `04 || X || Y || D`, in the

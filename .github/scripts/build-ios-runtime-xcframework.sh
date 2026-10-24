@@ -39,6 +39,12 @@ export CARGO_PROFILE_RELEASE_LTO=thin
 export CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1
 export CARGO_PROFILE_RELEASE_DEBUG=0
 
+# rquickjs (MITM scripts) ships no iOS bindings; bindgen generates them against the matching SDK.
+export BINDGEN_EXTRA_CLANG_ARGS_aarch64_apple_ios="-isysroot $(xcrun --sdk iphoneos --show-sdk-path)"
+simulator_sdk="$(xcrun --sdk iphonesimulator --show-sdk-path)"
+export BINDGEN_EXTRA_CLANG_ARGS_aarch64_apple_ios_sim="-isysroot ${simulator_sdk}"
+export BINDGEN_EXTRA_CLANG_ARGS_x86_64_apple_ios="-isysroot ${simulator_sdk}"
+
 for target in "${targets[@]}"; do
   cargo build --locked --release -p engine-embedded --lib --target "${target}"
 done
