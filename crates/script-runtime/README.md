@@ -29,6 +29,22 @@ for the wall-clock timeout, so Loon's `timeout` and `max-size` hold even for
 busy loops. Scripts have no file system, process, or network access of their
 own.
 
+The Apple binding is JavaScriptCore through its public C API
+(`JscScriptRuntime`, cargo feature `javascriptcore`, Apple targets only; roadmap
+M4). Its public API has no interrupt and no heap limit, so each dispatch runs on
+a worker thread under a watchdog:
+
+- timers and `$httpClient` callbacks stop at the deadline in the shared event
+  loop, as with QuickJS;
+- synchronous JavaScript still running at the deadline is reported as
+  `script.timeout`, and the worker is abandoned and counted as stuck; while
+  `MAX_STUCK_WORKERS` (2) workers are stuck, new dispatches fail fast with
+  `script.engine`, and the caller should disable the script and restart;
+- memory is bounded only by the body caps checked before the script runs
+  (`ENFORCES_HEAP_LIMIT = false`).
+
 `tests/fixtures/conformance/<case>.js` plus `<case>.json` (invocation, initial
-store, limits, expected outcome) form the engine-neutral conformance suite.
-The Apple JavaScriptCore binding planned for M4 must pass the same files.
+store, limits, expected outcome, and optional `requires` engine capabilities)
+form the engine-neutral conformance suite. QuickJS runs every fixture; the CI
+job "JavaScriptCore script conformance" (macOS) runs the same files with
+JavaScriptCore, which may skip only `memory-limit` (`requires: heap-limit`).

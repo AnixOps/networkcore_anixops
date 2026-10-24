@@ -1,4 +1,5 @@
 {
+  "requires": ["heap-limit"],
   "invocation": {
     "phase": "request",
     "request": { "url": "https://api.example.test/", "method": "GET" }

@@ -1,7 +1,9 @@
 //! Shared `$`-API conformance suite. Each `fixtures/conformance/<case>.json`
 //! describes one dispatch of `<case>.js` and its expected outcome. The fixture
-//! format is engine-neutral: the JavaScriptCore binding (M4) runs the same
-//! files.
+//! format is engine-neutral: QuickJS and JavaScriptCore run the same files. A
+//! fixture's `requires` list names engine capabilities (`heap-limit`); an
+//! engine without one skips that fixture.
+#![cfg(feature = "quickjs")]
 
 use script_runtime::{
     MemoryScriptStore, QuickJsScriptRuntime, ScriptFailure, ScriptInvocation, ScriptLimits,
@@ -128,7 +130,11 @@ fn status_name(status: &ScriptRunStatus) -> &'static str {
     }
 }
 
-fn check_case(case: &str, fixture: &Value, script: &str) {
+/// One engine under test: builds a runtime over `store` and runs a dispatch.
+type EngineRunner =
+    dyn Fn(Arc<dyn ScriptStore>, &str, &ScriptInvocation, &ScriptLimits) -> ScriptOutcome;
+
+fn check_case(case: &str, fixture: &Value, script: &str, run: &EngineRunner) {
     let store = Arc::new(MemoryScriptStore::with_entries(
         fixture
             .get("store")
@@ -141,11 +147,8 @@ fn check_case(case: &str, fixture: &Value, script: &str) {
             })
             .unwrap_or_default(),
     ));
-    let runtime = QuickJsScriptRuntime::new(
+    let outcome: ScriptOutcome = run(
         Arc::clone(&store) as Arc<dyn ScriptStore>,
-        Arc::new(script_runtime::DisabledScriptHttpClient),
-    );
-    let outcome: ScriptOutcome = runtime.run(
         script,
         &invocation(&fixture["invocation"]),
         &limits(fixture.get("limits")),
@@ -211,8 +214,9 @@ fn check_case(case: &str, fixture: &Value, script: &str) {
     }
 }
 
-#[test]
-fn quickjs_passes_shared_conformance_fixtures() {
+/// Runs every fixture whose `requires` list `capabilities` covers; returns the
+/// names of the skipped ones.
+fn run_suite(capabilities: &[&str], run: &EngineRunner) -> Vec<String> {
     let mut cases = std::fs::read_dir(fixture_dir())
         .expect("conformance fixture directory should exist")
         .map(|entry| entry.unwrap().path())
@@ -224,13 +228,106 @@ fn quickjs_passes_shared_conformance_fixtures() {
     cases.sort();
     assert!(cases.len() >= 15, "conformance suite lost fixtures");
 
+    let mut skipped = Vec::new();
     for case_path in cases {
         let case = case_path.file_stem().unwrap().to_string_lossy().to_string();
         let fixture: Value =
             serde_json::from_slice(&std::fs::read(&case_path).unwrap()).expect("fixture JSON");
+        let supported = fixture
+            .get("requires")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .all(|capability| capabilities.contains(&capability.as_str().unwrap()));
+        if !supported {
+            skipped.push(case);
+            continue;
+        }
         let script = std::fs::read_to_string(case_path.with_extension("js"))
             .unwrap_or_else(|_| panic!("{case}: missing script"));
-        check_case(&case, &fixture, &script);
+        check_case(&case, &fixture, &script, run);
+    }
+    skipped
+}
+
+#[test]
+fn quickjs_passes_shared_conformance_fixtures() {
+    let skipped = run_suite(&["heap-limit"], &|store, script, invocation, limits| {
+        QuickJsScriptRuntime::new(store, Arc::new(script_runtime::DisabledScriptHttpClient))
+            .run(script, invocation, limits)
+    });
+    assert!(skipped.is_empty(), "QuickJS skipped {skipped:?}");
+}
+
+#[cfg(all(feature = "javascriptcore", target_vendor = "apple"))]
+mod javascriptcore {
+    use super::*;
+    use script_runtime::{JscScriptRuntime, MAX_STUCK_WORKERS};
+
+    #[test]
+    fn javascriptcore_passes_shared_conformance_fixtures() {
+        let skipped = run_suite(&[], &|store, script, invocation, limits| {
+            JscScriptRuntime::new(store, Arc::new(script_runtime::DisabledScriptHttpClient))
+                .run(script, invocation, limits)
+        });
+        assert_eq!(
+            skipped,
+            ["memory-limit"],
+            "only the heap limit may be skipped"
+        );
+    }
+
+    #[test]
+    fn stuck_busy_loops_are_abandoned_then_refused() {
+        let runtime = JscScriptRuntime::default();
+        let invocation = ScriptInvocation {
+            phase: ScriptPhase::Request,
+            script_name: "busy".to_string(),
+            argument: String::new(),
+            request: ScriptRequest {
+                url: "https://api.example.test/".to_string(),
+                method: "GET".to_string(),
+                headers: Vec::new(),
+                body: None,
+            },
+            response: None,
+        };
+        let limits = ScriptLimits {
+            timeout: Duration::from_millis(100),
+            ..ScriptLimits::default()
+        };
+        for stuck in 1..=MAX_STUCK_WORKERS {
+            let outcome = runtime.run("for (;;) {}", &invocation, &limits);
+            assert_eq!(
+                outcome.status,
+                ScriptRunStatus::Failed(ScriptFailure::Timeout)
+            );
+            assert_eq!(runtime.stuck_workers(), stuck);
+        }
+        let refused = runtime.run("$done({});", &invocation, &limits);
+        let ScriptRunStatus::Failed(failure) = &refused.status else {
+            panic!("expected a refusal, got {:?}", refused.status);
+        };
+        assert_eq!(failure.code(), "script.engine");
+
+        // A finite script that overruns is no longer counted once it ends.
+        let other = JscScriptRuntime::default();
+        let outcome = other.run(
+            "var end = Date.now() + 800; while (Date.now() < end) {}",
+            &invocation,
+            &limits,
+        );
+        assert_eq!(
+            outcome.status,
+            ScriptRunStatus::Failed(ScriptFailure::Timeout)
+        );
+        assert_eq!(other.stuck_workers(), 1);
+        std::thread::sleep(Duration::from_millis(1500));
+        assert_eq!(other.stuck_workers(), 0);
+        assert_eq!(
+            other.run("$done({});", &invocation, &limits).status,
+            ScriptRunStatus::Done
+        );
     }
 }
 
