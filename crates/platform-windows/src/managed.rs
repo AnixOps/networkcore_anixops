@@ -20,6 +20,8 @@ pub const WINDOWS_MANAGED_SING_BOX_CONFIG_INVALID_CODE: &str =
 pub const WINDOWS_MANAGED_NATIVE_MITM_CONFIG_INVALID_CODE: &str =
     "windows.managed.native_mitm_config_invalid";
 pub const WINDOWS_MANAGED_MIERU_CONFIG_INVALID_CODE: &str = "windows.managed.mieru_config_invalid";
+pub const WINDOWS_MANAGED_EMBEDDED_CONFIG_INVALID_CODE: &str =
+    "windows.managed.embedded_config_invalid";
 pub const WINDOWS_MANAGED_PRODUCT_DIRECTORY: &str = "AnixOps\\NetworkCore";
 pub const WINDOWS_MANAGED_CONFIG_FILE_NAME: &str = "managed-config.json";
 pub const WINDOWS_MANAGED_STATE_FILE_NAME: &str = "managed-state.json";
@@ -248,6 +250,47 @@ impl WindowsManagedMieruConfig {
     }
 }
 
+/// The in-process engine (engine-embedded): the profile's nodes behind a local
+/// SOCKS5/HTTP listener, with no external engine binary.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WindowsManagedEmbeddedConfig {
+    pub enabled: bool,
+    /// engine-embedded configuration envelope (JSON).
+    pub envelope_path: PathBuf,
+    pub listen_host: String,
+    pub listen_port: u16,
+}
+
+impl WindowsManagedEmbeddedConfig {
+    pub fn validate(&self) -> DomainResult<()> {
+        if !self.enabled {
+            return Ok(());
+        }
+        let loopback = self
+            .listen_host
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback());
+        if self.envelope_path.as_os_str().is_empty() || !loopback || self.listen_port == 0 {
+            return Err(DomainError::new(
+                WINDOWS_MANAGED_EMBEDDED_CONFIG_INVALID_CODE,
+                "enabled embedded engine requires an envelope path and a loopback listener",
+            ));
+        }
+        Ok(())
+    }
+
+    /// The listener as `host:port`, as recorded in the managed state.
+    pub fn listener(&self) -> String {
+        std::net::SocketAddr::new(
+            self.listen_host
+                .parse()
+                .unwrap_or(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)),
+            self.listen_port,
+        )
+        .to_string()
+    }
+}
+
 /// Native explicit HTTP proxy that terminates controlled HTTPS sessions before
 /// relaying them through a local SOCKS outbound such as sing-box.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -358,6 +401,8 @@ pub struct WindowsManagedConfig {
     pub mieru: Option<WindowsManagedMieruConfig>,
     #[serde(default)]
     pub native_mitm: Option<WindowsManagedNativeMitmConfig>,
+    #[serde(default)]
+    pub embedded: Option<WindowsManagedEmbeddedConfig>,
 }
 
 impl WindowsManagedConfig {
@@ -389,9 +434,15 @@ impl WindowsManagedConfig {
         if let Some(mieru) = &self.mieru {
             mieru.validate()?;
         }
-        if self.sing_box.as_ref().is_some_and(|config| config.enabled)
-            && self.mieru.as_ref().is_some_and(|config| config.enabled)
-        {
+        if let Some(embedded) = &self.embedded {
+            embedded.validate()?;
+        }
+        let enabled_cores = [
+            self.sing_box.as_ref().is_some_and(|config| config.enabled),
+            self.mieru.as_ref().is_some_and(|config| config.enabled),
+            self.embedded.as_ref().is_some_and(|config| config.enabled),
+        ];
+        if enabled_cores.iter().filter(|enabled| **enabled).count() > 1 {
             return Err(config_error(
                 "managed public engine run plan permits only one enabled core",
             ));
@@ -446,6 +497,12 @@ pub struct WindowsManagedState {
     pub native_mitm_certificate_sha1: Option<String>,
     #[serde(default)]
     pub native_mitm_last_error: Option<String>,
+    #[serde(default)]
+    pub embedded_running: bool,
+    #[serde(default)]
+    pub embedded_listener: Option<String>,
+    #[serde(default)]
+    pub embedded_last_error: Option<String>,
     /// Last service-owned runtime failure retained after cleanup so the GUI
     /// diagnostics can distinguish an operator-requested stop from a core exit.
     #[serde(default)]
@@ -476,6 +533,9 @@ impl Default for WindowsManagedState {
             native_mitm_listener: None,
             native_mitm_certificate_sha1: None,
             native_mitm_last_error: None,
+            embedded_running: false,
+            embedded_listener: None,
+            embedded_last_error: None,
             last_error: None,
             last_transition: "created".to_string(),
         }

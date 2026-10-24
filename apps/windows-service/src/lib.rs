@@ -6,6 +6,7 @@ use control_domain::{
     NodeDescriptor, PluginPackage, Protocol, ProxyEngineConfig, ProxyEngineLifecycleState,
     ProxyEngineService, RouteAction, RuleSet, SchemaVersion,
 };
+use engine_embedded::local_proxy::LocalProxy;
 use engine_mieru::{
     apply_and_start_mieru_client, status_mieru_client, stop_mieru_client, wait_for_mieru_listener,
     CommandMieruCommandRunner, MieruClientControlRequest,
@@ -20,6 +21,7 @@ use engine_singbox::{
     inspect_sing_box_local_selector_snapshot, read_sing_box_clash_api_selector_with_timeout,
     SingBoxManagedProcessRequest, SingBoxManagedProcessState, SingBoxManagedProcessSupervisor,
 };
+use inbound_mixed::MixedSettings;
 use mitm_policy::{
     builtin_ad_block_plugin_package, builtin_bilibili_web_ad_block_plugin_package,
     AnixOpsMitmPluginService,
@@ -30,8 +32,8 @@ use networkcore_windows::{
 };
 use platform_windows::managed::{
     read_managed_config, read_managed_state, write_managed_state, WindowsManagedConfig,
-    WindowsManagedNativeMitmConfig, WindowsManagedNativeMitmScriptRuntimeConfig,
-    WindowsManagedState, WindowsProxySettings,
+    WindowsManagedEmbeddedConfig, WindowsManagedNativeMitmConfig,
+    WindowsManagedNativeMitmScriptRuntimeConfig, WindowsManagedState, WindowsProxySettings,
 };
 #[cfg(windows)]
 use platform_windows::mitm_security::validate_windows_managed_mitm_private_key;
@@ -52,6 +54,7 @@ pub struct WindowsManagedRuntime<I, T> {
     sing_box: SingBoxManagedProcessSupervisor,
     mieru: CommandMieruCommandRunner,
     native_mitm: Option<NativeProxyEngineService>,
+    embedded: Option<LocalProxy>,
     config_path: PathBuf,
     state_path: PathBuf,
 }
@@ -68,6 +71,7 @@ where
             sing_box: SingBoxManagedProcessSupervisor::default(),
             mieru: CommandMieruCommandRunner::new(),
             native_mitm: None,
+            embedded: None,
             config_path,
             state_path,
         }
@@ -107,6 +111,7 @@ where
         self.persist(&state)?;
 
         self.stop_native_mitm(&mut state, config.native_mitm.as_ref())?;
+        self.stop_embedded(&mut state)?;
         self.stop_mieru(&mut state, config.mieru.as_ref())?;
         self.stop_sing_box(
             &mut state,
@@ -196,6 +201,21 @@ where
                     );
                 }
             }
+        }
+
+        if config
+            .embedded
+            .as_ref()
+            .is_some_and(|embedded| embedded.enabled)
+            && state.embedded_running
+            && !self.embedded.as_ref().is_some_and(LocalProxy::is_running)
+        {
+            state.embedded_running = false;
+            state.embedded_listener = None;
+            return self.record_runtime_failure(
+                &mut state,
+                "managed embedded engine stopped unexpectedly".to_string(),
+            );
         }
 
         if let Some(mieru) = &config.mieru {
@@ -405,6 +425,16 @@ where
             self.stop_mieru(state, config.mieru.as_ref())?;
         }
 
+        if config
+            .embedded
+            .as_ref()
+            .map(|embedded| !embedded.enabled)
+            .unwrap_or(true)
+            && state.embedded_running
+        {
+            self.stop_embedded(state)?;
+        }
+
         if let Some(sing_box) = &config.sing_box {
             if sing_box.enabled {
                 let request = SingBoxManagedProcessRequest {
@@ -464,6 +494,10 @@ where
                 state.mieru_last_error = None;
                 self.persist(state)?;
             }
+        }
+
+        if let Some(embedded) = config.embedded.as_ref().filter(|embedded| embedded.enabled) {
+            self.start_embedded(embedded, state)?;
         }
 
         if let Some(native_mitm) = &config.native_mitm {
@@ -559,6 +593,58 @@ where
         state.mieru_last_error = None;
         state.mieru_listener = None;
         self.persist(state)
+    }
+
+    /// Runs the profile's nodes in this process behind a local SOCKS5/HTTP
+    /// listener; the listener is bound when this returns.
+    fn start_embedded(
+        &mut self,
+        config: &WindowsManagedEmbeddedConfig,
+        state: &mut WindowsManagedState,
+    ) -> DomainResult<()> {
+        if state.embedded_running && self.embedded.as_ref().is_some_and(LocalProxy::is_running) {
+            return Ok(());
+        }
+        let envelope = fs::read(&config.envelope_path).map_err(|error| {
+            runtime_error(&format!(
+                "managed embedded engine configuration could not be read: {error}"
+            ))
+        })?;
+        let listen = config.listener().parse::<SocketAddr>().map_err(|_| {
+            runtime_error("managed embedded engine listener must be a loopback socket address")
+        })?;
+        match LocalProxy::start(&envelope, listen, MixedSettings::default()) {
+            Ok(proxy) => {
+                state.embedded_running = true;
+                state.embedded_listener = Some(config.listener());
+                state.embedded_last_error = None;
+                self.embedded = Some(proxy);
+                self.persist(state)
+            }
+            Err(error) => {
+                state.embedded_running = false;
+                state.embedded_listener = None;
+                state.embedded_last_error = Some(error.message.to_string());
+                self.persist(state)?;
+                Err(runtime_error(&format!(
+                    "managed embedded engine could not start: {}",
+                    error.message
+                )))
+            }
+        }
+    }
+
+    fn stop_embedded(&mut self, state: &mut WindowsManagedState) -> DomainResult<()> {
+        if let Some(mut proxy) = self.embedded.take() {
+            proxy.stop();
+        }
+        if state.embedded_running {
+            state.embedded_running = false;
+            state.embedded_listener = None;
+            state.embedded_last_error = None;
+            self.persist(state)?;
+        }
+        Ok(())
     }
 
     fn start_native_mitm(
@@ -667,6 +753,9 @@ where
                 .ok()
                 .and_then(|config| config.native_mitm);
             let _ = self.stop_native_mitm(state, native_mitm.as_ref());
+        }
+        if state.embedded_running && !previous.embedded_running {
+            let _ = self.stop_embedded(state);
         }
         if state.sing_box_running && !previous.sing_box_running {
             let log_path = read_managed_config(&self.config_path)

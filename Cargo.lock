@@ -3062,8 +3062,10 @@ version = "0.1.0"
 dependencies = [
  "config-core",
  "control-domain",
+ "engine-embedded",
  "engine-mieru",
  "engine-singbox",
+ "inbound-mixed",
  "platform-windows",
  "rcgen",
  "reqwest 0.12.28",
@@ -3080,9 +3082,11 @@ name = "networkcore-windows-service"
 version = "0.1.0"
 dependencies = [
  "control-domain",
+ "engine-embedded",
  "engine-mieru",
  "engine-native",
  "engine-singbox",
+ "inbound-mixed",
  "mitm-policy",
  "networkcore-windows",
  "platform-windows",

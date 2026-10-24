@@ -13,8 +13,10 @@ custom-protocol = ["tauri/custom-protocol"]
 [dependencies]
 config-core = { path = "../../crates/config-core" }
 control-domain = { path = "../../crates/control-domain" }
+engine-embedded = { path = "../../crates/engine-embedded" }
 engine-singbox = { path = "../../crates/engine-singbox" }
 engine-mieru = { path = "../../crates/engine-mieru" }
+inbound-mixed = { path = "../../crates/inbound-mixed" }
 platform-windows = { path = "../../crates/platform-windows" }
 rcgen = { version = "0.14.8", features = ["x509-parser"] }
 serde = { version = "1", features = ["derive"] }

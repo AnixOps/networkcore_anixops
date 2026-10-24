@@ -1,10 +1,11 @@
 use platform_windows::managed::{
     read_managed_config, WindowsDriverPackageConfig, WindowsManagedConfig,
-    WindowsManagedMieruConfig, WindowsManagedNativeMitmConfig,
+    WindowsManagedEmbeddedConfig, WindowsManagedMieruConfig, WindowsManagedNativeMitmConfig,
     WindowsManagedNativeMitmScriptRuntimeConfig, WindowsManagedSingBoxConfig, WindowsManagedState,
     WindowsManagedTunnelConfig, WindowsProxySettings, WindowsProxySnapshot,
     WindowsSystemProxyOwner, WINDOWS_MANAGED_CONFIG_INVALID_CODE,
-    WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION, WINDOWS_MANAGED_STATE_SCHEMA_VERSION,
+    WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION, WINDOWS_MANAGED_EMBEDDED_CONFIG_INVALID_CODE,
+    WINDOWS_MANAGED_STATE_SCHEMA_VERSION,
 };
 use platform_windows::system_integration::{WindowsServiceState, NETWORKCORE_WINDOWS_SERVICE_NAME};
 use std::collections::BTreeMap;
@@ -52,6 +53,7 @@ fn managed_configuration_activates_proxy_certificate_driver_and_tunnel() {
         sing_box: None,
         mieru: None,
         native_mitm: None,
+        embedded: None,
     };
 
     config.validate().expect("managed configuration is valid");
@@ -110,6 +112,7 @@ fn managed_configuration_accepts_explicit_sing_box_process_paths() {
         }),
         mieru: None,
         native_mitm: None,
+        embedded: None,
     };
 
     config.validate().expect("sing-box process paths are valid");
@@ -168,6 +171,7 @@ fn managed_configuration_rejects_two_enabled_public_engine_plans() {
             socks5_port: 7892,
         }),
         native_mitm: None,
+        embedded: None,
     };
     assert_eq!(
         config
@@ -176,6 +180,68 @@ fn managed_configuration_rejects_two_enabled_public_engine_plans() {
             .code,
         WINDOWS_MANAGED_CONFIG_INVALID_CODE
     );
+}
+
+#[test]
+fn managed_configuration_runs_the_embedded_engine_as_the_only_core() {
+    let embedded = WindowsManagedEmbeddedConfig {
+        enabled: true,
+        envelope_path: PathBuf::from(r"C:\ProgramData\AnixOps\NetworkCore\embedded\envelope.json"),
+        listen_host: "127.0.0.1".to_string(),
+        listen_port: 7890,
+    };
+    let mut config = WindowsManagedConfig {
+        schema_version: WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION,
+        system_proxy: Some(WindowsProxySettings {
+            enabled: true,
+            server: "127.0.0.1:7890".to_string(),
+            bypass: "<local>".to_string(),
+        }),
+        system_proxy_owner: WindowsSystemProxyOwner::Desktop,
+        root_certificate_path: None,
+        driver_package: None,
+        tunnel: None,
+        sing_box: None,
+        mieru: None,
+        native_mitm: None,
+        embedded: Some(embedded.clone()),
+    };
+    config.validate().expect("embedded engine config is valid");
+    assert_eq!(embedded.listener(), "127.0.0.1:7890");
+
+    // A config written before the embedded engine existed still reads.
+    let mut json = serde_json::to_value(&config).unwrap();
+    json.as_object_mut().unwrap().remove("embedded");
+    let legacy: WindowsManagedConfig = serde_json::from_value(json).unwrap();
+    assert!(legacy.embedded.is_none());
+
+    config.sing_box = Some(WindowsManagedSingBoxConfig {
+        enabled: true,
+        executable_path: PathBuf::from("sing-box.exe"),
+        config_path: PathBuf::from("sing-box.json"),
+        working_directory: None,
+        log_path: PathBuf::from("sing-box.log"),
+    });
+    assert_eq!(
+        config.validate().expect_err("only one core runs").code,
+        WINDOWS_MANAGED_CONFIG_INVALID_CODE
+    );
+    config.sing_box = None;
+
+    for (host, port) in [("0.0.0.0", 7890), ("localhost", 7890), ("127.0.0.1", 0)] {
+        config.embedded = Some(WindowsManagedEmbeddedConfig {
+            listen_host: host.to_string(),
+            listen_port: port,
+            ..embedded.clone()
+        });
+        assert_eq!(
+            config
+                .validate()
+                .expect_err("listener must be loopback")
+                .code,
+            WINDOWS_MANAGED_EMBEDDED_CONFIG_INVALID_CODE
+        );
+    }
 }
 
 #[test]
@@ -194,6 +260,7 @@ fn managed_configuration_rejects_enabled_proxy_without_endpoint() {
         sing_box: None,
         mieru: None,
         native_mitm: None,
+        embedded: None,
     };
 
     let error = config.validate().expect_err("proxy endpoint is required");
@@ -230,6 +297,9 @@ fn managed_state_retains_rollback_material_for_system_mutations() {
         native_mitm_listener: Some("127.0.0.1:7890".to_string()),
         native_mitm_certificate_sha1: Some("102132435465768798A9BACBDCEDFE0F10213243".to_string()),
         native_mitm_last_error: None,
+        embedded_running: false,
+        embedded_listener: None,
+        embedded_last_error: None,
         last_error: None,
         last_transition: "running".to_string(),
     };
@@ -292,6 +362,7 @@ fn managed_configuration_accepts_native_https_mitm_with_explicit_socks_upstream(
                 )),
             }),
         }),
+        embedded: None,
     };
 
     config.validate().expect("native MITM config is valid");

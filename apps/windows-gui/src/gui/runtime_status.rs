@@ -23,6 +23,9 @@ pub enum ManagedCoreStatus {
     MieruRunning {
         endpoint: String,
     },
+    EmbeddedRunning {
+        endpoint: String,
+    },
     Exited {
         process_id: u32,
         exit_code: Option<i32>,
@@ -40,6 +43,7 @@ impl ManagedCoreStatus {
             Self::Starting => "Starting".to_string(),
             Self::Running { process_id } => format!("Running (PID {process_id})"),
             Self::MieruRunning { endpoint } => format!("Mieru running ({endpoint})"),
+            Self::EmbeddedRunning { endpoint } => format!("Embedded engine running ({endpoint})"),
             Self::Exited {
                 process_id,
                 exit_code,
@@ -55,7 +59,9 @@ impl ManagedCoreStatus {
 
     pub fn liveness_confirmed(&self) -> Option<bool> {
         match self {
-            Self::Running { .. } | Self::MieruRunning { .. } => Some(true),
+            Self::Running { .. } | Self::MieruRunning { .. } | Self::EmbeddedRunning { .. } => {
+                Some(true)
+            }
             Self::Exited { .. } => Some(false),
             Self::Unavailable { .. } | Self::NotConfigured | Self::Starting => None,
         }
@@ -145,6 +151,13 @@ where
         .and_then(|config| config.mieru.as_ref())
         .filter(|mieru| mieru.enabled)
         .map(|mieru| format!("{}:{}", mieru.socks5_host, mieru.socks5_port));
+    let embedded_listener = config
+        .as_ref()
+        .ok()
+        .and_then(|config| config.embedded.as_ref())
+        .filter(|embedded| embedded.enabled)
+        .map(|embedded| embedded.listener());
+    let embedded_configured = embedded_listener.is_some();
     let managed_proxy = config
         .as_ref()
         .ok()
@@ -185,7 +198,14 @@ where
             "purged" if state.sing_box_process_id.is_none() => ManagedCoreStatus::NotConfigured,
             _ => recorded_core_exit(state.sing_box_process_id, state.sing_box_exit_code),
         },
-        Some(state) if mieru_configured && state.last_transition == "starting" => {
+        Some(state) if embedded_configured && state.embedded_running => {
+            ManagedCoreStatus::EmbeddedRunning {
+                endpoint: state.embedded_listener.clone().unwrap_or_default(),
+            }
+        }
+        Some(state)
+            if (mieru_configured || embedded_configured) && state.last_transition == "starting" =>
+        {
             ManagedCoreStatus::Starting
         }
         _ => ManagedCoreStatus::NotConfigured,
@@ -201,10 +221,12 @@ where
     });
     let facts = RuntimeFacts {
         service_state,
-        core_configured: sing_box_configured || mieru_configured,
+        core_configured: sing_box_configured || mieru_configured || embedded_configured,
         core_configuration_validated: runtime.as_ref().is_some_and(|state| {
             if sing_box_configured {
                 state.sing_box_config_validated
+            } else if embedded_configured {
+                state.embedded_running
             } else {
                 mieru_configured && state.mieru_running
             }
@@ -212,6 +234,8 @@ where
         core_listener_reachable: runtime.as_ref().is_some_and(|state| {
             if sing_box_configured {
                 state.sing_box_listener_reachable
+            } else if embedded_configured {
+                embedded_listener.as_deref() == state.embedded_listener.as_deref()
             } else {
                 mieru_expected_listener.as_deref() == state.mieru_listener.as_deref()
             }
@@ -223,6 +247,8 @@ where
         core_state_recorded_running: runtime.as_ref().is_some_and(|state| {
             if sing_box_configured {
                 state.sing_box_running
+            } else if embedded_configured {
+                state.embedded_running
             } else {
                 mieru_configured && state.mieru_running
             }

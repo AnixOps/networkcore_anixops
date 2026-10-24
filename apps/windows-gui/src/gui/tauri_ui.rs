@@ -13,6 +13,8 @@ use config_core::CoreSubscriptionService;
 use control_domain::{
     PublicEngineKind, PublicEngineRunPlan, SubscriptionService, SubscriptionSource,
 };
+use engine_embedded::config::RuntimeConfig;
+use engine_embedded::nodes::{routing_envelope, single_node_envelope};
 use engine_mieru::{
     download_latest_mieru_release, mieru_node_from_descriptor, render_mieru_client_config,
     rollback_mieru_client_config, verify_local_mieru_binary, write_mieru_client_config,
@@ -23,16 +25,17 @@ use engine_singbox::{
     read_sing_box_clash_api_selector, render_sing_box_local_proxy_routing_config,
     render_sing_box_local_proxy_selector_config, rewrite_sing_box_mixed_inbound_listener,
     sing_box_config_sha256, GithubSingBoxReleaseInstaller, SingBoxInstallRequest,
-    SingBoxLocalControllerConfig, SingBoxLocalProxyConfigRequest, SingBoxManagedProcessState,
-    SingBoxManagedProcessSupervisor, SingBoxReleaseInstaller, SingBoxTarget, SingBoxTargetArch,
-    SingBoxTargetOs, DEFAULT_SING_BOX_CLASH_API_DELAY_TIMEOUT_MILLIS,
+    SingBoxLocalControllerConfig, SingBoxLocalProxyConfigRequest, SingBoxReleaseInstaller,
+    SingBoxTarget, SingBoxTargetArch, SingBoxTargetOs,
+    DEFAULT_SING_BOX_CLASH_API_DELAY_TIMEOUT_MILLIS,
 };
 use platform_windows::managed::{
     read_managed_state, windows_managed_config_path, windows_managed_data_directory,
     windows_managed_log_directory, windows_managed_state_path, write_managed_config,
     write_managed_state, write_managed_text_atomic, WindowsManagedConfig,
-    WindowsManagedMieruConfig, WindowsManagedNativeMitmConfig, WindowsManagedSingBoxConfig,
-    WindowsManagedTunnelConfig, WindowsProxySettings, WindowsSystemProxyOwner,
+    WindowsManagedEmbeddedConfig, WindowsManagedMieruConfig, WindowsManagedNativeMitmConfig,
+    WindowsManagedSingBoxConfig, WindowsManagedTunnelConfig, WindowsProxySettings,
+    WindowsSystemProxyOwner,
 };
 use platform_windows::mitm_security::{
     protect_windows_managed_mitm_private_key, remove_windows_managed_mitm_private_key,
@@ -71,12 +74,14 @@ const LOYALSOLDIER_CHINA_URL: &str =
 const CHINA_IP_URL: &str =
     "https://raw.githubusercontent.com/gaoyifan/china-operator-ip/ip-lists/china.txt";
 const ROUTING_RULE_DIRECTORY: &str = "routing-rules";
+const EMBEDDED_PROFILE_ID: &str = "windows-tauri-profile";
+const EMBEDDED_LISTEN_PORT: u16 = 7890;
 
 #[derive(Clone)]
 struct DesktopAppState {
     desktop: Arc<Mutex<DesktopState>>,
     lifecycle: Arc<RuntimeLifecycle>,
-    direct_core: Arc<Mutex<SingBoxManagedProcessSupervisor>>,
+    direct_core: Arc<Mutex<connection::DesktopCore>>,
 }
 
 struct DesktopTray {
@@ -223,7 +228,7 @@ pub(super) fn run(debug: bool) -> Result<(), String> {
         .manage(DesktopAppState {
             desktop: Arc::new(Mutex::new(desktop)),
             lifecycle: Arc::new(RuntimeLifecycle::default()),
-            direct_core: Arc::new(Mutex::new(SingBoxManagedProcessSupervisor::default())),
+            direct_core: Arc::new(Mutex::new(connection::DesktopCore::default())),
         })
         .setup(|app| {
             install_tray(app)?;
@@ -570,10 +575,7 @@ fn runtime_snapshot_blocking(state: DesktopAppState) -> Result<RuntimeSnapshot, 
         .direct_core
         .lock()
         .map_err(|_| "desktop core lock failed")?
-        .status()
-        .map_err(|error| error.to_string())?
-        .state
-        == SingBoxManagedProcessState::Running;
+        .is_running()?;
     Ok(snapshot(&read_runtime_status(), &desktop, direct_running))
 }
 
@@ -892,8 +894,7 @@ fn connect_blocking(state: DesktopAppState) -> Result<OperationResult, String> {
     Ok(OperationResult {
         message: match desktop.runtime_mode {
             DesktopRuntimeMode::Desktop => {
-                "Connected. The desktop-owned sing-box core and current-user proxy are verified."
-                    .to_string()
+                "Connected. The desktop-owned core and current-user proxy are verified.".to_string()
             }
             DesktopRuntimeMode::Service => {
                 "Connected. The managed core and current-user proxy are verified.".to_string()
@@ -948,8 +949,8 @@ fn stop_desktop_core_for_exit(state: DesktopAppState) {
         .direct_core
         .lock()
         .map_err(|_| "desktop core lock failed".to_string())
-        .and_then(|mut supervisor| {
-            connection::disconnect_direct(windows_managed_config_path(), desktop, &mut supervisor)
+        .and_then(|mut core| {
+            connection::disconnect_direct(windows_managed_config_path(), desktop, &mut core)
         });
     if let Err(error) = result {
         let _ = append_managed_log(
@@ -1167,18 +1168,11 @@ fn node_operations_runtime_running(
     desktop: &DesktopState,
 ) -> Result<bool, String> {
     match desktop.runtime_mode {
-        DesktopRuntimeMode::Desktop => {
-            let status = state
-                .direct_core
-                .lock()
-                .map_err(|_| "desktop core lock failed")?
-                .status()
-                .map_err(|error| error.to_string())?;
-            if status.state != SingBoxManagedProcessState::Running {
-                return Ok(false);
-            }
-            Ok(true)
-        }
+        DesktopRuntimeMode::Desktop => state
+            .direct_core
+            .lock()
+            .map_err(|_| "desktop core lock failed")?
+            .is_running(),
         DesktopRuntimeMode::Service => Ok(read_runtime_status().connection.is_connected()),
     }
 }
@@ -1631,6 +1625,11 @@ fn import_subscription_at(location: &str, desktop: &mut DesktopState) -> Result<
         );
     }
     let (payload, source_path, source_url) = read_subscription(location)?;
+    if desktop.sing_box_executable_path.is_none()
+        && inspect_sing_box_native_config(&payload).is_none()
+    {
+        return import_embedded_subscription(&payload, source_path, source_url, desktop);
+    }
     let executable_path = desktop
         .sing_box_executable_path
         .clone()
@@ -1737,6 +1736,81 @@ fn import_subscription_at(location: &str, desktop: &mut DesktopState) -> Result<
     Ok(())
 }
 
+/// Without sing-box installed, a subscription whose nodes the embedded engine
+/// supports runs in-process: the GUI in desktop mode, the service otherwise.
+fn import_embedded_subscription(
+    payload: &str,
+    source_path: Option<PathBuf>,
+    source_url: Option<String>,
+    desktop: &mut DesktopState,
+) -> Result<(), String> {
+    let service = CoreSubscriptionService::new();
+    let source = SubscriptionSource {
+        id: EMBEDDED_PROFILE_ID.to_string(),
+        location: format!("inline:{payload}"),
+    };
+    let raw = service.fetch(&source).map_err(|error| error.to_string())?;
+    let document = service.parse(&raw).map_err(|error| error.to_string())?;
+    let catalog = service
+        .normalize(&document)
+        .map_err(|error| error.to_string())?;
+    if catalog.nodes.is_empty() {
+        return Err("Profile did not contain a supported proxy node".to_string());
+    }
+    // Subscription rules and policy groups drive the route when every node is
+    // supported and the engine accepts the result; otherwise one node runs
+    // alone.
+    let routed = import_subscription_routing(payload, &catalog.nodes)
+        .spec
+        .and_then(|spec| routing_envelope(EMBEDDED_PROFILE_ID, &catalog.nodes, &spec).ok())
+        // The engine caps the routed node and rule counts.
+        .filter(|envelope| RuntimeConfig::from_json(envelope.as_bytes()).is_ok());
+    let (envelope, selected_node_id) = match routed {
+        Some(envelope) => (envelope, None),
+        None => {
+            let selected = desktop
+                .profile_node_id
+                .as_deref()
+                .filter(|id| catalog.nodes.iter().any(|node| node.id == *id));
+            let (envelope, node) =
+                single_node_envelope(EMBEDDED_PROFILE_ID, &catalog.nodes, selected).map_err(
+                    |reason| {
+                        format!("Install sing-box to run this profile; the embedded engine cannot run it: {reason}")
+                    },
+                )?;
+            (envelope, Some(node.id))
+        }
+    };
+    let envelope_path = windows_managed_data_directory()
+        .join("embedded")
+        .join("envelope.json");
+    write_managed_text_atomic(&envelope_path, &envelope).map_err(|error| error.to_string())?;
+    let mut managed = managed_config_or_default()?;
+    managed.system_proxy = Some(WindowsProxySettings {
+        enabled: true,
+        server: format!("127.0.0.1:{EMBEDDED_LISTEN_PORT}"),
+        bypass: "<local>".to_string(),
+    });
+    managed.system_proxy_owner = WindowsSystemProxyOwner::Desktop;
+    // A public run plan selects one core.
+    managed.sing_box = None;
+    managed.mieru = None;
+    managed.embedded = Some(WindowsManagedEmbeddedConfig {
+        enabled: true,
+        envelope_path,
+        listen_host: "127.0.0.1".to_string(),
+        listen_port: EMBEDDED_LISTEN_PORT,
+    });
+    write_managed_config(&windows_managed_config_path(), &managed)
+        .map_err(|error| format!("Managed configuration update failed: {error}"))?;
+    desktop.profile_source_path = source_path;
+    desktop.profile_source_url = source_url;
+    desktop.profile_node_id = selected_node_id;
+    desktop.profile_node_catalog.clear();
+    desktop.profile_config_sha256 = None;
+    Ok(())
+}
+
 fn import_mieru_subscription_plan(
     plan: &PublicEngineRunPlan,
     desktop: &mut DesktopState,
@@ -1762,6 +1836,7 @@ fn import_mieru_subscription_plan(
     })
     .map_err(|error| error.message)?;
     managed.sing_box = None;
+    managed.embedded = None;
     managed.mieru = Some(WindowsManagedMieruConfig {
         enabled: true,
         ..mieru.clone()
@@ -2121,10 +2196,7 @@ fn ensure_routing_configuration_stopped(state: &DesktopAppState) -> Result<(), S
         .direct_core
         .lock()
         .map_err(|_| "desktop core lock failed")?
-        .status()
-        .map_err(|error| error.to_string())?
-        .state
-        == SingBoxManagedProcessState::Running
+        .is_running()?
     {
         return Err("Disconnect before changing the routing mode.".to_string());
     }
@@ -2445,6 +2517,7 @@ fn enable_https_mitm_blocking(state: DesktopAppState) -> Result<OperationResult,
         bypass: "<local>".to_string(),
     });
     managed.system_proxy_owner = WindowsSystemProxyOwner::Service;
+    managed.embedded = None;
     managed.sing_box = Some(WindowsManagedSingBoxConfig {
         enabled: true,
         executable_path: imported.executable_path.clone(),
@@ -2754,6 +2827,7 @@ fn activate_managed_sing_box_plan(
     // A public run plan selects one core. Clear an enabled Mieru plan before
     // committing the staged sing-box configuration.
     managed.mieru = None;
+    managed.embedded = None;
     managed.sing_box = Some(WindowsManagedSingBoxConfig {
         enabled: true,
         executable_path,
@@ -3054,7 +3128,9 @@ fn core_status(status: &ManagedCoreStatus) -> StatusFact {
         label: status.label(),
         detail: None,
         tone: match status {
-            ManagedCoreStatus::Running { .. } | ManagedCoreStatus::MieruRunning { .. } => "success",
+            ManagedCoreStatus::Running { .. }
+            | ManagedCoreStatus::MieruRunning { .. }
+            | ManagedCoreStatus::EmbeddedRunning { .. } => "success",
             ManagedCoreStatus::Exited { .. } | ManagedCoreStatus::Unavailable { .. } => "danger",
             ManagedCoreStatus::Starting => "warning",
             ManagedCoreStatus::NotConfigured => "neutral",
@@ -3084,6 +3160,7 @@ mod tests {
                 socks5_port: 1080,
             }),
             native_mitm: None,
+            embedded: None,
         }
     }
 

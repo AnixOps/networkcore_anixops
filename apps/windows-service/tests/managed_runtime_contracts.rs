@@ -8,8 +8,8 @@ use networkcore_windows_service::WindowsManagedRuntime;
 use platform_windows::managed::WindowsManagedNativeMitmConfig;
 use platform_windows::managed::{
     read_managed_state, write_managed_config, WindowsDriverPackageConfig, WindowsManagedConfig,
-    WindowsManagedSingBoxConfig, WindowsProxySettings, WindowsProxySnapshot,
-    WindowsSystemProxyOwner, WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION,
+    WindowsManagedEmbeddedConfig, WindowsManagedSingBoxConfig, WindowsProxySettings,
+    WindowsProxySnapshot, WindowsSystemProxyOwner, WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION,
 };
 use platform_windows::system_integration::{
     WindowsDriverInstallResult, WindowsServiceState, WindowsServiceStatus, WindowsSystemIntegration,
@@ -253,6 +253,7 @@ fn fixture_config(with_tunnel: bool) -> WindowsManagedConfig {
         sing_box: None,
         mieru: None,
         native_mitm: None,
+        embedded: None,
     }
 }
 
@@ -408,6 +409,94 @@ fn managed_runtime_leaves_desktop_owned_proxy_to_the_gui_session() {
 
     runtime.stop().expect("managed runtime stops");
     assert!(!events.borrow().contains(&"restore-proxy".to_string()));
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn managed_runtime_runs_the_embedded_engine_in_process() {
+    let (config_path, state_path, root) = fixture_paths("embedded");
+    let envelope_path = root.join("envelope.json");
+    fs::write(
+        &envelope_path,
+        r#"{"schema_version":1,"profile_id":"service-test","outbound":{"type":"direct"}}"#,
+    )
+    .expect("envelope writes");
+    let port = TcpListener::bind(("127.0.0.1", 0))
+        .and_then(|listener| listener.local_addr())
+        .expect("test port")
+        .port();
+    let mut config = fixture_config(false);
+    config.system_proxy_owner = WindowsSystemProxyOwner::Desktop;
+    config.root_certificate_path = None;
+    config.driver_package = None;
+    config.system_proxy = Some(WindowsProxySettings {
+        enabled: true,
+        server: format!("127.0.0.1:{port}"),
+        bypass: "<local>".to_string(),
+    });
+    config.embedded = Some(WindowsManagedEmbeddedConfig {
+        enabled: true,
+        envelope_path,
+        listen_host: "127.0.0.1".to_string(),
+        listen_port: port,
+    });
+    write_managed_config(&config_path, &config).expect("config writes");
+    let mut runtime = WindowsManagedRuntime::new(
+        FakeIntegration::default(),
+        FakeTunnel::default(),
+        config_path,
+        state_path.clone(),
+    );
+
+    let running = runtime.start().expect("embedded engine starts");
+    assert!(running.embedded_running);
+    assert_eq!(
+        running.embedded_listener.as_deref(),
+        Some(format!("127.0.0.1:{port}").as_str())
+    );
+    std::net::TcpStream::connect(("127.0.0.1", port)).expect("embedded listener accepts");
+    runtime.poll_health().expect("embedded engine is healthy");
+
+    let stopped = runtime.stop().expect("embedded engine stops");
+    assert!(!stopped.embedded_running);
+    assert!(stopped.embedded_listener.is_none());
+    assert!(
+        !read_managed_state(&state_path)
+            .expect("state reads")
+            .embedded_running
+    );
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn managed_runtime_reports_an_embedded_envelope_it_cannot_run() {
+    let (config_path, state_path, root) = fixture_paths("embedded-invalid");
+    let envelope_path = root.join("envelope.json");
+    fs::write(&envelope_path, "{}").expect("envelope writes");
+    let mut config = fixture_config(false);
+    config.system_proxy_owner = WindowsSystemProxyOwner::Desktop;
+    config.root_certificate_path = None;
+    config.driver_package = None;
+    config.embedded = Some(WindowsManagedEmbeddedConfig {
+        enabled: true,
+        envelope_path,
+        listen_host: "127.0.0.1".to_string(),
+        listen_port: 7890,
+    });
+    write_managed_config(&config_path, &config).expect("config writes");
+    let mut runtime = WindowsManagedRuntime::new(
+        FakeIntegration::default(),
+        FakeTunnel::default(),
+        config_path,
+        state_path.clone(),
+    );
+
+    let error = runtime.start().expect_err("invalid envelope fails");
+    assert!(error.message.contains("embedded engine could not start"));
+    let state = read_managed_state(&state_path).expect("state reads");
+    assert!(!state.embedded_running);
+    assert_eq!(state.last_transition, "failed");
+    assert!(state.embedded_last_error.is_some());
     let _ = fs::remove_dir_all(root);
 }
 

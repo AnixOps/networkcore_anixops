@@ -8,9 +8,11 @@ description = "Windows service host for the AnixOps NetworkCore managed client."
 
 [dependencies]
 control-domain = { path = "../../crates/control-domain" }
+engine-embedded = { path = "../../crates/engine-embedded" }
 engine-native = { path = "../../crates/engine-native" }
 engine-mieru = { path = "../../crates/engine-mieru" }
 engine-singbox = { path = "../../crates/engine-singbox" }
+inbound-mixed = { path = "../../crates/inbound-mixed" }
 mitm-policy = { path = "../../crates/mitm-policy" }
 networkcore-windows = { path = "../windows-cli" }
 platform-windows = { path = "../../crates/platform-windows" }
