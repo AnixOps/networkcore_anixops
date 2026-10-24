@@ -729,6 +729,28 @@ macos-signing-status=pending
 macos-real-device-status=pending
 ```
 
+## Linux GUI Real-Desktop Acceptance
+
+The Linux window (`apps/linux-gui`, binary `anixops-net`) builds and lints in the "Linux GUI build" CI job, but
+CI has no desktop session, so the window itself and the system proxy switch must be checked on a real Linux
+desktop. Build it there with `pnpm --dir apps/windows-gui/ui install && pnpm --dir apps/windows-gui/ui build`
+and `cargo build --release -p networkcore-linux-gui --features gui` (WebKitGTK 4.1 development packages needed).
+
+1. On GNOME and on KDE Plasma: import a subscription link, pasted share links and a local file; connect, and check
+   that the desktop's proxy setting points at `127.0.0.1:7890` and that a browser goes through the node.
+2. Switch nodes while connected, run a delay test and "选择最快节点", then disconnect and check the proxy mode is
+   back to what it was before connecting.
+3. Kill the process while connected, start it again, and check the previous proxy mode is restored at startup.
+4. Toggle "登录后启动", log out and back in, and check the window opens; toggle it off and check
+   `~/.config/autostart/anixops-net.desktop` is gone.
+5. Switch the language to English and the appearance to dark and OLED black.
+
+There is no package yet; AppImage/deb packaging and a tray icon come later.
+
+```text
+linux-gui-real-desktop-status=pending
+```
+
 ## iOS App Review Manual Confirmation
 
 以下字段是后续 iOS upload/release readiness 读取的机器状态。当前仍未完成 App Privacy answers、

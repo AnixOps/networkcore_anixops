@@ -2726,6 +2726,78 @@ jobs:
           # The packet tunnel runtime, MITM (engine-native, mitm-policy and its C core) included, must build for the iPhone.
           IPHONEOS_DEPLOYMENT_TARGET=17.0 cargo build --locked -p engine-embedded --lib --target aarch64-apple-ios
 
+  linux-gui:
+    name: Linux GUI build
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      CARGO_INCREMENTAL: "0"
+    needs:
+      - changes
+      - policy-fast
+      - detect-projects
+    if: >-
+      ${{
+        needs.detect-projects.outputs.rust == 'true' &&
+        needs.detect-projects.outputs.node == 'true' &&
+        (
+          needs.changes.outputs.full_matrix == 'true' ||
+          needs.changes.outputs.linux == 'true' ||
+          needs.changes.outputs.node == 'true'
+        )
+      }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      # Tauri on Linux renders through WebKitGTK.
+      - name: Install WebKitGTK
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/windows-gui/ui/pnpm-lock.yaml
+
+      # The Linux window shares the Windows React interface.
+      - name: Build the shared interface
+        shell: bash
+        run: |
+          pnpm --dir apps/windows-gui/ui install --frozen-lockfile
+          pnpm --dir apps/windows-gui/ui run build
+
+      - name: Setup Rust
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy
+          rustup default stable
+
+      - name: Restore Rust build cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: linux-gui
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+
+      - name: Lint, test and build the Linux GUI
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo clippy --locked -p networkcore-linux-gui --features gui --all-targets -- -D warnings
+          cargo test --locked -p networkcore-linux-gui
+          cargo build --locked -p networkcore-linux-gui --features gui --release
+          test -x target/release/anixops-net
+
   windows-managed-client-installer:
     name: Windows managed client MSI
     runs-on: windows-latest
@@ -3539,6 +3611,7 @@ jobs:
       - routing-equivalence
       - protocol-features
       - script-runtime-jsc
+      - linux-gui
       - node-build-test
       - swift-build-test
       - swift-manifest-validation
@@ -3589,6 +3662,7 @@ jobs:
           RESULT_ROUTING_EQUIVALENCE: ${{ needs.routing-equivalence.result }}
           RESULT_PROTOCOL_FEATURES: ${{ needs.protocol-features.result }}
           RESULT_SCRIPT_RUNTIME_JSC: ${{ needs.script-runtime-jsc.result }}
+          RESULT_LINUX_GUI: ${{ needs.linux-gui.result }}
           RESULT_NODE_BUILD_TEST: ${{ needs.node-build-test.result }}
           RESULT_SWIFT_BUILD_TEST: ${{ needs.swift-build-test.result }}
           RESULT_APPLE_SMOKE: ${{ needs.apple-project-smoke.result }}
@@ -3608,6 +3682,7 @@ jobs:
           ios_xcode_required=false
           apple_required=false
           reality_interop_required=false
+          linux_gui_required=false
 
           if [[ "${CHANGE_FULL_MATRIX}" == true || "${CHANGE_GO}" == true || "${CHANGE_RUST}" == true ||
                 "${CHANGE_NODE}" == true || "${CHANGE_WINDOWS}" == true || "${CHANGE_LINUX}" == true ||
@@ -3628,6 +3703,10 @@ jobs:
           fi
           if [[ "${CHANGE_FULL_MATRIX}" == true || "${CHANGE_WINDOWS}" == true ]]; then
             windows_required=true
+          fi
+          if [[ "${DETECTED_RUST}" == true && "${DETECTED_NODE}" == true &&
+                ("${CHANGE_FULL_MATRIX}" == true || "${CHANGE_LINUX}" == true || "${CHANGE_NODE}" == true) ]]; then
+            linux_gui_required=true
           fi
           if [[ "${DETECTED_NODE}" == true && ("${CHANGE_FULL_MATRIX}" == true || "${CHANGE_WINDOWS}" == true) ]]; then
             windows_gui_frontend_required=true
@@ -3705,6 +3784,7 @@ jobs:
           record_job "Routing equivalence (sing-box)" "${RESULT_ROUTING_EQUIVALENCE}" "${rust_required}"
           record_job "Protocol feature matrix" "${RESULT_PROTOCOL_FEATURES}" "${rust_required}"
           record_job "JavaScriptCore script conformance" "${RESULT_SCRIPT_RUNTIME_JSC}" "${rust_required}"
+          record_job "Linux GUI build" "${RESULT_LINUX_GUI}" "${linux_gui_required}"
           record_job "Node build and test" "${RESULT_NODE_BUILD_TEST}" "${node_required}"
           record_job "Swift build and test" "${RESULT_SWIFT_BUILD_TEST}" "${swift_required}"
           record_job "Swift package manifest validation" "${RESULT_SWIFT_MANIFEST}" "${swift_manifest_required}"
@@ -3777,6 +3857,7 @@ jobs:
             echo "| HTTP/2 MITM fuzz | ${rust_required} | ${RESULT_RUST_H2_FUZZ} |"
             echo "| Protocol feature matrix | ${rust_required} | ${RESULT_PROTOCOL_FEATURES} |"
             echo "| JavaScriptCore script conformance | ${rust_required} | ${RESULT_SCRIPT_RUNTIME_JSC} |"
+            echo "| Linux GUI build | ${linux_gui_required} | ${RESULT_LINUX_GUI} |"
             echo "| Node build and test | ${node_required} | ${RESULT_NODE_BUILD_TEST} |"
             echo "| Swift build and test | ${swift_required} | ${RESULT_SWIFT_BUILD_TEST} |"
             echo "| Apple project smoke | ${apple_required} | ${RESULT_APPLE_SMOKE} |"

@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The AnixOps Net window may invoke only its Rust command bridge and follow the chosen appearance in its title bar.",
+  "windows": ["main"],
+  "permissions": ["core:default", "core:window:allow-set-theme"]
+}
