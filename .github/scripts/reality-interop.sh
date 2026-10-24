@@ -121,7 +121,7 @@ server.serve_forever()
 " "${work}/target.crt" "${work}/target.key" "${www}" > "${work}/target-dest.log" 2>&1 &
   python3 -m http.server 18080 --bind 127.0.0.1 --directory "${www}" > "${work}/target-http.log" 2>&1 &
 
-  local keypair private_key public_key uuid short_id server_name hy2_password tuic_password
+  local keypair private_key public_key uuid short_id server_name hy2_password hy2_obfs_password tuic_password
   keypair="$("${bin}/sing-box" generate reality-keypair)"
   private_key="$(awk '/PrivateKey/ {print $2}' <<<"${keypair}")"
   public_key="$(awk '/PublicKey/ {print $2}' <<<"${keypair}")"
@@ -130,6 +130,7 @@ server.serve_forever()
   server_name="reality.interop.test"
   hy2_password="$(openssl rand -hex 16)"
   tuic_password="$(openssl rand -hex 16)"
+  hy2_obfs_password="$(openssl rand -hex 16)"
 
   cat > "${work}/xray.json" <<EOF
 {
@@ -185,6 +186,11 @@ EOF
      "users": [{"password": "${hy2_password}"}],
      "tls": {"enabled": true, "alpn": ["h3"],
        "certificate_path": "${work}/target.crt", "key_path": "${work}/target.key"}},
+    {"type": "hysteria2", "tag": "hy2-salamander", "listen": "127.0.0.1", "listen_port": 26442,
+     "users": [{"password": "${hy2_password}"}],
+     "obfs": {"type": "salamander", "password": "${hy2_obfs_password}"},
+     "tls": {"enabled": true, "alpn": ["h3"],
+       "certificate_path": "${work}/target.crt", "key_path": "${work}/target.key"}},
     {"type": "tuic", "tag": "tuic", "listen": "127.0.0.1", "listen_port": 26451,
      "users": [{"uuid": "${uuid}", "password": "${tuic_password}"}],
      "congestion_control": "bbr",
@@ -211,11 +217,25 @@ auth:
   password: ${hy2_password}
 EOF
   "${bin}/hysteria" server -c "${work}/hysteria.yaml" > "${work}/hysteria.log" 2>&1 &
+  cat > "${work}/hysteria-salamander.yaml" <<EOF
+listen: 127.0.0.1:27442
+tls:
+  cert: ${work}/target.crt
+  key: ${work}/target.key
+auth:
+  type: password
+  password: ${hy2_password}
+obfs:
+  type: salamander
+  salamander:
+    password: ${hy2_obfs_password}
+EOF
+  "${bin}/hysteria" server -c "${work}/hysteria-salamander.yaml" > "${work}/hysteria-salamander.log" 2>&1 &
 
   for port in 18080 18443 18444 24431 24432 24441 24442 24443 25431 25432 25441 25442 25443; do
     wait_for_port "${port}"
   done
-  for port in 26441 26451 27441; do
+  for port in 26441 26442 26451 27441 27442; do
     wait_for_udp_port "${port}"
   done
 
@@ -224,7 +244,8 @@ NC_INTEROP_SERVERS=xray-vision=127.0.0.1:24431:vision,xray-plain=127.0.0.1:24432
 NC_VLESS_UUID=${uuid}
 NC_VMESS_SERVERS=xray-vmess-tcp=127.0.0.1:24441:tcp,xray-vmess-ws=127.0.0.1:24442:ws,xray-vmess-grpc=127.0.0.1:24443:grpc,sing-box-vmess-tcp=127.0.0.1:25441:tcp,sing-box-vmess-ws=127.0.0.1:25442:ws,sing-box-vmess-grpc=127.0.0.1:25443:grpc
 NC_VMESS_UUID=${uuid}
-NC_HYSTERIA2_SERVERS=sing-box=127.0.0.1:26441,hysteria=127.0.0.1:27441
+NC_HYSTERIA2_SERVERS=sing-box=127.0.0.1:26441,hysteria=127.0.0.1:27441,sing-box-salamander=127.0.0.1:26442:salamander,hysteria-salamander=127.0.0.1:27442:salamander
+NC_HYSTERIA2_OBFS_PASSWORD=${hy2_obfs_password}
 NC_HYSTERIA2_PASSWORD=${hy2_password}
 NC_HYSTERIA2_SERVER_NAME=target.interop.test
 NC_TUIC_SERVERS=sing-box=127.0.0.1:26451
@@ -240,7 +261,7 @@ EOF
 }
 
 logs() {
-  for log in xray sing-box hysteria target-tls target-dest target-http; do
+  for log in xray sing-box hysteria hysteria-salamander target-tls target-dest target-http; do
     if [[ -f "${work}/${log}.log" ]]; then
       echo "::group::${log}.log"
       tail -n 200 "${work}/${log}.log"

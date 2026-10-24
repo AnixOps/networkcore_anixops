@@ -15,6 +15,7 @@ use outbound_hysteria2::{
 use rcgen::{CertificateParams, KeyPair};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use transport_quic::salamander::{Salamander, SalamanderSocket};
 use transport_tls::TlsSettings;
 
 const PASSWORD: &str = "correct horse";
@@ -25,6 +26,11 @@ struct TestServer {
 }
 
 async fn hysteria2_server() -> TestServer {
+    hysteria2_server_with(None).await
+}
+
+/// A server whose datagrams are Salamander-obfuscated with `obfs` when set.
+async fn hysteria2_server_with(obfs: Option<&str>) -> TestServer {
     let key = KeyPair::generate().unwrap();
     let cert = CertificateParams::new(vec!["hy2.test".to_string()])
         .unwrap()
@@ -45,7 +51,25 @@ async fn hysteria2_server() -> TestServer {
     let config = quinn::ServerConfig::with_crypto(Arc::new(
         quinn::crypto::rustls::QuicServerConfig::try_from(crypto).unwrap(),
     ));
-    let endpoint = quinn::Endpoint::server(config, "127.0.0.1:0".parse().unwrap()).unwrap();
+    let endpoint = match obfs {
+        None => quinn::Endpoint::server(config, "127.0.0.1:0".parse().unwrap()).unwrap(),
+        Some(password) => {
+            let runtime = quinn::default_runtime().unwrap();
+            let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+            socket.set_nonblocking(true).unwrap();
+            let socket = SalamanderSocket::new(
+                runtime.wrap_udp_socket(socket).unwrap(),
+                Salamander::new(password).unwrap(),
+            );
+            quinn::Endpoint::new_with_abstract_socket(
+                quinn::EndpointConfig::default(),
+                Some(config),
+                socket,
+                runtime,
+            )
+            .unwrap()
+        }
+    };
     let addr = endpoint.local_addr().unwrap();
     let connections = Arc::new(AtomicUsize::new(0));
     let counter = connections.clone();
@@ -246,6 +270,54 @@ async fn varints_round_trip() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn salamander_obfuscates_every_datagram() {
+    let server = hysteria2_server_with(Some("cry me a river")).await;
+    let outbound = Hysteria2Outbound::new("127.0.0.1", server.addr.port(), PASSWORD, &tls())
+        .unwrap()
+        .with_salamander(Salamander::new("cry me a river").unwrap())
+        .unwrap();
+    let echoed = round_trip(
+        &outbound,
+        TargetAddr::Domain("echo.test".to_owned(), 80),
+        b"obfuscated",
+    )
+    .await;
+    assert_eq!(echoed, b"echo.test:80|obfuscated");
+
+    // Without obfuscation the server cannot read the handshake.
+    let plain = Hysteria2Outbound::new("127.0.0.1", server.addr.port(), PASSWORD, &tls()).unwrap();
+    assert!(plain
+        .connect(&TargetAddr::Domain("echo.test".to_owned(), 80))
+        .await
+        .is_err());
+}
+
+#[test]
+fn salamander_round_trips_and_salts_each_packet() {
+    let salamander = Salamander::new("cry me a river").unwrap();
+    let packet = b"a QUIC packet".to_vec();
+    let (mut first, mut second) = (Vec::new(), Vec::new());
+    salamander.obfuscate(&packet, &mut first).unwrap();
+    salamander.obfuscate(&packet, &mut second).unwrap();
+    assert_eq!(first.len(), packet.len() + 8);
+    assert_ne!(first, second, "a fresh salt per packet");
+    assert_ne!(&first[8..], &packet[..]);
+    let len = salamander.deobfuscate(&mut first).unwrap();
+    assert_eq!(&first[..len], &packet[..]);
+    assert!(salamander.deobfuscate(&mut [0u8; 8]).is_none());
+    assert!(Salamander::new("abc").is_err());
+
+    // Two coalesced datagrams (receive offload) at a 21-byte stride.
+    let mut batch = Vec::new();
+    salamander.obfuscate(&packet, &mut batch).unwrap();
+    salamander.obfuscate(b"tail", &mut batch).unwrap();
+    let (len, stride) =
+        transport_quic::salamander::deobfuscate_batch(&salamander, &mut batch, packet.len() + 8);
+    assert_eq!(stride, packet.len());
+    assert_eq!(&batch[..len], b"a QUIC packettail");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn factory_builds_from_settings_and_rejects_obfs() {
     let server = hysteria2_server().await;
     let mut registry = OutboundRegistry::new();
@@ -277,7 +349,7 @@ async fn factory_builds_from_settings_and_rejects_obfs() {
         "server": "127.0.0.1",
         "port": 443,
         "password": PASSWORD,
-        "obfs": {"type": "salamander", "password": "cry me a river"},
+        "obfs": {"type": "gecko", "password": "cry me a river"},
     });
     let err = match registry.build("hysteria2", obfs.as_object().unwrap(), Arc::new(TcpDialer)) {
         Ok(_) => panic!("obfs config built"),

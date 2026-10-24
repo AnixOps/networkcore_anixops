@@ -16,7 +16,7 @@ Each protocol is its own crate behind a cargo feature; `src/protocols.rs` regist
 | --- | --- | --- |
 | (always) | `direct` | this crate |
 | `http` | `http` (HTTP CONNECT proxy, optional TLS and Basic auth) | `outbound-http` |
-| `hysteria2` | `hysteria2` (QUIC + HTTP/3 password auth, TCP streams; no obfs or port hopping yet) | `outbound-hysteria2` (QUIC from `transport-quic`) |
+| `hysteria2` | `hysteria2` (QUIC + HTTP/3 password auth, TCP streams; optional `"obfs": {"type": "salamander", "password": ...}`; no port hopping yet) | `outbound-hysteria2` (QUIC from `transport-quic`) |
 | `shadowsocks` | `shadowsocks` (`method` `2022-blake3-*` or an AEAD method) | `outbound-shadowsocks` |
 | `socks` | `socks` (SOCKS5, optional username/password) | `outbound-socks` |
 | `tuic` | `tuic` (TUIC v5: UUID + password, `congestion_control` `cubic`/`new_reno`/`bbr`; TCP only) | `outbound-tuic` (QUIC from `transport-quic`) |

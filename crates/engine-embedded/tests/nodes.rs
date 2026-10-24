@@ -278,6 +278,7 @@ fn hysteria2_nodes_map_password_and_tls() {
             "server_name": "hy2.example",
             "alpn": [],
             "insecure": true,
+            "obfs": null,
         })
     );
     let (envelope, _) = single_node_envelope("p", &[hy2], None).unwrap();
@@ -350,7 +351,7 @@ fn unsupported_nodes_are_reported_without_secrets() {
         Protocol::Hysteria2,
         &[
             ("hysteria2.password", "hy2-secret"),
-            ("hysteria2.obfs.type", "salamander"),
+            ("hysteria2.obfs.type", "gecko"),
             ("hysteria2.obfs.password", "obfs-secret"),
         ],
     );
