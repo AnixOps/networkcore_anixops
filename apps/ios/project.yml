@@ -29,6 +29,7 @@ targets:
     sources:
       - path: Sources/NetworkCoreApp
       - path: Sources/NetworkCoreAppHost
+      - path: Sources/NetworkCoreShared
     info:
       path: Generated/NetworkCoreApp-Info.plist
       properties:
@@ -51,6 +52,9 @@ targets:
       - package: NetworkCoreIOS
         product: NetworkCoreIOS
       - target: NetworkCorePacketTunnel
+        embed: true
+      # The TestFlight workflow drops this target when no widget provisioning profile is configured.
+      - target: NetworkCoreWidget
         embed: true
 
   NetworkCorePacketTunnel:
@@ -82,9 +86,38 @@ targets:
         embed: false
       - sdk: Security.framework
 
+  # Home Screen / Lock Screen status widget and the iOS 18 Control Center switch. It reads the saved VPN
+  # configuration itself (status, node name, protocol), so it carries the same Network Extension entitlement.
+  NetworkCoreWidget:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Sources/NetworkCoreWidget
+      - path: Sources/NetworkCoreShared
+      - path: Sources/NetworkCoreAppHost/BrandPalette.swift
+      - path: Sources/NetworkCoreAppHost/RouteLine.swift
+      - path: Sources/NetworkCoreApp/Resources/Localizable.xcstrings
+    info:
+      path: Generated/NetworkCoreWidget-Info.plist
+      properties:
+        CFBundleDisplayName: AnixOps Net
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.networkcore.ios.widget
+        CODE_SIGN_ENTITLEMENTS: Entitlements/NetworkCoreWidget.entitlements
+        TARGETED_DEVICE_FAMILY: "1"
+    dependencies:
+      - package: NetworkCoreIOS
+        product: NetworkCoreIOS
+
 schemes:
   NetworkCoreApp:
     build:
       targets:
         NetworkCoreApp: all
         NetworkCorePacketTunnel: all
+        NetworkCoreWidget: all

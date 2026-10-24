@@ -31,6 +31,9 @@ their own gates pass.
   extension reads the item the app saved. The default team-prefixed profiles already allow this group.
 - UI: the app follows the AnixOps Net brand (five tabs: 首页, 代理, 规则, 扩展, 设置). Brand colors, radii and motion
   timings live in `apps/ios/Design/tokens.json`; `Sources/NetworkCoreAppHost/BrandPalette.swift` mirrors them.
+- Widgets: `Sources/NetworkCoreWidget` holds the Home Screen / Lock Screen status widget and the iOS 18 Control
+  Center switch; `Sources/NetworkCoreShared` (status reader and the connect intent) is compiled into the app and the
+  widget. The TestFlight upload ships the widget only once its profile is configured (see `docs/manual-intervention.md`).
 - Languages: Chinese (zh-Hans) is the source language and English comes from
   `Sources/NetworkCoreApp/Resources/Localizable.xcstrings`; the app follows the iPhone language. SwiftUI text literals are
   keys as written; strings built in code use `String(localized:)`. Add every new user-visible string to the catalog.

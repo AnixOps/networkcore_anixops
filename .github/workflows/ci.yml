@@ -2227,7 +2227,7 @@ jobs:
           grep -q 'IosPlatformSnapshotDTO' docs/architecture/ios-swift-xcode-bridge-source-contract.md
           ios_allowed='^$'
           if [[ -f apps/ios/Package.swift ]]; then
-            ios_allowed='^\./apps/ios/(Package\.swift|Sources/.+\.swift|Tests/.+\.swift|Sources/NetworkCoreApp/Resources/PrivacyInfo\.xcprivacy|Sources/NetworkCorePacketTunnel/Resources/PrivacyInfo\.xcprivacy|Entitlements/NetworkCoreApp\.entitlements|Entitlements/NetworkCorePacketTunnel\.entitlements)$'
+            ios_allowed='^\./apps/ios/(Package\.swift|Sources/.+\.swift|Tests/.+\.swift|Sources/NetworkCoreApp/Resources/PrivacyInfo\.xcprivacy|Sources/NetworkCorePacketTunnel/Resources/PrivacyInfo\.xcprivacy|Entitlements/NetworkCoreApp\.entitlements|Entitlements/NetworkCorePacketTunnel\.entitlements|Entitlements/NetworkCoreWidget\.entitlements)$'
           fi
           ios_forbidden="$(find . -path ./.git -prune -o \( -type f \( -name "Package.swift" -o -name "*.swift" -o -name "PrivacyInfo.xcprivacy" -o -name "*.entitlements" -o -name "*.mobileprovision" -o -name "*.provisionprofile" -o -name "*.p12" -o -name "*.cer" -o -name "*.key" -o -name "*.pem" -o -name "*.xcframework" -o -name "*.a" -o -name "ExportOptions.plist" -o -name "*.ipa" \) -o -type d \( -name "*.xcodeproj" -o -name "*.xcworkspace" -o -name "*.xcarchive" -o -name "*.xcresult" -o -name "*.dSYM" \) \) -print | grep -v -E "${ios_allowed}" | head -n 1 || true)"
           if [[ -n "${ios_forbidden}" ]]; then
@@ -3387,6 +3387,7 @@ jobs:
           git diff --exit-code -- Entitlements
           grep -q 'CODE_SIGN_ENTITLEMENTS = Entitlements/NetworkCoreApp.entitlements;' NetworkCore.xcodeproj/project.pbxproj
           grep -q 'CODE_SIGN_ENTITLEMENTS = Entitlements/NetworkCorePacketTunnel.entitlements;' NetworkCore.xcodeproj/project.pbxproj
+          grep -q 'CODE_SIGN_ENTITLEMENTS = Entitlements/NetworkCoreWidget.entitlements;' NetworkCore.xcodeproj/project.pbxproj
 
       - name: Build the app without signing
         shell: bash
@@ -3410,6 +3411,8 @@ jobs:
           test -f "${appex}/PrivacyInfo.xcprivacy"
           /usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "${appex}/Info.plist" \
             | grep -qx 'com.apple.networkextension.packet-tunnel'
+          /usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "${app}/PlugIns/NetworkCoreWidget.appex/Info.plist" \
+            | grep -qx 'com.apple.widgetkit-extension'
           # App Store Connect rejects uploads without an asset-catalog icon or declared orientations.
           # actool records the icon under CFBundleIcons:CFBundlePrimaryIcon; some Xcode versions also add it at the top level.
           icon="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIcons:CFBundlePrimaryIcon:CFBundleIconName' "${app}/Info.plist" 2>/dev/null \
