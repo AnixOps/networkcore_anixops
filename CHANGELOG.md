@@ -103,6 +103,7 @@ current-main-cross-platform-run-plan=public-engine-run-plan-active
 
 ### Changed
 
+- 版本号统一为 `0.2.0`，为 v0.2.0 正式版做准备：工作区 `Cargo.toml`（及 `Cargo.lock` 中的工作区成员）、Windows/Linux 图形客户端的 `tauri.conf.json`、共用界面 `package.json`，以及 iOS/macOS 的 `MARKETING_VERSION`。命令行 `version` 输出和脚本环境字符串随之变为 `0.2.0`。
 - `config-core` now parses optional `rules` and `policy_groups` fields into a
   routing model (DOMAIN/DOMAIN-SUFFIX/IP-CIDR/GEOIP/FINAL rules and
   select/url-test/fallback groups), and `engine-singbox` can translate it to a
