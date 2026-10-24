@@ -194,6 +194,14 @@ pub struct ScriptOutcome {
 }
 
 impl ScriptOutcome {
+    // Only the engines call this; a build with neither engine has none.
+    #[cfg_attr(
+        not(any(
+            feature = "quickjs",
+            all(feature = "javascriptcore", target_vendor = "apple")
+        )),
+        allow(dead_code)
+    )]
     pub(crate) fn failed(failure: ScriptFailure) -> Self {
         Self {
             status: ScriptRunStatus::Failed(failure),
