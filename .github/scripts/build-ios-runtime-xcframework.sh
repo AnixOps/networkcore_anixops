@@ -52,9 +52,11 @@ package() {
   local out="${root}/apps/ios/Generated/${name}.xcframework"
   local work="${RUNNER_TEMP:-${root}/target}/networkcore-ios-${name}"
   rm -rf "${work}" "${out}"
-  mkdir -p "${work}/headers" "${work}/device" "$(dirname "${out}")"
-  cp "${root}/crates/${crate}/include/${header}" "${work}/headers/"
-  printf 'module %s {\n    header "%s"\n    export *\n}\n' "${module}" "${header}" > "${work}/headers/module.modulemap"
+  # Each module map sits in a directory named after its module: Xcode copies every linked
+  # XCFramework's headers into the same include/ directory, so two top-level module maps collide.
+  mkdir -p "${work}/headers/${module}" "${work}/device" "$(dirname "${out}")"
+  cp "${root}/crates/${crate}/include/${header}" "${work}/headers/${module}/"
+  printf 'module %s {\n    header "%s"\n    export *\n}\n' "${module}" "${header}" > "${work}/headers/${module}/module.modulemap"
 
   cp "${root}/target/${device_target}/release/${lib}" "${work}/device/${lib}"
   local args=(-library "${work}/device/${lib}" -headers "${work}/headers")
