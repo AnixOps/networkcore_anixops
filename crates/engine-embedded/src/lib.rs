@@ -51,6 +51,7 @@ use engine_outbound::{Dialer, TcpDialer, TcpOutbound};
 use serde::Serialize;
 
 use crate::config::{RuntimeConfig, TunnelMode};
+use crate::routing::RoutedOutbound;
 use crate::tunnel::{FlowInterceptor, PacketSink, Tunnel, TunnelSettings, TunnelStatsSnapshot};
 #[cfg(feature = "wireguard")]
 use crate::wireguard::WireGuardSettings;
@@ -132,6 +133,9 @@ enum Engine {
 pub struct EmbeddedRuntime {
     config: RuntimeConfig,
     engine: Engine,
+    /// The rule-based outbound of a `routing` config, kept to run its url-test
+    /// and fallback health checks while the tunnel runs.
+    routed: Option<Arc<RoutedOutbound>>,
     interceptor: Option<Arc<dyn FlowInterceptor>>,
     tunnel: Option<Tunnel>,
     state: RuntimeState,
@@ -157,13 +161,18 @@ impl EmbeddedRuntime {
     ) -> Result<Self, RuntimeError> {
         let config = RuntimeConfig::from_json(bytes)?;
         let interceptor = build_interceptor(&config)?;
-        let engine = match config.build_mode(registry, dialer)? {
-            TunnelMode::Stack(outbound) => Engine::Stack(outbound),
-            #[cfg(feature = "wireguard")]
-            TunnelMode::WireGuard(settings) => Engine::WireGuard(settings),
+        let routed = config.build_routed(registry, dialer.clone())?;
+        let engine = match &routed {
+            Some(routed) => Engine::Stack(routed.clone() as Arc<dyn TcpOutbound>),
+            None => match config.build_mode(registry, dialer)? {
+                TunnelMode::Stack(outbound) => Engine::Stack(outbound),
+                #[cfg(feature = "wireguard")]
+                TunnelMode::WireGuard(settings) => Engine::WireGuard(settings),
+            },
         };
         let mut runtime = Self::with_engine(config, engine);
         runtime.interceptor = interceptor;
+        runtime.routed = routed;
         Ok(runtime)
     }
 
@@ -176,6 +185,7 @@ impl EmbeddedRuntime {
         Self {
             config,
             engine,
+            routed: None,
             interceptor: None,
             tunnel: None,
             state: RuntimeState::Initialized,
@@ -202,15 +212,22 @@ impl EmbeddedRuntime {
             dns_upstream: self.config.dns.upstream,
             dns_timeout: Duration::from_millis(self.config.dns.timeout_ms),
         };
-        let started = match &self.engine {
-            Engine::Stack(outbound) => Tunnel::start_with_interceptor(
+        let started = match (&self.engine, self.health_checks()) {
+            (Engine::Stack(outbound), Some(health_checks)) => Tunnel::start_with_background(
+                settings,
+                outbound.clone(),
+                self.interceptor.clone(),
+                health_checks,
+                sink,
+            ),
+            (Engine::Stack(outbound), None) => Tunnel::start_with_interceptor(
                 settings,
                 outbound.clone(),
                 self.interceptor.clone(),
                 sink,
             ),
             #[cfg(feature = "wireguard")]
-            Engine::WireGuard(wireguard) => Tunnel::start_wireguard(wireguard.clone(), sink),
+            (Engine::WireGuard(wireguard), _) => Tunnel::start_wireguard(wireguard.clone(), sink),
         };
         match started {
             Ok(tunnel) => {
@@ -223,6 +240,20 @@ impl EmbeddedRuntime {
                 "tunnel could not start",
             ))),
         }
+    }
+
+    /// The url-test and fallback health checks of a routed config. They probe
+    /// through the outbounds like the delay test, which the `local-proxy`
+    /// feature builds.
+    #[cfg(feature = "local-proxy")]
+    fn health_checks(&self) -> Option<engine_outbound::BoxFuture<'static, ()>> {
+        let routed = self.routed.clone()?;
+        Some(Box::pin(routed.run_health_checks()))
+    }
+
+    #[cfg(not(feature = "local-proxy"))]
+    fn health_checks(&self) -> Option<engine_outbound::BoxFuture<'static, ()>> {
+        None
     }
 
     /// Returns `false` when the packet was dropped.

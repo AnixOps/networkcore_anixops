@@ -184,6 +184,22 @@ impl Tunnel {
         })
     }
 
+    /// Like [`Tunnel::start_with_interceptor`], also running `background` (such
+    /// as policy group health checks) on the tunnel's runtime until it stops.
+    pub fn start_with_background(
+        settings: TunnelSettings,
+        outbound: Arc<dyn TcpOutbound>,
+        interceptor: Option<Arc<dyn FlowInterceptor>>,
+        background: BoxFuture<'static, ()>,
+        sink: PacketSink,
+    ) -> io::Result<Self> {
+        Self::launch(move |packet_rx, stats| {
+            spawn_tasks(settings, outbound, interceptor, sink, packet_rx, stats)?;
+            tokio::spawn(background);
+            Ok(())
+        })
+    }
+
     /// Starts a WireGuard tunnel to one peer. Resolving the endpoint and
     /// binding the UDP socket happen before this returns.
     #[cfg(feature = "wireguard")]
