@@ -108,7 +108,9 @@ pub struct OperationResult {
 }
 
 fn done(message: impl Into<String>) -> Result<OperationResult, String> {
-    Ok(OperationResult { message: message.into() })
+    Ok(OperationResult {
+        message: message.into(),
+    })
 }
 
 /// The preferences the interface saves; fields Linux does not use are ignored.
@@ -134,7 +136,12 @@ pub struct Backend {
 
 impl Backend {
     /// Loads the saved state and first puts back proxy settings a previous run left changed.
-    pub fn open(store: Store, desktop: Option<Desktop>, autostart_dir: Option<PathBuf>, executable: PathBuf) -> Self {
+    pub fn open(
+        store: Store,
+        desktop: Option<Desktop>,
+        autostart_dir: Option<PathBuf>,
+        executable: PathBuf,
+    ) -> Self {
         let state = store.load();
         let mut backend = Self {
             store,
@@ -168,7 +175,12 @@ impl Backend {
         let Some(source) = self.state.selected_source() else {
             return;
         };
-        match self.store.read_source(&source.id).map_err(|error| error.to_string()).and_then(|content| engine::parse_nodes(&content)) {
+        match self
+            .store
+            .read_source(&source.id)
+            .map_err(|error| error.to_string())
+            .and_then(|content| engine::parse_nodes(&content))
+        {
             Ok(nodes) => self.nodes = nodes,
             Err(error) => self.configuration_error = Some(error),
         }
@@ -183,13 +195,20 @@ impl Backend {
             (None, _) => StatusFact::new(
                 "Unavailable",
                 Some(address.map_or_else(
-                    || "this desktop is not supported; set applications to the local proxy by hand".to_string(),
+                    || {
+                        "this desktop is not supported; set applications to the local proxy by hand"
+                            .to_string()
+                    },
                     |address| format!("set applications to {address} by hand"),
                 )),
                 "warning",
             ),
-            (Some(desktop), Some(_)) => StatusFact::new("Enabled", Some(desktop.name().to_string()), "success"),
-            (Some(desktop), None) => StatusFact::new("Disabled", Some(desktop.name().to_string()), "neutral"),
+            (Some(desktop), Some(_)) => {
+                StatusFact::new("Enabled", Some(desktop.name().to_string()), "success")
+            }
+            (Some(desktop), None) => {
+                StatusFact::new("Disabled", Some(desktop.name().to_string()), "neutral")
+            }
         }
     }
 
@@ -213,15 +232,23 @@ impl Backend {
             connection_label: connection.to_string(),
             service: StatusFact::new("Not used", None, "neutral"),
             core: if running {
-                StatusFact::new("Running", self.engine.address().map(|address| address.to_string()), "success")
+                StatusFact::new(
+                    "Running",
+                    self.engine.address().map(|address| address.to_string()),
+                    "success",
+                )
             } else {
                 StatusFact::new("Stopped", None, if crashed { "danger" } else { "neutral" })
             },
             proxy: self.proxy_fact(),
             selected_node: selected.map(|node| node.id.clone()),
             subscription: source.map(|source| source.location.clone()),
-            subscription_last_updated: source.and_then(|source| source.last_success).map(format_time),
-            subscription_last_attempt: source.and_then(|source| source.last_attempt).map(format_time),
+            subscription_last_updated: source
+                .and_then(|source| source.last_success)
+                .map(format_time),
+            subscription_last_attempt: source
+                .and_then(|source| source.last_attempt)
+                .map(format_time),
             subscription_next_attempt: None,
             subscription_refresh_result: String::new(),
             subscription_added_node_count: 0,
@@ -231,7 +258,10 @@ impl Backend {
             subscription_error: source.and_then(|source| source.last_error.clone()),
             last_error: self.last_error.clone(),
             configuration_error: self.configuration_error.clone(),
-            start_after_login: self.autostart_dir.as_deref().is_some_and(autostart::is_enabled),
+            start_after_login: self
+                .autostart_dir
+                .as_deref()
+                .is_some_and(autostart::is_enabled),
             auto_connect: self.state.preferences.auto_connect,
             auto_recover_core: false,
             auto_subscription_refresh: false,
@@ -246,7 +276,8 @@ impl Backend {
     }
 
     pub fn nodes(&self) -> Vec<NodeSummary> {
-        let selected = engine::choose_node(&self.nodes, self.state.selected_node.as_deref()).map(|node| node.id.clone());
+        let selected = engine::choose_node(&self.nodes, self.state.selected_node.as_deref())
+            .map(|node| node.id.clone());
         self.nodes
             .iter()
             .filter(|node| engine::is_supported(node))
@@ -270,7 +301,12 @@ impl Backend {
                 last_successful_update: source.last_success.map(format_time),
                 last_attempt: source.last_attempt.map(format_time),
                 next_attempt: None,
-                result: if source.last_error.is_some() { "failed" } else { "succeeded" }.to_string(),
+                result: if source.last_error.is_some() {
+                    "failed"
+                } else {
+                    "succeeded"
+                }
+                .to_string(),
                 added_node_count: 0,
                 removed_node_count: 0,
                 changed_node_count: 0,
@@ -291,7 +327,9 @@ impl Backend {
             .ok_or("import a subscription with a node the embedded engine supports first")?
             .clone();
         let envelope = engine::envelope(&self.nodes, &node.id)?;
-        let address = self.engine.start(&envelope, &node.id, self.state.listen_port)?;
+        let address = self
+            .engine
+            .start(&envelope, &node.id, self.state.listen_port)?;
         if self.state.preferences.system_proxy && self.state.proxy_backup.is_none() {
             if let Some(desktop) = self.desktop {
                 match system_proxy::apply(desktop, address.port()) {
@@ -323,7 +361,10 @@ impl Backend {
                     self.state.proxy_backup = None;
                     self.save();
                 }
-                Err(error) => self.last_error = Some(format!("the system proxy could not be restored: {error}")),
+                Err(error) => {
+                    self.last_error =
+                        Some(format!("the system proxy could not be restored: {error}"))
+                }
             }
         }
     }
@@ -356,7 +397,8 @@ impl Backend {
         self.save();
         if self.engine.is_running() {
             let envelope = engine::envelope(&self.nodes, &node.id)?;
-            self.engine.start(&envelope, &node.id, self.state.listen_port)?;
+            self.engine
+                .start(&envelope, &node.id, self.state.listen_port)?;
         }
         done(format!("Switched to {}", node.name))
     }
@@ -367,13 +409,19 @@ impl Backend {
     }
 
     pub fn node_name(&self, node_id: &str) -> Option<String> {
-        self.nodes.iter().find(|node| node.id == node_id).map(|node| node.name.clone())
+        self.nodes
+            .iter()
+            .find(|node| node.id == node_id)
+            .map(|node| node.name.clone())
     }
 
     /// Saves a newly fetched source. `content` is the URL's body, the file, or the pasted links.
     pub fn import(&mut self, location: &str, content: &str) -> Result<OperationResult, String> {
         let nodes = engine::parse_nodes(content)?;
-        let supported = nodes.iter().filter(|node| engine::is_supported(node)).count();
+        let supported = nodes
+            .iter()
+            .filter(|node| engine::is_supported(node))
+            .count();
         if supported == 0 {
             return Err("none of the nodes can run on the embedded engine yet".to_string());
         }
@@ -397,9 +445,14 @@ impl Backend {
     }
 
     /// Records a refresh of source `id`: the new content, or why it failed.
-    pub fn finish_refresh(&mut self, id: &str, fetched: Result<String, String>) -> Result<OperationResult, String> {
+    pub fn finish_refresh(
+        &mut self,
+        id: &str,
+        fetched: Result<String, String>,
+    ) -> Result<OperationResult, String> {
         let time = now();
-        let parsed = fetched.and_then(|content| engine::parse_nodes(&content).map(|nodes| (content, nodes)));
+        let parsed =
+            fetched.and_then(|content| engine::parse_nodes(&content).map(|nodes| (content, nodes)));
         let result = match parsed {
             Ok((content, nodes)) => self
                 .store
@@ -445,11 +498,15 @@ impl Backend {
         done("Subscription removed")
     }
 
-    pub fn save_preferences(&mut self, input: &PreferencesInput) -> Result<OperationResult, String> {
+    pub fn save_preferences(
+        &mut self,
+        input: &PreferencesInput,
+    ) -> Result<OperationResult, String> {
         if let Some(dir) = &self.autostart_dir {
             if autostart::is_enabled(dir) != input.start_after_login {
-                autostart::set_enabled(dir, input.start_after_login, &self.executable)
-                    .map_err(|error| format!("the autostart entry could not be changed: {error}"))?;
+                autostart::set_enabled(dir, input.start_after_login, &self.executable).map_err(
+                    |error| format!("the autostart entry could not be changed: {error}"),
+                )?;
             }
         }
         self.state.preferences.auto_connect = input.auto_connect;
@@ -461,17 +518,28 @@ impl Backend {
         if let Some(error) = &self.configuration_error {
             return Err(error.clone());
         }
-        let supported = self.nodes.iter().filter(|node| engine::is_supported(node)).count();
+        let supported = self
+            .nodes
+            .iter()
+            .filter(|node| engine::is_supported(node))
+            .count();
         if supported == 0 {
             return Err("no node the embedded engine can run".to_string());
         }
-        done(format!("{supported} of {} nodes can run on the embedded engine", self.nodes.len()))
+        done(format!(
+            "{supported} of {} nodes can run on the embedded engine",
+            self.nodes.len()
+        ))
     }
 
     /// Writes a report without node addresses, names or credentials.
     pub fn diagnostics(&self) -> Result<OperationResult, String> {
         let snapshot = self.snapshot();
-        let mut protocols: Vec<String> = self.nodes.iter().map(|node| engine::protocol_name(&node.protocol)).collect();
+        let mut protocols: Vec<String> = self
+            .nodes
+            .iter()
+            .map(|node| engine::protocol_name(&node.protocol))
+            .collect();
         protocols.sort();
         protocols.dedup();
         let report = format!(
@@ -498,7 +566,9 @@ impl Backend {
 }
 
 fn now() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_secs())
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_secs())
 }
 
 /// `YYYY-MM-DD HH:MM UTC` from Unix seconds.
@@ -509,13 +579,22 @@ pub fn format_time(seconds: u64) -> String {
     let z = days + 719_468;
     let era = z.div_euclid(146_097);
     let day_of_era = z.rem_euclid(146_097);
-    let year_of_era = (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let year_of_era =
+        (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
     let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
     let month_index = (5 * day_of_year + 2) / 153;
     let day = day_of_year - (153 * month_index + 2) / 5 + 1;
-    let month = if month_index < 10 { month_index + 3 } else { month_index - 9 };
+    let month = if month_index < 10 {
+        month_index + 3
+    } else {
+        month_index - 9
+    };
     let year = year_of_era + era * 400 + i64::from(month <= 2);
-    format!("{year:04}-{month:02}-{day:02} {:02}:{:02} UTC", minutes / 60, minutes % 60)
+    format!(
+        "{year:04}-{month:02}-{day:02} {:02}:{:02} UTC",
+        minutes / 60,
+        minutes % 60
+    )
 }
 
 /// How long a delay result reads in a message.
@@ -530,7 +609,8 @@ mod tests {
     const LINK: &str = "ss://YWVzLTI1Ni1nY206ZjQzYzBlZWUtMTNiOS00ZjA3LWJlYzktZDRiNzQ0MTQxNTAz@82.47.34.99:11111#HK";
 
     fn backend(name: &str) -> (Backend, PathBuf) {
-        let dir = std::env::temp_dir().join(format!("anixops-net-backend-{name}-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("anixops-net-backend-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let backend = Backend::open(
             Store::new(dir.join("config")),
@@ -557,7 +637,10 @@ mod tests {
         assert_eq!(snapshot.proxy.label, "Unavailable");
         assert!(backend.nodes().is_empty());
         let json = serde_json::to_value(&snapshot).unwrap();
-        assert!(json.get("connectionLabel").is_some(), "fields use the interface's camelCase names");
+        assert!(
+            json.get("connectionLabel").is_some(),
+            "fields use the interface's camelCase names"
+        );
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -572,7 +655,10 @@ mod tests {
                 assert_eq!(backend.nodes().len(), 1);
                 assert!(backend.nodes()[0].selected);
                 assert!(backend.validate().is_ok());
-                assert!(backend.refreshable_location().is_none(), "pasted links cannot be refetched");
+                assert!(
+                    backend.refreshable_location().is_none(),
+                    "pasted links cannot be refetched"
+                );
                 let id = backend.subscriptions()[0].id.clone();
                 assert!(backend.remove_subscription(&id).is_ok());
                 assert!(backend.nodes().is_empty());

@@ -26,7 +26,9 @@ pub fn parse_nodes(content: &str) -> Result<Vec<NodeDescriptor>, String> {
         content: content.to_string(),
     };
     let document = service.parse(&raw).map_err(|error| error.message)?;
-    let catalog = service.normalize(&document).map_err(|error| error.message)?;
+    let catalog = service
+        .normalize(&document)
+        .map_err(|error| error.message)?;
     if catalog.nodes.is_empty() {
         return Err("no nodes were found in the subscription".to_string());
     }
@@ -48,9 +50,16 @@ pub fn is_supported(node: &NodeDescriptor) -> bool {
 
 /// The node to run: the saved choice if it is still in the subscription and supported, else the first
 /// supported node.
-pub fn choose_node<'a>(nodes: &'a [NodeDescriptor], saved: Option<&str>) -> Option<&'a NodeDescriptor> {
+pub fn choose_node<'a>(
+    nodes: &'a [NodeDescriptor],
+    saved: Option<&str>,
+) -> Option<&'a NodeDescriptor> {
     saved
-        .and_then(|id| nodes.iter().find(|node| node.id == id && is_supported(node)))
+        .and_then(|id| {
+            nodes
+                .iter()
+                .find(|node| node.id == id && is_supported(node))
+        })
         .or_else(|| nodes.iter().find(|node| is_supported(node)))
 }
 
@@ -68,7 +77,12 @@ pub struct Engine {
 }
 
 impl Engine {
-    pub fn start(&mut self, envelope: &str, node_id: &str, port: u16) -> Result<SocketAddr, String> {
+    pub fn start(
+        &mut self,
+        envelope: &str,
+        node_id: &str,
+        port: u16,
+    ) -> Result<SocketAddr, String> {
         self.stop();
         let listen = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
         let proxy = LocalProxy::start(envelope.as_bytes(), listen, MixedSettings::default())
@@ -143,7 +157,10 @@ mod tests {
         let nodes = parse_nodes(LINK).unwrap();
         assert_eq!(nodes.len(), 1);
         assert_eq!(protocol_name(&nodes[0].protocol), "shadowsocks");
-        assert_eq!(protocol_name(&Protocol::Other("Mieru2".to_string())), "mieru2");
+        assert_eq!(
+            protocol_name(&Protocol::Other("Mieru2".to_string())),
+            "mieru2"
+        );
         assert!(parse_nodes("not a subscription").is_err());
     }
 
@@ -153,7 +170,9 @@ mod tests {
         let chosen = choose_node(&nodes, Some("missing")).map(|node| node.id.clone());
         if is_supported(&nodes[0]) {
             assert_eq!(chosen, Some(nodes[0].id.clone()));
-            assert!(envelope(&nodes, &nodes[0].id).unwrap().contains("\"outbound\""));
+            assert!(envelope(&nodes, &nodes[0].id)
+                .unwrap()
+                .contains("\"outbound\""));
         } else {
             assert_eq!(chosen, None);
         }

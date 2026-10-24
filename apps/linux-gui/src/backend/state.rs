@@ -207,7 +207,8 @@ mod tests {
     use super::*;
 
     fn temp_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("anixops-net-state-{name}-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("anixops-net-state-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         dir
     }
@@ -217,11 +218,24 @@ mod tests {
         let mut state = SavedState::default();
         let first = state.add_source("https://example.com/a", 1);
         let second = state.add_source("https://example.com/b", 2);
-        assert_eq!(state.selected_source().map(|source| source.id.as_str()), Some(second.as_str()));
+        assert_eq!(
+            state.selected_source().map(|source| source.id.as_str()),
+            Some(second.as_str())
+        );
         assert!(state.select_source(&first));
-        assert_eq!(state.sources.iter().filter(|source| source.selected).count(), 1);
+        assert_eq!(
+            state
+                .sources
+                .iter()
+                .filter(|source| source.selected)
+                .count(),
+            1
+        );
         assert!(state.remove_source(&first));
-        assert_eq!(state.selected_source().map(|source| source.id.as_str()), Some(second.as_str()));
+        assert_eq!(
+            state.selected_source().map(|source| source.id.as_str()),
+            Some(second.as_str())
+        );
         assert!(!state.select_source("missing"));
         let third = state.add_source("ss://example", 3);
         assert_ne!(third, first, "ids are never reused");
@@ -244,7 +258,10 @@ mod tests {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let mode = fs::metadata(dir.join("sources/s1.txt")).unwrap().permissions().mode();
+            let mode = fs::metadata(dir.join("sources/s1.txt"))
+                .unwrap()
+                .permissions()
+                .mode();
             assert_eq!(mode & 0o077, 0, "cached subscriptions are owner-only");
         }
 

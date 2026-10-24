@@ -23,8 +23,18 @@ impl Desktop {
         if names.contains(&"kde") {
             return Some(Self::Kde);
         }
-        const GNOME_FAMILY: [&str; 6] = ["gnome", "unity", "cinnamon", "budgie", "pantheon", "x-cinnamon"];
-        names.iter().any(|name| GNOME_FAMILY.contains(name)).then_some(Self::Gnome)
+        const GNOME_FAMILY: [&str; 6] = [
+            "gnome",
+            "unity",
+            "cinnamon",
+            "budgie",
+            "pantheon",
+            "x-cinnamon",
+        ];
+        names
+            .iter()
+            .any(|name| GNOME_FAMILY.contains(name))
+            .then_some(Self::Gnome)
     }
 
     pub fn from_env() -> Option<Self> {
@@ -88,8 +98,20 @@ pub fn apply_commands(desktop: Desktop, kwrite: &str, port: u16) -> Vec<Invocati
             let mut commands = Vec::new();
             for scheme in ["http", "https", "socks"] {
                 let schema = format!("org.gnome.system.proxy.{scheme}");
-                commands.push(invocation(&["gsettings", "set", schema.as_str(), "host", "127.0.0.1"]));
-                commands.push(invocation(&["gsettings", "set", schema.as_str(), "port", port.as_str()]));
+                commands.push(invocation(&[
+                    "gsettings",
+                    "set",
+                    schema.as_str(),
+                    "host",
+                    "127.0.0.1",
+                ]));
+                commands.push(invocation(&[
+                    "gsettings",
+                    "set",
+                    schema.as_str(),
+                    "port",
+                    port.as_str(),
+                ]));
             }
             commands.push(invocation(&[
                 "gsettings",
@@ -98,7 +120,13 @@ pub fn apply_commands(desktop: Desktop, kwrite: &str, port: u16) -> Vec<Invocati
                 "ignore-hosts",
                 "['localhost', '127.0.0.0/8', '::1', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16']",
             ]));
-            commands.push(invocation(&["gsettings", "set", "org.gnome.system.proxy", "mode", "manual"]));
+            commands.push(invocation(&[
+                "gsettings",
+                "set",
+                "org.gnome.system.proxy",
+                "mode",
+                "manual",
+            ]));
             commands
         }
         Desktop::Kde => {
@@ -108,7 +136,10 @@ pub fn apply_commands(desktop: Desktop, kwrite: &str, port: u16) -> Vec<Invocati
                 ("httpProxy", http.as_str()),
                 ("httpsProxy", http.as_str()),
                 ("socksProxy", socks.as_str()),
-                ("NoProxyFor", "localhost,127.0.0.0/8,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"),
+                (
+                    "NoProxyFor",
+                    "localhost,127.0.0.0/8,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16",
+                ),
                 ("ProxyType", "1"),
             ]
             .iter()
@@ -130,12 +161,24 @@ pub fn restore_commands(backup: &ProxyBackup, kwrite: &str) -> Vec<Invocation> {
             "mode",
             backup.previous_mode.as_str(),
         ])],
-        Desktop::Kde => vec![kde_write(kwrite, "ProxyType", backup.previous_mode.as_str()), kde_reload()],
+        Desktop::Kde => vec![
+            kde_write(kwrite, "ProxyType", backup.previous_mode.as_str()),
+            kde_reload(),
+        ],
     }
 }
 
 fn kde_write(kwrite: &str, key: &str, value: &str) -> Invocation {
-    invocation(&[kwrite, "--file", "kioslaverc", "--group", "Proxy Settings", "--key", key, value])
+    invocation(&[
+        kwrite,
+        "--file",
+        "kioslaverc",
+        "--group",
+        "Proxy Settings",
+        "--key",
+        key,
+        value,
+    ])
 }
 
 /// Tells running KDE applications to reread their proxy settings.
@@ -170,7 +213,10 @@ fn run(command: &Invocation) -> Result<String, String> {
         .output()
         .map_err(|error| format!("{program} could not run: {error}"))?;
     if !output.status.success() {
-        return Err(format!("{program} failed: {}", String::from_utf8_lossy(&output.stderr).trim()));
+        return Err(format!(
+            "{program} failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
     }
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
@@ -222,10 +268,22 @@ mod tests {
     #[test]
     fn gnome_commands_set_every_scheme_then_switch_the_mode() {
         let commands = apply_commands(Desktop::Gnome, "kwriteconfig6", 7890);
-        assert!(commands.contains(&invocation(&["gsettings", "set", "org.gnome.system.proxy.socks", "port", "7890"])));
+        assert!(commands.contains(&invocation(&[
+            "gsettings",
+            "set",
+            "org.gnome.system.proxy.socks",
+            "port",
+            "7890"
+        ])));
         assert_eq!(
             commands.last().unwrap(),
-            &invocation(&["gsettings", "set", "org.gnome.system.proxy", "mode", "manual"]),
+            &invocation(&[
+                "gsettings",
+                "set",
+                "org.gnome.system.proxy",
+                "mode",
+                "manual"
+            ]),
             "the mode switches only after the addresses are in place"
         );
         let backup = ProxyBackup {
@@ -234,16 +292,29 @@ mod tests {
         };
         assert_eq!(
             restore_commands(&backup, "kwriteconfig6"),
-            vec![invocation(&["gsettings", "set", "org.gnome.system.proxy", "mode", "auto"])]
+            vec![invocation(&[
+                "gsettings",
+                "set",
+                "org.gnome.system.proxy",
+                "mode",
+                "auto"
+            ])]
         );
     }
 
     #[test]
     fn kde_commands_use_the_found_tool_and_reload() {
         let commands = apply_commands(Desktop::Kde, "kwriteconfig5", 1080);
-        assert!(commands.iter().all(|command| command[0] == "kwriteconfig5" || command[0] == "dbus-send"));
-        assert!(commands.iter().any(|command| command.last().unwrap() == "http://127.0.0.1 1080"));
-        assert_eq!(read_mode_command(Desktop::Kde, "kwriteconfig5")[0], "kreadconfig5");
+        assert!(commands
+            .iter()
+            .all(|command| command[0] == "kwriteconfig5" || command[0] == "dbus-send"));
+        assert!(commands
+            .iter()
+            .any(|command| command.last().unwrap() == "http://127.0.0.1 1080"));
+        assert_eq!(
+            read_mode_command(Desktop::Kde, "kwriteconfig5")[0],
+            "kreadconfig5"
+        );
         assert_eq!(parse_mode(Desktop::Kde, ""), "0");
         let restore = restore_commands(
             &ProxyBackup {

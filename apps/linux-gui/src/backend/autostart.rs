@@ -61,7 +61,8 @@ mod tests {
 
     #[test]
     fn enabling_writes_and_disabling_removes_the_entry() {
-        let dir = std::env::temp_dir().join(format!("anixops-net-autostart-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("anixops-net-autostart-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         set_enabled(&dir, true, Path::new("/usr/bin/anixops-net")).unwrap();
         assert!(is_enabled(&dir));

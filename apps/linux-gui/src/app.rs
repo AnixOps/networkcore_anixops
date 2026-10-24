@@ -12,8 +12,8 @@ use networkcore_linux_gui::backend::engine;
 use networkcore_linux_gui::backend::state::Store;
 use networkcore_linux_gui::backend::system_proxy::Desktop;
 use networkcore_linux_gui::backend::{
-    autostart, format_delay, Backend, NodeSummary, OperationResult, PreferencesInput, RuntimeSnapshot,
-    SubscriptionSummary, PASTED_LOCATION,
+    autostart, format_delay, Backend, NodeSummary, OperationResult, PreferencesInput,
+    RuntimeSnapshot, SubscriptionSummary, PASTED_LOCATION,
 };
 use tauri::{RunEvent, State};
 
@@ -46,7 +46,9 @@ where
     T: Send + 'static,
     F: FnOnce() -> Result<T, String> + Send + 'static,
 {
-    tauri::async_runtime::spawn_blocking(task).await.map_err(|error| error.to_string())?
+    tauri::async_runtime::spawn_blocking(task)
+        .await
+        .map_err(|error| error.to_string())?
 }
 
 /// A URL's body, a local file, or the pasted share links themselves.
@@ -67,10 +69,14 @@ fn fetch(location: &str) -> Result<String, String> {
         return Ok(location.to_string());
     }
     let path = match location.strip_prefix("~/") {
-        Some(rest) => std::env::var_os("HOME").map_or_else(|| PathBuf::from(location), |home| PathBuf::from(home).join(rest)),
+        Some(rest) => std::env::var_os("HOME").map_or_else(
+            || PathBuf::from(location),
+            |home| PathBuf::from(home).join(rest),
+        ),
         None => PathBuf::from(location),
     };
-    fs::read_to_string(&path).map_err(|error| format!("{} could not be read: {error}", path.display()))
+    fs::read_to_string(&path)
+        .map_err(|error| format!("{} could not be read: {error}", path.display()))
 }
 
 #[tauri::command]
@@ -121,15 +127,27 @@ async fn check_profile_runtime(state: State<'_, AppState>) -> Result<OperationRe
 }
 
 #[tauri::command]
-async fn switch_node(state: State<'_, AppState>, node_id: String) -> Result<OperationResult, String> {
+async fn switch_node(
+    state: State<'_, AppState>,
+    node_id: String,
+) -> Result<OperationResult, String> {
     with_backend(&state, move |backend| backend.switch_node(&node_id)).await
 }
 
 #[tauri::command]
-async fn test_node_delay(state: State<'_, AppState>, node_id: String, url: String) -> Result<OperationResult, String> {
+async fn test_node_delay(
+    state: State<'_, AppState>,
+    node_id: String,
+    url: String,
+) -> Result<OperationResult, String> {
     let (nodes, name) = {
         let backend = lock(&state.0);
-        (backend.node_list(), backend.node_name(&node_id).unwrap_or_else(|| node_id.clone()))
+        (
+            backend.node_list(),
+            backend
+                .node_name(&node_id)
+                .unwrap_or_else(|| node_id.clone()),
+        )
     };
     let delay = off_lock(move || engine::node_delay(&nodes, &node_id, &url)).await?;
     Ok(OperationResult {
@@ -140,7 +158,11 @@ async fn test_node_delay(state: State<'_, AppState>, node_id: String, url: Strin
 #[tauri::command]
 async fn select_fastest_node(state: State<'_, AppState>) -> Result<OperationResult, String> {
     let nodes = lock(&state.0).node_list();
-    let (id, delay) = off_lock(move || engine::fastest_node(&nodes, DELAY_URL).ok_or_else(|| "no node answered the delay test".to_string())).await?;
+    let (id, delay) = off_lock(move || {
+        engine::fastest_node(&nodes, DELAY_URL)
+            .ok_or_else(|| "no node answered the delay test".to_string())
+    })
+    .await?;
     let switched = with_backend(&state, move |backend| backend.switch_node(&id)).await?;
     Ok(OperationResult {
         message: format!("{} ({})", switched.message, format_delay(delay)),
@@ -148,8 +170,14 @@ async fn select_fastest_node(state: State<'_, AppState>) -> Result<OperationResu
 }
 
 #[tauri::command]
-async fn save_preferences(state: State<'_, AppState>, preferences: PreferencesInput) -> Result<OperationResult, String> {
-    with_backend(&state, move |backend| backend.save_preferences(&preferences)).await
+async fn save_preferences(
+    state: State<'_, AppState>,
+    preferences: PreferencesInput,
+) -> Result<OperationResult, String> {
+    with_backend(&state, move |backend| {
+        backend.save_preferences(&preferences)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -158,7 +186,10 @@ async fn create_diagnostics(state: State<'_, AppState>) -> Result<OperationResul
 }
 
 #[tauri::command]
-async fn import_subscription(state: State<'_, AppState>, location: String) -> Result<OperationResult, String> {
+async fn import_subscription(
+    state: State<'_, AppState>,
+    location: String,
+) -> Result<OperationResult, String> {
     let location = location.trim().to_string();
     if location.is_empty() {
         return Err("enter a subscription link, share links or a file path".to_string());
@@ -182,12 +213,18 @@ async fn update_subscription(state: State<'_, AppState>) -> Result<OperationResu
 }
 
 #[tauri::command]
-async fn select_subscription(state: State<'_, AppState>, id: String) -> Result<OperationResult, String> {
+async fn select_subscription(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<OperationResult, String> {
     with_backend(&state, move |backend| backend.select_subscription(&id)).await
 }
 
 #[tauri::command]
-async fn remove_subscription(state: State<'_, AppState>, id: String) -> Result<OperationResult, String> {
+async fn remove_subscription(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<OperationResult, String> {
     with_backend(&state, move |backend| backend.remove_subscription(&id)).await
 }
 
@@ -240,7 +277,12 @@ pub fn run() -> Result<(), String> {
         .map(PathBuf::from)
         .map_or_else(std::env::current_exe, Ok)
         .map_err(|error| error.to_string())?;
-    let backend = Backend::open(Store::new(dir), Desktop::from_env(), autostart::autostart_dir(), executable);
+    let backend = Backend::open(
+        Store::new(dir),
+        Desktop::from_env(),
+        autostart::autostart_dir(),
+        executable,
+    );
     let auto_connect = backend.auto_connect();
     let shared = Arc::new(Mutex::new(backend));
     if auto_connect {
