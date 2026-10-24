@@ -329,51 +329,62 @@ impl RuntimeConfig {
         registry: &OutboundRegistry,
         dialer: Arc<dyn Dialer>,
     ) -> Result<Arc<dyn TcpOutbound>, RuntimeError> {
-        match (&self.outbound, &self.routing) {
+        match (&self.outbound, self.build_routed(registry, dialer.clone())?) {
             (Some(outbound), _) => build_single_outbound(registry, outbound, dialer),
-            (None, Some(routing)) => {
-                let mut nodes = BTreeMap::new();
-                for (id, outbound) in &routing.outbounds {
-                    nodes.insert(
-                        id.clone(),
-                        build_single_outbound(registry, outbound, dialer.clone())?,
-                    );
-                }
-                let spec = RoutingSpec {
-                    rules: routing.rules.clone(),
-                    groups: routing
-                        .groups
-                        .iter()
-                        .map(|group| PolicyGroupSpec {
-                            id: group.id.clone(),
-                            kind: group.kind.clone(),
-                            members: group.members.clone(),
-                            default: group.default.clone(),
-                            url: group.url.clone(),
-                            interval_secs: group.interval_secs,
-                            tolerance_ms: group.tolerance_ms,
-                        })
-                        .collect(),
-                };
-                let rule_sets = routing
-                    .rule_sets
-                    .iter()
-                    .map(|(name, set)| {
-                        RuleSet::new(
-                            set.domain_suffix.iter().map(String::as_str),
-                            set.ip_cidr.iter().map(String::as_str),
-                        )
-                        .map(|set| (name.clone(), set))
-                        .map_err(|_| rejected("rule set entries are invalid"))
-                    })
-                    .collect::<Result<BTreeMap<_, _>, _>>()?;
-                let direct = Arc::new(DirectOutbound::new(dialer));
-                Ok(Arc::new(RoutedOutbound::with_rule_sets(
-                    &spec, direct, nodes, rule_sets,
-                )?))
-            }
+            (None, Some(routed)) => Ok(routed as Arc<dyn TcpOutbound>),
             (None, None) => Err(rejected("exactly one of outbound and routing must be set")),
         }
+    }
+
+    /// The rule-based outbound of a `routing` config, or `None` for a single
+    /// outbound. The desktop local proxy keeps it to run group health checks.
+    pub fn build_routed(
+        &self,
+        registry: &OutboundRegistry,
+        dialer: Arc<dyn Dialer>,
+    ) -> Result<Option<Arc<RoutedOutbound>>, RuntimeError> {
+        let Some(routing) = self.routing.as_ref().filter(|_| self.outbound.is_none()) else {
+            return Ok(None);
+        };
+        let mut nodes = BTreeMap::new();
+        for (id, outbound) in &routing.outbounds {
+            nodes.insert(
+                id.clone(),
+                build_single_outbound(registry, outbound, dialer.clone())?,
+            );
+        }
+        let spec = RoutingSpec {
+            rules: routing.rules.clone(),
+            groups: routing
+                .groups
+                .iter()
+                .map(|group| PolicyGroupSpec {
+                    id: group.id.clone(),
+                    kind: group.kind.clone(),
+                    members: group.members.clone(),
+                    default: group.default.clone(),
+                    url: group.url.clone(),
+                    interval_secs: group.interval_secs,
+                    tolerance_ms: group.tolerance_ms,
+                })
+                .collect(),
+        };
+        let rule_sets = routing
+            .rule_sets
+            .iter()
+            .map(|(name, set)| {
+                RuleSet::new(
+                    set.domain_suffix.iter().map(String::as_str),
+                    set.ip_cidr.iter().map(String::as_str),
+                )
+                .map(|set| (name.clone(), set))
+                .map_err(|_| rejected("rule set entries are invalid"))
+            })
+            .collect::<Result<BTreeMap<_, _>, _>>()?;
+        let direct = Arc::new(DirectOutbound::new(dialer));
+        Ok(Some(Arc::new(RoutedOutbound::with_rule_sets(
+            &spec, direct, nodes, rule_sets,
+        )?)))
     }
 }
 

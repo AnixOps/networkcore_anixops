@@ -69,31 +69,51 @@ pub fn measure_delay_with(
     let outbound = config
         .build_outbound(registry, dialer)
         .map_err(DelayError::Config)?;
-    let tls = if url.tls {
-        Some(
-            TlsConnector::new(&TlsSettings {
-                server_name: url.host.clone(),
-                alpn: vec!["http/1.1".to_string()],
-                insecure: false,
-            })
-            .map_err(|_| DelayError::InvalidUrl)?,
-        )
-    } else {
-        None
-    };
+    let tls = tls_for(&url)?;
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(|error| DelayError::Failed(error.kind()))?;
-    runtime.block_on(async {
-        let started = Instant::now();
-        match tokio::time::timeout(timeout, fetch_status_line(&*outbound, tls.as_ref(), &url)).await
-        {
-            Ok(Ok(())) => Ok(started.elapsed()),
-            Ok(Err(error)) => Err(error),
-            Err(_) => Err(DelayError::Timeout),
-        }
+    runtime.block_on(timed_fetch(&*outbound, tls.as_ref(), &url, timeout))
+}
+
+/// Measures `url` through `outbound` on the caller's runtime, as policy group
+/// health checks do.
+pub async fn probe(
+    outbound: &dyn TcpOutbound,
+    url: &str,
+    timeout: Duration,
+) -> Result<Duration, DelayError> {
+    let url = ProbeUrl::parse(url).ok_or(DelayError::InvalidUrl)?;
+    let tls = tls_for(&url)?;
+    timed_fetch(outbound, tls.as_ref(), &url, timeout).await
+}
+
+fn tls_for(url: &ProbeUrl) -> Result<Option<TlsConnector>, DelayError> {
+    if !url.tls {
+        return Ok(None);
+    }
+    TlsConnector::new(&TlsSettings {
+        server_name: url.host.clone(),
+        alpn: vec!["http/1.1".to_string()],
+        insecure: false,
     })
+    .map(Some)
+    .map_err(|_| DelayError::InvalidUrl)
+}
+
+async fn timed_fetch(
+    outbound: &dyn TcpOutbound,
+    tls: Option<&TlsConnector>,
+    url: &ProbeUrl,
+    timeout: Duration,
+) -> Result<Duration, DelayError> {
+    let started = Instant::now();
+    match tokio::time::timeout(timeout, fetch_status_line(outbound, tls, url)).await {
+        Ok(Ok(())) => Ok(started.elapsed()),
+        Ok(Err(error)) => Err(error),
+        Err(_) => Err(DelayError::Timeout),
+    }
 }
 
 async fn fetch_status_line(

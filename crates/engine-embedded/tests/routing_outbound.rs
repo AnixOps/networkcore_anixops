@@ -243,3 +243,21 @@ fn rule_sets_route_large_lists_without_resolving_domains() {
     // A RULE-SET rule naming a set the config does not carry is rejected.
     assert!(RoutedOutbound::new(&spec, recording("direct"), nodes).is_err());
 }
+
+#[test]
+fn url_test_groups_follow_recorded_latencies() {
+    let hits = Arc::new(Mutex::new(Vec::new()));
+    let outbound = routed(&hits);
+    let v6 = ip("[2001:db8::1]:443");
+
+    // Until a check finishes, the url-test group uses its first member.
+    assert_eq!(outbound.route(&v6), RouteOutcome::Node("hk-1".to_string()));
+
+    outbound.record_latency("Auto", "hk-1", Some(240));
+    outbound.record_latency("Auto", "jp-1", Some(80));
+    assert_eq!(outbound.route(&v6), RouteOutcome::Node("jp-1".to_string()));
+
+    // A failed check removes the member from the choice.
+    outbound.record_latency("Auto", "jp-1", None);
+    assert_eq!(outbound.route(&v6), RouteOutcome::Node("hk-1".to_string()));
+}
