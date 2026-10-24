@@ -21,9 +21,16 @@ final class TunnelController: ObservableObject {
     @Published private(set) var lastDisconnectError: String?
     /// When the current connection came up, for the elapsed time on the home screen.
     @Published private(set) var connectedSince: Date?
+    /// Every node of the last subscription or multi-node import, from the Keychain. Nil after a single-node import.
+    @Published private(set) var library: NodeLibrary?
+    /// Delay test results by node id.
+    @Published private(set) var latencies: [String: NodeLatency] = [:]
+    @Published private(set) var refreshingSubscription = false
 
     private var manager: NETunnelProviderManager?
     private var statusObserver: NSObjectProtocol?
+    /// Set when a node switch stopped the tunnel; the tunnel starts again once it is down.
+    private var restartAfterStop = false
 
     init() {
         coordinator = AppCoordinator(status: Self.platformStatus(saved: false))
@@ -55,11 +62,23 @@ final class TunnelController: ObservableObject {
         } catch {
             message = String(localized: "无法读取 VPN 配置")
         }
+        library = (try? NodeSecretStore.value(account: NodeLibrary.keychainAccount))
+            .flatMap { $0 }
+            .flatMap { try? NodeLibrary.fromKeychainValue($0) }
         refresh()
     }
 
-    /// Parses pasted text for the import preview without saving anything.
+    /// Parses pasted text for the import preview without saving anything. A subscription link is downloaded only
+    /// when it is imported.
     func preview(_ link: String) -> Result<ImportPreview, ImportFailure> {
+        if let url = SubscriptionLink.url(from: link) {
+            let host = url.host ?? url.absoluteString
+            return .success(ImportPreview(
+                name: host,
+                outboundKind: ImportPreview.subscriptionKind,
+                maskedServer: ImportPreview.mask(host)
+            ))
+        }
         do {
             let profile = try TunnelNodeImport.parse(link, profileID: Self.profileID, native: NativeNodeImporterFFI.importNodes)
             return .success(ImportPreview(
@@ -78,13 +97,20 @@ final class TunnelController: ObservableObject {
         message = nil
     }
 
-    /// Saves the node as the tunnel profile. Returns whether it was saved; on failure `message` says why.
+    /// Saves the node as the tunnel profile; a subscription link is downloaded first and every node goes to the
+    /// node list. Returns whether it was saved; on failure `message` says why.
     @discardableResult
     func importLink(_ link: String) async -> Bool {
-        let profileID = Self.profileID
-        let profile: TunnelProfile
+        if let url = SubscriptionLink.url(from: link) {
+            return await importSubscription(url, keeping: nil)
+        }
+        let imported: TunnelImport
         do {
-            profile = try TunnelNodeImport.parse(link, profileID: profileID, native: NativeNodeImporterFFI.importNodes)
+            imported = try TunnelNodeImport.parseImport(
+                link,
+                profileID: Self.profileID,
+                native: NativeNodeImporterFFI.importNodes
+            )
         } catch let error as TunnelNodeImportError {
             message = Self.describe(error)
             return false
@@ -92,6 +118,152 @@ final class TunnelController: ObservableObject {
             message = String(localized: "无法解析节点")
             return false
         }
+        let nodes = imported.report.map { NodeLibrary(report: $0, subscriptionURL: nil, keeping: nil) }
+        guard await save(imported.profile) else {
+            return false
+        }
+        storeLibrary(nodes)
+        return true
+    }
+
+    /// Re-downloads the current subscription and keeps the selected node when it is still listed.
+    @discardableResult
+    func refreshSubscription() async -> Bool {
+        guard let link = library?.subscriptionURL, let url = URL(string: link) else {
+            return false
+        }
+        refreshingSubscription = true
+        defer { refreshingSubscription = false }
+        return await importSubscription(url, keeping: library?.selectedID)
+    }
+
+    /// Makes `id` the tunnel's node. A running tunnel restarts on it.
+    func selectNode(_ id: String) async {
+        guard var nodes = library, let node = nodes.node(id: id), nodes.selectedID != id else {
+            return
+        }
+        let profile: TunnelProfile
+        do {
+            profile = try TunnelProfile(node: node, profileID: Self.profileID)
+        } catch {
+            message = String(localized: "无法生成隧道配置")
+            return
+        }
+        let wasRunning = isConnected
+        guard await save(profile) else {
+            return
+        }
+        nodes.selectedID = id
+        storeLibrary(nodes)
+        if wasRunning {
+            restartAfterStop = true
+            manager?.connection.stopVPNTunnel()
+        }
+    }
+
+    /// Measures every listed node's TCP connect time, a few at a time.
+    func testLatency() async {
+        guard let nodes = library?.nodes, !nodes.isEmpty else {
+            return
+        }
+        for node in nodes {
+            latencies[node.id] = NodeLibrary.usesUDP(node.protocol) ? .notMeasurable : .measuring
+        }
+        let targets = nodes.filter { !NodeLibrary.usesUDP($0.protocol) }
+        let batch = 8
+        for start in stride(from: 0, to: targets.count, by: batch) {
+            let slice = targets[start..<min(start + batch, targets.count)]
+            let probes = slice.map { (id: $0.id, host: $0.server, port: $0.port) }
+            let results = await withTaskGroup(of: (String, TimeInterval?).self, returning: [(String, TimeInterval?)].self) { group in
+                for probe in probes {
+                    group.addTask {
+                        (probe.id, await NodeLatencyProbe.tcpConnect(host: probe.host, port: probe.port))
+                    }
+                }
+                var results: [(String, TimeInterval?)] = []
+                for await result in group {
+                    results.append(result)
+                }
+                return results
+            }
+            for (id, seconds) in results {
+                latencies[id] = seconds.map { .millis(Int(($0 * 1000).rounded())) } ?? .failed
+            }
+        }
+    }
+
+    private func importSubscription(_ url: URL, keeping previousID: String?) async -> Bool {
+        let text: String
+        do {
+            text = try await Self.download(url)
+        } catch {
+            message = String(localized: "订阅下载失败，请检查链接和网络")
+            return false
+        }
+        let report: NativeImportReport
+        do {
+            report = try NativeImportReport.decoded(from: NativeNodeImporterFFI.importNodes(text))
+        } catch let failure as NativeImportFailure {
+            message = Self.describe(.native(failure))
+            return false
+        } catch {
+            message = Self.describe(.native(.unavailable))
+            return false
+        }
+        let nodes = NodeLibrary(report: report, subscriptionURL: url.absoluteString, keeping: previousID)
+        guard let selected = nodes.selected else {
+            message = Self.describe(.native(.noSupportedNode(
+                protocols: report.unsupported.map(\.protocol),
+                reasons: []
+            )))
+            return false
+        }
+        let profile: TunnelProfile
+        do {
+            profile = try TunnelProfile(node: selected, profileID: Self.profileID)
+        } catch {
+            message = String(localized: "无法生成隧道配置")
+            return false
+        }
+        // A refresh that keeps the same node leaves the running tunnel alone.
+        let unchanged = previousID == selected.id && library?.selected == selected
+        if !unchanged {
+            guard await save(profile) else {
+                return false
+            }
+        }
+        storeLibrary(nodes)
+        return true
+    }
+
+    /// Subscription bodies are text; the importer refuses anything larger than this.
+    private static let maxSubscriptionBytes = 4 * 1024 * 1024
+
+    private static func download(_ url: URL) async throws -> String {
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 30)
+        request.setValue("AnixOpsNet/1.0", forHTTPHeaderField: "User-Agent")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+              data.count <= maxSubscriptionBytes
+        else {
+            throw URLError(.badServerResponse)
+        }
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    private func storeLibrary(_ nodes: NodeLibrary?) {
+        library = nodes
+        latencies = [:]
+        if let nodes, let value = try? nodes.keychainValue() {
+            _ = try? NodeSecretStore.save(value, account: NodeLibrary.keychainAccount)
+        } else {
+            try? NodeSecretStore.delete(account: NodeLibrary.keychainAccount)
+        }
+    }
+
+    /// Saves `profile` as the tunnel profile.
+    private func save(_ profile: TunnelProfile) async -> Bool {
+        let profileID = Self.profileID
         guard let providerBundleIdentifier = Self.tunnelBundleIdentifier() else {
             message = String(localized: "找不到隧道扩展")
             return false
@@ -267,7 +439,11 @@ final class TunnelController: ObservableObject {
         let previous = connection
         connection = manager?.connection.status ?? .invalid
         connectedSince = connection == .connected ? manager?.connection.connectedDate : nil
-        if connection == .disconnected, previous != .disconnected, previous != .invalid {
+        if restartAfterStop, connection == .disconnected {
+            // The node switch stopped the tunnel on purpose: no error to show, just start it on the new node.
+            restartAfterStop = false
+            try? manager?.connection.startVPNTunnel()
+        } else if connection == .disconnected, previous != .disconnected, previous != .invalid {
             showLastDisconnectError()
         }
         let configuration = (manager?.protocolConfiguration as? NETunnelProviderProtocol)?.providerConfiguration
@@ -406,8 +582,20 @@ final class TunnelController: ObservableObject {
     }
 }
 
+/// A delay test result for one node.
+enum NodeLatency: Equatable {
+    case measuring
+    case millis(Int)
+    case failed
+    /// QUIC nodes: the app cannot measure them without the tunnel engine.
+    case notMeasurable
+}
+
 /// What the import sheet shows before saving: no password, key or full server address.
 struct ImportPreview: Equatable {
+    /// `outboundKind` of a subscription link, which is only downloaded on import.
+    static let subscriptionKind = "subscription"
+
     let name: String
     let outboundKind: String
     let maskedServer: String

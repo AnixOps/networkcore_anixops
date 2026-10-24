@@ -176,6 +176,9 @@ struct ProtocolBadge: View {
         if kind.hasPrefix("hysteria2") {
             return "HY2"
         }
+        if kind == "subscription" {
+            return "SUB"
+        }
         return kind.uppercased()
     }
 
@@ -191,6 +194,9 @@ struct ProtocolBadge: View {
         }
         if kind.hasPrefix("wireguard") {
             return "WireGuard"
+        }
+        if kind == "subscription" {
+            return String(localized: "订阅")
         }
         let names = ["trojan": "Trojan", "vmess": "VMess", "hysteria2": "Hysteria2", "tuic": "TUIC"]
         return names[kind] ?? kind

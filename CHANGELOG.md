@@ -12,6 +12,7 @@
 
 ### Added
 
+- iOS 订阅链接、多节点列表与切换：导入框粘贴一个 http(s) 订阅链接时，App 下载订阅（30 秒超时、最多 4 MB，只接受 2xx），保存全部可运行节点并选中第一个；节点列表连同出站参数只存在钥匙串里。代理页列出全部节点，点选即切换，已连接时自动断开并用新节点重连；订阅链接导入的列表支持下拉更新，更新后仍选中原节点（不在列表里时选第一个）。延迟测试在 App 内测 TCP 握手耗时（每批 8 个并发，5 秒超时），Hysteria2、TUIC 等 QUIC 节点标为 UDP、不测。
 - iOS 导入接入自研协议栈：新增 `node-import` crate（订阅文本 → 自研引擎出站，不含协议实现和隧道引擎），带 `networkcore_import_*` C 接口，App 只链接它构建出的 `NetworkCoreImport.xcframework`，隧道引擎仍只在扩展里（CI 检查 App 含导入符号、不含 `networkcore_ios_runtime_init`）。App 现在可以粘贴 Trojan、VMess、VLESS（TLS/WS/gRPC）、Shadowsocks AEAD、Hysteria2、TUIC 链接，或订阅内容（base64 链接列表、Clash YAML、JSON 出站配置、Surge/Loon/Quantumult X 节点行），取第一个可运行节点；非 Shadowsocks/REALITY 节点作为通用出站保存，出站参数整体存入钥匙串，隧道配置里只留类型和地址。`engine-embedded::nodes::outbound_for_node` 改为调用 `node_import::outbound_json`。
 - Linux 图形客户端（P4）：新增 `apps/linux-gui`（可执行文件 `anixops-net`），复用 Windows 的 Tauri + React 界面和中英文文案，在进程内运行自研引擎，所选节点在 `127.0.0.1:7890` 提供 SOCKS5/HTTP 本地代理。连接时把 GNOME（`gsettings`）或 KDE（`kwriteconfig6/5`）的系统代理指向本地端口，断开、退出或下次启动时改回原来的设置；支持导入订阅链接、分享链接或本地文件，切换节点、延迟测试和选择最快节点，“登录后启动”写入 XDG 自启动项，配置保存在 `$XDG_CONFIG_HOME/anixops-net`（文件权限 0600）。界面根据快照里的 `platform` 隐藏 Windows 服务、附加内核、驱动、TUN、分流规则和 HTTPS 解密等 Linux 版暂未提供的功能。窗口依赖 WebKitGTK，放在 `gui` feature 后面，工作区任务只编译和测试后端；新增 CI 任务“Linux GUI build”在 Ubuntu 上构建共用界面、lint 并编译窗口。AppImage/deb 打包、托盘、TUN 和分流模式留待后续。
 - Windows 客户端支持英文界面：中文仍是源语言，界面文案通过 `t()` 在 `i18n-en.ts` 英文表中查找，设置页“外观与语言”可选跟随系统、中文或 English（保存在本机），切换后立即生效；`i18n.test.ts` 检查界面里每条中文都有英文翻译，并禁止模板字符串和裸 JSX 文本里出现未翻译的中文。内核和服务返回的原始提示保持原样。
