@@ -12,6 +12,7 @@ import { RulesPage } from "./pages/RulesPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { useAppearance } from "./theme";
 import { IconButton, StatusDot } from "./ui";
+import { t, useLanguage } from "./i18n";
 
 export type Page = "home" | "proxies" | "rules" | "extensions" | "activity" | "settings";
 
@@ -36,6 +37,7 @@ export function App() {
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [appearance, setAppearance] = useAppearance();
+  const [language, setLanguage] = useLanguage();
   const noticeTimer = useRef<number>();
 
   const show = useCallback((text: string, tone: Notice["tone"]) => {
@@ -89,14 +91,14 @@ export function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [toggleConnection]);
 
-  const title = navigation.find((item) => item.page === page)?.label ?? "";
+  const title = t(navigation.find((item) => item.page === page)?.label ?? "");
   const dotTone = phase === "on" ? "success" : phase === "failed" ? "danger" : phase === "connecting" || phase === "disconnecting" ? "warning" : "neutral";
 
   return (
     <div className="app-shell">
       <aside className="sidebar">
         <div className="sidebar-brand"><Wordmark /></div>
-        <nav aria-label="主导航">
+        <nav aria-label={t("主导航")}>
           {navigation.map(({ page: item, label, icon: Icon }) => (
             <button
               className={`nav-item ${page === item ? "active" : ""}`}
@@ -104,7 +106,7 @@ export function App() {
               aria-current={page === item ? "page" : undefined}
               onClick={() => setPage(item)}
             >
-              <Icon size={18} strokeWidth={1.8} /><span>{label}</span>
+              <Icon size={18} strokeWidth={1.8} /><span>{t(label)}</span>
             </button>
           ))}
         </nav>
@@ -112,20 +114,20 @@ export function App() {
           <StatusDot tone={dotTone} />
           <span>
             <strong>{connectionTitle(snapshot?.connection, phase)}</strong>
-            <small>{snapshot?.runtimeMode === "service" ? "Windows 服务模式" : "桌面模式"}</small>
+            <small>{snapshot?.runtimeMode === "service" ? t("Windows 服务模式") : t("桌面模式")}</small>
           </span>
         </button>
       </aside>
       <main className="workspace">
         <header className="topbar">
           <h1>{title}</h1>
-          <IconButton label="刷新状态" onClick={() => void refresh().catch(showError)}><RefreshCw size={17} /></IconButton>
+          <IconButton label={t("刷新状态")} onClick={() => void refresh().catch(showError)}><RefreshCw size={17} /></IconButton>
         </header>
         {notice && (
           <div className={`notice ${notice.tone}`} role={notice.tone === "danger" ? "alert" : "status"}>
             {notice.tone === "danger" ? <CircleAlert size={17} /> : <CheckCircle2 size={17} />}
             <span>{notice.text}</span>
-            <button aria-label="关闭提示" onClick={() => setNotice(null)}><X size={15} /></button>
+            <button aria-label={t("关闭提示")} onClick={() => setNotice(null)}><X size={15} /></button>
           </div>
         )}
         <div className="page" key={page}>
@@ -134,7 +136,7 @@ export function App() {
           {page === "rules" && <RulesPage snapshot={snapshot} busy={busy} run={run} />}
           {page === "extensions" && <ExtensionsPage snapshot={snapshot} busy={busy} run={run} />}
           {page === "activity" && <ActivityPage snapshot={snapshot} busy={busy} run={run} />}
-          {page === "settings" && <SettingsPage snapshot={snapshot} busy={busy} run={run} appearance={appearance} setAppearance={setAppearance} />}
+          {page === "settings" && <SettingsPage snapshot={snapshot} busy={busy} run={run} appearance={appearance} setAppearance={setAppearance} language={language} setLanguage={setLanguage} />}
         </div>
       </main>
     </div>

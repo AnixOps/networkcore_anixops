@@ -12,6 +12,7 @@
 
 ### Added
 
+- Windows 客户端支持英文界面：中文仍是源语言，界面文案通过 `t()` 在 `i18n-en.ts` 英文表中查找，设置页“外观与语言”可选跟随系统、中文或 English（保存在本机），切换后立即生效；`i18n.test.ts` 检查界面里每条中文都有英文翻译，并禁止模板字符串和裸 JSX 文本里出现未翻译的中文。内核和服务返回的原始提示保持原样。
 - macOS 客户端（P4）：新增 SwiftUI 的 `NetworkCoreMac` App 和 `NetworkCoreMacTunnel` 包隧道扩展（复用 iOS 的隧道、导入流程、品牌组件和中英文文案）。主窗口左侧导航为概览、代理、规则、扩展、活动、设置六页，概览页用“路由 N”连接按钮和连接时长；菜单栏常驻图标可随时连接或断开；⌘I 导入节点，⇧⌘C 连接或断开，⌘, 打开设置；支持跟随系统、浅色、深色、纯黑外观和登录后自动打开。节点密钥在 macOS 上写入数据保护钥匙串，App 与扩展通过共享钥匙串组读取。运行时 XCFramework 增加 arm64 + x86_64 的 macOS 切片，CI 无签名构建并检查扩展链接了运行时。规则页和扩展页暂为说明页；签名和 TestFlight 上传见 `docs/manual-intervention.md`。
 - iOS 小组件与控制中心开关：新增 `NetworkCoreWidget` 扩展，主屏幕小号/中号小组件和锁屏小组件显示连接状态、当前节点和协议，轻点路由线即可连接或断开；iOS 18 起可在控制中心、锁屏和操作按钮添加“连接 AnixOps Net”开关。小组件直接读取已保存的 VPN 配置（不读取节点密钥），App 内状态变化时立即刷新。TestFlight 上传在配置小组件描述文件前会跳过该扩展（见 `docs/manual-intervention.md`）。
 - iOS App 支持英文界面：中文为源语言，新增 `Localizable.xcstrings` 提供全部界面文案、错误提示和开发者模式文案的英文翻译，跟随 iPhone 系统语言切换；代码里拼出的文案改用 `String(localized:)`。

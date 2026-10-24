@@ -226,6 +226,7 @@ input[type="checkbox"] { width: auto; height: auto; }
 .segmented button { height: 30px; color: var(--text2); font-size: 13px; font-weight: 600; background: transparent; border: 0; border-radius: var(--radius-control); transition: background var(--fast), color var(--fast); }
 .segmented button:hover:not(:disabled) { color: var(--text); }
 .segmented button.selected { color: var(--text); background: var(--surface); box-shadow: 0 1px 2px rgb(4 47 46 / 10%); }
+.setting-label { margin: 14px 0 6px; color: var(--text2); font-size: 12px; font-weight: 600; }
 
 /* Lists */
 .list { display: grid; margin: 0; padding: 0; list-style: none; }
