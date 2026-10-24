@@ -53,7 +53,7 @@ struct RootView: View {
             )
             .tabItem { Label("规则", systemImage: "arrow.triangle.branch") }
             .tag(AppTab.rules)
-            ExtensionsView()
+            ExtensionsView(tunnel: tunnel)
                 .tabItem { Label("扩展", systemImage: "puzzlepiece.extension") }
                 .tag(AppTab.extensions)
             SettingsView(tunnel: tunnel)

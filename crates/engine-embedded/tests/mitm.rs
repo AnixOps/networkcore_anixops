@@ -29,6 +29,13 @@ name = NetworkCore MITM Test\n\
 [MITM]\n\
 enable = true\n\
 hostname = api.example.test\n";
+/// A Loon plugin listed next to the policy; its hosts join the merged list.
+const PLUGIN: &str = "#!name = Second\n\
+[Rewrite]\n\
+^https://cdn\\.example\\.test/ads/ reject\n\
+\n\
+[MITM]\n\
+hostname = %APPEND% cdn.example.test\n";
 
 struct Root {
     certificate: CertificateDer<'static>,
@@ -65,6 +72,7 @@ fn mitm_config(device_root: &Root) -> MitmConfig {
     let base64 = base64::engine::general_purpose::STANDARD;
     MitmConfig {
         policy: POLICY.to_string(),
+        plugins: vec![PLUGIN.to_string()],
         ca_certificate: base64.encode(&device_root.certificate),
         ca_private_key: base64.encode(x963(&device_root.key)),
     }
@@ -238,6 +246,10 @@ async fn decrypts_rewrites_and_relays_https_for_listed_hosts() {
     let other: SocketAddr = "192.0.2.10:8443".parse().unwrap();
     assert_eq!(engine.claim(&first, other), None, "only port 443");
     assert!(!engine.intercepts("www.example.test"));
+    assert!(
+        engine.intercepts("cdn.example.test"),
+        "plugin hosts are merged"
+    );
 
     let flow = InterceptedFlow {
         inbound: Box::new(tunnel_side),
@@ -301,6 +313,18 @@ fn runtime_config_accepts_and_validates_the_mitm_section() {
         "ca_private_key": config.ca_private_key,
     });
     assert!(EmbeddedRuntime::from_json(&envelope(valid.clone())).is_ok());
+    let plugins_only = serde_json::json!({
+        "plugins": [PLUGIN],
+        "ca_certificate": config.ca_certificate,
+        "ca_private_key": config.ca_private_key,
+    });
+    assert!(EmbeddedRuntime::from_json(&envelope(plugins_only.clone())).is_ok());
+    let mut empty_plugin = plugins_only;
+    empty_plugin["plugins"] = serde_json::json!(["  "]);
+    let error = EmbeddedRuntime::from_json(&envelope(empty_plugin))
+        .err()
+        .unwrap();
+    assert_eq!(error.code, RuntimeErrorCode::ConfigRejected);
 
     let mut bad_key = valid.clone();
     bad_key["ca_private_key"] = serde_json::json!("AAAA");

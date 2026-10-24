@@ -1,6 +1,8 @@
 //! HTTPS decryption (MITM) for the packet tunnel, feature `mitm`.
 //!
-//! A TCP flow to port 443 whose ClientHello names a host on the policy's
+//! The policy text and Loon plugins in the config are imported and merged
+//! into one `mitm_anixops` policy; a plugin the policy core refuses is left
+//! out. A TCP flow to port 443 whose ClientHello names a host on the merged
 //! `[MITM] hostname` list is terminated here with a leaf certificate issued
 //! from the device's root (generated and trusted on the Swift side), relayed
 //! to the origin over a verifying TLS client, and its HTTP/1.1 messages pass
@@ -33,6 +35,7 @@ use control_domain::{
 };
 use engine_native::{NativeHttpMitmPluginHook, NativePlainHttpMessage};
 use engine_outbound::{BoxFuture, TargetAddr, TcpOutbound};
+use mitm_policy::loon_plugin::{import_loon_plugin, merged_plugin_source};
 use mitm_policy::AnixOpsMitmPluginService;
 use rcgen::{
     CertificateParams, DistinguishedName, DnType, ExtendedKeyUsagePurpose, Issuer, KeyPair,
@@ -68,9 +71,20 @@ impl MitmEngine {
     /// Validates the policy and the root. Errors are fixed strings: neither
     /// the policy nor key material reaches them.
     pub fn new(config: &MitmConfig) -> Result<Self, &'static str> {
-        if config.policy.len() > MAX_POLICY_BYTES {
+        let total = config.policy.len() + config.plugins.iter().map(String::len).sum::<usize>();
+        if total > MAX_POLICY_BYTES {
             return Err("mitm policy is too large");
         }
+        let imports = std::iter::once(&config.policy)
+            .filter(|policy| !policy.trim().is_empty())
+            .chain(&config.plugins)
+            .map(|text| import_loon_plugin(text).map_err(|_| "mitm plugin is invalid"))
+            .collect::<Result<Vec<_>, _>>()?;
+        let accepted = imports
+            .iter()
+            .filter(|import| import.report.policy_load_error.is_none())
+            .collect::<Vec<_>>();
+        let policy = merged_plugin_source("NetworkCore iOS MITM", &accepted);
         let certificate = base64::engine::general_purpose::STANDARD
             .decode(config.ca_certificate.trim())
             .map_err(|_| "mitm ca_certificate is not base64")?;
@@ -96,7 +110,7 @@ impl MitmEngine {
                 ],
                 hooks: vec![HookPoint::Request, HookPoint::Response],
             },
-            source: config.policy.clone(),
+            source: policy,
         };
         let instance = service
             .load(

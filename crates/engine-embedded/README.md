@@ -40,7 +40,8 @@ The default `mitm` feature lets the packet tunnel decrypt HTTPS for host names l
 
 | Field | Meaning |
 | --- | --- |
-| `policy` | Plugin text (`[URL Rewrite]`, `[Header Rewrite]`, `[Map Local]`, `[MITM]`) evaluated by the same rewrite engine as the desktop proxy (`engine-native` hook plus the `mitm-policy` core). |
+| `policy` | Optional plugin text (`[URL Rewrite]`, `[Header Rewrite]`, `[Map Local]`, `[MITM]`) evaluated by the same rewrite engine as the desktop proxy (`engine-native` hook plus the `mitm-policy` core). |
+| `plugins` | Optional Loon plugin texts. Each is imported with `mitm_policy::loon_plugin` and merged with `policy` into one policy (`merged_plugin_source`): rewrite sections keep plugin order and `[MITM]` hostname lists are combined, with an excluded host staying excluded. A plugin the policy core refuses is left out; `[Rule]` lines are not applied here. |
 | `ca_certificate` | Base64 DER of the device root that the iOS app generates and the user trusts. |
 | `ca_private_key` | Base64 X9.63 P-256 private key (`04 ‖ X ‖ Y ‖ D`), as `SecKeyCopyExternalRepresentation` returns it. |
 

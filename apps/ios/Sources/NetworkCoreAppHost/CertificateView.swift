@@ -4,9 +4,11 @@ import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 
-/// The "扩展" tab: the HTTPS decryption certificate wizard now, plugins and rewrites later.
+/// The "扩展" tab: the HTTPS decryption certificate wizard and local Loon plugins.
 struct ExtensionsView: View {
     @Environment(\.brand) private var brand
+    @ObservedObject var tunnel: TunnelController
+    @StateObject private var plugins = PluginsModel()
 
     var body: some View {
         NavigationStack {
@@ -22,11 +24,7 @@ struct ExtensionsView: View {
                     Text("解密 HTTPS 需要先在本机生成并信任一张根证书。证书和私钥只保存在本机钥匙串。")
                 }
 
-                Section("插件") {
-                    Text("Loon 插件、重写和脚本会放在这里。")
-                        .foregroundStyle(.secondary)
-                        .listRowBackground(brand.surface)
-                }
+                PluginsSection(tunnel: tunnel, model: plugins)
             }
             .scrollContentBackground(.hidden)
             .background(brand.bg.ignoresSafeArea())

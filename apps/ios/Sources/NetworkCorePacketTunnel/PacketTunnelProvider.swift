@@ -56,11 +56,11 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             completionHandler(PacketTunnelFailure(reason: "tunnel profile has no node key; import the node again"))
             return
         }
-        let config: Data
+        let config: EmbeddedRuntimeConfig
         let interface: TunnelInterface
         do {
             let secret = NodeSecret.fromKeychainValue(try NodeSecretStore.password(for: keyReference))
-            config = try EmbeddedRuntimeConfig.decoded(from: template).withSecret(secret).encoded()
+            config = try EmbeddedRuntimeConfig.decoded(from: template).withSecret(secret)
             interface = try (tunnelProtocol.providerConfiguration?[TunnelProfileKeys.tunnelInterface] as? Data)
                 .map(TunnelInterface.decoded(from:)) ?? .proxy
         } catch let failure as NodeSecretStore.Failure {
@@ -74,7 +74,9 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
 
         let session: EmbeddedRuntimeSession
         do {
-            session = try EmbeddedRuntimeSession(config: config, packetFlow: packetFlow)
+            session = try makeSession(config, mitmPlugins: MitmPluginLibrary.texts(
+                fromProfileValue: tunnelProtocol.providerConfiguration?[TunnelProfileKeys.mitmPlugins] as? Data
+            ))
             events.record("runtime initialized")
         } catch let failure as EmbeddedRuntimeSession.Failure {
             completionHandler(PacketTunnelFailure(reason: "embedded runtime rejected the tunnel profile (code \(failure.code))"))
@@ -150,6 +152,32 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             )
             completionHandler?(try? diagnostics.encoded())
         }
+    }
+
+    /// Creates the runtime, decrypting HTTPS for the enabled plugins when the device root is in the Keychain.
+    /// HTTPS decryption is an extra: when the root is missing or the runtime refuses the plugins, the tunnel
+    /// starts without it and the reason goes to the diagnostics.
+    private func makeSession(_ config: EmbeddedRuntimeConfig, mitmPlugins: [String]) throws -> EmbeddedRuntimeSession {
+        if !mitmPlugins.isEmpty {
+            do {
+                if let authority = try MitmCertificateStore.load() {
+                    let session = try EmbeddedRuntimeSession(
+                        config: config.withMitm(plugins: mitmPlugins, authority: authority).encoded(),
+                        packetFlow: packetFlow
+                    )
+                    events.record("https decryption on, \(mitmPlugins.count) plugins")
+                    return session
+                }
+                events.record("https decryption off: no root certificate")
+            } catch let failure as MitmCertificateStore.Failure {
+                events.record("https decryption off: root certificate unavailable (keychain status \(failure.status))")
+            } catch let failure as EmbeddedRuntimeSession.Failure {
+                events.record("https decryption off: runtime refused the plugins (code \(failure.code))")
+            } catch {
+                events.record("https decryption off: setup failed")
+            }
+        }
+        return try EmbeddedRuntimeSession(config: config.withoutMitm().encoded(), packetFlow: packetFlow)
     }
 
     /// Records system memory pressure, the usual warning before iOS kills an extension over its memory limit.
