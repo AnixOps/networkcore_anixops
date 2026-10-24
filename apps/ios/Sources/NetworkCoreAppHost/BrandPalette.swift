@@ -173,6 +173,9 @@ struct ProtocolBadge: View {
         if kind.hasPrefix("wireguard") {
             return "WG"
         }
+        if kind.hasPrefix("hysteria2") {
+            return "HY2"
+        }
         return kind.uppercased()
     }
 
@@ -189,7 +192,8 @@ struct ProtocolBadge: View {
         if kind.hasPrefix("wireguard") {
             return "WireGuard"
         }
-        return kind
+        let names = ["trojan": "Trojan", "vmess": "VMess", "hysteria2": "Hysteria2", "tuic": "TUIC"]
+        return names[kind] ?? kind
     }
 }
 

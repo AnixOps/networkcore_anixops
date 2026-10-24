@@ -42,7 +42,7 @@ struct ProxiesView: View {
                         BrandEmptyState(
                             systemImage: "globe",
                             title: "还没有节点",
-                            message: "粘贴 ss://、vless:// 链接，或导入 WireGuard 配置。"
+                            message: "粘贴 ss://、vless://、trojan://、vmess://、hysteria2://、tuic:// 等链接或订阅内容，或导入 WireGuard 配置。"
                         ) {
                             Button {
                                 importing = true

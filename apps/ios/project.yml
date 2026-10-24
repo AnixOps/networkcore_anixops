@@ -57,6 +57,10 @@ targets:
       # The TestFlight workflow drops this target when no widget provisioning profile is configured.
       - target: NetworkCoreWidget
         embed: true
+      # Subscription import (crates/node-import), built by the same script. The app links
+      # this small library, never the tunnel runtime below.
+      - framework: Generated/NetworkCoreImport.xcframework
+        embed: false
 
   NetworkCorePacketTunnel:
     type: app-extension
@@ -132,6 +136,7 @@ targets:
       - path: Sources/NetworkCoreAppHost/ImportView.swift
       - path: Sources/NetworkCoreAppHost/RouteLine.swift
       - path: Sources/NetworkCoreAppHost/TunnelController.swift
+      - path: Sources/NetworkCoreAppHost/NativeNodeImporterFFI.swift
     info:
       path: Generated/NetworkCoreMac-Info.plist
       properties:
@@ -155,6 +160,9 @@ targets:
         product: NetworkCoreIOS
       - target: NetworkCoreMacTunnel
         embed: true
+      # The macOS slice of the subscription importer; the tunnel runtime stays in the extension.
+      - framework: Generated/NetworkCoreImport.xcframework
+        embed: false
 
   # The packet tunnel for macOS: the same provider sources as iOS, linked with the macOS slice of the runtime.
   NetworkCoreMacTunnel:

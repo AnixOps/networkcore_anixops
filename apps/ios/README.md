@@ -20,9 +20,13 @@ their own gates pass.
   `Generated/NetworkCoreRuntime.xcframework`, which GitHub Actions builds with
   `.github/scripts/build-ios-runtime-xcframework.sh` and never commits. The extension imports the C ABI as the Clang
   module `NetworkCoreRuntimeC` and fails closed when the runtime handshake or the tunnel profile is invalid. The containing
-  app does not link the runtime.
-- Tunnel profile: the app imports one Shadowsocks-2022 `ss://` link or one single-peer WireGuard `wg-quick` config
-  (`TunnelNodeImport`). Node secrets (the Shadowsocks password, the WireGuard private and preshared keys) go into the
+  app does not link the runtime; it links only `Generated/NetworkCoreImport.xcframework` (crates/node-import, Clang
+  module `NetworkCoreImportC`), built by the same script, to turn pasted text into nodes.
+- Tunnel profile: the app imports one node (`TunnelNodeImport`). Shadowsocks-2022 `ss://`, VLESS REALITY `vless://`
+  links and single-peer WireGuard `wg-quick` configs are read in Swift; any other share link the engine runs (Trojan,
+  VMess, VLESS over TLS/WebSocket/gRPC, Shadowsocks AEAD, Hysteria2, TUIC) and subscription texts (base64 link lists,
+  Clash YAML, JSON outbound configs, Surge/Loon/Quantumult X proxy lines) go through the Rust importer, and the first runnable
+  node becomes a native outbound whose settings are the Keychain secret. Node secrets (the Shadowsocks password, the WireGuard private and preshared keys) go into the
   Keychain as one `NodeSecret` JSON value (`NodeSecretStore`, `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`) and
   the profile keeps only its persistent reference in `NETunnelProviderProtocol.passwordReference`;
   `providerConfiguration` holds the runtime config without secrets and a `TunnelInterface` (addresses, routes, DNS,
