@@ -4,18 +4,22 @@ use crate::gui::{
     startup::{owns_current_proxy, save_desktop_state, DesktopState},
     ui_state::ConnectionState,
 };
+use engine_embedded::local_proxy::LocalProxy;
 use engine_singbox::{
     inspect_sing_box_local_selector_controller, read_sing_box_clash_api_selector_with_timeout,
     SingBoxLocalControllerConfig, SingBoxManagedProcessRequest, SingBoxManagedProcessSupervisor,
 };
+use inbound_mixed::MixedSettings;
 use platform_windows::managed::{
-    windows_managed_config_path, WindowsManagedConfig, WindowsProxySettings, WindowsProxySnapshot,
+    windows_managed_config_path, WindowsManagedConfig, WindowsManagedEmbeddedConfig,
+    WindowsProxySettings, WindowsProxySnapshot,
 };
 use platform_windows::system_integration::{
     managed_proxy_listener_ready, read_current_user_system_proxy, NativeWindowsSystemIntegration,
     WindowsServiceState, WindowsSystemIntegration,
 };
 use std::fs;
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -35,6 +39,60 @@ struct DesktopConnectionPlan {
     proxy: WindowsProxySettings,
     selector_controller: Option<SingBoxLocalControllerConfig>,
     sing_box: Option<SingBoxManagedProcessRequest>,
+    embedded: Option<WindowsManagedEmbeddedConfig>,
+}
+
+/// The core the GUI runs itself in desktop mode: a sing-box child process, or
+/// the embedded engine inside the GUI process.
+#[derive(Default)]
+pub struct DesktopCore {
+    sing_box: SingBoxManagedProcessSupervisor,
+    embedded: Option<LocalProxy>,
+}
+
+impl DesktopCore {
+    pub fn is_running(&mut self) -> Result<bool, String> {
+        if self.embedded.as_ref().is_some_and(LocalProxy::is_running) {
+            return Ok(true);
+        }
+        Ok(self
+            .sing_box
+            .status()
+            .map_err(|error| error.to_string())?
+            .state
+            == engine_singbox::SingBoxManagedProcessState::Running)
+    }
+
+    /// The listener is bound when this returns.
+    fn start_embedded(&mut self, config: &WindowsManagedEmbeddedConfig) -> Result<(), String> {
+        self.stop_embedded();
+        let envelope = fs::read(&config.envelope_path)
+            .map_err(|error| format!("embedded engine configuration could not be read: {error}"))?;
+        let listen = config.listener().parse::<SocketAddr>().map_err(|_| {
+            "embedded engine listener must be a loopback socket address".to_string()
+        })?;
+        let proxy = LocalProxy::start(&envelope, listen, MixedSettings::default())
+            .map_err(|error| format!("embedded engine could not start: {}", error.message))?;
+        self.embedded = Some(proxy);
+        Ok(())
+    }
+
+    fn stop_embedded(&mut self) {
+        if let Some(mut proxy) = self.embedded.take() {
+            proxy.stop();
+        }
+    }
+
+    /// Stops the embedded engine and, given its log path, sing-box.
+    fn stop(&mut self, sing_box_log_path: Option<&Path>) -> Result<(), String> {
+        self.stop_embedded();
+        if let Some(log_path) = sing_box_log_path {
+            self.sing_box
+                .stop(log_path)
+                .map_err(|error| error.to_string())?;
+        }
+        Ok(())
+    }
 }
 
 pub const fn can_connect(connection: ConnectionState) -> bool {
@@ -95,14 +153,18 @@ pub fn connect(config_path: PathBuf, desktop: DesktopState) -> Result<ConnectedP
 pub fn connect_direct(
     config_path: PathBuf,
     desktop: DesktopState,
-    supervisor: &mut SingBoxManagedProcessSupervisor,
+    core: &mut DesktopCore,
 ) -> Result<ConnectedProxy, String> {
     let plan = load_desktop_connection_plan(&config_path)?;
+    if let Some(embedded) = plan.embedded.as_ref() {
+        core.start_embedded(embedded)?;
+        return apply_proxy_after_direct_readiness(&plan.proxy, desktop, core, None);
+    }
     let request = plan.sing_box.clone().ok_or_else(|| {
         "Desktop mode requires an enabled sing-box configuration. Install sing-box and import a compatible profile first."
             .to_string()
     })?;
-    supervisor
+    core.sing_box
         .start(&request)
         .map_err(|error| error.to_string())?;
 
@@ -119,19 +181,25 @@ pub fn connect_direct(
             None => true,
         };
         if listener_ready && selector_ready {
-            return apply_proxy_after_direct_readiness(&plan.proxy, desktop, supervisor, &request);
+            return apply_proxy_after_direct_readiness(
+                &plan.proxy,
+                desktop,
+                core,
+                Some(&request.log_path),
+            );
         }
-        if supervisor
+        if core
+            .sing_box
             .status()
             .map_err(|error| error.to_string())?
             .state
             != engine_singbox::SingBoxManagedProcessState::Running
         {
-            let _ = supervisor.stop(&request.log_path);
+            let _ = core.sing_box.stop(&request.log_path);
             return Err("Desktop sing-box process exited before it became ready.".to_string());
         }
         if Instant::now() >= deadline {
-            let _ = supervisor.stop(&request.log_path);
+            let _ = core.sing_box.stop(&request.log_path);
             return Err(
                 "Timed out waiting for the desktop sing-box proxy and selector controller."
                     .to_string(),
@@ -144,7 +212,7 @@ pub fn connect_direct(
 pub fn disconnect_direct(
     config_path: PathBuf,
     desktop: DesktopState,
-    supervisor: &mut SingBoxManagedProcessSupervisor,
+    core: &mut DesktopCore,
 ) -> Result<String, String> {
     let managed = load_validated_daily_managed_configuration(&config_path)?;
     let integration = NativeWindowsSystemIntegration::new();
@@ -158,11 +226,12 @@ pub fn disconnect_direct(
             proxy_restored = true;
         }
     }
-    if let Some(sing_box) = managed.sing_box {
-        supervisor
-            .stop(&sing_box.log_path)
-            .map_err(|error| error.to_string())?;
-    }
+    core.stop(
+        managed
+            .sing_box
+            .as_ref()
+            .map(|sing_box| sing_box.log_path.as_path()),
+    )?;
     Ok(if proxy_restored {
         "Desktop core stopped and the GUI-owned proxy snapshot was restored.".to_string()
     } else {
@@ -249,18 +318,20 @@ fn desktop_connection_plan(managed: WindowsManagedConfig) -> Result<DesktopConne
             working_directory: sing_box.working_directory.clone(),
             log_path: sing_box.log_path.clone(),
         });
+    let embedded = managed.embedded.filter(|embedded| embedded.enabled);
     Ok(DesktopConnectionPlan {
         proxy,
         selector_controller,
         sing_box,
+        embedded,
     })
 }
 
 fn apply_proxy_after_direct_readiness(
     proxy: &WindowsProxySettings,
     mut desktop: DesktopState,
-    supervisor: &mut SingBoxManagedProcessSupervisor,
-    request: &SingBoxManagedProcessRequest,
+    core: &mut DesktopCore,
+    sing_box_log_path: Option<&Path>,
 ) -> Result<ConnectedProxy, String> {
     let integration = NativeWindowsSystemIntegration::new();
     let current = read_current_user_system_proxy().map_err(|error| error.to_string())?;
@@ -270,7 +341,7 @@ fn apply_proxy_after_direct_readiness(
     let applied_snapshot = match integration.apply_system_proxy(proxy) {
         Ok(snapshot) => snapshot,
         Err(error) => {
-            let _ = supervisor.stop(&request.log_path);
+            let _ = core.stop(sing_box_log_path);
             return Err(error.to_string());
         }
     };
@@ -279,7 +350,7 @@ fn apply_proxy_after_direct_readiness(
     desktop.applied_proxy = Some(proxy.clone());
     if let Err(error) = save_desktop_state(&desktop) {
         let _ = integration.restore_system_proxy(&snapshot);
-        let _ = supervisor.stop(&request.log_path);
+        let _ = core.stop(sing_box_log_path);
         return Err(format!(
             "desktop proxy ownership could not be saved after connection: {error}"
         ));
@@ -467,6 +538,7 @@ mod tests {
             sing_box: None,
             mieru: None,
             native_mitm: None,
+            embedded: None,
         }
     }
 

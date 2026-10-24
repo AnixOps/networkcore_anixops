@@ -1898,6 +1898,7 @@ mod gui {
                     imported.sing_box_config_snapshot_path.clone();
             }
         }
+        managed.embedded = None;
         managed.sing_box = Some(WindowsManagedSingBoxConfig {
             enabled: true,
             executable_path: imported.executable_path.clone(),
@@ -1938,6 +1939,7 @@ mod gui {
             bypass: "<local>".to_string(),
         });
         managed.system_proxy_owner = WindowsSystemProxyOwner::Service;
+        managed.embedded = None;
         managed.sing_box = Some(WindowsManagedSingBoxConfig {
             enabled: true,
             executable_path: imported.executable_path.clone(),
@@ -2572,6 +2574,7 @@ mod gui {
             sing_box: None,
             mieru: None,
             native_mitm: None,
+            embedded: None,
         })
     }
 

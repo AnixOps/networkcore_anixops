@@ -431,6 +431,18 @@ Before describing VLESS + REALITY as usable on iOS, the maintainer records here
 - a multi-hour transfer on the target network with no resets or blocks, once
   through `engine-embedded` on an iPhone after M1a wires the outbound in.
 
+## Windows 内置引擎真机验收（Phase 2c-1）
+
+CI 只验证托管配置、服务进程内启停和健康检查（`managed_runtime_contracts`），
+以及 GUI 代码能在 Windows 上编译。下面这些需要在真实 Windows 10/11 上确认：
+
+- 未安装 sing-box 时导入订阅，概览页显示内置引擎运行中，连接后浏览器经
+  `127.0.0.1:7890` 正常上网；断开后系统代理恢复到连接前的设置。
+- 同一订阅在服务模式下也能连接（服务进程内运行内置引擎），停止服务后监听端口释放。
+- 订阅里有内置引擎不支持的节点时，导入提示安装 sing-box，不出现半配置状态。
+- 分流模式、DNS、HTTPS 解密和节点切换暂时只支持 sing-box 配置，在内置引擎下会提示先导入
+  sing-box 配置，这是已知限制，见 Phase 2c-2/2c-3。
+
 ## 当前待处理
 
 - 首批运维上线环境尚未提供：真实邮件/Telegram 接收渠道、第三方独立 Control 监控、跨地域节点和设备以及维护负责人。当前自动化只能运行测试适配器与代码 CI，不能证明这些真实环境门槛。维护负责人补齐渠道与部署范围后，记录投递/监控/网络/设备及回滚演练证据，再由 CI/CD 推进获准的灰度发布；真实地址与密钥仅放部署系统或密码库。
