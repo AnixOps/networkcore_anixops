@@ -155,7 +155,7 @@ struct ImportView: View {
                         .foregroundStyle(brand.danger)
                 }
 
-                Text("支持 Shadowsocks-2022、VLESS 链接和单个 Peer 的 WireGuard 配置。订阅、Clash / Loon / Surge 配置会在后续版本支持。")
+                Text("支持订阅链接，Clash / Surge / Loon / Quantumult X 订阅内容，Trojan、VMess、VLESS、Shadowsocks、Hysteria2、TUIC 链接，以及单个 Peer 的 WireGuard 配置。")
                     .font(.caption)
                     .foregroundStyle(brand.text2)
 
@@ -185,7 +185,11 @@ struct ImportView: View {
                             Text(preview.maskedServer)
                                 .font(.footnote.monospaced())
                                 .foregroundStyle(brand.text2)
-                            Text(preview.outboundKind)
+                            Text(
+                                preview.outboundKind == ImportPreview.subscriptionKind
+                                    ? String(localized: "订阅链接，导入时下载全部节点")
+                                    : preview.outboundKind
+                            )
                                 .font(.caption)
                                 .foregroundStyle(brand.text2)
                         }
@@ -276,8 +280,8 @@ struct ImportView: View {
                 url.stopAccessingSecurityScopedResource()
             }
         }
-        // WireGuard configs are a few hundred bytes; refuse anything that is clearly not one.
-        guard let data = try? Data(contentsOf: url), data.count <= 64 * 1024,
+        // Subscription files stay well under the importer's 4 MiB limit.
+        guard let data = try? Data(contentsOf: url), data.count <= 4 * 1024 * 1024,
               let contents = String(data: data, encoding: .utf8)
         else {
             error = String(localized: "文件不是可识别的文本配置")

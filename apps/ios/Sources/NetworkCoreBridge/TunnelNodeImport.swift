@@ -20,6 +20,12 @@ public enum TunnelNodeImportError: Error, Equatable {
     case native(NativeImportFailure)
 }
 
+/// What an import produced: the profile to save, and the importer's report when there was one.
+public struct TunnelImport: Equatable {
+    public let profile: TunnelProfile
+    public let report: NativeImportReport?
+}
+
 /// Turns pasted text into a tunnel profile: an `ss://` or `vless://` link, or a WireGuard config, read in Swift;
 /// anything else (other protocols, other transports, subscription texts) goes to `native`, the Rust importer,
 /// which takes the first node the engine can run.
@@ -29,10 +35,19 @@ public enum TunnelNodeImport {
         profileID: String,
         native: NativeNodeImporter? = nil
     ) throws -> TunnelProfile {
+        try parseImport(text, profileID: profileID, native: native).profile
+    }
+
+    /// The profile and, when the Rust importer read the text, its whole report (every node of a subscription).
+    public static func parseImport(
+        _ text: String,
+        profileID: String,
+        native: NativeNodeImporter? = nil
+    ) throws -> TunnelImport {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let builtInError: TunnelNodeImportError
         do {
-            return try parseBuiltIn(trimmed, profileID: profileID)
+            return TunnelImport(profile: try parseBuiltIn(trimmed, profileID: profileID), report: nil)
         } catch let error as TunnelNodeImportError {
             builtInError = error
         }
@@ -50,7 +65,7 @@ public enum TunnelNodeImport {
             throw builtInError == .unrecognized ? .native(.unavailable) : builtInError
         }
         do {
-            return try TunnelProfile.first(in: report, profileID: profileID)
+            return TunnelImport(profile: try TunnelProfile.first(in: report, profileID: profileID), report: report)
         } catch let failure as NativeImportFailure {
             throw TunnelNodeImportError.native(failure)
         } catch {
