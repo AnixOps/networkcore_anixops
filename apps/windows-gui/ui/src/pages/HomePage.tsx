@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import type { Page } from "../App";
 import { desktop, NativeGroupSummary, NodeSummary, RuntimeSnapshot, StatusFact } from "../bridge";
 import { RouteLine } from "../brand";
-import { ConnectPhase, connectionTitle, factLabel, routingLabel, routingModes } from "../labels";
+import { availableRoutingModes, ConnectPhase, connectionTitle, factLabel, groupMemberLabel, routingLabel } from "../labels";
 import { Card, Run, StatusDot } from "../ui";
 import { t } from "../i18n";
 
@@ -63,7 +63,7 @@ export function HomePage({ snapshot, nodes, phase, busy, run, toggle, goTo }: {
           <div className="hero-subtitle">{subtitle}</div>
         </div>
         {!linux && <div className="hero-modes" role="radiogroup" aria-label={t("分流模式")}>
-          {routingModes.map((mode) => (
+          {availableRoutingModes(snapshot).map((mode) => (
             <button
               key={mode.value}
               role="radio"
@@ -96,7 +96,7 @@ export function HomePage({ snapshot, nodes, phase, busy, run, toggle, goTo }: {
               <li key={group.tag}>
                 <Layers size={16} className="list-icon" />
                 <span className="list-main"><strong>{group.tag}</strong><small>{group.groupType === "selector" ? t("手动选择") : group.groupType === "urltest" ? t("自动测速") : group.groupType}</small></span>
-                {group.selected && <span className="chip">{group.selected}</span>}
+                {group.selected && <span className="chip">{groupMemberLabel(group, group.selected)}</span>}
               </li>
             ))}</ul>}
         </Card>}

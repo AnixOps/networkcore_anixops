@@ -50,7 +50,19 @@ export const routingModes: Array<{ value: RuntimeSnapshot["routingMode"]; label:
   { value: "gfw_list", label: "GFW 列表", hint: "只有列表内的网站走代理" },
   { value: "return_china", label: "回国", hint: "大陆网站走代理，适合在海外使用" },
   { value: "direct", label: "直连", hint: "所有流量直连，不经过节点" },
+  { value: "rule", label: "规则", hint: "按订阅自带的规则和策略组分流" },
 ];
+
+/** The modes this profile can use: subscription rules only run on the embedded engine. */
+export function availableRoutingModes(snapshot: RuntimeSnapshot | null) {
+  return routingModes.filter((mode) => mode.value !== "rule" || snapshot?.embeddedEngine || snapshot?.routingMode === "rule");
+}
+
+/** The name to show for a group member. */
+export function groupMemberLabel(group: { outbounds: string[]; outboundLabels?: string[] }, member: string | undefined): string | undefined {
+  if (member === undefined) return undefined;
+  return group.outboundLabels?.[group.outbounds.indexOf(member)] ?? member;
+}
 
 export function routingLabel(mode: RuntimeSnapshot["routingMode"] | undefined): string {
   return t(routingModes.find((item) => item.value === mode)?.label ?? routingModes[0].label);

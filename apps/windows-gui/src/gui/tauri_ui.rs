@@ -145,6 +145,8 @@ struct RuntimeSnapshot {
     dark_theme: bool,
     runtime_mode: String,
     routing_mode: String,
+    /// The imported profile runs on the embedded engine.
+    embedded_engine: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -188,6 +190,9 @@ struct NativeGroupSummary {
     group_type: String,
     selected: Option<String>,
     outbounds: Vec<String>,
+    /// Display names for `outbounds`; empty when they are the names.
+    outbound_labels: Vec<String>,
+    /// Editable JSON; empty when the group cannot be edited as JSON.
     json: String,
 }
 
@@ -604,11 +609,24 @@ fn list_nodes(state: State<'_, DesktopAppState>) -> Result<Vec<NodeSummary>, Str
 }
 
 #[tauri::command]
-async fn list_native_groups() -> Result<Vec<NativeGroupSummary>, String> {
-    run_blocking(list_native_groups_blocking).await
+async fn list_native_groups(
+    state: State<'_, DesktopAppState>,
+) -> Result<Vec<NativeGroupSummary>, String> {
+    let state = state.inner().clone();
+    run_blocking(move || list_native_groups_blocking(state)).await
 }
 
-fn list_native_groups_blocking() -> Result<Vec<NativeGroupSummary>, String> {
+fn list_native_groups_blocking(state: DesktopAppState) -> Result<Vec<NativeGroupSummary>, String> {
+    if active_embedded_config()?.is_some() {
+        let Ok(profile) = read_embedded_profile() else {
+            return Ok(Vec::new());
+        };
+        let desktop = state
+            .desktop
+            .lock()
+            .map_err(|_| "desktop state lock failed")?;
+        return Ok(embedded_groups(&profile, &desktop.profile_node_catalog));
+    }
     let Some(sing_box) = managed_config_or_default()?.sing_box else {
         return Ok(Vec::new());
     };
@@ -632,6 +650,9 @@ fn select_native_group_outbound_blocking(
     outbound_tag: String,
     state: DesktopAppState,
 ) -> Result<OperationResult, String> {
+    if let Some(embedded) = active_embedded_config()? {
+        return select_embedded_group_member(&state, &embedded, &group_tag, &outbound_tag);
+    }
     let service = NativeWindowsSystemIntegration::new()
         .service_status()
         .map_err(|error| error.to_string())?;
@@ -736,6 +757,7 @@ fn native_groups(content: &str) -> Result<Vec<NativeGroupSummary>, String> {
                     .and_then(Value::as_str)
                     .map(str::to_string),
                 outbounds: members,
+                outbound_labels: Vec::new(),
                 json: serde_json::to_string_pretty(outbound).ok()?,
             })
         })
@@ -1195,6 +1217,230 @@ fn active_embedded_config() -> Result<Option<WindowsManagedEmbeddedConfig>, Stri
         .filter(|embedded| embedded.enabled))
 }
 
+/// The imported embedded profile (`profile.json`).
+fn read_embedded_profile() -> Result<Value, String> {
+    let content = fs::read_to_string(embedded_profile_path())
+        .map_err(|error| format!("Import the profile again before using it: {error}"))?;
+    serde_json::from_str(&content).map_err(|error| error.to_string())
+}
+
+fn routed_groups(profile: &Value) -> &[Value] {
+    profile
+        .pointer("/routing/groups")
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or_default()
+}
+
+fn routed_group<'a>(profile: &'a Value, id: &str) -> Option<&'a Value> {
+    routed_groups(profile)
+        .iter()
+        .find(|group| group.get("id").and_then(Value::as_str) == Some(id))
+}
+
+fn group_members(group: &Value) -> Vec<String> {
+    group
+        .get("members")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::to_string)
+        .collect()
+}
+
+/// The member a group routes to now: a select group's default (when it is a
+/// member) and otherwise the first member, as the engine decides.
+fn group_choice(group: &Value) -> Option<String> {
+    let members = group_members(group);
+    let default = group
+        .get("default")
+        .and_then(Value::as_str)
+        .filter(|_| group.get("type").and_then(Value::as_str) == Some("select"))
+        .filter(|default| members.iter().any(|member| member == default));
+    default
+        .map(str::to_string)
+        .or_else(|| members.into_iter().next())
+}
+
+/// The groups FINAL passes through, following each group's choice, and the
+/// target it ends at.
+fn routed_final_chain(profile: &Value) -> (Vec<String>, Option<String>) {
+    let mut target = profile
+        .pointer("/routing/rules")
+        .and_then(Value::as_array)
+        .and_then(|rules| rules.last())
+        .and_then(Value::as_str)
+        .and_then(|rule| rule.strip_prefix("FINAL,"))
+        .map(|target| target.trim().to_string());
+    let mut chain = Vec::new();
+    while let Some(id) = target.clone() {
+        if chain.contains(&id) {
+            break;
+        }
+        let Some(group) = routed_group(profile, &id) else {
+            break;
+        };
+        chain.push(id);
+        target = group_choice(group);
+    }
+    (chain, target)
+}
+
+/// The node FINAL ends at, if it ends at a node.
+fn routed_selected_node(profile: &Value) -> Option<String> {
+    let (_, target) = routed_final_chain(profile);
+    target.filter(|id| {
+        profile
+            .pointer(&format!("/routing/outbounds/{}", json_pointer_escape(id)))
+            .is_some()
+    })
+}
+
+fn json_pointer_escape(value: &str) -> String {
+    value.replace('~', "~0").replace('/', "~1")
+}
+
+/// The first select group on FINAL's route that has `node_id` as a member.
+fn routed_switch_group_for_node(profile: &Value, node_id: &str) -> Option<String> {
+    let (chain, _) = routed_final_chain(profile);
+    chain.into_iter().find(|id| {
+        routed_group(profile, id).is_some_and(|group| {
+            group.get("type").and_then(Value::as_str) == Some("select")
+                && group_members(group).iter().any(|member| member == node_id)
+        })
+    })
+}
+
+/// Makes `member` the default of the select group `group_id`.
+fn set_routed_group_default(
+    profile: &mut Value,
+    group_id: &str,
+    member: &str,
+) -> Result<(), String> {
+    let group = profile
+        .pointer_mut("/routing/groups")
+        .and_then(Value::as_array_mut)
+        .and_then(|groups| {
+            groups
+                .iter_mut()
+                .find(|group| group.get("id").and_then(Value::as_str) == Some(group_id))
+        })
+        .ok_or_else(|| format!("Policy group {group_id} is not part of the imported profile."))?;
+    if group.get("type").and_then(Value::as_str) != Some("select") {
+        return Err(format!(
+            "Policy group {group_id} chooses automatically; only select groups can be switched."
+        ));
+    }
+    if !group_members(group)
+        .iter()
+        .any(|candidate| candidate == member)
+    {
+        return Err(format!(
+            "{member} is not a member of policy group {group_id}."
+        ));
+    }
+    group
+        .as_object_mut()
+        .ok_or_else(|| "policy group must be a JSON object".to_string())?
+        .insert("default".to_string(), Value::String(member.to_string()));
+    Ok(())
+}
+
+/// Copies select-group defaults from `previous` into `profile` where the
+/// group and the member still exist.
+fn carry_routed_group_defaults(previous: &Value, profile: &mut Value) {
+    let defaults: Vec<(String, String)> = routed_groups(previous)
+        .iter()
+        .filter_map(|group| {
+            Some((
+                group.get("id")?.as_str()?.to_string(),
+                group.get("default")?.as_str()?.to_string(),
+            ))
+        })
+        .collect();
+    for (group, member) in defaults {
+        let _ = set_routed_group_default(profile, &group, &member);
+    }
+}
+
+/// The routed profile's groups in the shape the policy group card shows,
+/// with node ids labelled by their names.
+fn embedded_groups(profile: &Value, nodes: &[DesktopProfileNode]) -> Vec<NativeGroupSummary> {
+    let label = |member: &str| {
+        nodes
+            .iter()
+            .find(|node| node.id == member)
+            .map(|node| node.label.clone())
+            .unwrap_or_else(|| member.to_string())
+    };
+    routed_groups(profile)
+        .iter()
+        .filter_map(|group| {
+            let tag = group.get("id")?.as_str()?.to_string();
+            let members = group_members(group);
+            let group_type = match group.get("type")?.as_str()? {
+                "select" => "selector",
+                "url-test" => "urltest",
+                other => other,
+            }
+            .to_string();
+            Some(NativeGroupSummary {
+                tag,
+                group_type,
+                selected: group_choice(group),
+                outbound_labels: members.iter().map(|member| label(member)).collect(),
+                outbounds: members,
+                json: String::new(),
+            })
+        })
+        .collect()
+}
+
+/// Makes `member` the choice of the select group `group_id`, rebuilds the
+/// envelope for the routing mode and restarts a running core on it.
+fn select_embedded_group_member(
+    state: &DesktopAppState,
+    embedded: &WindowsManagedEmbeddedConfig,
+    group_id: &str,
+    member: &str,
+) -> Result<OperationResult, String> {
+    let desktop = state
+        .desktop
+        .lock()
+        .map_err(|_| "desktop state lock failed")?
+        .clone();
+    let mut profile = read_embedded_profile()?;
+    set_routed_group_default(&mut profile, group_id, member)?;
+    let rendered = profile.to_string();
+    let envelope = embedded_envelope_for_mode(&rendered, desktop.routing_mode, false)?;
+    write_managed_text_atomic(&embedded_profile_path(), &rendered)
+        .map_err(|error| error.to_string())?;
+    write_managed_text_atomic(&embedded.envelope_path, &envelope)
+        .map_err(|error| error.to_string())?;
+    {
+        let mut persisted = state
+            .desktop
+            .lock()
+            .map_err(|_| "desktop state lock failed")?;
+        persisted.profile_node_id = routed_selected_node(&profile);
+        save_desktop_state(&persisted)?;
+    }
+    let running = node_operations_runtime_running(state, &desktop)?;
+    if running {
+        restart_service_blocking(state.clone())?;
+    }
+    Ok(OperationResult {
+        message: if running {
+            format!(
+                "Policy group {group_id} now uses {member}; the embedded engine restarted with it."
+            )
+        } else {
+            format!("Policy group {group_id} now uses {member}. It applies when the core next connects.")
+        },
+    })
+}
+
 /// Envelope with the one outbound saved for `node_id` at import.
 fn embedded_node_profile(node_id: &str) -> Result<String, String> {
     let content = fs::read_to_string(embedded_nodes_path())
@@ -1229,7 +1475,20 @@ fn switch_embedded_node(
     node_id: &str,
     update_running_core: bool,
 ) -> Result<(), String> {
-    let profile = embedded_node_profile(node_id)?;
+    let current = read_embedded_profile()?;
+    let profile = if current.get("routing").is_some() {
+        // A routed profile keeps its rules: the node becomes the choice of the
+        // select group it belongs to on the route FINAL takes.
+        let mut routed = current;
+        let group = routed_switch_group_for_node(&routed, node_id).ok_or_else(|| {
+            "This node is not in the profile's main policy group; choose it under Policy groups."
+                .to_string()
+        })?;
+        set_routed_group_default(&mut routed, &group, node_id)?;
+        routed.to_string()
+    } else {
+        embedded_node_profile(node_id)?
+    };
     write_managed_text_atomic(&embedded_profile_path(), &profile)
         .map_err(|error| error.to_string())?;
     let envelope = embedded_envelope_or_profile(profile, desktop.routing_mode);
@@ -1255,11 +1514,22 @@ fn select_fastest_embedded_node(
     embedded: &WindowsManagedEmbeddedConfig,
     test_url: &str,
 ) -> Result<OperationResult, String> {
-    let mut fastest: Option<(&DesktopProfileNode, Duration)> = None;
-    for chunk in desktop
+    // On a routed profile only nodes of the main policy group can be chosen.
+    let routed = read_embedded_profile()
+        .ok()
+        .filter(|profile| profile.get("routing").is_some());
+    let candidates: Vec<DesktopProfileNode> = desktop
         .profile_node_catalog
-        .chunks(EMBEDDED_DELAY_PARALLELISM)
-    {
+        .iter()
+        .filter(|node| {
+            routed
+                .as_ref()
+                .is_none_or(|profile| routed_switch_group_for_node(profile, &node.id).is_some())
+        })
+        .cloned()
+        .collect();
+    let mut fastest: Option<(&DesktopProfileNode, Duration)> = None;
+    for chunk in candidates.chunks(EMBEDDED_DELAY_PARALLELISM) {
         let delays: Vec<_> = std::thread::scope(|scope| {
             let handles: Vec<_> = chunk
                 .iter()
@@ -1899,8 +2169,28 @@ fn import_embedded_subscription(
         .filter(|envelope| RuntimeConfig::from_json(envelope.as_bytes()).is_ok());
     // A single-node profile lists every supported node so it can be switched
     // and delay tested; a routed one is driven by its own groups.
+    let routed_import = routed.is_some();
     let (envelope, selected_node_id, node_outbounds) = match routed {
-        Some(envelope) => (envelope, None, Vec::new()),
+        Some(envelope) => {
+            // Group choices made before a refresh survive it where the group
+            // and member still exist.
+            let mut profile: Value =
+                serde_json::from_str(&envelope).map_err(|error| error.to_string())?;
+            if let Ok(previous) = read_embedded_profile() {
+                carry_routed_group_defaults(&previous, &mut profile);
+            }
+            let node_outbounds = catalog
+                .nodes
+                .iter()
+                .filter_map(|node| {
+                    outbound_for_node(node)
+                        .ok()
+                        .map(|outbound| (node.clone(), outbound))
+                })
+                .collect::<Vec<_>>();
+            let selected = routed_selected_node(&profile);
+            (profile.to_string(), selected, node_outbounds)
+        }
         None => {
             let selected = desktop
                 .profile_node_id
@@ -1946,6 +2236,10 @@ fn import_embedded_subscription(
     // The imported envelope is kept so routing modes can be reapplied to it.
     write_managed_text_atomic(&embedded_profile_path(), &envelope)
         .map_err(|error| error.to_string())?;
+    if routed_import {
+        // A profile with its own rules runs them by default.
+        desktop.routing_mode = DesktopRoutingMode::Rule;
+    }
     let envelope = embedded_envelope_or_profile(envelope, desktop.routing_mode);
     let envelope_path = embedded_directory().join("envelope.json");
     write_managed_text_atomic(&envelope_path, &envelope).map_err(|error| error.to_string())?;
@@ -2011,6 +2305,12 @@ fn embedded_envelope_for_mode(
     mode: DesktopRoutingMode,
     force_refresh: bool,
 ) -> Result<String, String> {
+    if mode == DesktopRoutingMode::Rule {
+        // The profile's own rules and groups, or its one node for everything.
+        RuntimeConfig::from_json(profile.as_bytes())
+            .map_err(|error| format!("embedded profile was rejected: {}", error.message))?;
+        return Ok(profile.to_string());
+    }
     let rule_directory = windows_managed_data_directory().join(ROUTING_RULE_DIRECTORY);
     if mode != DesktopRoutingMode::Direct {
         refresh_routing_rule_assets(&rule_directory, mode, force_refresh)?;
@@ -2064,6 +2364,7 @@ fn embedded_envelope_for_mode(
             )
         }
         DesktopRoutingMode::Direct => (vec!["FINAL,DIRECT".to_string()], json!({})),
+        DesktopRoutingMode::Rule => unreachable!("rule mode returns the profile above"),
     };
     let routing_object = routing
         .as_object_mut()
@@ -2461,6 +2762,12 @@ fn set_routing_mode_blocking(
             ),
         });
     }
+    if mode == DesktopRoutingMode::Rule {
+        return Err(
+            "Subscription rules mode runs on the embedded engine; sing-box profiles keep the four routing modes."
+                .to_string(),
+        );
+    }
     let sing_box = managed
         .sing_box
         .ok_or_else(|| "Import a sing-box profile before applying a routing mode.".to_string())?;
@@ -2640,6 +2947,9 @@ fn apply_routing_mode_to_config(
             "direct".to_string(),
         ),
         DesktopRoutingMode::Direct => (Vec::new(), Vec::new(), "direct".to_string()),
+        DesktopRoutingMode::Rule => {
+            return Err("sing-box profiles do not support subscription rules mode.".to_string())
+        }
         DesktopRoutingMode::ReturnChina => (
             vec![
                 json!({ "rule_set": ["networkcore-china-domains", "networkcore-china-ips"], "outbound": proxy_outbound }),
@@ -2674,9 +2984,11 @@ fn parse_routing_mode(value: &str) -> Result<DesktopRoutingMode, String> {
         "gfw_list" => Ok(DesktopRoutingMode::GfwList),
         "direct" => Ok(DesktopRoutingMode::Direct),
         "return_china" => Ok(DesktopRoutingMode::ReturnChina),
-        _ => {
-            Err("routing mode must be bypass_china, gfw_list, direct, or return_china".to_string())
-        }
+        "rule" => Ok(DesktopRoutingMode::Rule),
+        _ => Err(
+            "routing mode must be bypass_china, gfw_list, direct, return_china, or rule"
+                .to_string(),
+        ),
     }
 }
 fn routing_mode_name(mode: DesktopRoutingMode) -> &'static str {
@@ -2685,6 +2997,7 @@ fn routing_mode_name(mode: DesktopRoutingMode) -> &'static str {
         DesktopRoutingMode::GfwList => "gfw_list",
         DesktopRoutingMode::Direct => "direct",
         DesktopRoutingMode::ReturnChina => "return_china",
+        DesktopRoutingMode::Rule => "rule",
     }
 }
 fn routing_mode_label(mode: DesktopRoutingMode) -> &'static str {
@@ -2693,6 +3006,7 @@ fn routing_mode_label(mode: DesktopRoutingMode) -> &'static str {
         DesktopRoutingMode::GfwList => "GFW list",
         DesktopRoutingMode::Direct => "Direct",
         DesktopRoutingMode::ReturnChina => "Return China",
+        DesktopRoutingMode::Rule => "Subscription rules",
     }
 }
 
@@ -3419,6 +3733,7 @@ fn snapshot(
             DesktopRuntimeMode::Service => "service".to_string(),
         },
         routing_mode: routing_mode_name(desktop.routing_mode).to_string(),
+        embedded_engine: active_embedded_config().ok().flatten().is_some(),
     }
 }
 
@@ -3458,6 +3773,102 @@ fn core_status(status: &ManagedCoreStatus) -> StatusFact {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn routed_profile() -> Value {
+        json!({
+            "schema_version": 1,
+            "profile_id": "windows-embedded",
+            "routing": {
+                "outbounds": {
+                    "hk": { "type": "shadowsocks" },
+                    "jp": { "type": "shadowsocks" },
+                    "us": { "type": "shadowsocks" }
+                },
+                "rules": ["DOMAIN-SUFFIX,example.jp,jp", "FINAL,Proxy"],
+                "groups": [
+                    { "id": "Proxy", "type": "select", "members": ["Auto", "jp", "DIRECT"], "default": null },
+                    { "id": "Auto", "type": "url-test", "members": ["hk", "us"] },
+                    { "id": "Streaming", "type": "select", "members": ["us", "hk"], "default": "hk" }
+                ]
+            }
+        })
+    }
+
+    #[test]
+    fn routed_profile_final_chain_follows_group_choices() {
+        let mut profile = routed_profile();
+        assert_eq!(
+            routed_final_chain(&profile),
+            (
+                vec!["Proxy".to_string(), "Auto".to_string()],
+                Some("hk".to_string())
+            )
+        );
+        assert_eq!(routed_selected_node(&profile).as_deref(), Some("hk"));
+
+        set_routed_group_default(&mut profile, "Proxy", "DIRECT").unwrap();
+        assert_eq!(routed_final_chain(&profile).1.as_deref(), Some("DIRECT"));
+        assert_eq!(routed_selected_node(&profile), None);
+    }
+
+    #[test]
+    fn routed_node_switch_uses_the_main_select_group() {
+        let mut profile = routed_profile();
+        // jp is a member of Proxy, which FINAL reaches first.
+        assert_eq!(
+            routed_switch_group_for_node(&profile, "jp").as_deref(),
+            Some("Proxy")
+        );
+        // hk is only in the url-test group and a group off FINAL's route.
+        assert_eq!(routed_switch_group_for_node(&profile, "hk"), None);
+
+        set_routed_group_default(&mut profile, "Proxy", "jp").unwrap();
+        assert_eq!(routed_selected_node(&profile).as_deref(), Some("jp"));
+        assert!(set_routed_group_default(&mut profile, "Auto", "us").is_err());
+        assert!(set_routed_group_default(&mut profile, "Proxy", "us").is_err());
+        assert!(set_routed_group_default(&mut profile, "Missing", "jp").is_err());
+    }
+
+    #[test]
+    fn routed_group_defaults_survive_a_refresh() {
+        let mut previous = routed_profile();
+        set_routed_group_default(&mut previous, "Proxy", "jp").unwrap();
+        set_routed_group_default(&mut previous, "Streaming", "us").unwrap();
+        let mut refreshed = routed_profile();
+        refreshed["routing"]["groups"][0]["members"] = json!(["Auto", "DIRECT"]);
+
+        carry_routed_group_defaults(&previous, &mut refreshed);
+
+        // jp left the Proxy group, so its old default is dropped.
+        assert_eq!(routed_selected_node(&refreshed).as_deref(), Some("hk"));
+        assert_eq!(
+            routed_group(&refreshed, "Streaming")
+                .and_then(group_choice)
+                .as_deref(),
+            Some("us")
+        );
+    }
+
+    #[test]
+    fn embedded_groups_label_nodes_by_name() {
+        let nodes = vec![node("hk", "Hong Kong"), node("jp", "Tokyo")];
+        let groups = embedded_groups(&routed_profile(), &nodes);
+
+        assert_eq!(groups.len(), 3);
+        assert_eq!(groups[0].tag, "Proxy");
+        assert_eq!(groups[0].group_type, "selector");
+        assert_eq!(groups[0].selected.as_deref(), Some("Auto"));
+        assert_eq!(groups[0].outbound_labels, vec!["Auto", "Tokyo", "DIRECT"]);
+        assert_eq!(groups[1].group_type, "urltest");
+        assert_eq!(groups[1].selected.as_deref(), Some("hk"));
+        assert!(groups.iter().all(|group| group.json.is_empty()));
+    }
+
+    #[test]
+    fn rule_mode_round_trips() {
+        assert_eq!(parse_routing_mode("rule"), Ok(DesktopRoutingMode::Rule));
+        assert_eq!(routing_mode_name(DesktopRoutingMode::Rule), "rule");
+    }
 
     fn managed_config_with_mieru() -> WindowsManagedConfig {
         WindowsManagedConfig {

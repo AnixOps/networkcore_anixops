@@ -24,6 +24,8 @@ pub enum DesktopRoutingMode {
     GfwList,
     Direct,
     ReturnChina,
+    /// The subscription's own rules and policy groups (embedded engine only).
+    Rule,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
