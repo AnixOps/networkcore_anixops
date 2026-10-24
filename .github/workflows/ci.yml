@@ -3443,6 +3443,7 @@ jobs:
             echo "::error::the containing app must not link the embedded runtime"
             exit 1
           fi
+          grep -q '_networkcore_import_nodes$' "${RUNNER_TEMP}/app-symbols.txt"
 
   apple-project-smoke:
     name: Apple project smoke

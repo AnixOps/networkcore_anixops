@@ -16,12 +16,56 @@ public enum TunnelNodeImportError: Error, Equatable {
     case shadowsocks(ShadowsocksLinkError)
     case wireguard(WireGuardConfigError)
     case vless(VlessLinkError)
+    /// The Rust importer could not use the text either.
+    case native(NativeImportFailure)
 }
 
-/// Turns pasted text into a tunnel profile: an `ss://` or `vless://` link, or a WireGuard config.
+/// Turns pasted text into a tunnel profile: an `ss://` or `vless://` link, or a WireGuard config, read in Swift;
+/// anything else (other protocols, other transports, subscription texts) goes to `native`, the Rust importer,
+/// which takes the first node the engine can run.
 public enum TunnelNodeImport {
-    public static func parse(_ text: String, profileID: String) throws -> TunnelProfile {
+    public static func parse(
+        _ text: String,
+        profileID: String,
+        native: NativeNodeImporter? = nil
+    ) throws -> TunnelProfile {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let builtInError: TunnelNodeImportError
+        do {
+            return try parseBuiltIn(trimmed, profileID: profileID)
+        } catch let error as TunnelNodeImportError {
+            builtInError = error
+        }
+        // WireGuard configs are only read in Swift.
+        guard let native = native, !isWireGuard(builtInError) else {
+            throw builtInError
+        }
+        let report: NativeImportReport
+        do {
+            report = try NativeImportReport.decoded(from: native(trimmed))
+        } catch let failure as NativeImportFailure {
+            // A link the Swift parser recognized keeps its more specific error.
+            throw builtInError == .unrecognized ? .native(failure) : builtInError
+        } catch {
+            throw builtInError == .unrecognized ? .native(.unavailable) : builtInError
+        }
+        do {
+            return try TunnelProfile.first(in: report, profileID: profileID)
+        } catch let failure as NativeImportFailure {
+            throw TunnelNodeImportError.native(failure)
+        } catch {
+            throw TunnelNodeImportError.native(.unavailable)
+        }
+    }
+
+    private static func isWireGuard(_ error: TunnelNodeImportError) -> Bool {
+        if case .wireguard = error {
+            return true
+        }
+        return false
+    }
+
+    private static func parseBuiltIn(_ trimmed: String, profileID: String) throws -> TunnelProfile {
         if trimmed.lowercased().hasPrefix("ss://") {
             let node: ShadowsocksNode
             do {

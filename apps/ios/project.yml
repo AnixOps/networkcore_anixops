@@ -50,6 +50,10 @@ targets:
         product: NetworkCoreIOS
       - target: NetworkCorePacketTunnel
         embed: true
+      # Subscription import (crates/node-import), built by the same script. The app links
+      # this small library, never the tunnel runtime below.
+      - framework: Generated/NetworkCoreImport.xcframework
+        embed: false
 
   NetworkCorePacketTunnel:
     type: app-extension

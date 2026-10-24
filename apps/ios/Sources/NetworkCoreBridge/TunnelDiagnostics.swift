@@ -123,6 +123,8 @@ extension EmbeddedRuntimeConfig {
             return "wireguard"
         case let .vless(vless):
             return vless.flow.isEmpty ? "vless+reality" : "vless+reality (\(vless.flow))"
+        case let .native(native):
+            return native.type
         }
     }
 }

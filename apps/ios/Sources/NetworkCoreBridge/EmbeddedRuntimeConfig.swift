@@ -15,6 +15,27 @@ public struct EmbeddedRuntimeConfig: Codable, Equatable {
         case shadowsocks(server: String, port: UInt16, method: String, password: String)
         case wireguard(WireGuardPeer)
         case vless(VlessOutbound)
+        /// Any other outbound the runtime registry knows, as the Rust importer produced it.
+        case native(NativeOutbound)
+    }
+
+    /// An outbound the app passes through without interpreting: Trojan, VMess, VLESS over TLS, Hysteria2, TUIC
+    /// and the rest of crates/node-import's output. `settings` (everything but the type and address) is the
+    /// secret: it holds the password or user id, and the profile keeps only `type`, `server` and `port`.
+    public struct NativeOutbound: Equatable {
+        static let addressKeys: Set<String> = ["type", "server", "port"]
+
+        public var type: String
+        public var server: String
+        public var port: UInt16
+        public var settings: [String: JSONValue]
+
+        public init(type: String, server: String, port: UInt16, settings: [String: JSONValue]) {
+            self.type = type
+            self.server = server
+            self.port = port
+            self.settings = settings
+        }
     }
 
     /// One VLESS + REALITY server. `uuid` is the secret.
@@ -123,6 +144,13 @@ public struct EmbeddedRuntimeConfig: Codable, Equatable {
         )
     }
 
+    public init(outbound: Outbound, profileID: String, mtu: Int = 1500) {
+        schemaVersion = Self.schemaVersion
+        self.profileID = profileID
+        self.mtu = mtu
+        self.outbound = outbound
+    }
+
     /// The secrets this config carries, for the Keychain.
     public var secret: NodeSecret {
         switch outbound {
@@ -132,6 +160,11 @@ public struct EmbeddedRuntimeConfig: Codable, Equatable {
             return NodeSecret(privateKey: peer.privateKey, presharedKey: peer.presharedKey)
         case let .vless(vless):
             return NodeSecret(uuid: vless.uuid)
+        case let .native(native):
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            let settings = (try? encoder.encode(native.settings)).map { String(decoding: $0, as: UTF8.self) }
+            return NodeSecret(outbound: settings)
         }
     }
 
@@ -173,6 +206,10 @@ public struct EmbeddedRuntimeConfig: Codable, Equatable {
         case var .vless(vless):
             vless.uuid = secret.uuid ?? ""
             copy.outbound = .vless(vless)
+        case var .native(native):
+            native.settings = secret.outbound
+                .flatMap { try? JSONDecoder().decode([String: JSONValue].self, from: Data($0.utf8)) } ?? [:]
+            copy.outbound = .native(native)
         }
         return copy
     }
@@ -228,7 +265,8 @@ extension EmbeddedRuntimeConfig.Outbound: Codable {
                     persistentKeepaliveSecs: try container.decodeIfPresent(UInt16.self, forKey: .persistentKeepaliveSecs)
                 )
             )
-        case "vless":
+        // VLESS over TLS or a transport is a native outbound; only REALITY has its own case.
+        case "vless" where container.contains(.reality):
             self = .vless(
                 EmbeddedRuntimeConfig.VlessOutbound(
                     server: server,
@@ -239,11 +277,26 @@ extension EmbeddedRuntimeConfig.Outbound: Codable {
                 )
             )
         default:
-            throw DecodingError.dataCorruptedError(forKey: .type, in: container, debugDescription: "unknown outbound type")
+            var settings: [String: JSONValue] = [:]
+            let all = try decoder.container(keyedBy: DynamicCodingKey.self)
+            for key in all.allKeys where !EmbeddedRuntimeConfig.NativeOutbound.addressKeys.contains(key.stringValue) {
+                settings[key.stringValue] = try all.decode(JSONValue.self, forKey: key)
+            }
+            self = .native(EmbeddedRuntimeConfig.NativeOutbound(type: type, server: server, port: port, settings: settings))
         }
     }
 
     public func encode(to encoder: Encoder) throws {
+        if case let .native(native) = self {
+            var all = encoder.container(keyedBy: DynamicCodingKey.self)
+            for (key, value) in native.settings where !EmbeddedRuntimeConfig.NativeOutbound.addressKeys.contains(key) {
+                try all.encode(value, forKey: DynamicCodingKey(key))
+            }
+            try all.encode(native.type, forKey: DynamicCodingKey("type"))
+            try all.encode(native.server, forKey: DynamicCodingKey("server"))
+            try all.encode(native.port, forKey: DynamicCodingKey("port"))
+            return
+        }
         var container = encoder.container(keyedBy: CodingKeys.self)
         switch self {
         case let .shadowsocks(server, port, method, password):
@@ -267,6 +320,9 @@ extension EmbeddedRuntimeConfig.Outbound: Codable {
             try container.encode(vless.uuid, forKey: .uuid)
             try container.encode(vless.flow, forKey: .flow)
             try container.encode(vless.reality, forKey: .reality)
+        case .native:
+            // Encoded above.
+            break
         }
     }
 }
@@ -278,24 +334,29 @@ public struct NodeSecret: Codable, Equatable {
     public var presharedKey: String?
     /// VLESS user id.
     public var uuid: String?
+    /// JSON settings of a native outbound (`EmbeddedRuntimeConfig.NativeOutbound.settings`).
+    public var outbound: String?
 
     enum CodingKeys: String, CodingKey {
         case password
         case privateKey = "private_key"
         case presharedKey = "preshared_key"
         case uuid
+        case outbound
     }
 
     public init(
         password: String? = nil,
         privateKey: String? = nil,
         presharedKey: String? = nil,
-        uuid: String? = nil
+        uuid: String? = nil,
+        outbound: String? = nil
     ) {
         self.password = password
         self.privateKey = privateKey
         self.presharedKey = presharedKey
         self.uuid = uuid
+        self.outbound = outbound
     }
 
     /// The value written to the Keychain.

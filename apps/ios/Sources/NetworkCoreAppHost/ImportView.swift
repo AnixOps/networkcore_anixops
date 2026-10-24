@@ -125,7 +125,7 @@ struct ImportView: View {
                         .foregroundStyle(brand.text2)
                     ZStack(alignment: .topLeading) {
                         if text.isEmpty {
-                            Text("ss:// · vless:// · WireGuard 配置")
+                            Text("节点链接 · 订阅内容 · WireGuard 配置")
                                 .font(.footnote.monospaced())
                                 .foregroundStyle(brand.text3)
                                 .padding(.horizontal, 13)
