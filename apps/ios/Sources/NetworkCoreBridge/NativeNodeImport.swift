@@ -5,7 +5,7 @@ import Foundation
 /// lines. The app calls the C ABI and hands the JSON here, so this part needs no Rust library and is tested on its
 /// own.
 public struct NativeImportReport: Decodable, Equatable {
-    public struct Node: Decodable, Equatable {
+    public struct Node: Codable, Equatable, Identifiable {
         public let id: String
         public let name: String
         /// The outbound `type`, for example `trojan` or `hysteria2`.
@@ -55,13 +55,18 @@ extension TunnelProfile {
                 reasons: Array(Set(report.unsupported.map(\.reason))).sorted()
             )
         }
+        return try TunnelProfile(node: node, profileID: profileID)
+    }
+
+    /// The profile that runs one imported node.
+    public init(node: NativeImportReport.Node, profileID: String) throws {
         // Shadowsocks and VLESS + REALITY land in their own cases, so their secrets are split as for pasted links;
         // everything else becomes a native outbound.
         let outbound = try JSONDecoder().decode(
             EmbeddedRuntimeConfig.Outbound.self,
             from: JSONEncoder().encode(node.outbound)
         )
-        return TunnelProfile(
+        self.init(
             config: EmbeddedRuntimeConfig(outbound: outbound, profileID: profileID),
             interface: .proxy,
             serverAddress: node.server,

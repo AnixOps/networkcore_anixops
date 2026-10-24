@@ -40,6 +40,39 @@ public enum NodeSecretStore {
         return reference
     }
 
+    /// Reads the value saved for `account`, or nil when there is none.
+    public static func value(account: String) throws -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+        ]
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        if status == errSecItemNotFound {
+            return nil
+        }
+        guard status == errSecSuccess, let data = result as? Data, let value = String(data: data, encoding: .utf8)
+        else {
+            throw Failure(status: status == errSecSuccess ? errSecDecode : status)
+        }
+        return value
+    }
+
+    /// Removes the value saved for `account`, if any.
+    public static func delete(account: String) throws {
+        let identity: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+        ]
+        let status = SecItemDelete(identity as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            throw Failure(status: status)
+        }
+    }
+
     /// Reads the key behind a persistent reference returned by `save(_:account:)`.
     public static func password(for reference: Data) throws -> String {
         var query: [String: Any] = [
