@@ -21,12 +21,32 @@
         }
       }
     },
+    "%lld 个成员": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld members"
+          }
+        }
+      }
+    },
     "%lld 个脚本暂不运行": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "%lld scripts not run yet"
+          }
+        }
+      }
+    },
+    "%lld 条规则 · %lld 个策略组": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld rules · %lld policy groups"
           }
         }
       }
@@ -317,6 +337,16 @@
         }
       }
     },
+    "关闭后全部流量走代理页选中的节点。连接中修改会自动重连。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When off, all traffic goes through the node selected on the Proxies page. Changes while connected reconnect automatically."
+          }
+        }
+      }
+    },
     "关闭开发者模式": {
       "localizations": {
         "en": {
@@ -563,6 +593,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Imported"
+          }
+        }
+      }
+    },
+    "导入带规则和策略组的订阅（Clash、Surge、Loon 配置）后，可以在这里按订阅规则分流和切换策略组。现在全部流量走所选节点。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "After you import a subscription with rules and policy groups (a Clash, Surge or Loon profile), you can route by its rules and switch its policy groups here. Right now all traffic goes through the selected node."
           }
         }
       }
@@ -847,12 +887,32 @@
         }
       }
     },
+    "拒绝": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reject"
+          }
+        }
+      }
+    },
     "按域名和 IP 分流、规则集和规则测试会放在这里。当前版本按节点配置转发全部流量。": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Routing by domain and IP, rule sets and rule testing will live here. This version sends all traffic through the node."
+          }
+        }
+      }
+    },
+    "按订阅规则分流": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Route by subscription rules"
           }
         }
       }
@@ -903,6 +963,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Supports subscription links; Clash / Surge / Loon / Quantumult X subscription content; Trojan, VMess, VLESS, Shadowsocks, Hysteria2 and TUIC links; and WireGuard configs with one peer."
+          }
+        }
+      }
+    },
+    "故障转移": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fallback"
           }
         }
       }
@@ -1217,6 +1287,16 @@
         }
       }
     },
+    "正在按订阅规则分流，节点由策略组决定；可以在“规则”页切换策略组或关闭规则。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Routing by subscription rules: policy groups choose the nodes. Switch groups or turn rules off on the Rules page."
+          }
+        }
+      }
+    },
     "正在断开": {
       "localizations": {
         "en": {
@@ -1477,6 +1557,16 @@
         }
       }
     },
+    "直连": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Direct"
+          }
+        }
+      }
+    },
     "确认导入": {
       "localizations": {
         "en": {
@@ -1503,6 +1593,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Step %lld of 3"
+          }
+        }
+      }
+    },
+    "策略组": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Policy groups"
           }
         }
       }
@@ -1583,6 +1683,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "Network changed, reconnecting"
+          }
+        }
+      }
+    },
+    "自动选择": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto-select"
+          }
+        }
+      }
+    },
+    "自动选择和故障转移的组由内核按延迟和可用性挑选节点。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto-select and fallback groups pick their node by latency and availability."
           }
         }
       }

@@ -7,7 +7,8 @@ import Foundation
 ///
 /// The tunnel profile stores this config without its secrets (`withoutSecret()`); they live in the Keychain
 /// behind `NETunnelProviderProtocol.passwordReference` as a `NodeSecret`, and the extension restores them with
-/// `withSecret(_:)` just before handing the config to the runtime.
+/// `withSecret(_:)` just before handing the config to the runtime. To follow a subscription's rules it also adds the
+/// `routing` section from the node library (`withRouting(_:)`), which replaces `outbound` in the encoded envelope.
 public struct EmbeddedRuntimeConfig: Codable, Equatable {
     public static let schemaVersion = 1
 
@@ -87,10 +88,28 @@ public struct EmbeddedRuntimeConfig: Codable, Equatable {
         }
     }
 
+    /// The `routing` section: every subscription node by id, with the subscription's rules and policy groups. It
+    /// holds every node's credentials, so it is never stored in the tunnel profile; the extension builds it from the
+    /// node library (`NodeLibrary.runtimeRouting()`).
+    public struct Routing: Codable, Equatable {
+        public var outbounds: [String: [String: JSONValue]]
+        public var rules: [String]
+        public var groups: [NativeImportReport.Routing.Group]
+
+        public init(outbounds: [String: [String: JSONValue]], rules: [String], groups: [NativeImportReport.Routing.Group]) {
+            self.outbounds = outbounds
+            self.rules = rules
+            self.groups = groups
+        }
+    }
+
     public let schemaVersion: Int
     public let profileID: String
     public let mtu: Int
+    /// The selected node. With `routing` set it is left out of the encoded envelope, which carries exactly one of
+    /// the two; it still names the node for the app and diagnostics.
     public private(set) var outbound: Outbound
+    public private(set) var routing: Routing?
     public private(set) var mitm: Mitm?
 
     enum CodingKeys: String, CodingKey {
@@ -98,7 +117,22 @@ public struct EmbeddedRuntimeConfig: Codable, Equatable {
         case profileID = "profile_id"
         case mtu
         case outbound
+        case routing
         case mitm
+    }
+
+    /// Only the extension encodes a routed config, and only for the runtime; nothing decodes one.
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(schemaVersion, forKey: .schemaVersion)
+        try container.encode(profileID, forKey: .profileID)
+        try container.encode(mtu, forKey: .mtu)
+        if let routing {
+            try container.encode(routing, forKey: .routing)
+        } else {
+            try container.encode(outbound, forKey: .outbound)
+        }
+        try container.encodeIfPresent(mitm, forKey: .mitm)
     }
 
     public init(node: ShadowsocksNode, profileID: String, mtu: Int = 1500) {
@@ -172,6 +206,14 @@ public struct EmbeddedRuntimeConfig: Codable, Equatable {
     public func withoutSecret() -> EmbeddedRuntimeConfig {
         var copy = withSecret(NodeSecret())
         copy.mitm = nil
+        copy.routing = nil
+        return copy
+    }
+
+    /// The same config routing by a subscription's rules and groups; nil goes back to the selected node alone.
+    public func withRouting(_ routing: Routing?) -> EmbeddedRuntimeConfig {
+        var copy = self
+        copy.routing = routing
         return copy
     }
 
@@ -386,6 +428,10 @@ public enum TunnelProfileKeys {
     public static let tunnelInterface = "networkcore.tunnel-interface"
     /// Display name of the imported node. Not secret.
     public static let nodeName = "networkcore.node-name"
+    /// `true` when the tunnel follows the subscription's rules and groups: the extension then adds the `routing`
+    /// section from the node library in the Keychain (`NodeLibrary.keychainAccount`). Absent means the selected node
+    /// carries all traffic.
+    public static let routing = "networkcore.routing"
     /// `Data` holding a JSON array of the enabled MITM plugin texts (`MitmPluginLibrary.profileValue`). Absent or
     /// empty means no HTTPS decryption.
     public static let mitmPlugins = "networkcore.mitm-plugins"

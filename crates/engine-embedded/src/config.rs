@@ -30,9 +30,8 @@ pub const CONFIG_SCHEMA_VERSION: u32 = 1;
 const MIN_MTU: u16 = 1280;
 const MAX_MTU: u16 = 9000;
 const MAX_PROFILE_ID_LEN: usize = 128;
-const MAX_ROUTED_OUTBOUNDS: usize = 64;
-const MAX_ROUTING_RULES: usize = 4096;
-const MAX_POLICY_GROUPS: usize = 64;
+// Shared with the importer, which only offers routing that fits.
+use node_import::{MAX_POLICY_GROUPS, MAX_ROUTED_OUTBOUNDS, MAX_ROUTING_RULES};
 const MAX_RULE_SETS: usize = 16;
 /// Room for the mainland China domain and network lists with headroom.
 const MAX_RULE_SET_ENTRIES: usize = 500_000;

@@ -62,28 +62,14 @@ pub fn routing_envelope(
     for node in nodes {
         outbounds.insert(node.id.clone(), outbound_for_node(node)?);
     }
-    let groups: Vec<Value> = routing
-        .groups
-        .iter()
-        .map(|group| {
-            json!({
-                "id": group.id,
-                "type": group.kind,
-                "members": group.members,
-                "default": group.default,
-                "url": group.url,
-                "interval_secs": group.interval_secs,
-                "tolerance_ms": group.tolerance_ms,
-            })
-        })
-        .collect();
+    let section = node_import::routing_json(routing);
     let envelope = json!({
         "schema_version": CONFIG_SCHEMA_VERSION,
         "profile_id": profile_id,
         "routing": {
             "outbounds": outbounds,
-            "rules": routing.rules,
-            "groups": groups,
+            "rules": section["rules"],
+            "groups": section["groups"],
         },
     });
     Ok(envelope.to_string())

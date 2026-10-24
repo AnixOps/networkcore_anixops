@@ -45,13 +45,8 @@ struct RootView: View {
             ProxiesView(tunnel: tunnel, importing: $importing)
                 .tabItem { Label("代理", systemImage: "globe") }
                 .tag(AppTab.proxies)
-            ComingSoonView(
-                title: "规则",
-                systemImage: "arrow.triangle.branch",
-                heading: "规则与分流",
-                message: "按域名和 IP 分流、规则集和规则测试会放在这里。当前版本按节点配置转发全部流量。"
-            )
-            .tabItem { Label("规则", systemImage: "arrow.triangle.branch") }
+            RulesView(tunnel: tunnel)
+                .tabItem { Label("规则", systemImage: "arrow.triangle.branch") }
             .tag(AppTab.rules)
             ExtensionsView(tunnel: tunnel)
                 .tabItem { Label("扩展", systemImage: "puzzlepiece.extension") }
@@ -66,27 +61,6 @@ struct RootView: View {
             ImportView(tunnel: tunnel)
                 .environment(\.brand, brand)
                 .tint(brand.primary)
-        }
-    }
-}
-
-/// A section whose kernel support is still on the roadmap: says what will live here instead of showing fake data.
-struct ComingSoonView: View {
-    @Environment(\.brand) private var brand
-    let title: LocalizedStringKey
-    let systemImage: String
-    let heading: LocalizedStringKey
-    let message: LocalizedStringKey
-
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                BrandEmptyState(systemImage: systemImage, title: heading, message: message)
-                    .padding(.top, 80)
-            }
-            .background(brand.bg.ignoresSafeArea())
-            .navigationTitle(title)
-            .brandBars(brand)
         }
     }
 }

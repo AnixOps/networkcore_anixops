@@ -37,6 +37,77 @@ fn links_become_outbounds_and_unsupported_nodes_keep_their_secrets() {
     assert!(!unsupported.contains("secret"), "{unsupported}");
 }
 
+const CLASH: &str = r#"
+proxies:
+  - name: HK
+    type: ss
+    server: 82.47.34.99
+    port: 11111
+    cipher: aes-256-gcm
+    password: hk-secret
+  - name: JP
+    type: trojan
+    server: jp.example.com
+    port: 443
+    password: jp-secret
+proxy-groups:
+  - name: Proxy
+    type: select
+    proxies:
+      - Auto
+      - HK
+      - DIRECT
+  - name: Auto
+    type: url-test
+    proxies:
+      - HK
+      - JP
+    url: http://www.gstatic.com/generate_204
+    interval: 300
+rules:
+  - DOMAIN-SUFFIX,google.com,Proxy
+  - DOMAIN,jp.example.org,JP
+  - MATCH,Proxy
+"#;
+
+#[test]
+fn clash_rules_and_groups_come_with_the_nodes() {
+    let report = import_text(CLASH).unwrap();
+    let ids: Vec<_> = report.nodes.iter().map(|node| node.id.as_str()).collect();
+    assert_eq!(ids.len(), 2);
+    let routing = report
+        .routing
+        .expect("every node runs, so routing is offered");
+    let groups = routing["groups"].as_array().unwrap();
+    let names: Vec<_> = groups
+        .iter()
+        .map(|group| group["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["Proxy", "Auto"]);
+    assert_eq!(groups[0]["type"], "select");
+    assert_eq!(groups[1]["members"], serde_json::json!([ids[0], ids[1]]));
+    let rules: Vec<_> = routing["rules"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|rule| rule.as_str().unwrap().to_string())
+        .collect();
+    assert!(
+        rules
+            .iter()
+            .any(|rule| rule.ends_with(&format!(",{}", ids[1]))),
+        "{rules:?}"
+    );
+    let text = serde_json::to_string(&routing).unwrap();
+    assert!(!text.contains("secret"), "{text}");
+
+    // Links carry no rules, and a subscription with an unsupported node offers none.
+    assert!(import_text(LINKS).unwrap().routing.is_none());
+    let with_unsupported = CLASH.replace("cipher: aes-256-gcm", "cipher: rc4-md5");
+    let report = import_text(&with_unsupported).unwrap();
+    assert!(report.routing.is_none());
+}
+
 #[test]
 fn empty_and_unknown_text_are_rejected() {
     assert_eq!(import_text("  \n"), Err(ImportError::Empty));

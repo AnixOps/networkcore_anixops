@@ -23,8 +23,43 @@ public struct NativeImportReport: Decodable, Equatable {
         public let reason: String
     }
 
+    /// The subscription's rules and policy groups, as the engine's `routing` section without its outbounds. The
+    /// importer offers them only when every node can run; rules and group members name nodes by `Node.id`, groups
+    /// by `Group.id`, or `DIRECT` and `REJECT`.
+    public struct Routing: Codable, Equatable {
+        public struct Group: Codable, Equatable, Identifiable {
+            public let id: String
+            /// `select`, `url-test` or `fallback`.
+            public let type: String
+            public let members: [String]
+            /// The member a `select` group starts on.
+            public var `default`: String?
+            public let url: String?
+            public let intervalSecs: UInt32?
+            public let toleranceMs: UInt16?
+
+            enum CodingKeys: String, CodingKey {
+                case id
+                case type
+                case members
+                case `default`
+                case url
+                case intervalSecs = "interval_secs"
+                case toleranceMs = "tolerance_ms"
+            }
+
+            public var isSelectable: Bool {
+                type == "select"
+            }
+        }
+
+        public let rules: [String]
+        public let groups: [Group]
+    }
+
     public let nodes: [Node]
     public let unsupported: [Unsupported]
+    public let routing: Routing?
 
     public static func decoded(from data: Data) throws -> NativeImportReport {
         try JSONDecoder().decode(NativeImportReport.self, from: data)
