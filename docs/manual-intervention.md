@@ -4,10 +4,10 @@
 
 ## v0.2.0 Release Acceptance Gate
 
-release-version=v0.2.0-rc.1
+release-version=v0.2.0-rc.2
 release-final-version=v0.2.0
 release-state=pending_manual_acceptance
-release-tag-status=rc1-tag-pending-maintainer-approval
+release-tag-status=rc2-tag-pending-maintainer-approval
 release-dry-run-status=pending_github_actions_validation
 release-required-artifacts=linux-tarball-four-file-set,linux-gui-tarball-four-file-set,linux-gui-deb-four-file-set,windows-msi-four-file-set,windows-portable-zip-four-file-set
 release-ci-source=main-same-commit-ci-summary-success-required
@@ -19,7 +19,13 @@ The flow is: the maintainer approves and pushes the `v0.2.0-rc.1` tag (from a ma
 cannot push tags); the operator runs the must items below on the rc.1 artifacts, plus "Windows 内置引擎真机验收" and the
 `.deb` check under "Linux GUI Real-Desktop Acceptance"; when they pass, the maintainer tags `v0.2.0` on the same commit.
 A must-item failure is fixed on main and re-tested as `v0.2.0-rc.2`. The tables below keep their beta.5 names; for
-v0.2.0 they apply to the rc.1 artifacts, with `release-version=v0.2.0-rc.1` in the evidence template.
+v0.2.0 they apply to the current candidate's artifacts, with its `release-version` in the evidence template.
+
+`v0.2.0-rc.1` was published on 2026-10-25 (tag on `54adc04`). During acceptance, Windows imports turned out to go
+through sing-box once "安装内核" had been used, so the embedded-engine items could not be tested on rc.1. rc.2 always
+imports with the embedded engine and makes the compatibility core optional; acceptance continues on `v0.2.0-rc.2`.
+A machine that installed sing-box under rc.1 needs no cleanup: after upgrading, re-import the subscription and check
+that the "规则" mode is offered on the rules page.
 
 The beta feature scope is frozen. Do not add new protocols, iOS activation, HTTP/2 or HTTP/3 MITM, JavaScript dispatch, LAN controller, Web UI, urltest automation, background subscription groups, TUN/DNS interception, or other new features for this release. Only real compile, test, package, contract, documentation, or release-gate fixes may be made before the tag.
 
@@ -474,7 +480,9 @@ CI 只验证托管配置、服务进程内启停和健康检查（`managed_runti
 - 未安装 sing-box 时导入订阅，概览页显示内置引擎运行中，连接后浏览器经
   `127.0.0.1:7890` 正常上网；断开后系统代理恢复到连接前的设置。
 - 同一订阅在服务模式下也能连接（服务进程内运行内置引擎），停止服务后监听端口释放。
-- 订阅里有内置引擎不支持的节点时，导入提示安装 sing-box，不出现半配置状态。
+- 已安装兼容内核（rc.1 的“安装内核”或 rc.2 的“安装兼容内核”）时重新导入订阅，仍由内置引擎运行，
+  “规则”页提供“规则”分流模式；只有 sing-box 原生 JSON 配置和内置引擎一个节点都跑不了的订阅才交给兼容内核。
+- 订阅里的节点内置引擎全都不支持、又没装兼容内核时，导入报错，不出现半配置状态。
 - 内置引擎下切换四种分流模式后重新连接：绕过大陆时国内域名和 IP 直连、其余走代理；GFW
   列表时只有列表内域名走代理；回国和直连同理（Phase 2c-2）。
 - 内置引擎下单节点配置的节点列表：切换节点后（已连接时自动重启内核）出口 IP 随之变化；

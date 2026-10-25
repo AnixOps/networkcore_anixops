@@ -65,9 +65,8 @@ export function SettingsPage({ snapshot, busy, run, appearance, setAppearance, l
       </Card>
 
       <div className="two-column">
-        <Card title={t("代理内核")} description={linux ? t("内核随应用一起运行，无需单独安装。") : t("安装并校验内核后再导入配置。")}>
+        <Card title={t("代理内核")} description={t("内核随应用一起运行，无需单独安装。")}>
           <div className="button-row">
-            {!linux && <button className="primary" disabled={Boolean(busy)} onClick={() => void run("core", desktop.installCore)}><Cpu size={16} />{t("安装内核")}</button>}
             <button className="secondary" disabled={Boolean(busy)} onClick={() => void run("validate", desktop.validate)}><BadgeCheck size={16} />{t("校验配置")}</button>
             <button className="secondary" disabled={Boolean(busy)} onClick={() => void run("restart", desktop.restart)}><RotateCcw size={16} />{snapshot.runtimeMode === "desktop" ? t("重启内核") : t("重启服务")}</button>
           </div>
@@ -75,6 +74,7 @@ export function SettingsPage({ snapshot, busy, run, appearance, setAppearance, l
         {!linux && <ServiceCard busy={busy} run={run} />}
       </div>
 
+      {!linux && <CompatibilityCoreCard busy={busy} run={run} />}
       {!linux && <ExternalCoreCard busy={busy} run={run} />}
       {!linux && <SystemCard busy={busy} run={run} />}
     </div>
@@ -106,6 +106,17 @@ function ServiceCard({ busy, run }: { busy: string | null; run: Run }) {
 }
 
 /** The optional external Mieru core, installed from an official release asset and pinned by digest. */
+/** The optional compatibility core: only HTTPS decryption on Windows still needs it. */
+function CompatibilityCoreCard({ busy, run }: { busy: string | null; run: Run }) {
+  return (
+    <Card title={t("兼容内核（可选）")} description={t("导入和连接都用内置引擎，不需要它。目前只有 HTTPS 解密依赖兼容内核，用到时再安装。")}>
+      <div className="button-row">
+        <button className="secondary" disabled={Boolean(busy)} onClick={() => void run("core", desktop.installCore)}><Cpu size={16} />{t("安装兼容内核")}</button>
+      </div>
+    </Card>
+  );
+}
+
 function ExternalCoreCard({ busy, run }: { busy: string | null; run: Run }) {
   const [url, setUrl] = useState("");
   const [path, setPath] = useState("");
