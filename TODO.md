@@ -8,8 +8,8 @@
 
 ```text
 current-main-release-state=pending_manual_acceptance
-current-main-source-candidate=v0.2.0-rc.1
-current-main-latest-published-tag=v0.2.0-beta.5
+current-main-source-candidate=v0.2.0-rc.2
+current-main-latest-published-tag=v0.2.0-rc.1
 current-main-latest-stable-tag=v0.1.0
 current-main-subscription-run-url=public-engine-run-plan-mieru-and-sing-box-foreground-active
 current-main-subscription-foreground=public-engine-run-plan-mieru-and-sing-box-active
@@ -20,7 +20,7 @@ current-main-subscription-refresh-scheduling=linux-systemd-oneshot-timer-and-win
 current-main-cross-platform-run-plan=public-engine-run-plan-active
 ```
 
-- 发布：当前 source 候选 `v0.2.0-rc.1`（`pending_manual_acceptance`），最新 stable `v0.1.0`。当前最新用户可下载 Linux artifact 以 GitHub Releases 中最新已发布 tag（`v0.2.0-beta.5`）的 Linux 四件套为准，stable 为 `v0.1.0`。Linux artifact marker：`linux-artifact-release-state=confirmed-release-path`（license/NOTICE 已 confirmed）；每次 tag release 仍须通过同 commit CI、checksum、manifest、attestation、release notes、rollback 和 publish eligibility gates。
+- 发布：当前 source 候选 `v0.2.0-rc.2`（`pending_manual_acceptance`），最新 stable `v0.1.0`。当前最新用户可下载 Linux artifact 以 GitHub Releases 中最新已发布 tag（`v0.2.0-rc.1`）的 Linux 四件套为准，stable 为 `v0.1.0`。Linux artifact marker：`linux-artifact-release-state=confirmed-release-path`（license/NOTICE 已 confirmed）；每次 tag release 仍须通过同 commit CI、checksum、manifest、attestation、release notes、rollback 和 publish eligibility gates。
 - Linux `run-url` 在显式前台路径中支持 direct share links（`ss://`、Trojan、VLESS、VMess，以及 Hysteria2/TUIC share-link parser gate 覆盖的链接）、显式绝对 `file://` 订阅、一次前台 HTTP(S) fetch、`--node-id` 单次节点选择，以及 Clash YAML parser gate、sing-box JSON parser gate、Surge proxy line parser gate、Loon proxy line parser gate、Quantumult X proxy/server line parser gate 支持的 catalog payload。`run-catalog <catalog-path> <source-id>` 运行一个保存 source。
 - 持久订阅：v0.1.2-alpha.1 完成 `CommandSubscriptionCatalogStore::add_source`、`CommandSubscriptionCatalogStore::list_sources`、`CommandSubscriptionCatalogStore::remove_source`、`CommandSubscriptionCatalogStore::select_source`、`CommandSubscriptionCatalogStore::update_source` 和 `CommandSubscriptionCatalogStore::rollback_catalog`。`subscription refresh start/status/stop` 处理单个已保存 HTTP(S) source（最小 300 秒间隔、先验证后原子替换、失败保留 catalog）；Linux `subscription refresh schedule install/status/stop/uninstall` 生成不含 URL/凭据的 oneshot unit + persistent timer。
 - managed 记录（v0.1.2-alpha.2）：`CommandManagedForegroundSessionStore::read_status`、`CommandManagedForegroundSessionStore::write_status`、`CommandManagedForegroundSessionStore::transition_status`、`rollback_status`；`CommandManagedForegroundSessionEventStore::read_event`、`CommandManagedForegroundSessionEventStore::write_event`、`CommandManagedForegroundSessionEventStore::list_events`、`CommandManagedForegroundSessionEventStore::list_event_history`；`CommandManagedForegroundSessionLogStore::read_tail`。CLI：`networkcore-linux managed-status`（含 `networkcore-linux managed-status init`、`networkcore-linux managed-status transition`、`rollback`）、`networkcore-linux managed-event`（含 `networkcore-linux managed-event init`、`networkcore-linux managed-event list`）和 `networkcore-linux managed-log`。全部固定 `liveness_verified=false`。`start --managed-status --managed-snapshot --managed-events` 记录 foreground lifecycle；`--managed-control-socket <absolute-path>` 支持确认式跨进程 foreground stop。
@@ -30,7 +30,7 @@ current-main-cross-platform-run-plan=public-engine-run-plan-active
 
 ## 进行中
 
-- [ ] v0.2.0 正式版：维护者同意后打 `v0.2.0-rc.1` tag，在 rc.1 产物上完成 Windows/Linux 必须项真机验收，通过后在同一 commit 打 `v0.2.0`（人工步骤见 [docs/manual-intervention.md](docs/manual-intervention.md)）。
+- [ ] v0.2.0 正式版：维护者同意后打 `v0.2.0-rc.2` tag（rc.1 在 Windows 上装过 sing-box 后导入会改走 sing-box，不能用来验收内置引擎），在 rc.2 产物上完成 Windows/Linux 必须项真机验收，通过后在同一 commit 打 `v0.2.0`（人工步骤见 [docs/manual-intervention.md](docs/manual-intervention.md)）。
 - [ ] 独立验收维护事件的真实运行时接线、部署与跨地域/设备环境；首批契约（[交付证据](docs/P4_EXECUTION_STATUS.md)）不代表这些后续能力完成。
 
 ## P4 backlog buckets
@@ -48,7 +48,7 @@ current-main-cross-platform-run-plan=public-engine-run-plan-active
 - `v0.1.0`：Linux-only explicit HTTPS rewrite preview，已发布。
 - `v0.1.1`：Windows CLI artifact 与订阅兼容主线。
 - `v0.1.2`：managed lifecycle；高风险 mutation 必须显式授权、可检测、可回滚。
-- `v0.2.0`：Windows managed client 与 Linux 图形客户端，当前候选 `v0.2.0-rc.1`（`v0.2.0-beta.5` 已发布）。
+- `v0.2.0`：Windows managed client 与 Linux 图形客户端，当前候选 `v0.2.0-rc.2`（`v0.2.0-rc.1` 已发布）。
 
 详细说明见 [ROADMAP.md](ROADMAP.md#版本节奏)。
 

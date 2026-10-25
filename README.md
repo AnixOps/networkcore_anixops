@@ -26,8 +26,8 @@ P2 Core Kernel Skeleton 和 P3 Runtime Capability Baseline 已完成，当前阶
 
 ```text
 current-main-release-state=pending_manual_acceptance
-current-main-source-candidate=v0.2.0-rc.1
-current-main-latest-published-tag=v0.2.0-beta.5
+current-main-source-candidate=v0.2.0-rc.2
+current-main-latest-published-tag=v0.2.0-rc.1
 current-main-latest-stable-tag=v0.1.0
 current-main-subscription-foreground=public-engine-run-plan-mieru-and-sing-box-active
 current-main-managed-reload=explicit-foreground-control-socket-active
@@ -40,8 +40,8 @@ current-main-cross-platform-run-plan=public-engine-run-plan-active
 
 - 当前阶段源：P4 Client And Platform Integration。
 - P3 是已完成历史基线；后续章节、TODO 已完成项或 CHANGELOG 中出现的 P3 只表示历史源码合同，不代表当前阶段、发布状态或开发优先级。
-- 最新 stable：`v0.1.0`（Linux CLI tarball、sha256、manifest、manifest sha256）。最新已发布 tag：`v0.2.0-beta.5`（prerelease）。
-- 当前 source 候选：`v0.2.0-rc.1`（v0.2.0 正式版的候选，macOS 不在范围内），处于 `pending_manual_acceptance`。同名 tag 由 GitHub Actions 发布 Linux CLI 四件套、Linux 图形客户端 tarball 与 `.deb` 四件套、Windows managed-client MSI 四件套和 Windows portable ZIP 四件套；`v0.2.0-beta.5` 已作为 prerelease 发布。历史 `v0.1.1-alpha.2` Windows manual-extract CLI zip 只保留为审计记录。
+- 最新 stable：`v0.1.0`（Linux CLI tarball、sha256、manifest、manifest sha256）。最新已发布 tag：`v0.2.0-rc.1`（prerelease）。
+- 当前 source 候选：`v0.2.0-rc.2`（v0.2.0 正式版的候选，macOS 不在范围内），处于 `pending_manual_acceptance`。同名 tag 由 GitHub Actions 发布 Linux CLI 四件套、Linux 图形客户端 tarball 与 `.deb` 四件套、Windows managed-client MSI 四件套和 Windows portable ZIP 四件套；`v0.2.0-beta.5` 与 `v0.2.0-rc.1` 已作为 prerelease 发布。历史 `v0.1.1-alpha.2` Windows manual-extract CLI zip 只保留为审计记录。
 - Linux artifact release-state marker：`linux-artifact-release-state=confirmed-release-path`。`docs/manual-intervention.md` 中的 license/NOTICE 状态已是 `confirmed`，但每次 Linux tag release 仍须通过同 commit CI、checksum、manifest、attestation、release notes、rollback 和 publish eligibility gates。
 
 ### 能力概览
@@ -132,7 +132,7 @@ HTTP/2、HTTP/3/QUIC、pinning bypass、streaming、无界 CONNECT session 和 b
 - `v0.1.0`：Linux-only explicit HTTPS rewrite preview，已发布正式版（alpha.14–alpha.20、rc.1 逐步交付 plain HTTP data plane、TLS termination foundation、HTTPS request/response rewrite preview、traffic-proof binding 和 release hardening）。
 - `v0.1.1`：引入 Windows CLI artifact，订阅兼容为主线（各 parser gates）。
 - `v0.1.2`：managed lifecycle（persistent subscription catalog、managed status/events/logs/reload/rollback、受控 script dispatch 与系统 mutation，均须显式授权且可回滚）。
-- `v0.2.0`：Windows managed client（MSI 自 `v0.2.0-alpha.1`），当前候选 `v0.2.0-rc.1`（`v0.2.0-beta.5` 已发布）。
+- `v0.2.0`：Windows managed client（MSI 自 `v0.2.0-alpha.1`），当前候选 `v0.2.0-rc.2`（`v0.2.0-rc.1` 已发布）。
 
 各版本精确能力边界见 [docs/alpha-release-feature-matrix.md](docs/alpha-release-feature-matrix.md)，变更历史见 [CHANGELOG.md](CHANGELOG.md)。
 

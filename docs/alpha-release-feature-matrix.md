@@ -19,8 +19,8 @@ GitHub Release asset 为准；`main` 中 tag 之后的源码增量不等于用�
 
 ```text
 current-main-release-state=pending_manual_acceptance
-current-main-source-candidate=v0.2.0-rc.1
-current-main-latest-published-tag=v0.2.0-beta.5
+current-main-source-candidate=v0.2.0-rc.2
+current-main-latest-published-tag=v0.2.0-rc.1
 current-main-latest-stable-tag=v0.1.0
 current-main-subscription-foreground=public-engine-run-plan-mieru-and-sing-box-active
 current-main-subscription-background=linux-systemd-oneshot-timer-and-windows-opt-in-single-source-active
@@ -354,9 +354,20 @@ trust artifact 为核心，固定 `MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-life
 
 ## 当前 Windows 发布切片
 
+### `v0.2.0-rc.2`
+
+状态：v0.2.0 正式版的 release candidate，pending_manual_acceptance，取代 rc.1 做验收。
+
+相对 `v0.2.0-rc.1` 修复：
+
+- Windows 导入订阅一律走内置引擎；已安装的 sing-box 只接 sing-box 原生配置和内置引擎拒绝的订阅。
+  rc.1 里装过 sing-box 后导入会改走 sing-box，内置引擎的分流和策略组无法验收。
+- 设置页去掉“安装内核”主按钮和“安装并校验内核后再导入配置”文案，兼容内核改为可选卡片，
+  目前只有 HTTPS 解密依赖它。
+
 ### `v0.2.0-rc.1`
 
-状态：v0.2.0 正式版的 release candidate，pending_manual_acceptance。macOS 不在 v0.2.0
+状态：已作为 prerelease 发布（tag 在 `54adc04`），被 rc.2 取代。macOS 不在 v0.2.0
 范围内，iOS 走 TestFlight，不产生 release asset。rc.1 tag 需要维护者明确同意；rc.1 产物上的
 Windows/Linux 必须项真机验收通过后，在同一 commit 打 `v0.2.0`，验收中发现的问题以 `rc.2` 修复。
 
@@ -1002,7 +1013,7 @@ GitHub Actions release workflow 结果为准。
 
 ## 当前 main source 状态
 
-当前 Windows source release 候选切片是 `v0.2.0-rc.1`（`v0.2.0-beta.5` 已发布），Linux source slice 是 `v0.1.2-alpha.3`，最新 stable artifact 仍是 `v0.1.0`。它保留
+当前 Windows source release 候选切片是 `v0.2.0-rc.2`（`v0.2.0-rc.1` 已发布），Linux source slice 是 `v0.1.2-alpha.3`，最新 stable artifact 仍是 `v0.1.0`。它保留
 `v0.1.1-alpha.2` 的 Linux/Windows package、checksum、manifest、attestation 和 publish gate，并把
 受控 TLS HTTP/1.1 rewrite 与 explicit-local Node script runtime 加入 Linux CLI；Windows path 已切换到
 managed-client MSI，service、driver、installer、system proxy mutation、system trust store mutation 和 managed lifecycle

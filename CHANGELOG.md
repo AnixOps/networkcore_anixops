@@ -87,8 +87,8 @@ to generate candidate artifacts for that acceptance.
 
 ```text
 current-main-release-state=pending_manual_acceptance
-current-main-source-candidate=v0.2.0-rc.1
-current-main-latest-published-tag=v0.2.0-beta.5
+current-main-source-candidate=v0.2.0-rc.2
+current-main-latest-published-tag=v0.2.0-rc.1
 current-main-latest-stable-tag=v0.1.0
 current-main-subscription-foreground=public-engine-run-plan-mieru-and-sing-box-active
 current-main-subscription-refresh=explicit-http-single-source-status-stop-active
@@ -299,6 +299,7 @@ current-main-cross-platform-run-plan=public-engine-run-plan-active
 
 ### Fixed
 
+- Windows 客户端导入订阅一律走内置引擎：rc.1 里一旦用过设置页的“安装内核”，之后导入就改走 sing-box，内置引擎的分流模式、订阅规则和策略组都不生效。现在装了 sing-box 也先用内置引擎导入，只有 sing-box 原生 JSON 配置和内置引擎一个节点都跑不了的订阅才交给 sing-box。设置页去掉“安装内核”主按钮和“安装并校验内核后再导入配置”的旧文案，改为可选的“兼容内核”卡片（目前只有 HTTPS 解密依赖它）。
 - The Linux managed foreground control socket now sets each accepted
   connection back to blocking before its bounded read. On BSD-derived kernels
   such as macOS the accepted socket inherited the listener's non-blocking mode,

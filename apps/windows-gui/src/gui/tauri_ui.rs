@@ -2027,10 +2027,21 @@ fn import_subscription_at(location: &str, desktop: &mut DesktopState) -> Result<
         );
     }
     let (payload, source_path, source_url) = read_subscription(location)?;
-    if desktop.sing_box_executable_path.is_none()
-        && inspect_sing_box_native_config(&payload).is_none()
-    {
-        return import_embedded_subscription(&payload, source_path, source_url, desktop);
+    // The embedded engine runs every subscription it can. An installed
+    // sing-box only takes native sing-box configs and subscriptions the
+    // embedded engine rejects.
+    if inspect_sing_box_native_config(&payload).is_none() {
+        let routing_mode = desktop.routing_mode;
+        match import_embedded_subscription(
+            &payload,
+            source_path.clone(),
+            source_url.clone(),
+            desktop,
+        ) {
+            Ok(()) => return Ok(()),
+            Err(error) if desktop.sing_box_executable_path.is_none() => return Err(error),
+            Err(_) => desktop.routing_mode = routing_mode,
+        }
     }
     let executable_path = desktop
         .sing_box_executable_path
