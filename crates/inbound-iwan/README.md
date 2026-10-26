@@ -5,7 +5,8 @@ and the packet codec of `outbound-iwan`. Implemented only from
 `docs/protocols/iwan.md` §12 (clean room).
 
 - One UDP port serves every user. Clients log in with `username` (or the
-  user's `name`) and `password` (1–16 bytes); failures get OPENREJ. A new
+  user's `name`) and `password` (1–16 bytes); failures get OPENREJ. Login
+  names and fixed addresses are unique: adding a user that reuses one fails. A new
   login of the same user or from the same source replaces the old session;
   sessions end after 60 s without packets, on CLOSE or when the user is
   removed.

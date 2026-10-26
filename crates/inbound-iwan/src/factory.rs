@@ -110,6 +110,21 @@ mod tests {
         assert_eq!(inbound.protocol(), "iwan");
         assert!(inbound.users().contains("1001"));
         assert!(inbound.users().contains("1002"));
+        // Login names and fixed addresses are refused when taken.
+        let taken_login = User {
+            username: Some("alice".into()),
+            ..User::with_password("1003", "other")
+        };
+        assert!(inbound.users().add(taken_login).is_err());
+        let taken_address = User {
+            address: Some("10.66.3.4".parse().unwrap()),
+            ..User::with_password("1003", "other")
+        };
+        assert!(inbound.users().add(taken_address).is_err());
+        inbound
+            .users()
+            .add(User::with_password("1003", "other"))
+            .unwrap();
         assert_eq!(
             parse_upstream("9.9.9.9"),
             Some("9.9.9.9:53".parse().unwrap())
@@ -143,6 +158,8 @@ mod tests {
             r#"{"pool":"10.66.0.0/16","users":[{"name":"a","password":"x","address":"10.66.0.1"}]}"#,
             r#"{"pool":"10.66.0.0/16","users":[{"name":"a","password":"x","address":"10.67.0.2"}]}"#,
             r#"{"pool":"10.66.0.0/16","users":[{"name":"a","password":"x","address":"::1"}]}"#,
+            r#"{"pool":"10.66.0.0/16","users":[{"name":"a","password":"x"},{"name":"b","username":"a","password":"y"}]}"#,
+            r#"{"pool":"10.66.0.0/16","users":[{"name":"a","password":"x","address":"10.66.0.9"},{"name":"b","password":"y","address":"10.66.0.9"}]}"#,
         ] {
             assert!(build(json).is_err(), "{json}");
         }

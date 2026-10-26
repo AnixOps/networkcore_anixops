@@ -71,7 +71,7 @@ impl IwanInbound {
     pub fn new(config: IwanInboundConfig) -> Self {
         let pool = config.pool;
         let validator: Validator = Box::new(move |user: &User| validate(user, pool));
-        let users = Arc::new(UserStore::new(Some(validator)));
+        let users = Arc::new(UserStore::with_unique_keys(Some(validator), unique_keys));
         Self {
             logins: UserIndex::new(users.clone(), |user: &User| {
                 Some(login(user).as_bytes().to_vec())
@@ -93,6 +93,15 @@ impl IwanInbound {
 /// The name a client logs in with.
 fn login(user: &User) -> &str {
     user.username.as_deref().unwrap_or(&user.name)
+}
+
+/// Login names and fixed addresses belong to one user each (spec §12.4).
+fn unique_keys(user: &User) -> Vec<String> {
+    let mut keys = vec![format!("login:{}", login(user))];
+    if let Some(address) = user.address {
+        keys.push(format!("address:{address}"));
+    }
+    keys
 }
 
 fn validate(user: &User, pool: Network) -> Result<(), BuildError> {

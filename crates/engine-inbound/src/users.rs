@@ -198,8 +198,15 @@ impl Drop for OnlineGuard {
     }
 }
 
+const DUPLICATE_KEY: BuildError = "another user already uses this login name or address";
+
 /// Checks a user's credentials for one protocol before it is stored.
 pub type Validator = Box<dyn Fn(&User) -> Result<(), BuildError> + Send + Sync>;
+
+/// The values of a user that no other user of the store may share, such as
+/// an iWAN login name or fixed address. Keys of different kinds should carry
+/// a prefix so they never collide.
+pub type UniqueKeys = fn(&User) -> Vec<String>;
 
 #[derive(Default)]
 struct Table {
@@ -214,6 +221,7 @@ struct Table {
 pub struct UserStore {
     table: RwLock<Table>,
     validator: Option<Validator>,
+    unique: Option<UniqueKeys>,
 }
 
 impl Default for UserStore {
@@ -227,7 +235,44 @@ impl UserStore {
         Self {
             table: RwLock::new(Table::default()),
             validator,
+            unique: None,
         }
+    }
+
+    /// A store that refuses a user sharing one of `unique`'s keys with
+    /// another user.
+    pub fn with_unique_keys(validator: Option<Validator>, unique: UniqueKeys) -> Self {
+        Self {
+            unique: Some(unique),
+            ..Self::new(validator)
+        }
+    }
+
+    /// Fails when two of `users` share a key, or one of them shares a key
+    /// with a stored user it does not replace.
+    fn check_unique(&self, table: &Table, users: &[&User]) -> Result<(), BuildError> {
+        let Some(unique) = self.unique else {
+            return Ok(());
+        };
+        let mut keys = std::collections::HashSet::new();
+        for user in users {
+            for key in unique(user) {
+                if !keys.insert(key) {
+                    return Err(DUPLICATE_KEY);
+                }
+            }
+        }
+        let replaced: std::collections::HashSet<&str> =
+            users.iter().map(|user| user.name.as_str()).collect();
+        for (name, entry) in &table.users {
+            if replaced.contains(name.as_str()) {
+                continue;
+            }
+            if unique(&entry.user).iter().any(|key| keys.contains(key)) {
+                return Err(DUPLICATE_KEY);
+            }
+        }
+        Ok(())
     }
 
     fn read(&self) -> std::sync::RwLockReadGuard<'_, Table> {
@@ -254,21 +299,27 @@ impl UserStore {
     pub fn add(&self, user: User) -> Result<(), BuildError> {
         self.check(&user)?;
         let mut table = self.write();
+        self.check_unique(&table, &[&user])?;
+        Self::insert(&mut table, user);
+        Ok(())
+    }
+
+    fn insert(table: &mut Table, user: User) {
         if let Some(existing) = table.users.get(&user.name) {
             if existing.user == user {
-                return Ok(());
+                return;
             }
         }
         let name = user.name.clone();
         let old = table.users.insert(name, Arc::new(UserEntry::new(user)));
         if let Some(old) = old {
-            retire(&mut table, &old);
+            retire(table, &old);
         }
         table.generation += 1;
-        Ok(())
     }
 
-    /// Adds every user, or none if any is invalid or two share a name.
+    /// Adds every user, or none if any is invalid, two share a name or a
+    /// unique key is taken.
     pub fn add_all(&self, users: Vec<User>) -> Result<(), BuildError> {
         let mut names = std::collections::HashSet::new();
         for user in &users {
@@ -277,8 +328,10 @@ impl UserStore {
                 return Err("user names must be unique");
             }
         }
+        let mut table = self.write();
+        self.check_unique(&table, &users.iter().collect::<Vec<_>>())?;
         for user in users {
-            self.add(user)?;
+            Self::insert(&mut table, user);
         }
         Ok(())
     }
@@ -550,5 +603,38 @@ mod tests {
             .await
             .expect("revocation should wake the waiter")
             .unwrap();
+    }
+
+    #[test]
+    fn unique_keys_belong_to_one_user() {
+        fn keys(user: &User) -> Vec<String> {
+            user.username
+                .iter()
+                .map(|name| format!("login:{name}"))
+                .collect()
+        }
+        let store = UserStore::with_unique_keys(None, keys);
+        let user = |name: &str, login: &str| User {
+            username: Some(login.into()),
+            ..User::with_password(name, "secret")
+        };
+        store.add(user("a", "alice")).unwrap();
+        // The same user may be replaced, also with its own key.
+        store.add(user("a", "alice")).unwrap();
+        assert!(store.add(user("b", "alice")).is_err());
+        store.add(user("b", "bob")).unwrap();
+        // A batch may move a key between the users it replaces.
+        store
+            .add_all(vec![user("a", "bob"), user("b", "alice")])
+            .unwrap();
+        assert!(store
+            .add_all(vec![user("c", "carol"), user("d", "carol")])
+            .is_err());
+        assert!(store.add_all(vec![user("c", "bob")]).is_err());
+        assert!(!store.contains("c"));
+        assert_eq!(
+            store.get("a").unwrap().user().username.as_deref(),
+            Some("bob")
+        );
     }
 }
