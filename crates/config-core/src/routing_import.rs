@@ -32,6 +32,11 @@ const SUPPORTED_RULE_TYPES: [&str; 8] = [
     "DEST-PORT",
 ];
 const HEALTH_CHECK_OPTIONS: [&str; 3] = ["url", "interval", "tolerance"];
+/// How a load-balance group spreads connections: Clash `strategy`, Loon
+/// `algorithm`.
+const BALANCE_OPTIONS: [&str; 2] = ["strategy", "algorithm"];
+/// Longest node name filter accepted.
+const MAX_FILTER_LEN: usize = 1024;
 
 /// Routing found in a subscription payload, with import diagnostics.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -170,6 +175,14 @@ struct RawClashProxyGroup {
     url: Option<String>,
     interval: Option<RawScalar>,
     tolerance: Option<RawScalar>,
+    strategy: Option<String>,
+    filter: Option<String>,
+    #[serde(rename = "exclude-filter")]
+    exclude_filter: Option<String>,
+    #[serde(rename = "include-all")]
+    include_all: Option<RawScalar>,
+    #[serde(rename = "include-all-proxies")]
+    include_all_proxies: Option<RawScalar>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -177,6 +190,7 @@ struct RawClashProxyGroup {
 enum RawScalar {
     Text(String),
     Integer(i64),
+    Bool(bool),
 }
 
 impl RawScalar {
@@ -184,6 +198,7 @@ impl RawScalar {
         match self {
             Self::Text(value) => value,
             Self::Integer(value) => value.to_string(),
+            Self::Bool(value) => value.to_string(),
         }
     }
 }
@@ -205,6 +220,21 @@ fn parse_clash_routing(content: &str) -> Option<RoutingSource> {
             }
             if let Some(tolerance) = group.tolerance {
                 options.insert("tolerance".to_string(), tolerance.into_text());
+            }
+            let text_options = [
+                ("strategy", group.strategy),
+                ("filter", group.filter),
+                ("exclude-filter", group.exclude_filter),
+                ("include-all", group.include_all.map(RawScalar::into_text)),
+                (
+                    "include-all-proxies",
+                    group.include_all_proxies.map(RawScalar::into_text),
+                ),
+            ];
+            for (key, value) in text_options {
+                if let Some(value) = value {
+                    options.insert(key.to_string(), value);
+                }
             }
             Some(SourceGroup {
                 name: group.name?.into_text().trim().to_string(),
@@ -231,15 +261,156 @@ enum GroupKind {
     Select,
     UrlTest,
     Fallback,
+    LoadBalance,
+    RoundRobin,
 }
 
-fn group_kind(kind: &str) -> Option<GroupKind> {
-    match kind.trim().to_ascii_lowercase().as_str() {
+impl GroupKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Select => "select",
+            Self::UrlTest => "url-test",
+            Self::Fallback => "fallback",
+            Self::LoadBalance => "load-balance",
+            Self::RoundRobin => "round-robin",
+        }
+    }
+
+    /// Whether `key` is an option this kind of group uses.
+    fn uses_option(self, key: &str) -> bool {
+        match self {
+            Self::Select => false,
+            Self::UrlTest | Self::Fallback => HEALTH_CHECK_OPTIONS.contains(&key),
+            Self::LoadBalance | Self::RoundRobin => {
+                HEALTH_CHECK_OPTIONS.contains(&key) || BALANCE_OPTIONS.contains(&key)
+            }
+        }
+    }
+}
+
+/// The kind of a source group. A load-balance group whose `strategy` or
+/// `algorithm` is `round-robin` (or `random`) takes members in turn; every
+/// other strategy (`consistent-hashing`, `sticky-sessions`, Loon `pcc`)
+/// keeps one member per destination host.
+fn group_kind(group: &SourceGroup) -> Option<GroupKind> {
+    match group.kind.trim().to_ascii_lowercase().as_str() {
         "select" => Some(GroupKind::Select),
         "url-test" => Some(GroupKind::UrlTest),
         "fallback" => Some(GroupKind::Fallback),
+        "load-balance" => {
+            let strategy = BALANCE_OPTIONS
+                .iter()
+                .find_map(|key| group.options.get(*key))
+                .map(|value| value.trim().to_ascii_lowercase());
+            match strategy.as_deref() {
+                Some("round-robin" | "random") => Some(GroupKind::RoundRobin),
+                _ => Some(GroupKind::LoadBalance),
+            }
+        }
         _ => None,
     }
+}
+
+/// Adds to each group the imported nodes its name filter picks.
+///
+/// Surge `include-all-proxies` and Clash `include-all`/`include-all-proxies`
+/// take every node; Surge `policy-regex-filter` and Clash `filter` keep the
+/// names that match (Clash may list several patterns separated by a
+/// backtick) and Clash `exclude-filter` drops names that match. Both
+/// clients apply filters to external lists or providers, which are not
+/// imported, so a filter on a group without members picks from every node;
+/// a filter on a group with members and without `include-all` is ignored.
+fn expand_filters(importer: &mut Importer, groups: &mut [SourceGroup], nodes: &[NodeDescriptor]) {
+    for group in groups.iter_mut() {
+        let include_all = [
+            take_option(&mut group.options, "include-all"),
+            take_option(&mut group.options, "include-all-proxies"),
+        ]
+        .into_iter()
+        .flatten()
+        .any(|value| is_truthy(&value));
+        let filter = [
+            take_option(&mut group.options, "policy-regex-filter"),
+            take_option(&mut group.options, "filter"),
+        ]
+        .into_iter()
+        .flatten()
+        .next();
+        let exclude = take_option(&mut group.options, "exclude-filter");
+        let filtered = filter.is_some() || exclude.is_some();
+        if !include_all && !(filtered && group.members.is_empty()) {
+            if filtered {
+                importer.warn(
+                    ROUTING_IMPORT_OPTION_IGNORED_CODE,
+                    format!(
+                        "policy group {} name filter was ignored: it only applies with include-all or to a group without members",
+                        group.name
+                    ),
+                );
+            }
+            continue;
+        }
+        let (Some(keep), Some(drop)) = (name_filter(filter), name_filter(exclude)) else {
+            importer.warn(
+                ROUTING_IMPORT_OPTION_IGNORED_CODE,
+                format!(
+                    "policy group {} name filter is not a supported regular expression; no nodes were added",
+                    group.name
+                ),
+            );
+            continue;
+        };
+        for node in nodes {
+            let name = node.name.trim();
+            let kept = keep
+                .as_ref()
+                .is_none_or(|patterns| matches_any(patterns, name));
+            let dropped = drop
+                .as_ref()
+                .is_some_and(|patterns| matches_any(patterns, name));
+            if kept && !dropped && !group.members.iter().any(|member| member.trim() == name) {
+                group.members.push(name.to_string());
+            }
+        }
+    }
+}
+
+fn take_option(options: &mut BTreeMap<String, String>, key: &str) -> Option<String> {
+    options.remove(key)
+}
+
+fn is_truthy(value: &str) -> bool {
+    matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "1" | "true" | "yes" | "on"
+    )
+}
+
+/// `Some(None)` without a filter, `Some(patterns)` for a valid one, `None`
+/// for one that does not compile.
+fn name_filter(filter: Option<String>) -> Option<Option<Vec<regex::Regex>>> {
+    let Some(filter) = filter else {
+        return Some(None);
+    };
+    let filter = strip_quotes(filter.trim());
+    if filter.is_empty() || filter.len() > MAX_FILTER_LEN {
+        return None;
+    }
+    filter
+        .split('`')
+        .filter(|pattern| !pattern.is_empty())
+        .map(|pattern| {
+            regex::RegexBuilder::new(pattern)
+                .size_limit(1 << 20)
+                .build()
+                .ok()
+        })
+        .collect::<Option<Vec<_>>>()
+        .map(Some)
+}
+
+fn matches_any(patterns: &[regex::Regex], name: &str) -> bool {
+    patterns.iter().any(|pattern| pattern.is_match(name))
 }
 
 fn is_reject_policy(name: &str) -> bool {
@@ -275,7 +446,9 @@ fn build_routing(source: RoutingSource, nodes: &[NodeDescriptor]) -> ImportedRou
         diagnostics: Vec::new(),
     };
 
-    let groups = import_groups(&mut importer, source.groups);
+    let mut source_groups = source.groups;
+    expand_filters(&mut importer, &mut source_groups, nodes);
+    let groups = import_groups(&mut importer, source_groups);
     let group_ids = groups
         .iter()
         .map(|group| group.id.clone())
@@ -331,7 +504,7 @@ fn import_groups(importer: &mut Importer, groups: Vec<SourceGroup>) -> Vec<Polic
         if group.name.is_empty() {
             continue;
         }
-        match group_kind(&group.kind) {
+        match group_kind(&group) {
             Some(kind) => candidates.push((group, kind)),
             None => importer.warn(
                 ROUTING_IMPORT_GROUP_SKIPPED_CODE,
@@ -393,9 +566,7 @@ fn import_groups(importer: &mut Importer, groups: Vec<SourceGroup>) -> Vec<Polic
         let ignored = group
             .options
             .keys()
-            .filter(|key| {
-                kind == GroupKind::Select || !HEALTH_CHECK_OPTIONS.contains(&key.as_str())
-            })
+            .filter(|key| !kind.uses_option(key))
             .cloned()
             .collect::<Vec<_>>();
         if !ignored.is_empty() {
@@ -411,12 +582,7 @@ fn import_groups(importer: &mut Importer, groups: Vec<SourceGroup>) -> Vec<Polic
         let health_check = kind != GroupKind::Select;
         specs.push(PolicyGroupSpec {
             id: group.name.clone(),
-            kind: match kind {
-                GroupKind::Select => "select",
-                GroupKind::UrlTest => "url-test",
-                GroupKind::Fallback => "fallback",
-            }
-            .to_string(),
+            kind: kind.as_str().to_string(),
             members,
             default: None,
             url: group.options.get("url").filter(|_| health_check).cloned(),

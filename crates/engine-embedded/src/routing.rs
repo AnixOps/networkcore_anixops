@@ -15,14 +15,17 @@
 //! networks. Select groups use their configured default (or first member)
 //! until [`RoutedOutbound::select`] switches them while the engine runs. The
 //! global mode skips the rules for one target ([`RoutedOutbound::with_global`]).
-//! url-test and fallback groups use the latencies measured by
-//! [`RoutedOutbound::run_health_checks`] (the desktop local proxy runs it):
-//! url-test takes the fastest member, fallback the first that answered, and
-//! both use their first member until a check has finished.
+//! url-test, fallback, load-balance and round-robin groups use the latencies
+//! measured by [`RoutedOutbound::run_health_checks`]: url-test takes the
+//! fastest member, fallback the first that answered, load-balance hashes the
+//! destination host over the members that answered (one site keeps one
+//! member) and round-robin takes them in turn; all of them use every member
+//! (url-test and fallback their first) until a check has finished.
 
 use std::collections::BTreeMap;
 use std::io;
 use std::net::IpAddr;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 
 use config_core::routing::{
@@ -49,6 +52,8 @@ pub struct RoutedOutbound {
     selected: RwLock<BTreeMap<String, String>>,
     /// Where the global mode sends every connection.
     global: PolicyTarget,
+    /// Connections routed by round-robin groups so far.
+    round_robin: AtomicUsize,
 }
 
 /// Last measured latency per url-test or fallback group, keyed by member name.
@@ -93,6 +98,7 @@ struct QueryEnvironment<'a> {
     latencies: &'a Latencies,
     selected: &'a BTreeMap<String, String>,
     resolved: Option<IpAddr>,
+    round_robin: &'a AtomicUsize,
 }
 
 impl RoutingEnvironment for QueryEnvironment<'_> {
@@ -121,6 +127,10 @@ impl RoutingEnvironment for QueryEnvironment<'_> {
 
     fn selected_member(&self, group_id: &str) -> Option<String> {
         self.selected.get(group_id).cloned()
+    }
+
+    fn round_robin(&self, _group_id: &str) -> usize {
+        self.round_robin.fetch_add(1, Ordering::Relaxed)
     }
 }
 
@@ -224,6 +234,7 @@ impl RoutedOutbound {
             latencies: Arc::default(),
             selected: RwLock::default(),
             global,
+            round_robin: AtomicUsize::new(0),
         })
     }
 
@@ -383,6 +394,7 @@ impl RoutedOutbound {
             latencies: &latencies,
             selected: &selected,
             resolved,
+            round_robin: &self.round_robin,
         })
     }
 
@@ -530,7 +542,7 @@ impl RoutedOutbound {
         }
     }
 
-    /// Measures every member of the url-test and fallback groups through its
+    /// Measures every member of the health-checked groups through its
     /// outbound, then again after the shortest group interval, forever. Group
     /// members that are groups themselves or REJECT are not measured. Never
     /// returns when no group needs checks.
