@@ -25,6 +25,7 @@ use std::sync::{Arc, Mutex};
 use engine_inbound::registry::{BuildError, Inbound, InboundRegistry};
 use engine_inbound::server::{serve, InboundStats, ServeSettings};
 use engine_inbound::UserStore;
+use engine_outbound::TcpOutbound;
 use serde::Serialize;
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
@@ -137,7 +138,7 @@ impl Node {
             .registry
             .build(&config.kind, &config.settings)
             .map_err(NodeError::Invalid)?;
-        let outbound = Arc::new(DirectOutbound::new(
+        let outbound: Arc<dyn TcpOutbound> = Arc::new(DirectOutbound::new(
             self.allow_private_targets,
             config.allowed_targets(),
         ));

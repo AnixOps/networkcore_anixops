@@ -119,7 +119,8 @@ async fn read_request(stream: &mut TcpStream) -> io::Result<Request> {
         }
         buffer.extend_from_slice(&chunk[..n]);
     };
-    let head = std::str::from_utf8(&buffer[..head_end]).map_err(|_| invalid("bad request head"))?;
+    let head =
+        String::from_utf8(buffer[..head_end].to_vec()).map_err(|_| invalid("bad request head"))?;
     let mut lines = head.split("\r\n");
     let mut request_line = lines.next().unwrap_or_default().split(' ');
     let (Some(method), Some(target), Some(_version)) = (
