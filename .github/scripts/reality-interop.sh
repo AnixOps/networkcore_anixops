@@ -57,8 +57,11 @@ download() {
   local snell_version snell_rows=""
   for snell_version in ${SNELL_VERSIONS:-v3.0.1 v4.1.1 v5.0.1 v6.0.0rc2}; do
     local zip="${work}/snell-server-${snell_version}.zip"
+    # v3 builds were published as GitHub releases, not on dl.nssurge.com.
     if curl -fsSL --retry 3 -o "${zip}" \
-      "https://dl.nssurge.com/snell/snell-server-${snell_version}-linux-amd64.zip"; then
+      "https://dl.nssurge.com/snell/snell-server-${snell_version}-linux-amd64.zip" \
+      || curl -fsSL --retry 3 -o "${zip}" \
+        "https://github.com/surge-networks/snell/releases/download/${snell_version}/snell-server-${snell_version}-linux-amd64.zip"; then
       mkdir -p "${work}/snell-${snell_version}"
       unzip -o -q "${zip}" snell-server -d "${work}/snell-${snell_version}"
       cp "${work}/snell-${snell_version}/snell-server" "${bin}/snell-server-${snell_version}"
