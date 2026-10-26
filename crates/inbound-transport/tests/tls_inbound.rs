@@ -41,6 +41,7 @@ impl StreamInbound for Passthrough {
                 target: TargetAddr::Ip(self.target),
                 stream,
                 udp: None,
+                mux: false,
             })
         })
     }

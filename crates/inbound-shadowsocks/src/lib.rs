@@ -202,6 +202,7 @@ impl Ss2022Inbound {
             target,
             stream: Box::new(stream),
             udp: None,
+            mux: false,
         })
     }
 }

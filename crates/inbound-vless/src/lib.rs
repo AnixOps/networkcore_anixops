@@ -11,8 +11,11 @@
 //! client must request exactly the flow its user is configured with.
 //! The UDP command carries `LENGTH(2) PAYLOAD` datagrams to the request
 //! target in both directions; as in Xray it takes no flow, also for Vision
-//! users. Not yet: Vision over standard TLS and the mux command (XUDP); a
-//! client asking for either is refused.
+//! users. The mux command (3, no address) carries Mux.Cool frames, which
+//! Xray and sing-box clients use for UDP (XUDP) and Xray's `mux` for TCP; it
+//! takes no flow or the user's flow (Xray sends Vision users' XUDP inside
+//! Vision). Not yet: Vision over standard TLS; a client asking for it is
+//! refused.
 
 mod factory;
 pub mod reality;
@@ -46,6 +49,9 @@ const VERSION: u8 = 0;
 const AUTH_LEN: usize = 17;
 const COMMAND_TCP: u8 = 1;
 const COMMAND_UDP: u8 = 2;
+const COMMAND_MUX: u8 = 3;
+/// The placeholder target of a mux request, as Xray names it.
+const MUX_TARGET: &str = "v1.mux.cool";
 /// Protobuf tag of the `Flow` field in the addons message.
 const ADDONS_FLOW_TAG: u8 = 0x0a;
 /// Addons length byte, addons, command, port, address type and a domain.
@@ -163,6 +169,7 @@ impl VlessInbound {
                 target: request.target,
                 stream: Box::new(VisionStream::new(tls, uuid, &request.payload)),
                 udp: None,
+                mux: request.command == COMMAND_MUX,
             });
         }
         Ok(accepted(user, request, Box::new(tls)))
@@ -184,6 +191,7 @@ fn accepted(user: Arc<UserEntry>, request: Request, stream: BoxStream) -> Accept
                 .with_write_prefix(vec![VERSION, 0]),
         ),
         udp,
+        mux: request.command == COMMAND_MUX,
     }
 }
 
@@ -218,12 +226,13 @@ impl DatagramCodec for VlessDatagrams {
     }
 }
 
-/// As in Xray: TCP uses exactly the user's flow, UDP never takes one.
+/// As in Xray: TCP uses exactly the user's flow, UDP never takes one, mux
+/// either.
 fn flow_allowed(user: &UserEntry, request: &Request) -> bool {
-    if request.command == COMMAND_UDP {
-        request.flow == Flow::None
-    } else {
-        request.flow == user_flow(user)
+    match request.command {
+        COMMAND_UDP => request.flow == Flow::None,
+        COMMAND_MUX => request.flow == Flow::None || request.flow == user_flow(user),
+        _ => request.flow == user_flow(user),
     }
 }
 
@@ -267,6 +276,14 @@ async fn parse_request(buffer: &[u8]) -> Result<Option<Request>, Rejected> {
     let Some(flow) = requested_flow(&buffer[1..command_at]) else {
         return Err(Rejected::close("vless flow is not supported"));
     };
+    if command == COMMAND_MUX {
+        return Ok(Some(Request {
+            command,
+            flow,
+            target: TargetAddr::Domain(MUX_TARGET.into(), 0),
+            payload: buffer[command_at + 1..].to_vec(),
+        }));
+    }
     if command != COMMAND_TCP && command != COMMAND_UDP {
         return Err(Rejected::close("vless command is not supported"));
     }

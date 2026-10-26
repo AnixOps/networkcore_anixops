@@ -8,6 +8,8 @@ description = "Server inbound interfaces: protocol inbounds, the user table with
 
 [dependencies]
 engine-outbound = { path = "../engine-outbound" }
+# FuturesUnordered for the sessions of one Mux.Cool connection.
+futures-util = { version = "0.3", default-features = false, features = ["alloc"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", default-features = false, features = ["net", "io-util", "time", "sync", "rt", "macros"] }

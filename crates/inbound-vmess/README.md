@@ -12,8 +12,8 @@ VMess AEAD server inbound (alterId 0) for the node kernel, built on
 - Config: `{"type": "vmess", "users": [{"name": "...", "uuid": "..."}],
   "tls": {...}}`.
 
-UDP command: one datagram per body chunk, to the request target.
+UDP command: one datagram per body chunk, to the request target. Mux
+command: Mux.Cool frames, which Xray clients use for UDP (XUDP) and `mux`.
 
-Not yet: authenticated length, legacy alterId > 0, mux, WebSocket and
-gRPC transports. `tests/vmess_inbound.rs` runs the engine's VMess client
+Not yet: authenticated length and legacy alterId > 0. `tests/vmess_inbound.rs` runs the engine's VMess client
 against the server.
