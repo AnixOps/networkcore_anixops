@@ -237,7 +237,7 @@ where
     io.write_all(&flight).await?;
     io.flush().await?;
 
-    TlsStream::new(io, suite, client_ap, server_ap, alpn)
+    TlsStream::from_secrets(io, suite, client_ap, server_ap, alpn)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

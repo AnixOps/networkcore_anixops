@@ -23,6 +23,10 @@
 - [规则与策略组模型（M2）](architecture/routing-policy-group-model.md)
 - [Public Core Client Reference](architecture/public-core-client-reference.md)
 
+## 协议规格
+
+- [Snell 协议规格（净室实现用）](protocols/snell.md)：v1–v6 线上格式、复用、UDP、v4 整形与 v6 画像派生
+
 ## 公有执行内核与订阅
 
 - [sing-box Public Engine Adapter Source Contract](architecture/sing-box-public-engine-adapter-source-contract.md)

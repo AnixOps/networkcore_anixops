@@ -41,7 +41,11 @@ pub struct TlsStream<S> {
 }
 
 impl<S> TlsStream<S> {
-    pub(crate) fn new(
+    /// Wraps an already-handshaken connection with its TLS 1.3 application
+    /// traffic secrets. `write_secret` and `read_secret` are this side's
+    /// `*_ap_traffic` secrets; a server built on this crate's record layer
+    /// uses it to hand back a stream after its own handshake.
+    pub fn from_secrets(
         io: S,
         suite: CipherSuite,
         write_secret: Vec<u8>,
