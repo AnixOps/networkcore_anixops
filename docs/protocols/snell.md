@@ -15,7 +15,7 @@ Snell 是 Surge 团队的闭源代理协议。本仓库是 Apache-2.0 内核，�
 
 - [S1] Surge 官方：[Snell 发布说明](https://kb.nssurge.com/surge-knowledge-base/release-notes/snell)、[Snell v6 技术介绍](https://nssurge.com/blog/snell-v6/)
 - [S2] 公开实现中可观察到的协议事实：open-snell（v1–v3）、sing-snell（v4–v6，其作者称来自对 Surge 6.7.0 / snell-server 的逆向）
-- [S3] 官方 snell-server 的黑盒互通（CI）：首轮结果见 PR #84（run 40257502640）。v4、v4+obfs http、v5（version=4）、v6 三种 mode 的 TCP 在复用和不复用两种情况下都已互通，v6 default 画像按 §7.4 实现后直接互通。
+- [S3] 官方 snell-server 的黑盒互通（CI）：首轮结果见 PR #84（run 40257502640）。v4、v4+obfs http、v5（version=4）、v6 三种 mode 的 TCP 在复用和不复用两种情况下都已互通，v6 default 画像按 §7.4 实现后直接互通。第二轮（PR #86）补测了 PING、ERROR，以及 UDP 1–8000 字节。
 
 凡标注 **[待实测]** 的条目必须在互通 CI 中确认后才能去掉标注。
 
@@ -79,7 +79,7 @@ TCP 目标地址 = 主机字符串长度（1 字节）· 主机字符串 · 端�
 - v1 客户端用 `0x01`；v2/v3 开启复用时用 `0x05`。
 - 0-RTT：请求与应用层首段数据放在**同一明文缓冲区**里一次加密发送。v6 首帧载荷超过 0xFFFF 时切成多帧。
 
-服务端读取请求时：先读满 3 字节前缀（版本、命令、clientID 长度），命令为 PING 时**不再读取** clientID 字节，直接回 PONG 并关闭连接。实测：只发 `01 00` 两字节时，官方服务端报 "Invalid request" 并关闭，所以客户端 PING 必须发 `01 00 00` **[待实测：三字节形式的回复]**。
+服务端读取请求时：先读满 3 字节前缀（版本、命令、clientID 长度），命令为 PING 时**不再读取** clientID 字节，直接回 PONG 并关闭连接。实测：只发 `01 00` 两字节时，官方服务端报 "Invalid request" 并关闭，所以客户端 PING 必须发 `01 00 00`。实测：发 `01 00 00` 时，v4.1.1、v5.0.1 和 v6 的三种 mode 都回 PONG。
 
 ### 3.2 回复（服务端发回的第一段明文）
 
@@ -187,6 +187,7 @@ obfs 套在加密流外层，只影响 TCP 首个读写：
 - TCP 线上格式与 v4 相同；v5 服务端兼容 v4 客户端。
 - 服务端用 MSS 1460 计算首帧与增长窗口，与 §6.2 一致。
 - v5 服务端记录首帧 salt 做防重放（两代各 500000 条的 Bloom 过滤器，误判率 1e-10）；重复时中止并报 "Duplicated salt detected" [S2]。我们的入站必须实现等效的防重放。
+- **v5 下行 UDP 截断（官方缺陷）**：v5.0.1 服务端的下行帧受 §6.2 动态载荷上限约束。数据报超过当前上限时，服务端只发出原文前缀，其余部分被丢弃，并且不报错。实测：新会话的第一个下行数据报为 8000 字节时，客户端只收到 2498 或 2510 字节的前缀，正好等于 UDP 回复帧之后的第二帧上限（首帧上限 + 1421，长度随 PAD0 变化）。会话热起来、上限增长以后，同样大小的数据报能完整收到。客户端无法恢复被截掉的部分，只记录告警。v4.1.1 和 v6 没有这个问题。我们的 inbound-snell 不复制这个行为：一帧一个数据报，最大 0x3FFF。
 - QUIC Proxy Mode（UDP over UDP）**不实现**：官方 v6 已删除该模式。
 
 ## 7. v6
@@ -483,7 +484,7 @@ Surge 节点行示例：`name = snell, host, port, psk=xxx, version=6, mode=defa
 
 ### 10.1 官方服务端的获取与配置（互通 CI 用）
 
-- 下载地址模式：`https://dl.nssurge.com/snell/snell-server-<版本>-linux-amd64.zip`，zip 内可执行文件名为 `snell-server`。`v4.1.1`、`v5.0.1`、`v6.0.0rc2` 已在本仓库互通 CI 中验证（v6.0.0rc2 包自报版本 v6.0.0）。`v3.0.1` 在 dl.nssurge.com 上返回 404；v3 早期发布在 `https://github.com/surge-networks/snell/releases/download/v3.0.1/snell-server-v3.0.1-linux-amd64.zip` **[待实测]**。
+- 下载地址模式：`https://dl.nssurge.com/snell/snell-server-<版本>-linux-amd64.zip`，zip 内可执行文件名为 `snell-server`。`v4.1.1`、`v5.0.1`、`v6.0.0rc2` 已在本仓库互通 CI 中验证（v6.0.0rc2 包自报版本 v6.0.0）。`v3.0.1` 在 dl.nssurge.com 上返回 404；互通 CI 回退到 GitHub release 地址 `https://github.com/surge-networks/snell/releases/download/v3.0.1/snell-server-v3.0.1-linux-amd64.zip`（PR #86）。
 - 启动：`snell-server -l info -c <配置文件>`；`-v` 打印版本。
 - 配置为 INI，节名 `[snell-server]`。v6 示例：
 
