@@ -9,7 +9,8 @@
 #   reality-interop.sh download   fetch Xray-core, sing-box and Hysteria
 #                                 release binaries, official snell-server
 #                                 builds and the official mita package, and
-#                                 build iwand-server from a pinned commit
+#                                 build iwand-server and the iwand client
+#                                 from a pinned commit
 #                                 (needs Go; run in CI only, never
 #                                 redistributed)
 #   reality-interop.sh start      start targets and REALITY servers, write env
@@ -94,6 +95,9 @@ download() {
   git clone --quiet --filter=blob:none https://github.com/Ricky-Hao/iwand "${work}/iwand"
   git -C "${work}/iwand" checkout --quiet "${iwand_commit}"
   (cd "${work}/iwand" && CGO_ENABLED=0 go build -trimpath -o "${bin}/iwand-server" ./cmd/iwand-server)
+  # The iwand client (C, §10.2) for iwan-tun-interop.sh against inbound-iwan.
+  make -C "${work}/iwand" > "${work}/iwand-make.log" 2>&1 || { cat "${work}/iwand-make.log"; exit 1; }
+  install -m 0755 "${work}/iwand/iwand" "${bin}/iwand"
   if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
     {
       echo "### REALITY interop servers"
@@ -105,7 +109,7 @@ download() {
       echo "| Hysteria | ${hysteria_tag} |"
       printf '%s' "${snell_rows}"
       echo "| mita | ${mieru_tag} |"
-      echo "| iwand-server | ${iwand_commit} |"
+      echo "| iwand-server, iwand | ${iwand_commit} |"
     } >> "${GITHUB_STEP_SUMMARY}"
   fi
 }

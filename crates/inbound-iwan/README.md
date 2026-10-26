@@ -29,3 +29,6 @@ iWAN has no confidentiality or integrity (spec §9).
 
 `tests/end_to_end.rs` runs the `outbound-iwan` client and raw datagrams
 against the server.
+
+CI also runs the iwand client (docs/protocols/iwan.md §10.2) against
+`anixcore` over a TUN device: `.github/scripts/iwan-tun-interop.sh`.
