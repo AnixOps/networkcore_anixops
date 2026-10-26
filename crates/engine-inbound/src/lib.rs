@@ -46,6 +46,10 @@ pub struct Accepted {
     /// Payload stream: reads return what the client sends to `target`,
     /// writes go back to the client.
     pub stream: BoxStream,
+    /// Set when the client asked for UDP: `stream` then carries datagrams
+    /// in this framing and is relayed with [`udp::relay_datagrams`]
+    /// instead of a TCP connection to `target`.
+    pub udp: Option<Box<dyn udp::DatagramCodec>>,
 }
 
 /// A client that failed the handshake.
@@ -117,6 +121,12 @@ pub trait StreamInbound: Send + Sync {
         let _ = (stream, context);
         Box::pin(async {})
     }
+
+    /// The UDP side of inbounds that also take datagrams on their port, such
+    /// as Shadowsocks. The node binds the same port for UDP when present.
+    fn datagram(&self) -> Option<Arc<dyn udp::DatagramInbound>> {
+        None
+    }
 }
 
 /// A server protocol that owns a UDP socket, such as the QUIC-based
@@ -132,6 +142,7 @@ pub trait PacketInbound: Send + Sync {
         self: Arc<Self>,
         socket: std::net::UdpSocket,
         outbound: Arc<dyn TcpOutbound>,
+        udp: Option<Arc<dyn udp::UdpOutbound>>,
         settings: server::ServeSettings,
         stats: Arc<server::InboundStats>,
     ) -> BoxFuture<'static, io::Result<()>>;
@@ -165,6 +176,7 @@ pub fn fallback_or_hold(
             user: None,
             target: target.clone(),
             stream: Box::new(PrefixedStream::new(stream).with_read_prefix(consumed)),
+            udp: None,
         }),
         None => Err(Rejected::hold(reason, stream)),
     }

@@ -14,7 +14,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, ReadBuf};
 use tokio::net::TcpListener;
 use tokio::sync::Semaphore;
 
-use crate::udp::UdpOutbound;
+use crate::udp::{relay_datagrams, UdpOutbound};
 use crate::{Accepted, StreamInbound, UserEntry};
 
 const RELAY_BUFFER_BYTES: usize = 16 * 1024;
@@ -146,11 +146,7 @@ async fn run(
         return;
     }
     let handshake = tokio::time::timeout(settings.handshake_timeout, inbound.accept(stream, peer));
-    let Accepted {
-        user,
-        target,
-        stream,
-    } = match handshake.await {
+    let accepted = match handshake.await {
         Ok(Ok(accepted)) => accepted,
         Ok(Err(rejected)) => {
             stats.handshake_failed.fetch_add(1, Ordering::Relaxed);
@@ -164,18 +160,7 @@ async fn run(
             return;
         }
     };
-    relay(
-        Accepted {
-            user,
-            target,
-            stream,
-        },
-        peer,
-        outbound,
-        settings,
-        stats,
-    )
-    .await;
+    relay(accepted, peer, outbound, udp, settings, stats).await;
 }
 
 /// Relays a stream whose protocol handshake is already done, such as a QUIC
@@ -188,7 +173,7 @@ pub async fn relay_accepted(
     stats: &Arc<InboundStats>,
 ) {
     stats.active.fetch_add(1, Ordering::Relaxed);
-    relay(accepted, peer, outbound, settings, stats).await;
+    relay(accepted, peer, outbound, None, settings, stats).await;
     stats.active.fetch_sub(1, Ordering::Relaxed);
 }
 
@@ -196,6 +181,7 @@ async fn relay(
     accepted: Accepted,
     peer: SocketAddr,
     outbound: &dyn TcpOutbound,
+    udp_outbound: Option<&dyn UdpOutbound>,
     settings: &ServeSettings,
     stats: &Arc<InboundStats>,
 ) {
@@ -203,10 +189,20 @@ async fn relay(
         user,
         target,
         stream,
+        udp,
     } = accepted;
     let _online = user.as_ref().map(|user| user.connect(peer.ip()));
     if user.as_ref().is_some_and(|user| user.is_revoked()) {
         stats.revoked.fetch_add(1, Ordering::Relaxed);
+        return;
+    }
+    if let Some(codec) = udp {
+        match udp_outbound {
+            Some(outbound) => relay_datagrams(stream, codec.as_ref(), outbound, user, stats).await,
+            None => {
+                stats.connect_failed.fetch_add(1, Ordering::Relaxed);
+            }
+        }
         return;
     }
 

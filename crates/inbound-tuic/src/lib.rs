@@ -11,23 +11,31 @@
 //! the user that authenticated the connection, and removing the user closes
 //! the connection. Connections that send a wrong token are closed.
 //!
-//! Not yet: UDP relay (Packet/Dissociate commands are ignored) and the
-//! zero-RTT handshake.
+//! UDP is relayed when the node provides a UDP outbound: Packet
+//! commands in native mode (QUIC datagrams, fragmented) or quic mode
+//! (unidirectional streams), one socket per association, replies in the
+//! association's mode, Dissociate honored. Packets before authentication are
+//! dropped.
+//!
+//! Not yet: the zero-RTT handshake.
 
 mod factory;
+mod udp;
 
 use std::io;
 use std::net::SocketAddr;
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use engine_inbound::addr::{read_addr_port, AddrCodes};
 use engine_inbound::registry::BuildError;
 use engine_inbound::server::{relay_accepted, InboundStats, ServeSettings};
+use engine_inbound::udp::UdpOutbound;
 use engine_inbound::users::{UserIndex, Validator};
 use engine_inbound::{Accepted, PacketInbound, User, UserEntry, UserStore};
 use engine_outbound::{BoxFuture, TcpOutbound};
 use inbound_transport::TlsServerSettings;
+use outbound_tuic::udp::{CMD_DISSOCIATE, CMD_PACKET};
 use outbound_tuic::{auth_token, parse_uuid, CMD_AUTHENTICATE, CMD_CONNECT, VERSION};
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::sync::watch;
@@ -87,6 +95,7 @@ impl TuicInbound {
         self: Arc<Self>,
         incoming: quinn::Incoming,
         outbound: Arc<dyn TcpOutbound>,
+        udp: Option<Arc<dyn UdpOutbound>>,
         settings: Arc<ServeSettings>,
         stats: Arc<InboundStats>,
     ) {
@@ -100,9 +109,12 @@ impl TuicInbound {
         };
         let peer = connection.remote_address();
         let (auth_tx, auth_rx) = watch::channel(None::<Arc<UserEntry>>);
+        let relay: Arc<OnceLock<Arc<udp::UdpRelay>>> = Arc::default();
         let commands = tokio::spawn(self.clone().unidirectional(
             connection.clone(),
             auth_tx,
+            relay.clone(),
+            udp,
             stats.clone(),
         ));
         let deadline = {
@@ -130,14 +142,19 @@ impl TuicInbound {
         }
         commands.abort();
         deadline.abort();
+        if let Some(relay) = relay.get() {
+            relay.close();
+        }
     }
 
-    /// Handles the client's unidirectional streams: Authenticate, and
-    /// (ignored for now) UDP Packet and Dissociate commands.
+    /// Handles the client's unidirectional streams: Authenticate, and UDP
+    /// Packet and Dissociate commands.
     async fn unidirectional(
         self: Arc<Self>,
         connection: quinn::Connection,
         auth: watch::Sender<Option<Arc<UserEntry>>>,
+        relay: Arc<OnceLock<Arc<udp::UdpRelay>>>,
+        udp_outbound: Option<Arc<dyn UdpOutbound>>,
         stats: Arc<InboundStats>,
     ) {
         // quinn's own `read_exact` and `read_chunk`, not the tokio traits.
@@ -146,11 +163,25 @@ impl TuicInbound {
             if recv.read_exact(&mut head).await.is_err() || head[0] != VERSION {
                 continue;
             }
-            if head[1] != CMD_AUTHENTICATE {
-                tokio::spawn(async move {
-                    while let Ok(Some(_)) = recv.read_chunk(usize::MAX, true).await {}
-                });
-                continue;
+            match (head[1], relay.get()) {
+                (CMD_AUTHENTICATE, _) => {}
+                (CMD_PACKET, Some(relay)) => {
+                    tokio::spawn(relay.clone().stream_packet(recv));
+                    continue;
+                }
+                (CMD_DISSOCIATE, Some(relay)) => {
+                    let mut id = [0u8; 2];
+                    if recv.read_exact(&mut id).await.is_ok() {
+                        relay.dissociate(u16::from_be_bytes(id));
+                    }
+                    continue;
+                }
+                _ => {
+                    tokio::spawn(async move {
+                        while let Ok(Some(_)) = recv.read_chunk(usize::MAX, true).await {}
+                    });
+                    continue;
+                }
             }
             let mut body = [0u8; 16 + 32];
             if recv.read_exact(&mut body).await.is_err() {
@@ -168,6 +199,17 @@ impl TuicInbound {
                     let first = auth.borrow().is_none();
                     if first {
                         auth.send_replace(Some(user.clone()));
+                        if let Some(outbound) = &udp_outbound {
+                            let udp = udp::UdpRelay::new(
+                                connection.clone(),
+                                outbound.clone(),
+                                user.clone(),
+                                stats.clone(),
+                            );
+                            if relay.set(udp.clone()).is_ok() {
+                                tokio::spawn(udp.run_datagrams());
+                            }
+                        }
                         tokio::spawn(close_on_revoke(user, connection.clone()));
                     }
                 }
@@ -194,6 +236,7 @@ impl PacketInbound for TuicInbound {
         self: Arc<Self>,
         socket: std::net::UdpSocket,
         outbound: Arc<dyn TcpOutbound>,
+        udp: Option<Arc<dyn UdpOutbound>>,
         settings: ServeSettings,
         stats: Arc<InboundStats>,
     ) -> BoxFuture<'static, io::Result<()>> {
@@ -210,6 +253,7 @@ impl PacketInbound for TuicInbound {
                 tokio::spawn(self.clone().connection(
                     incoming,
                     outbound.clone(),
+                    udp.clone(),
                     settings.clone(),
                     stats.clone(),
                 ));
@@ -252,6 +296,7 @@ async fn stream(
             user: Some(user),
             target,
             stream: Box::new(stream),
+            udp: None,
         },
         peer,
         outbound.as_ref(),

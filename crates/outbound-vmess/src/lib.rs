@@ -39,6 +39,7 @@ const VERSION: u8 = 1;
 const OPTION_CHUNK_STREAM: u8 = 0x01;
 const OPTION_CHUNK_MASKING: u8 = 0x04;
 const COMMAND_TCP: u8 = 1;
+const COMMAND_UDP: u8 = 2;
 
 /// Body cipher; the wire values are Xray's `SecurityType`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -149,7 +150,7 @@ impl VmessOutbound {
         Ok(out)
     }
 
-    fn open_session(&self, target: &TargetAddr) -> io::Result<Session> {
+    fn open_session(&self, target: &TargetAddr, command: u8) -> io::Result<Session> {
         let body_iv: [u8; 16] = self.random_bytes()?;
         let body_key: [u8; 16] = self.random_bytes()?;
         let [response_v, padding_seed] = self.random_bytes::<2>()?;
@@ -164,7 +165,7 @@ impl VmessOutbound {
         header.push(OPTION_CHUNK_STREAM | OPTION_CHUNK_MASKING);
         header.push(((padding_len as u8) << 4) | self.security.wire());
         header.push(0);
-        header.push(COMMAND_TCP);
+        header.push(command);
         encode_address(target, &mut header)?;
         header.extend_from_slice(&padding[..padding_len]);
         let checksum = fnv1a32(&header);
@@ -192,6 +193,35 @@ impl VmessOutbound {
                 expected: response_v,
             },
         })
+    }
+}
+
+impl VmessOutbound {
+    /// Opens a UDP session to `target`: each write goes out as one datagram
+    /// (one body chunk, so at most about 8 KiB) and each read returns one.
+    pub async fn connect_udp(&self, target: &TargetAddr) -> io::Result<BoxStream> {
+        self.open(target, COMMAND_UDP).await
+    }
+
+    async fn open(&self, target: &TargetAddr, command: u8) -> io::Result<BoxStream> {
+        let session = self.open_session(target, command)?;
+        let mut stream = self.dialer.dial(&self.server, self.port).await?;
+        if let Some(tls) = &self.tls {
+            stream = tls.connect(stream).await?;
+        }
+        if let Some(websocket) = &self.websocket {
+            stream = websocket.connect(stream).await?;
+        }
+        if let Some(grpc) = &self.grpc {
+            stream = grpc.connect(stream).await?;
+        }
+        Ok(Box::new(VmessStream::new(
+            stream,
+            session.sealed,
+            session.writer,
+            session.reader,
+            session.response,
+        )) as BoxStream)
     }
 }
 
@@ -238,25 +268,6 @@ impl TcpOutbound for VmessOutbound {
     }
 
     fn connect<'a>(&'a self, target: &'a TargetAddr) -> BoxFuture<'a, io::Result<BoxStream>> {
-        Box::pin(async move {
-            let session = self.open_session(target)?;
-            let mut stream = self.dialer.dial(&self.server, self.port).await?;
-            if let Some(tls) = &self.tls {
-                stream = tls.connect(stream).await?;
-            }
-            if let Some(websocket) = &self.websocket {
-                stream = websocket.connect(stream).await?;
-            }
-            if let Some(grpc) = &self.grpc {
-                stream = grpc.connect(stream).await?;
-            }
-            Ok(Box::new(VmessStream::new(
-                stream,
-                session.sealed,
-                session.writer,
-                session.reader,
-                session.response,
-            )) as BoxStream)
-        })
+        Box::pin(self.open(target, COMMAND_TCP))
     }
 }

@@ -11,11 +11,14 @@
 //! authenticated the connection, and removing the user closes the
 //! connection. Salamander obfuscation is optional.
 //!
-//! Not yet: UDP relay (the server announces `Hysteria-UDP: false`), Brutal
-//! congestion control, port hopping and masquerade content.
+//! UDP is relayed over QUIC datagrams when the node provides a UDP outbound (`Hysteria-UDP: true`): one socket per client session id,
+//! charged to the connection's user, closed after two idle minutes.
+//!
+//! Not yet: Brutal congestion control, port hopping and masquerade content.
 
 mod factory;
 mod h3;
+mod udp;
 
 use std::io;
 use std::net::{IpAddr, SocketAddr};
@@ -24,6 +27,7 @@ use std::sync::{Arc, OnceLock};
 
 use engine_inbound::registry::BuildError;
 use engine_inbound::server::{relay_accepted, InboundStats, ServeSettings};
+use engine_inbound::udp::UdpOutbound;
 use engine_inbound::users::{UserIndex, Validator};
 use engine_inbound::{Accepted, PacketInbound, User, UserEntry, UserStore};
 use engine_outbound::{BoxFuture, TargetAddr, TcpOutbound};
@@ -82,6 +86,7 @@ impl Hysteria2Inbound {
         self: Arc<Self>,
         incoming: quinn::Incoming,
         outbound: Arc<dyn TcpOutbound>,
+        udp: Option<Arc<dyn UdpOutbound>>,
         settings: Arc<ServeSettings>,
         stats: Arc<InboundStats>,
     ) {
@@ -124,6 +129,7 @@ impl Hysteria2Inbound {
                     connection: connection.clone(),
                     peer,
                     auth: auth.clone(),
+                    udp: udp.clone(),
                 },
                 outbound.clone(),
                 settings.clone(),
@@ -179,6 +185,7 @@ impl Hysteria2Inbound {
                 user: Some(user),
                 target,
                 stream: Box::new(stream),
+                udp: None,
             },
             session.peer,
             outbound.as_ref(),
@@ -196,7 +203,7 @@ impl Hysteria2Inbound {
         mut stream: QuicStream,
         session: &Session,
         settings: &ServeSettings,
-        stats: &InboundStats,
+        stats: &Arc<InboundStats>,
     ) {
         let headers = tokio::time::timeout(
             settings.handshake_timeout,
@@ -219,13 +226,26 @@ impl Hysteria2Inbound {
         let frame = match user {
             Some(user) => {
                 if session.auth.set(user.clone()).is_ok() {
+                    if let Some(outbound) = &session.udp {
+                        tokio::spawn(udp::relay(
+                            session.connection.clone(),
+                            outbound.clone(),
+                            user.clone(),
+                            stats.clone(),
+                        ));
+                    }
                     tokio::spawn(close_on_revoke(user, session.connection.clone()));
                 }
                 let padding = random_padding().unwrap_or_default();
+                let udp = if session.udp.is_some() {
+                    "true"
+                } else {
+                    "false"
+                };
                 h3::response_frame(
                     AUTH_OK_STATUS,
                     &[
-                        ("hysteria-udp", "false"),
+                        ("hysteria-udp", udp),
                         ("hysteria-cc-rx", "auto"),
                         ("hysteria-padding", &padding),
                     ],
@@ -264,6 +284,7 @@ impl PacketInbound for Hysteria2Inbound {
         self: Arc<Self>,
         socket: std::net::UdpSocket,
         outbound: Arc<dyn TcpOutbound>,
+        udp: Option<Arc<dyn UdpOutbound>>,
         settings: ServeSettings,
         stats: Arc<InboundStats>,
     ) -> BoxFuture<'static, io::Result<()>> {
@@ -280,6 +301,7 @@ impl PacketInbound for Hysteria2Inbound {
                 tokio::spawn(self.clone().connection(
                     incoming,
                     outbound.clone(),
+                    udp.clone(),
                     settings.clone(),
                     stats.clone(),
                 ));
@@ -295,6 +317,8 @@ struct Session {
     peer: SocketAddr,
     /// The user that authenticated this connection.
     auth: Arc<OnceLock<Arc<UserEntry>>>,
+    /// UDP egress; without it the server announces no UDP support.
+    udp: Option<Arc<dyn UdpOutbound>>,
 }
 
 impl Session {

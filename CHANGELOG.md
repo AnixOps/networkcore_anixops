@@ -6,6 +6,8 @@
 
 ### Added
 
+- 服务端 UDP 转发：`engine-inbound::udp` 在已有的 `UdpOutbound` 之上新增 `DatagramCodec` / `relay_datagrams`（连接内携带的 UDP，按用户计费，空闲两分钟或删除用户时结束），被拒绝的目标只丢弃该包；`PacketInbound::serve` 新增 UDP 出站参数；Trojan 入站支持 `UDP ASSOCIATE`，VLESS 与 VMess 入站支持 UDP 命令（VMess 客户端新增 `connect_udp`）。Hysteria2 入站经 QUIC datagram 转发 UDP（有 UDP 出站时声明 `hysteria-udp: true`，每个客户端会话 ID 一个套接字，分片重组、回包按 datagram 上限分片），Hysteria2 客户端新增 `udp_session`。TUIC 入站支持 UDP（native 模式经 QUIC datagram 并分片、quic 模式经单向流，回包沿用该关联的模式，支持 Dissociate），TUIC 客户端新增 native 模式的 `udp_session`。QUIC 协议共用 `engine_inbound::udp::SessionRelay`（按会话 ID 一个套接字）。Shadowsocks-2022 入站在同一端口提供 UDP（`StreamInbound::datagram`，`node-runtime` 自动绑定同端口 UDP）：AES 方法的分离头与多用户身份头、ChaCha 方法的 XChaCha20-Poly1305，每个客户端会话一个套接字，30 秒时间戳窗口和每会话 1024 包防重放窗口，测试用 shadowsocks-rust 客户端验证单密钥与多用户。
+- VLESS 服务端支持 XTLS Vision（`xtls-rprx-vision`，需配合 REALITY）：Vision 用户的连接使用填充帧；内层流量为 TLS 1.3 时，上下行各自在 `direct` 命令后离开外层 TLS，按原始连接拷贝内层记录，与 Xray 一致。客户端请求的 flow 必须与用户配置一致。测试覆盖普通流量、内层 TLS 1.3 直连拷贝和 flow 不匹配的拒绝。
 - 新增 Mieru 出站 `outbound-mieru`，cargo feature 为 `mieru`，配置为 `"type": "mieru"`。
   - 只依据 `docs/protocols/mieru.md` 净室实现。规格的来源是公开协议说明，加上 CI 上官方 mieru 客户端与 mita 服务端之间的黑盒抓包，没有阅读或移植上游源码。
   - 支持的部分：TCP 传输，XChaCha20-Poly1305 与按 2 分钟时间槽派生的密钥，带用户提示的 nonce，会话与数据分段、随机填充，每条连接一个会话，可选 `port_range` 端口段（每条连接随机选一个端口）。

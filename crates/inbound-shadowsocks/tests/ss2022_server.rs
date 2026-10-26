@@ -364,10 +364,81 @@ async fn replayed_requests_are_refused() {
 #[cfg(unix)]
 mod reference_client {
     use super::*;
+    use engine_inbound::udp::BoundUdpOutbound;
     use shadowsocks::config::{ServerConfig, ServerType};
     use shadowsocks::context::Context;
     use shadowsocks::crypto::CipherKind;
-    use shadowsocks::ProxyClientStream;
+    use shadowsocks::relay::udprelay::options::UdpSocketControlData;
+    use shadowsocks::relay::Address;
+    use shadowsocks::{ProxyClientStream, ProxySocket};
+    use tokio::net::UdpSocket;
+
+    async fn udp_echo_server() -> SocketAddr {
+        let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let addr = socket.local_addr().unwrap();
+        tokio::spawn(async move {
+            let mut buf = vec![0u8; 65_536];
+            while let Ok((n, from)) = socket.recv_from(&mut buf).await {
+                let _ = socket.send_to(&buf[..n], from).await;
+            }
+        });
+        addr
+    }
+
+    /// Serves the inbound's UDP side on a port of its own and returns it.
+    fn start_udp(server: &Server) -> SocketAddr {
+        let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let addr = socket.local_addr().unwrap();
+        let served = server.inbound.datagram().expect("udp side").serve(
+            socket,
+            Arc::new(BoundUdpOutbound::new("127.0.0.1:0".parse().unwrap())),
+            server.stats.clone(),
+        );
+        tokio::spawn(served);
+        addr
+    }
+
+    async fn reference_udp_echo(
+        method: Method,
+        server: SocketAddr,
+        password: &str,
+        target: SocketAddr,
+    ) {
+        let config = ServerConfig::new(server, password.to_string(), kind_for(method))
+            .expect("client config");
+        let context = Context::new_shared(ServerType::Local);
+        let socket = ProxySocket::connect(context, &config)
+            .await
+            .expect("reference udp socket");
+        let mut buf = vec![0u8; 65_536];
+        // Like sslocal, give the association a session id and count packets;
+        // `ProxySocket::send` alone repeats packet 0, which is a replay.
+        let mut control = UdpSocketControlData::default();
+        control.client_session_id = 0x5eed_0000_0000_0000 | u64::from(server.port());
+        for data in [b"hello".to_vec(), payload(1200)] {
+            // Datagrams may be lost; retry a few times and skip late replies
+            // to an earlier attempt.
+            let mut echoed = false;
+            'attempts: for _ in 0..5 {
+                control.packet_id += 1;
+                socket
+                    .send_with_ctrl(&Address::SocketAddress(target), &control, &data)
+                    .await
+                    .unwrap();
+                let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+                while let Ok(reply) = tokio::time::timeout_at(deadline, socket.recv(&mut buf)).await
+                {
+                    let (n, source, _) = reply.unwrap();
+                    if buf[..n] == data[..] {
+                        assert_eq!(source, Address::SocketAddress(target));
+                        echoed = true;
+                        break 'attempts;
+                    }
+                }
+            }
+            assert!(echoed, "udp echo through {method:?} timed out");
+        }
+    }
 
     fn kind_for(method: Method) -> CipherKind {
         match method {
@@ -432,6 +503,61 @@ mod reference_client {
             let traffic = server.inbound.users().traffic(false);
             assert_eq!(traffic.len(), 1);
             assert_eq!(traffic[0].name, "ref");
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn reference_client_udp_single_key() {
+        let echo_addr = udp_echo_server().await;
+        for method in [
+            Method::Aes128Gcm,
+            Method::Aes256Gcm,
+            Method::ChaCha20Poly1305,
+        ] {
+            let password = key(method, 41);
+            let server = start_server(method, &password, Vec::new()).await;
+            let udp = start_udp(&server);
+            reference_udp_echo(method, udp, &password, echo_addr).await;
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn reference_client_udp_multi_user() {
+        let echo_addr = udp_echo_server().await;
+        for method in [Method::Aes128Gcm, Method::Aes256Gcm] {
+            let identity = key(method, 51);
+            let user = key(method, 52);
+            let server = start_server(
+                method,
+                &identity,
+                vec![User::with_password("udp", user.clone())],
+            )
+            .await;
+            let udp = start_udp(&server);
+            reference_udp_echo(method, udp, &format!("{identity}:{user}"), echo_addr).await;
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            let traffic = server.inbound.users().traffic(false);
+            assert_eq!(traffic.len(), 1);
+            assert_eq!(traffic[0].name, "udp");
+            assert!(traffic[0].up >= 1205 && traffic[0].down >= 1205);
+
+            // A wrong user key is not answered.
+            let stranger = key(method, 53);
+            let config = ServerConfig::new(udp, format!("{identity}:{stranger}"), kind_for(method))
+                .expect("client config");
+            let socket = ProxySocket::connect(Context::new_shared(ServerType::Local), &config)
+                .await
+                .unwrap();
+            socket
+                .send(&Address::SocketAddress(echo_addr), b"nope")
+                .await
+                .unwrap();
+            let mut buf = [0u8; 64];
+            assert!(
+                tokio::time::timeout(Duration::from_millis(500), socket.recv(&mut buf))
+                    .await
+                    .is_err()
+            );
         }
     }
 }

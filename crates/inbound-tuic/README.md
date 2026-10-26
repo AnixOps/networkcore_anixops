@@ -7,8 +7,12 @@ TUIC v5 server inbound for the node kernel, built on `engine-inbound` and
   with the user's password; a wrong token closes the connection.
 - Connect streams are relayed and charged to the authenticated user; removing
   the user closes the connection.
+- UDP when the node has a UDP outbound: Packet commands in native mode (QUIC
+  datagrams, fragments reassembled) or quic mode (unidirectional streams),
+  one socket per association, replies in the association's mode, Dissociate
+  honored, sessions closed after two idle minutes.
 - Config: `{"type": "tuic", "users": [{"name": "...", "uuid": "...",
   "password": "..."}], "tls": {...}, "congestion_control": "cubic"}`.
 
-Not yet: UDP relay (Packet/Dissociate), zero-RTT. `tests/tuic_inbound.rs`
+Not yet: zero-RTT. `tests/tuic_inbound.rs`
 runs the engine's TUIC client against the server.

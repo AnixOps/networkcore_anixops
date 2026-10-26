@@ -12,6 +12,8 @@ VMess AEAD server inbound (alterId 0) for the node kernel, built on
 - Config: `{"type": "vmess", "users": [{"name": "...", "uuid": "..."}],
   "tls": {...}}`.
 
-Not yet: authenticated length, legacy alterId > 0, UDP and mux, WebSocket and
+UDP command: one datagram per body chunk, to the request target.
+
+Not yet: authenticated length, legacy alterId > 0, mux, WebSocket and
 gRPC transports. `tests/vmess_inbound.rs` runs the engine's VMess client
 against the server.

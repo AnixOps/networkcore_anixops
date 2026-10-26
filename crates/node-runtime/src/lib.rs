@@ -154,12 +154,27 @@ impl Node {
             Inbound::Stream(stream) => {
                 let listener = TcpListener::bind(address).await?;
                 let listen = listener.local_addr()?;
+                // UDP on the same port, for inbounds that take it.
+                let datagrams = match stream.datagram() {
+                    Some(datagram) => {
+                        let socket = std::net::UdpSocket::bind(listen)?;
+                        Some(datagram.serve(socket, udp.clone(), stats.clone()))
+                    }
+                    None => None,
+                };
                 let task = tokio::spawn({
                     let (stream, stats) = (stream.clone(), stats.clone());
                     async move {
-                        let _ =
-                            serve_with_udp(listener, stream, outbound, Some(udp), settings, stats)
-                                .await;
+                        let streams =
+                            serve_with_udp(listener, stream, outbound, Some(udp), settings, stats);
+                        match datagrams {
+                            Some(datagrams) => {
+                                let _ = tokio::join!(streams, datagrams);
+                            }
+                            None => {
+                                let _ = streams.await;
+                            }
+                        }
                     }
                 });
                 (listen, task)
@@ -167,9 +182,10 @@ impl Node {
             Inbound::Packet(packet) => {
                 let socket = std::net::UdpSocket::bind(address)?;
                 let listen = socket.local_addr()?;
-                let served = packet
-                    .clone()
-                    .serve(socket, outbound, settings, stats.clone());
+                let served =
+                    packet
+                        .clone()
+                        .serve(socket, outbound, Some(udp), settings, stats.clone());
                 let task = tokio::spawn(async move {
                     let _ = served.await;
                 });

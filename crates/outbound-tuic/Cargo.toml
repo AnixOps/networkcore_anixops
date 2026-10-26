@@ -4,12 +4,14 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "TUIC v5 TCP outbound over QUIC for the embedded engine."
+description = "TUIC v5 TCP and UDP outbound over QUIC for the embedded engine."
 
 [dependencies]
+bytes = "1"
 engine-outbound = { path = "../engine-outbound" }
+ring = "0.17"
 serde = { version = "1", features = ["derive"] }
-tokio = { version = "1", default-features = false, features = ["io-util", "sync"] }
+tokio = { version = "1", default-features = false, features = ["io-util", "macros", "rt", "sync"] }
 transport-quic = { path = "../transport-quic" }
 transport-tls = { path = "../transport-tls" }
 
