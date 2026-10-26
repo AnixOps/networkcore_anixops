@@ -1,6 +1,6 @@
 # XHTTP 传输规格（净室实现用）
 
-状态：草案 v0.4（2026-10-26）。适用：`transport-xhttp` 的客户端（`XhttpConnector`，用于 VLESS、VMess、Trojan 出站）和服务端（`server::XhttpServer`，经 `inbound-transport` 用于 VLESS、VMess、Trojan 入站）。
+状态：草案 v0.5（2026-10-26）。适用：`transport-xhttp` 的客户端（`XhttpConnector`，用于 VLESS、VMess、Trojan 出站）和服务端（`server::XhttpServer`，经 `inbound-transport` 用于 VLESS、VMess、Trojan 入站）。
 
 ## 0. 本文档的用途与净室规则
 
@@ -48,7 +48,7 @@ XHTTP（旧名 SplitHTTP）是 Xray-core 的 HTTP 传输：把一条代理流拆
 | --- | --- |
 | 无 TLS | HTTP/1.1 |
 | ALPN 恰好为 `http/1.1` | HTTP/1.1 |
-| ALPN 恰好为 `h3` | HTTP/3（本实现暂不支持，配置报错） |
+| ALPN 恰好为 `h3` | HTTP/3（QUIC，客户端支持；服务端暂不支持） |
 | 其他（含空列表） | HTTP/2；空列表时客户端提供 `h2` |
 
 ### 2.1 REALITY 上的 XHTTP
@@ -56,6 +56,8 @@ XHTTP（旧名 SplitHTTP）是 Xray-core 的 HTTP 传输：把一条代理流拆
 出站同时配置 `reality` 和 XHTTP `transport` 时，每条连接先做 REALITY 握手（与裸 REALITY 相同，ClientHello 的 ALPN 为指纹默认的 `h2`、`http/1.1`），再在其中跑 HTTP/2，`scheme` 为 `https`，默认 `Host` 为 REALITY 的 `server_name`。与 Xray 相同，`auto` 此时为 `stream-one`，三种模式都可显式指定；`flow` 必须为空（Vision 不跑在 XHTTP 上）。
 
 入站同时配置 `reality` 和 XHTTP `transport` 时，通过 REALITY 认证的连接交给 XHTTP 服务端（第 3.1 节）处理；未通过认证的连接照常转给 `handshake` 站点。
+
+HTTP/3 时每条代理流建立一条 QUIC 连接（TLS 1.3，ALPN `h3`，复用 `transport-quic`），请求与 HTTP/2 相同；各模式的行为与 HTTP/2 一致。
 
 服务端不看 ALPN：连接以 HTTP/2 前言（`PRI * HTTP/2.0…`）开头时按 HTTP/2（含明文 h2c）处理，否则按 HTTP/1.1。
 
@@ -65,9 +67,9 @@ XHTTP（旧名 SplitHTTP）是 Xray-core 的 HTTP 传输：把一条代理流拆
 
 | 模式 | 下行 | 上行 | 本实现支持的版本 |
 | --- | --- | --- | --- |
-| `packet-up` | `GET {path}{session}` | `POST {path}{session}/{seq}`，`seq` 从 0 起的十进制序号，body 为一段上行数据，带 `Content-Length` | HTTP/1.1、HTTP/2 |
-| `stream-up` | `GET {path}{session}` | 一个流式 `POST {path}{session}`，body 即上行流 | HTTP/2 |
-| `stream-one` | `POST {path}` 的响应 body | 同一个 `POST {path}` 的请求 body | HTTP/2 |
+| `packet-up` | `GET {path}{session}` | `POST {path}{session}/{seq}`，`seq` 从 0 起的十进制序号，body 为一段上行数据，带 `Content-Length` | HTTP/1.1、HTTP/2、HTTP/3 |
+| `stream-up` | `GET {path}{session}` | 一个流式 `POST {path}{session}`，body 即上行流 | HTTP/2、HTTP/3 |
+| `stream-one` | `POST {path}` 的响应 body | 同一个 `POST {path}` 的请求 body | HTTP/2、HTTP/3 |
 
 - `auto`：非 REALITY 时为 `packet-up`，REALITY 时为 `stream-one`。
 - `packet-up`：每段上行 body 不超过 `sc_max_each_post_bytes`；相邻两次上传的间隔不小于 `sc_min_posts_interval_ms`。客户端缓冲期间写入的数据会合并成一段。服务端按 `seq` 重排后交给协议层。本实现按顺序逐个发送并等待 `200`。
@@ -115,8 +117,9 @@ Xray 较新版本的可选混淆参数（填充位置、会话/序号位置、�
 - VMess、Trojan：`outbound-vmess`、`outbound-trojan` 的 `tests/xhttp_interop.rs` 连接 Xray 的 VMess、Trojan + XHTTP + TLS 入站，以 HTTP/1.1 `packet-up` 和 HTTP/2 三种模式测试；服务端测试让 Xray 客户端以 VMess HTTP/2 `auto`、Trojan HTTP/2 `stream-up` 连接本内核的对应入站。
 - 服务端：`node-runtime/tests/client_interop.rs` 让 Xray 客户端以同样五种组合连接本内核的 VLESS + XHTTP 入站，回显 256 KB、再开一条连接，并做 XUDP 的 UDP 回显。
 - REALITY：客户端测试另连 Xray 的 VLESS + REALITY + XHTTP 入站，以 `auto`（即 `stream-one`）、`stream-up`、`packet-up` 三种模式各测一次；服务端测试让 Xray 客户端以同样三种模式连接本内核的 VLESS + REALITY + XHTTP 入站。
+- HTTP/3：客户端测试另连 Xray 的 VLESS + XHTTP 入站（TLS ALPN 仅 `h3`，监听 UDP），以 `packet-up`、`stream-up`、`stream-one` 各测一次。
 - 本地：`transport-xhttp/tests/loopback.rs` 让本实现的客户端与服务端在 h1 `packet-up` 和 h2c 三种模式下互相回显。
 
 ## 7. 后续
 
-- HTTP/3、`xmux` 连接复用、`downloadSettings`（上下行分离到不同服务器）。
+- 服务端 HTTP/3、`xmux` 连接复用、`downloadSettings`（上下行分离到不同服务器）。

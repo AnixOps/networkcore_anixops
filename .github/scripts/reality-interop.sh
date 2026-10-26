@@ -228,6 +228,11 @@ while True:
      "streamSettings": {"network": "xhttp", "xhttpSettings": {"path": "/xh"}, "security": "tls",
        "tlsSettings": {"alpn": ["h2", "http/1.1"],
          "certificates": [{"certificateFile": "${work}/server.crt", "keyFile": "${work}/server.key"}]}}},
+    {"tag": "xhttp-h3", "listen": "127.0.0.1", "port": 24456, "protocol": "vless",
+     "settings": {"clients": [{"id": "${uuid}"}], "decryption": "none"},
+     "streamSettings": {"network": "xhttp", "xhttpSettings": {"path": "/xh"}, "security": "tls",
+       "tlsSettings": {"alpn": ["h3"],
+         "certificates": [{"certificateFile": "${work}/server.crt", "keyFile": "${work}/server.key"}]}}},
     {"tag": "vmess-xhttp", "listen": "127.0.0.1", "port": 24454, "protocol": "vmess",
      "settings": {"clients": [{"id": "${uuid}"}]},
      "streamSettings": {"network": "xhttp", "xhttpSettings": {"path": "/xh"}, "security": "tls",
@@ -324,7 +329,7 @@ EOF
   for port in 18080 18443 18444 24431 24432 24441 24442 24443 24451 24452 24453 24454 24455 25431 25432 25441 25442 25443; do
     wait_for_port "${port}"
   done
-  for port in 26441 26442 26451 27441 27442 18053; do
+  for port in 24456 26441 26442 26451 27441 27442 18053; do
     wait_for_udp_port "${port}"
   done
 
@@ -425,6 +430,7 @@ NC_VMESS_UUID=${uuid}
 NC_XHTTP_PLAIN=127.0.0.1:24451
 NC_XHTTP_TLS=127.0.0.1:24452
 NC_XHTTP_REALITY=127.0.0.1:24453
+NC_XHTTP_H3=127.0.0.1:24456
 NC_VMESS_XHTTP=127.0.0.1:24454
 NC_TROJAN_XHTTP=127.0.0.1:24455
 NC_TROJAN_PASSWORD=${trojan_password}

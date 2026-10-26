@@ -146,7 +146,7 @@ fn standard_outbound(
     let xhttp_version = match &settings.transport {
         Some(TransportSettings::Xhttp(_)) => Some(
             HttpVersion::select(settings.tls.as_ref().map(|tls| tls.alpn.as_slice()))
-                .map_err(|_| "vless xhttp over http/3 is not supported yet")?,
+                .map_err(|_| "vless xhttp settings are invalid")?,
         ),
         _ => None,
     };
@@ -214,7 +214,14 @@ fn standard_outbound(
                         server: settings.server.clone(),
                         port: settings.port,
                         default_host: default_host.clone(),
-                        security: connector.clone().map_or(Security::None, Security::Tls),
+                        security: xhttp_security(
+                            &settings.server,
+                            settings.port,
+                            tls.as_ref(),
+                            connector.as_ref(),
+                            xhttp_version,
+                        )
+                        .map_err(|_| "vless xhttp over quic settings are invalid")?,
                         version: xhttp_version.unwrap_or(HttpVersion::Http11),
                         dialer: dialer.clone(),
                     },
@@ -237,6 +244,20 @@ fn standard_outbound(
         outbound = outbound.with_xhttp(xhttp);
     }
     Ok(outbound)
+}
+
+/// The layer under XHTTP: QUIC for HTTP/3, otherwise TLS when set.
+fn xhttp_security(
+    server: &str,
+    port: u16,
+    tls: Option<&TlsSettings>,
+    connector: Option<&TlsConnector>,
+    version: Option<HttpVersion>,
+) -> std::io::Result<Security> {
+    match (version, tls) {
+        (Some(HttpVersion::Http3), Some(tls)) => Security::quic(server, port, tls),
+        _ => Ok(connector.cloned().map_or(Security::None, Security::Tls)),
+    }
 }
 
 /// XHTTP over REALITY, which Xray always runs as HTTP/2, with `auto` as

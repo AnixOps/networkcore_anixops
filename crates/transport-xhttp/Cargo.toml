@@ -4,16 +4,19 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "XHTTP (Xray SplitHTTP) client and server transport over HTTP/1.1 and HTTP/2, shared by protocol crates."
+description = "XHTTP (Xray SplitHTTP) client transport over HTTP/1.1, HTTP/2 and HTTP/3 and server transport over HTTP/1.1 and HTTP/2, shared by protocol crates."
 
 [dependencies]
 bytes = "1"
 engine-outbound = { path = "../engine-outbound" }
 h2 = "0.4"
+h3 = "0.0.8"
+h3-quinn = "0.0.10"
 http = "1"
 ring = "0.17"
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", default-features = false, features = ["io-util", "macros", "rt", "sync", "time"] }
+transport-quic = { path = "../transport-quic" }
 transport-tls = { path = "../transport-tls" }
 
 [dev-dependencies]
