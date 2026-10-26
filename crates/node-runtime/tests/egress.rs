@@ -173,9 +173,7 @@ async fn a_relay_on_a_taken_port_fails_alone() {
     let taken: SocketAddr = body["listen"].as_str().unwrap().parse().unwrap();
     let taken_port = taken.port();
     let free = free_port();
-    let relay = |id: u64, port: u16| {
-        json!({"id": id, "port": port, "method": "2022-blake3-aes-128-gcm", "password": RELAY_KEY})
-    };
+    let relay = |id: u64, port: u16| json!({"id": id, "port": port, "method": "2022-blake3-aes-128-gcm", "password": RELAY_KEY});
     let body = json!({"relays": [relay(1, taken_port), relay(2, free)]});
     let (status, body) = call(api, "PUT", "/v1/egress", Some(body)).await;
     assert_eq!(status, 500, "{body}");

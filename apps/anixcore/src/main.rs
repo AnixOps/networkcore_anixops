@@ -77,7 +77,11 @@ fn start(config: NodeConfig, check_only: bool) -> Result<(), String> {
                 .apply_egress(egress)
                 .await
                 .map_err(|error| format!("egress: {error}"))?;
-            println!("egress: {} routes, {} relays", status.routes.len(), status.relays.len());
+            println!(
+                "egress: {} routes, {} relays",
+                status.routes.len(),
+                status.relays.len()
+            );
         }
         if check_only {
             println!("config ok");

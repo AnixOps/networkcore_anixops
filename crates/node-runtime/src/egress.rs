@@ -655,7 +655,10 @@ mod tests {
         for case in cases {
             let error = compile(&config(case)).err().expect("refused");
             assert!(error.starts_with("egress "), "{error}");
-            assert!(!error.contains(KEY) && !error.contains("secret-key"), "{error}");
+            assert!(
+                !error.contains(KEY) && !error.contains("secret-key"),
+                "{error}"
+            );
         }
         assert!(compile(&EgressConfig::default()).unwrap().is_empty());
     }
@@ -680,14 +683,20 @@ mod tests {
         });
         let egress = Arc::new(Egress::new());
         egress.set_table(
-            compile(&config(serde_json::json!({"routes": [route(1, &["a.test"])]}))).unwrap(),
+            compile(&config(
+                serde_json::json!({"routes": [route(1, &["a.test"])]}),
+            ))
+            .unwrap(),
         );
         let router = Router::new(DirectOutbound::new(true, Vec::new()), egress);
         let target = TargetAddr::Ip(address);
 
         // Client first: the bytes pick the route (none here), then pass.
         let mut stream = router.connect(&target).await.unwrap();
-        stream.write_all(b"GET / HTTP/1.1\r\nHost: b.test\r\n\r\n").await.unwrap();
+        stream
+            .write_all(b"GET / HTTP/1.1\r\nHost: b.test\r\n\r\n")
+            .await
+            .unwrap();
         let mut echo = [0u8; 16];
         stream.read_exact(&mut echo).await.unwrap();
         assert_eq!(&echo, b"GET / HTTP/1.1\r\n");

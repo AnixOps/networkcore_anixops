@@ -224,7 +224,9 @@ mod tests {
         );
         // An IPv4-mapped address is the same address.
         assert_eq!(
-            cache.lookup("::ffff:203.0.113.7".parse().unwrap()).as_deref(),
+            cache
+                .lookup("::ffff:203.0.113.7".parse().unwrap())
+                .as_deref(),
             Some("chat.example.test")
         );
         assert_eq!(cache.len(), 2);
