@@ -183,7 +183,7 @@ impl Profile {
         let mut prefix_min = pick(s(14, 0), 0x08, 0x50);
         let prefix_max = (prefix_min + pick(s(15, 0), 0x10, 0xa0)).min(0x80);
         prefix_min = prefix_min.min(prefix_max);
-        let chunk_initial = pick(s(22, 0), 0x200, 0x5b4).min(0x5b4).max(0x60);
+        let chunk_initial = pick(s(22, 0), 0x200, 0x5b4).clamp(0x60, 0x5b4);
         let first_record_cap = pick(s(22, CHUNK0), 0x100, 0x300)
             .min(chunk_initial.min(0x300))
             .max(0x100);
@@ -512,7 +512,7 @@ impl Profile {
         }
         if first {
             let base = if n > 0 { n + 0x37 } else { n + 0x27 };
-            let threshold = ((base * 25 + 0x4a) / 75).max(0xc0);
+            let threshold = (base * 25).div_ceil(75).max(0xc0);
             if self.salt_prefix_len + pre + p < threshold {
                 let t = (threshold - self.salt_prefix_len - pre).min(self.pad_max + EXTRA);
                 if t <= 0xfffe {
