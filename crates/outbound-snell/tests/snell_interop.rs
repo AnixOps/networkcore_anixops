@@ -212,6 +212,9 @@ async fn ping_is_answered_with_pong() {
 async fn udp_datagrams_are_relayed() {
     let echo = target("NC_UDP_ECHO");
     let echo_addr: SocketAddr = env("NC_UDP_ECHO").parse().unwrap();
+    // Every server and size is tried before failing, so one run reports
+    // the full picture.
+    let mut failures = Vec::new();
     for server in servers() {
         if server.version < 3 {
             continue;
@@ -221,20 +224,34 @@ async fn udp_datagrams_are_relayed() {
             .await
             .unwrap_or_else(|_| panic!("{}: timed out", server.name))
             .unwrap_or_else(|err| panic!("{}: udp: {err}", server.name));
-        for size in [1usize, 512, 1400, 8000] {
+        for size in [1usize, 512, 1400, 2048, 4096, 8000] {
             let payload: Vec<u8> = (0..size).map(|i| (i % 256) as u8).collect();
             assert!(sender.send_to(&echo, &payload).await.unwrap());
             let (source, echoed) = tokio::time::timeout(TIMEOUT, receiver.recv_from())
                 .await
                 .unwrap_or_else(|_| panic!("{} udp {size}: timed out", server.name))
                 .unwrap_or_else(|err| panic!("{} udp {size}: {err}", server.name));
-            assert_eq!(source, echo_addr, "{}", server.name);
-            assert!(
-                echoed == payload,
-                "{} udp {size}: payload differs",
-                server.name
-            );
+            if source != echo_addr {
+                failures.push(format!("{} udp {size}: source {source}", server.name));
+            }
+            if echoed != payload {
+                let first_diff = echoed
+                    .iter()
+                    .zip(&payload)
+                    .position(|(a, b)| a != b)
+                    .unwrap_or(echoed.len().min(payload.len()));
+                println!(
+                    "observed: {} udp {size}: echoed {} bytes, first difference at {first_diff}",
+                    server.name,
+                    echoed.len()
+                );
+                failures.push(format!("{} udp {size}: payload differs", server.name));
+                // The echo of this datagram may be split; start over on a
+                // fresh session so later sizes are measured cleanly.
+                break;
+            }
         }
-        println!("{}: udp ok", server.name);
+        println!("{}: udp done", server.name);
     }
+    assert!(failures.is_empty(), "{failures:#?}");
 }
