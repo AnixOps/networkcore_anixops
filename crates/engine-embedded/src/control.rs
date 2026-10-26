@@ -15,6 +15,8 @@
 //! | `set_mode` | `mode` | `{"mode": ...}` |
 //! | `groups` | | `{"groups": [`[`crate::routing::GroupView`]`]}` |
 //! | `select` | `group`, `member` | `{"now": member}` |
+//! | `rule_sets` | | `{"rule_sets": [`[`crate::rule_sets::RuleSetStatus`]`]}` |
+//! | `update_rule_sets` | | `{"scheduled": remote set count}` |
 //!
 //! Mode and group choices last until the engine stops; the client keeps
 //! them in its profile (`mode`, a select group's `default`) for the next
@@ -40,6 +42,8 @@ enum ControlRequest {
     SetMode { mode: Mode },
     Groups,
     Select { group: String, member: String },
+    RuleSets,
+    UpdateRuleSets,
 }
 
 /// Runs one JSON request against the flows of `dispatcher`.
@@ -72,6 +76,19 @@ pub fn handle(dispatcher: &Dispatcher, request: &[u8]) -> Result<Vec<u8>, Runtim
                 .routed_outbound()
                 .ok_or_else(|| invalid("this config has no policy groups"))?;
             Ok(json!({ "now": routed.select(&group, &member)? }))
+        }
+        ControlRequest::RuleSets => {
+            let sets = dispatcher
+                .routed_outbound()
+                .map(|routed| routed.rule_sets().status())
+                .unwrap_or_default();
+            Ok(json!({ "rule_sets": sets }))
+        }
+        ControlRequest::UpdateRuleSets => {
+            let scheduled = dispatcher
+                .routed_outbound()
+                .map_or(0, |routed| routed.rule_sets().refresh_now());
+            Ok(json!({ "scheduled": scheduled }))
         }
     };
     answer

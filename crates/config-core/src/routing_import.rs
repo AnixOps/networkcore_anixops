@@ -21,13 +21,15 @@ pub const ROUTING_IMPORT_MEMBER_SKIPPED_CODE: &str = "config.core.routing_import
 pub const ROUTING_IMPORT_OPTION_IGNORED_CODE: &str = "config.core.routing_import.option_ignored";
 pub const ROUTING_IMPORT_INVALID_CODE: &str = "config.core.routing_import.invalid";
 
-const SUPPORTED_RULE_TYPES: [&str; 6] = [
+const SUPPORTED_RULE_TYPES: [&str; 8] = [
     "DOMAIN",
     "DOMAIN-SUFFIX",
     "DOMAIN-KEYWORD",
     "IP-CIDR",
     "IP-CIDR6",
     "GEOIP",
+    "DST-PORT",
+    "DEST-PORT",
 ];
 const HEALTH_CHECK_OPTIONS: [&str; 3] = ["url", "interval", "tolerance"];
 
