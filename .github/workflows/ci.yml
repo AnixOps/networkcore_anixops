@@ -3056,6 +3056,21 @@ jobs:
         shell: bash
         run: bash .github/scripts/reality-interop.sh logs
 
+  mieru-probe:
+    name: Mieru wire probe (temporary)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: ${{ github.event_name == 'pull_request' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Probe official mieru client and mita server
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/mieru-probe/run.sh
+
   rust-h2-mitm-fuzz:
     name: HTTP/2 MITM fuzz
     runs-on: ubuntu-latest
