@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "XHTTP (Xray SplitHTTP) client transport over HTTP/1.1 and HTTP/2, shared by outbound protocol crates."
+description = "XHTTP (Xray SplitHTTP) client and server transport over HTTP/1.1 and HTTP/2, shared by protocol crates."
 
 [dependencies]
 bytes = "1"

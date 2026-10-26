@@ -15,9 +15,11 @@
 //!
 //! [`XhttpConnector`] dials (and runs TLS) itself, because `packet-up` over
 //! HTTP/1.1 needs a second connection for the uploads. Over HTTP/2 every
-//! proxied stream uses its own connection.
+//! proxied stream uses its own connection. [`server::XhttpServer`] is the
+//! server side.
 
 mod h1;
+pub mod server;
 mod settings;
 
 use std::future::{poll_fn, Future};

@@ -1,11 +1,14 @@
-//! The HTTP/1.1 response side the client needs: a status line and headers,
-//! then a body delimited by `Content-Length`, chunked coding, or the close.
+//! The HTTP/1.1 messages XHTTP needs: response heads for the client,
+//! request heads for the server, and bodies delimited by `Content-Length`,
+//! chunked coding, or the close.
 
 use std::io;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWrite};
 
-/// Largest response head accepted.
+/// Largest message head accepted.
 const MAX_HEAD: usize = 64 * 1024;
 /// Largest chunk-size or trailer line accepted.
 const MAX_LINE: usize = 4 * 1024;
@@ -35,40 +38,192 @@ pub(crate) async fn read_head<R: AsyncBufRead + Unpin>(reader: &mut R) -> io::Re
             chunked: false,
             close: http10,
         };
-        loop {
-            read_line(reader, &mut line, &mut budget).await?;
-            if line.is_empty() {
-                break;
-            }
-            let text =
-                std::str::from_utf8(&line).map_err(|_| bad("response header is not text"))?;
-            let (name, value) = text
-                .split_once(':')
-                .ok_or_else(|| bad("response header is malformed"))?;
-            let (name, value) = (name.trim(), value.trim());
-            if name.eq_ignore_ascii_case("content-length") {
-                head.content_length = Some(
-                    value
-                        .parse()
-                        .map_err(|_| bad("content-length is invalid"))?,
-                );
-            } else if name.eq_ignore_ascii_case("transfer-encoding") {
-                head.chunked = value
-                    .rsplit(',')
-                    .next()
-                    .is_some_and(|coding| coding.trim().eq_ignore_ascii_case("chunked"));
-            } else if name.eq_ignore_ascii_case("connection")
-                && value
-                    .split(',')
-                    .any(|option| option.trim().eq_ignore_ascii_case("close"))
-            {
-                head.close = true;
-            }
-        }
+        read_fields(reader, &mut line, &mut budget, &mut head, |_, _| {}).await?;
         if (100..200).contains(&status) {
             continue;
         }
         return Ok(head);
+    }
+}
+
+/// A request head as the server sees it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Request {
+    pub method: String,
+    pub target: String,
+    pub host: Option<String>,
+    pub referer: Option<String>,
+    /// Body framing; `status` is unused.
+    pub body: Head,
+}
+
+/// Reads one request head; `Ok(None)` when the client closed the connection
+/// before sending another request.
+pub(crate) async fn read_request<R: AsyncBufRead + Unpin>(
+    reader: &mut R,
+) -> io::Result<Option<Request>> {
+    let mut budget = MAX_HEAD;
+    let mut line = Vec::new();
+    loop {
+        line.clear();
+        let read = (&mut *reader)
+            .take(budget as u64)
+            .read_until(b'\n', &mut line)
+            .await?;
+        if read == 0 {
+            return Ok(None);
+        }
+        if line.last() != Some(&b'\n') {
+            return Err(bad("request head is too large"));
+        }
+        budget -= read;
+        if line.iter().any(|byte| !byte.is_ascii_whitespace()) {
+            break;
+        }
+    }
+    let text = std::str::from_utf8(&line).map_err(|_| bad("request line is not text"))?;
+    let mut parts = text.split_ascii_whitespace();
+    let (Some(method), Some(target), Some(version), None) =
+        (parts.next(), parts.next(), parts.next(), parts.next())
+    else {
+        return Err(bad("request line is malformed"));
+    };
+    if !version.starts_with("HTTP/1.") {
+        return Err(bad("client did not speak HTTP/1.x"));
+    }
+    let mut request = Request {
+        method: method.to_owned(),
+        target: target.to_owned(),
+        host: None,
+        referer: None,
+        body: Head {
+            status: 0,
+            content_length: None,
+            chunked: false,
+            close: version == "HTTP/1.0",
+        },
+    };
+    let mut host = None;
+    let mut referer = None;
+    read_fields(
+        reader,
+        &mut line,
+        &mut budget,
+        &mut request.body,
+        |name, value| {
+            if name.eq_ignore_ascii_case("host") {
+                host = Some(value.to_owned());
+            } else if name.eq_ignore_ascii_case("referer") {
+                referer = Some(value.to_owned());
+            }
+        },
+    )
+    .await?;
+    request.host = host;
+    request.referer = referer;
+    Ok(Some(request))
+}
+
+/// Header fields up to the empty line: the framing ones go into `head`, and
+/// every field to `field`.
+async fn read_fields<R, F>(
+    reader: &mut R,
+    line: &mut Vec<u8>,
+    budget: &mut usize,
+    head: &mut Head,
+    mut field: F,
+) -> io::Result<()>
+where
+    R: AsyncBufRead + Unpin,
+    F: FnMut(&str, &str),
+{
+    loop {
+        read_line(reader, line, budget).await?;
+        if line.is_empty() {
+            return Ok(());
+        }
+        let text = std::str::from_utf8(line).map_err(|_| bad("header is not text"))?;
+        let (name, value) = text
+            .split_once(':')
+            .ok_or_else(|| bad("header is malformed"))?;
+        let (name, value) = (name.trim(), value.trim());
+        if name.eq_ignore_ascii_case("content-length") {
+            head.content_length = Some(
+                value
+                    .parse()
+                    .map_err(|_| bad("content-length is invalid"))?,
+            );
+        } else if name.eq_ignore_ascii_case("transfer-encoding") {
+            head.chunked = value
+                .rsplit(',')
+                .next()
+                .is_some_and(|coding| coding.trim().eq_ignore_ascii_case("chunked"));
+        } else if name.eq_ignore_ascii_case("connection")
+            && value
+                .split(',')
+                .any(|option| option.trim().eq_ignore_ascii_case("close"))
+        {
+            head.close = true;
+        }
+        field(name, value);
+    }
+}
+
+/// Reads a request body of at most `limit` bytes; `Ok(None)` when it is
+/// larger (the rest stays unread). A request without length has no body.
+pub(crate) async fn read_body_limited<R: AsyncBufRead + Unpin>(
+    reader: &mut R,
+    head: &Head,
+    limit: usize,
+) -> io::Result<Option<Vec<u8>>> {
+    if !head.chunked {
+        let length = head.content_length.unwrap_or(0);
+        if length > limit as u64 {
+            return Ok(None);
+        }
+        let mut body = vec![0; length as usize];
+        reader.read_exact(&mut body).await?;
+        return Ok(Some(body));
+    }
+    let mut out = Limited {
+        body: Vec::new(),
+        limit,
+        overflow: false,
+    };
+    match copy_body(reader, head, &mut out).await {
+        Ok(()) => Ok(Some(out.body)),
+        Err(_) if out.overflow => Ok(None),
+        Err(err) => Err(err),
+    }
+}
+
+/// A `Vec` writer that fails past `limit`.
+struct Limited {
+    body: Vec<u8>,
+    limit: usize,
+    overflow: bool,
+}
+
+impl AsyncWrite for Limited {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        if self.body.len() + buf.len() > self.limit {
+            self.overflow = true;
+            return Poll::Ready(Err(io::Error::other("body is too large")));
+        }
+        self.body.extend_from_slice(buf);
+        Poll::Ready(Ok(buf.len()))
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Poll::Ready(Ok(()))
     }
 }
 
@@ -211,6 +366,36 @@ mod tests {
         let (head, body) = parse(b"HTTP/1.0 200 OK\r\n\r\nto the end").await.unwrap();
         assert!(head.close);
         assert_eq!(body, b"to the end");
+    }
+
+    #[tokio::test]
+    async fn requests_and_limited_bodies() {
+        let mut reader = &b"\r\nPOST /xh/s/0?k=v HTTP/1.1\r\nHost: a.example\r\n\
+            Referer: https://a.example/xh/s/0?x_padding=XXX\r\nContent-Length: 4\r\n\r\nbodyGET / HTTP/1.1\r\n\
+            Transfer-Encoding: chunked\r\n\r\n4\r\nabcd\r\n4\r\nefgh\r\n0\r\n\r\n"[..];
+        let request = read_request(&mut reader).await.unwrap().unwrap();
+        assert_eq!(request.method, "POST");
+        assert_eq!(request.target, "/xh/s/0?k=v");
+        assert_eq!(request.host.as_deref(), Some("a.example"));
+        assert!(request.referer.unwrap().ends_with("x_padding=XXX"));
+        let body = read_body_limited(&mut reader, &request.body, 4)
+            .await
+            .unwrap();
+        assert_eq!(body.unwrap(), b"body");
+        let request = read_request(&mut reader).await.unwrap().unwrap();
+        assert!(request.body.chunked && request.host.is_none());
+        assert!(read_body_limited(&mut reader, &request.body, 7)
+            .await
+            .unwrap()
+            .is_none());
+        assert!(read_request(&mut &b""[..]).await.unwrap().is_none());
+        assert!(read_request(&mut &b"GET /\r\n\r\n"[..]).await.is_err());
+        let mut long = &b"POST / HTTP/1.1\r\nContent-Length: 9\r\n\r\n"[..];
+        let request = read_request(&mut long).await.unwrap().unwrap();
+        assert!(read_body_limited(&mut long, &request.body, 8)
+            .await
+            .unwrap()
+            .is_none());
     }
 
     #[tokio::test]

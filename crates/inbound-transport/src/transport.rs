@@ -1,5 +1,5 @@
-//! WebSocket and gRPC server transports between the client connection (or
-//! its TLS layer) and the protocol inbound.
+//! WebSocket, gRPC and XHTTP server transports between the client
+//! connection (or its TLS layer) and the protocol inbound.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -11,6 +11,8 @@ use engine_inbound::{Accepted, Rejected, StreamInbound, UserStore};
 use engine_outbound::{BoxFuture, BoxStream};
 use serde::Deserialize;
 use transport_ws::server::{WsAcceptor, WsServerSettings, DEFAULT_MAX_EARLY_DATA};
+use transport_xhttp::server::XhttpServer;
+use transport_xhttp::XhttpSettings;
 
 /// `"transport"` in inbound settings, the server side of the outbound
 /// `transport` object.
@@ -39,6 +41,11 @@ pub enum TransportSettings {
         /// full custom path.
         service_name: String,
     },
+    /// Xray XHTTP (SplitHTTP); `splithttp` is its older name. `path`,
+    /// `host`, `mode` (which upload modes are accepted), `x_padding_bytes`
+    /// and `sc_max_each_post_bytes` apply to the server.
+    #[serde(alias = "splithttp")]
+    Xhttp(XhttpSettings),
 }
 
 fn default_max_early_data() -> usize {
@@ -49,6 +56,15 @@ impl TransportSettings {
     /// Whether the transport needs HTTP/2, and so ALPN `h2` under TLS.
     pub fn needs_h2(&self) -> bool {
         matches!(self, Self::Grpc { .. })
+    }
+
+    /// The ALPN list offered under TLS when none is configured.
+    pub fn default_alpn(&self) -> &'static [&'static str] {
+        match self {
+            Self::Grpc { .. } => &["h2"],
+            Self::Xhttp(_) => &["h2", "http/1.1"],
+            _ => &[],
+        }
     }
 }
 
@@ -78,6 +94,11 @@ pub fn wrap_transport(
             let path = transport_grpc::tun_path(service_name)
                 .map_err(|_| "grpc transport service_name is missing or invalid")?;
             Ok(Arc::new(GrpcInbound { path, inner }))
+        }
+        Some(TransportSettings::Xhttp(settings)) => {
+            let server = XhttpServer::new(settings)
+                .map_err(|_| "xhttp transport path, ranges or mode are invalid")?;
+            Ok(Arc::new(XhttpInbound { server, inner }))
         }
     }
 }
@@ -191,6 +212,60 @@ impl StreamInbound for GrpcInbound {
     }
 }
 
+/// A protocol inbound behind XHTTP: every download (or `stream-one`
+/// request) is one client stream for `inner`; uploads may come over other
+/// connections.
+pub struct XhttpInbound {
+    server: Arc<XhttpServer>,
+    inner: Arc<dyn StreamInbound>,
+}
+
+impl StreamInbound for XhttpInbound {
+    fn protocol(&self) -> &'static str {
+        self.inner.protocol()
+    }
+
+    fn users(&self) -> &Arc<UserStore> {
+        self.inner.users()
+    }
+
+    fn accept<'a>(
+        &'a self,
+        _stream: BoxStream,
+        _peer: SocketAddr,
+    ) -> BoxFuture<'a, Result<Accepted, Rejected>> {
+        // The serve loop hands XHTTP whole connections.
+        Box::pin(async { Err(Rejected::close("xhttp serves whole connections")) })
+    }
+
+    fn serves_connections(&self) -> bool {
+        true
+    }
+
+    fn serve_connection<'a>(
+        &'a self,
+        stream: BoxStream,
+        context: ConnectionContext<'a>,
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            let inner = self.inner.as_ref();
+            let served = self
+                .server
+                .serve_connection(stream, context.settings.handshake_timeout, move |call| {
+                    Box::pin(context.handle(call, inner))
+                })
+                .await;
+            if served.is_err() {
+                context.handshake_failed();
+            }
+        })
+    }
+
+    fn datagram(&self) -> Option<Arc<dyn DatagramInbound>> {
+        self.inner.datagram()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -216,6 +291,11 @@ mod tests {
             serde_json::from_str::<TransportSettings>(r#"{"type": "ws", "paht": "/"}"#).is_err()
         );
         assert!(serde_json::from_str::<TransportSettings>(r#"{"type": "h3"}"#).is_err());
+        let xhttp: TransportSettings =
+            serde_json::from_str(r#"{"type": "splithttp", "path": "/xh", "mode": "packet-up"}"#)
+                .unwrap();
+        assert_eq!(xhttp.default_alpn(), ["h2", "http/1.1"]);
+        assert!(!xhttp.needs_h2());
 
         let bad = TransportSettings::Grpc {
             service_name: "a/b".into(),

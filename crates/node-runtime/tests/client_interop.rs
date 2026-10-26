@@ -36,6 +36,7 @@ const PASSWORD: &str = "interop-password";
 const OBFS_PASSWORD: &str = "interop-obfs";
 const WS_PATH: &str = "/ws";
 const GRPC_SERVICE: &str = "interop";
+const XHTTP_PATH: &str = "/xh";
 
 struct Env {
     bin: PathBuf,
@@ -96,6 +97,11 @@ enum Net {
     Tcp,
     Ws,
     Grpc,
+    /// XHTTP in `mode`; `h1` makes the client offer only ALPN `http/1.1`.
+    Xhttp {
+        mode: &'static str,
+        h1: bool,
+    },
 }
 
 struct Case {
@@ -128,6 +134,51 @@ const CASES: &[Case] = &[
         tag: "vless-tls-grpc",
         proto: Proto::Vless,
         net: Net::Grpc,
+        tls: true,
+    },
+    Case {
+        tag: "vless-xhttp",
+        proto: Proto::Vless,
+        net: Net::Xhttp {
+            mode: "auto",
+            h1: false,
+        },
+        tls: false,
+    },
+    Case {
+        tag: "vless-tls-xhttp",
+        proto: Proto::Vless,
+        net: Net::Xhttp {
+            mode: "auto",
+            h1: false,
+        },
+        tls: true,
+    },
+    Case {
+        tag: "vless-tls-xhttp-h1",
+        proto: Proto::Vless,
+        net: Net::Xhttp {
+            mode: "packet-up",
+            h1: true,
+        },
+        tls: true,
+    },
+    Case {
+        tag: "vless-tls-xhttp-stream-up",
+        proto: Proto::Vless,
+        net: Net::Xhttp {
+            mode: "stream-up",
+            h1: false,
+        },
+        tls: true,
+    },
+    Case {
+        tag: "vless-tls-xhttp-stream-one",
+        proto: Proto::Vless,
+        net: Net::Xhttp {
+            mode: "stream-one",
+            h1: false,
+        },
         tls: true,
     },
     Case {
@@ -272,6 +323,12 @@ fn inbound(env: &Env, case: &Case) -> Value {
                 json!({"type": "grpc", "service_name": GRPC_SERVICE}),
             );
         }
+        Net::Xhttp { .. } => {
+            object.insert(
+                "transport".into(),
+                json!({"type": "xhttp", "path": XHTTP_PATH}),
+            );
+        }
     }
     if case.tls {
         let alpn: &[&str] = match case.proto {
@@ -309,7 +366,8 @@ impl Client {
     fn supports(self, case: &Case) -> bool {
         match self {
             Client::Xray => !matches!(case.proto, Proto::Hysteria2 { .. } | Proto::Tuic),
-            Client::SingBox => true,
+            // sing-box has no XHTTP.
+            Client::SingBox => !matches!(case.net, Net::Xhttp { .. }),
             Client::Hysteria => matches!(case.proto, Proto::Hysteria2 { .. }),
         }
     }
@@ -375,6 +433,7 @@ fn xray_config(env: &Env, case: &Case, server: SocketAddr, socks: u16) -> Value 
         Net::Tcp => "tcp",
         Net::Ws => "ws",
         Net::Grpc => "grpc",
+        Net::Xhttp { .. } => "xhttp",
     }});
     let stream_object = stream.as_object_mut().unwrap();
     match case.net {
@@ -388,6 +447,12 @@ fn xray_config(env: &Env, case: &Case, server: SocketAddr, socks: u16) -> Value 
         }
         Net::Grpc => {
             stream_object.insert("grpcSettings".into(), json!({"serviceName": GRPC_SERVICE}));
+        }
+        Net::Xhttp { mode, .. } => {
+            stream_object.insert(
+                "xhttpSettings".into(),
+                json!({"path": XHTTP_PATH, "mode": mode}),
+            );
         }
     }
     if let Proto::VlessReality { .. } = case.proto {
@@ -403,13 +468,15 @@ fn xray_config(env: &Env, case: &Case, server: SocketAddr, socks: u16) -> Value 
         );
     } else if case.tls {
         stream_object.insert("security".into(), "tls".into());
-        stream_object.insert(
-            "tlsSettings".into(),
-            json!({
-                "serverName": env.server_name,
-                "certificates": [{"usage": "verify", "certificateFile": env.cert}],
-            }),
-        );
+        let mut tls = json!({
+            "serverName": env.server_name,
+            "certificates": [{"usage": "verify", "certificateFile": env.cert}],
+        });
+        // Xray's XHTTP runs HTTP/1.1 when ALPN is exactly `http/1.1`.
+        if let Net::Xhttp { h1: true, .. } = case.net {
+            tls["alpn"] = json!(["http/1.1"]);
+        }
+        stream_object.insert("tlsSettings".into(), tls);
     }
     json!({
         "log": {"loglevel": "debug"},
@@ -511,6 +578,7 @@ fn sing_box_config(env: &Env, case: &Case, server: SocketAddr, socks: u16) -> Va
                 json!({"type": "grpc", "service_name": GRPC_SERVICE}),
             );
         }
+        Net::Xhttp { .. } => unreachable!("not a sing-box client case"),
     }
     if case.tls {
         let alpn: &[&str] = match (case.proto, case.net) {
