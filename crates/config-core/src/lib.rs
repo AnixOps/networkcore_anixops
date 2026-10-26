@@ -18,7 +18,10 @@ use control_domain::{
     SubscriptionService, SubscriptionSource, NODE_METADATA_HYSTERIA2_OBFS_MAX_PACKET_SIZE,
     NODE_METADATA_HYSTERIA2_OBFS_MIN_PACKET_SIZE, NODE_METADATA_HYSTERIA2_OBFS_PASSWORD,
     NODE_METADATA_HYSTERIA2_OBFS_TYPE, NODE_METADATA_HYSTERIA2_PASSWORD,
-    NODE_METADATA_HYSTERIA2_SERVER_PORTS, NODE_METADATA_SHADOWSOCKS_METHOD,
+    NODE_METADATA_HYSTERIA2_SERVER_PORTS, NODE_METADATA_MIERU_HANDSHAKE_MODE,
+    NODE_METADATA_MIERU_MTU, NODE_METADATA_MIERU_MULTIPLEXING, NODE_METADATA_MIERU_PASSWORD,
+    NODE_METADATA_MIERU_PORT_RANGE, NODE_METADATA_MIERU_TRAFFIC_PATTERN,
+    NODE_METADATA_MIERU_TRANSPORT, NODE_METADATA_MIERU_USERNAME, NODE_METADATA_SHADOWSOCKS_METHOD,
     NODE_METADATA_SHADOWSOCKS_PASSWORD, NODE_METADATA_SNELL_MODE, NODE_METADATA_SNELL_OBFS,
     NODE_METADATA_SNELL_OBFS_HOST, NODE_METADATA_SNELL_OBFS_URI, NODE_METADATA_SNELL_PSK,
     NODE_METADATA_SNELL_REUSE, NODE_METADATA_SNELL_USER_KEY, NODE_METADATA_SNELL_VERSION,
@@ -183,6 +186,11 @@ struct RawClashProxy {
     version: Option<RawClashScalar>,
     #[serde(rename = "obfs-opts")]
     obfs_opts: Option<RawClashSnellObfs>,
+    username: Option<RawClashScalar>,
+    transport: Option<RawClashScalar>,
+    multiplexing: Option<RawClashScalar>,
+    #[serde(rename = "port-range")]
+    port_range: Option<RawClashScalar>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -799,11 +807,27 @@ fn parse_clash_yaml_subscription(
     }))
 }
 
-fn parse_clash_proxy(raw: RawClashProxy, source_id: &str) -> DomainResult<NodeDescriptor> {
+fn parse_clash_proxy(mut raw: RawClashProxy, source_id: &str) -> DomainResult<NodeDescriptor> {
+    let text = |value: Option<RawClashScalar>| {
+        value
+            .map(RawClashScalar::into_text)
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+    };
     let name = required_clash_scalar_field(raw.name, "clash proxy name cannot be empty")?;
     let protocol = required_clash_scalar_field(raw.protocol, "clash proxy type cannot be empty")?;
     let host = required_clash_scalar_field(raw.server, "clash proxy server cannot be empty")?;
-    let port = required_clash_scalar_field(raw.port, "clash proxy port cannot be empty")?;
+    // Mieru entries may give only `port-range`; its first port is the endpoint.
+    let port_range = text(raw.port_range.take());
+    let port = match (
+        raw.port,
+        port_range
+            .as_deref()
+            .and_then(|range| range.split_once('-')),
+    ) {
+        (None, Some((low, _))) => low.trim().to_string(),
+        (port, _) => required_clash_scalar_field(port, "clash proxy port cannot be empty")?,
+    };
     let port = port.parse::<i64>().map_err(|_| {
         domain_error(
             SUBSCRIPTION_CLASH_YAML_INVALID_CODE,
@@ -882,12 +906,6 @@ fn parse_clash_proxy(raw: RawClashProxy, source_id: &str) -> DomainResult<NodeDe
                 mode: None,
                 host: None,
             });
-            let text = |value: Option<RawClashScalar>| {
-                value
-                    .map(RawClashScalar::into_text)
-                    .map(|value| value.trim().to_string())
-                    .filter(|value| !value.is_empty())
-            };
             (
                 Protocol::Snell,
                 "snell",
@@ -903,10 +921,47 @@ fn parse_clash_proxy(raw: RawClashProxy, source_id: &str) -> DomainResult<NodeDe
                 }),
             )
         }
+        "mieru" => {
+            let username =
+                required_clash_scalar_field(raw.username, "clash mieru username cannot be empty")?;
+            let password =
+                required_clash_scalar_field(raw.password, "clash mieru password cannot be empty")?;
+            let mut metadata = vec![
+                MetadataEntry {
+                    key: NODE_METADATA_MIERU_USERNAME.to_string(),
+                    value: username,
+                },
+                MetadataEntry {
+                    key: NODE_METADATA_MIERU_PASSWORD.to_string(),
+                    value: password,
+                },
+                MetadataEntry {
+                    key: NODE_METADATA_MIERU_TRANSPORT.to_string(),
+                    value: text(raw.transport)
+                        .unwrap_or_else(|| "TCP".to_string())
+                        .to_ascii_uppercase(),
+                },
+            ];
+            if let Some(range) = port_range {
+                metadata.push(MetadataEntry {
+                    key: NODE_METADATA_MIERU_PORT_RANGE.to_string(),
+                    value: range,
+                });
+            }
+            if let Some(level) = text(raw.multiplexing) {
+                if let Ok(enabled) = parse_mieru_multiplexing(&level) {
+                    metadata.push(MetadataEntry {
+                        key: NODE_METADATA_MIERU_MULTIPLEXING.to_string(),
+                        value: enabled.to_string(),
+                    });
+                }
+            }
+            (Protocol::Mieru, "mieru", metadata)
+        }
         _ => {
             return Err(domain_error(
                 SUBSCRIPTION_CLASH_YAML_UNSUPPORTED_CODE,
-                "clash proxy type must be ss, trojan, vless, vmess, or snell",
+                "clash proxy type must be ss, trojan, vless, vmess, snell, or mieru",
             ));
         }
     };
@@ -2451,6 +2506,43 @@ fn parse_proxy_link_lines(source_id: &str, content: &str) -> DomainResult<Subscr
     })
 }
 
+/// A `port=` / `protocol=` pair of a simple share link.
+struct MieruBinding {
+    port: String,
+    protocol: String,
+}
+
+/// `P` or `A-B` as (first port, range text when it is a range).
+fn parse_mieru_port_binding(value: &str) -> DomainResult<(u16, Option<String>)> {
+    let invalid = || {
+        domain_error(
+            SUBSCRIPTION_MIERU_LINK_INVALID_CODE,
+            "Mieru port must be a port or a port range",
+        )
+    };
+    let value = value.trim();
+    let parse = |text: &str| {
+        text.trim()
+            .parse::<u16>()
+            .ok()
+            .filter(|port| *port != 0)
+            .ok_or_else(invalid)
+    };
+    match value.split_once('-') {
+        None => Ok((parse(value)?, None)),
+        Some((low, high)) => {
+            let (low, high) = (parse(low)?, parse(high)?);
+            if low > high {
+                return Err(invalid());
+            }
+            Ok((low, Some(format!("{low}-{high}"))))
+        }
+    }
+}
+
+/// Parses the official simple share link
+/// (`mierus://user:pass@host?port=P&protocol=TCP&...`, `port`/`protocol`
+/// repeating in pairs) and the older `mierus://user:pass@host:port?...` form.
 fn parse_mieru_link(link: &str) -> DomainResult<NodeDescriptor> {
     let payload = link.strip_prefix("mierus://").ok_or_else(|| {
         domain_error(
@@ -2502,33 +2594,100 @@ fn parse_mieru_link(link: &str) -> DomainResult<NodeDescriptor> {
         SUBSCRIPTION_MIERU_LINK_INVALID_CODE,
         "Mieru password cannot be empty",
     )?;
-    let (host, port) =
-        parse_host_port_for(host_port, SUBSCRIPTION_MIERU_LINK_INVALID_CODE, "Mieru")?;
-    let query = parse_share_link_query(query, SUBSCRIPTION_MIERU_LINK_INVALID_CODE, "Mieru")?;
+    let fields = parse_share_link_query(query, SUBSCRIPTION_MIERU_LINK_INVALID_CODE, "Mieru")?;
+    // `port` and `protocol` repeat, so read them in order from the raw query.
+    let mut ports = Vec::new();
+    let mut protocols = Vec::new();
+    for entry in query.unwrap_or_default().split('&') {
+        let Some((key, value)) = entry.split_once('=') else {
+            continue;
+        };
+        let value = percent_decode(value).unwrap_or_default();
+        match key.trim().to_ascii_lowercase().as_str() {
+            "port" => ports.push(value),
+            "protocol" => protocols.push(value),
+            _ => {}
+        }
+    }
+    let mut transport = "TCP".to_string();
+    let mut port_range = fields
+        .get("port_range")
+        .or_else(|| fields.get("ports"))
+        .map(|value| {
+            required_trimmed(
+                value.clone(),
+                SUBSCRIPTION_MIERU_LINK_INVALID_CODE,
+                "Mieru port range cannot be empty",
+            )
+        })
+        .transpose()?;
+    let (host, port) = if ports.is_empty() {
+        parse_host_port_for(host_port, SUBSCRIPTION_MIERU_LINK_INVALID_CODE, "Mieru")?
+    } else {
+        if ports.len() != protocols.len() {
+            return Err(domain_error(
+                SUBSCRIPTION_MIERU_LINK_INVALID_CODE,
+                "Mieru port and protocol must appear in pairs",
+            ));
+        }
+        let bindings: Vec<MieruBinding> = ports
+            .into_iter()
+            .zip(protocols)
+            .map(|(port, protocol)| MieruBinding {
+                port,
+                protocol: protocol.trim().to_ascii_uppercase(),
+            })
+            .collect();
+        let binding = bindings
+            .iter()
+            .find(|binding| binding.protocol == "TCP")
+            .unwrap_or(&bindings[0]);
+        if binding.protocol != "TCP" && binding.protocol != "UDP" {
+            return Err(domain_error(
+                SUBSCRIPTION_MIERU_LINK_INVALID_CODE,
+                "Mieru protocol must be TCP or UDP",
+            ));
+        }
+        transport = binding.protocol.clone();
+        let (port, range) = parse_mieru_port_binding(&binding.port)?;
+        if range.is_some() {
+            port_range = range;
+        }
+        let host = host_port
+            .strip_prefix('[')
+            .and_then(|rest| rest.strip_suffix(']'))
+            .unwrap_or(host_port);
+        let host = required_trimmed(
+            host.to_string(),
+            SUBSCRIPTION_MIERU_LINK_INVALID_CODE,
+            "Mieru host cannot be empty",
+        )?;
+        (host, port)
+    };
     let host_id = sanitize_identifier(&host);
     let host_id = if host_id.is_empty() { "host" } else { &host_id };
     let id = format!("mieru-{host_id}-{port}");
     let mut metadata = vec![
         MetadataEntry {
-            key: "mieru.username".to_string(),
+            key: NODE_METADATA_MIERU_USERNAME.to_string(),
             value: username,
         },
         MetadataEntry {
-            key: "mieru.password".to_string(),
+            key: NODE_METADATA_MIERU_PASSWORD.to_string(),
             value: password,
         },
+        MetadataEntry {
+            key: NODE_METADATA_MIERU_TRANSPORT.to_string(),
+            value: transport,
+        },
     ];
-    if let Some(value) = query.get("port_range").or_else(|| query.get("ports")) {
+    if let Some(value) = port_range {
         metadata.push(MetadataEntry {
-            key: "mieru.port_range".to_string(),
-            value: required_trimmed(
-                value.clone(),
-                SUBSCRIPTION_MIERU_LINK_INVALID_CODE,
-                "Mieru port range cannot be empty",
-            )?,
+            key: NODE_METADATA_MIERU_PORT_RANGE.to_string(),
+            value,
         });
     }
-    if let Some(value) = query.get("mtu") {
+    if let Some(value) = fields.get("mtu") {
         let value = value.parse::<u16>().map_err(|_| {
             domain_error(
                 SUBSCRIPTION_MIERU_LINK_INVALID_CODE,
@@ -2536,23 +2695,30 @@ fn parse_mieru_link(link: &str) -> DomainResult<NodeDescriptor> {
             )
         })?;
         metadata.push(MetadataEntry {
-            key: "mieru.mtu".to_string(),
+            key: NODE_METADATA_MIERU_MTU.to_string(),
             value: value.to_string(),
         });
     }
-    if let Some(value) = query.get("multiplexing").or_else(|| query.get("multiplex")) {
+    if let Some(value) = fields
+        .get("multiplexing")
+        .or_else(|| fields.get("multiplex"))
+    {
         metadata.push(MetadataEntry {
-            key: "mieru.multiplexing".to_string(),
-            value: parse_mieru_bool(value)?.to_string(),
+            key: NODE_METADATA_MIERU_MULTIPLEXING.to_string(),
+            value: parse_mieru_multiplexing(value)?.to_string(),
         });
     }
-    for (key, metadata_key) in [
-        ("handshake_mode", "mieru.handshake_mode"),
-        ("handshake", "mieru.handshake_mode"),
-        ("traffic_pattern", "mieru.traffic_pattern"),
-        ("traffic", "mieru.traffic_pattern"),
+    for (keys, metadata_key) in [
+        (
+            ["handshake_mode", "handshake-mode", "handshake"],
+            NODE_METADATA_MIERU_HANDSHAKE_MODE,
+        ),
+        (
+            ["traffic_pattern", "traffic-pattern", "traffic"],
+            NODE_METADATA_MIERU_TRAFFIC_PATTERN,
+        ),
     ] {
-        if let Some(value) = query.get(key) {
+        if let Some(value) = keys.iter().find_map(|key| fields.get(*key)) {
             metadata.push(MetadataEntry {
                 key: metadata_key.to_string(),
                 value: required_trimmed(
@@ -2561,7 +2727,6 @@ fn parse_mieru_link(link: &str) -> DomainResult<NodeDescriptor> {
                     "Mieru option cannot be empty",
                 )?,
             });
-            break;
         }
     }
     metadata.push(MetadataEntry {
@@ -2578,13 +2743,15 @@ fn parse_mieru_link(link: &str) -> DomainResult<NodeDescriptor> {
     })
 }
 
-fn parse_mieru_bool(value: &str) -> DomainResult<bool> {
+/// A boolean, or a `MULTIPLEXING_*` level (anything but `OFF` is on).
+fn parse_mieru_multiplexing(value: &str) -> DomainResult<bool> {
     match normalized_token(value).as_str() {
         "1" | "true" | "yes" => Ok(true),
-        "0" | "false" | "no" => Ok(false),
+        "0" | "false" | "no" | "multiplexing_off" => Ok(false),
+        "multiplexing_low" | "multiplexing_middle" | "multiplexing_high" => Ok(true),
         _ => Err(domain_error(
             SUBSCRIPTION_MIERU_LINK_INVALID_CODE,
-            "Mieru multiplexing must be a boolean",
+            "Mieru multiplexing must be a boolean or a MULTIPLEXING_ level",
         )),
     }
 }

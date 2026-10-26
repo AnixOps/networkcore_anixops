@@ -704,6 +704,104 @@ fn parses_mieru_share_links_without_leaking_credentials_in_diagnostics() {
 }
 
 #[test]
+fn parses_official_mieru_simple_share_links() {
+    let service = CoreSubscriptionService::new();
+    let content = [
+        "mierus://baozi:manlianpenfen@1.2.3.4?handshake-mode=HANDSHAKE_NO_WAIT&mtu=1400&multiplexing=MULTIPLEXING_HIGH&port=6489&protocol=UDP&port=9998-9999&protocol=TCP&port=6666&protocol=TCP&profile=default&traffic-pattern=CCoQARoECAEQCiIYCAMQASoIMDAwMTAyMDMqCDA0MDUwNjA3",
+        "mierus://u:p@2001:db8::1?port=4896&protocol=UDP&profile=default&multiplexing=MULTIPLEXING_OFF",
+    ]
+    .join("\n");
+    let document = service
+        .parse(&RawSubscription {
+            source_id: "mieru-official".to_string(),
+            content,
+        })
+        .expect("official Mieru links should parse");
+    let catalog = service
+        .normalize(&document)
+        .expect("Mieru nodes should normalize");
+    assert_eq!(catalog.nodes.len(), 2);
+
+    let tcp = &catalog.nodes[0];
+    assert_eq!(tcp.protocol, Protocol::Mieru);
+    assert_eq!(tcp.endpoint.host, "1.2.3.4");
+    assert_eq!(tcp.endpoint.port, 9998);
+    assert_metadata(&tcp.metadata, "mieru.transport", "TCP");
+    assert_metadata(&tcp.metadata, "mieru.port_range", "9998-9999");
+    assert_metadata(&tcp.metadata, "mieru.multiplexing", "true");
+    assert_metadata(&tcp.metadata, "mieru.handshake_mode", "HANDSHAKE_NO_WAIT");
+
+    let udp = &catalog.nodes[1];
+    assert_eq!(udp.endpoint.host, "2001:db8::1");
+    assert_eq!(udp.endpoint.port, 4896);
+    assert_metadata(&udp.metadata, "mieru.transport", "UDP");
+    assert_metadata(&udp.metadata, "mieru.multiplexing", "false");
+
+    for invalid in [
+        "mierus://u:p@1.2.3.4?port=6666&port=7777&protocol=TCP",
+        "mierus://u:p@1.2.3.4?port=6666&protocol=QUIC",
+        "mierus://u:p@1.2.3.4?port=7-6&protocol=TCP",
+    ] {
+        let result = service.parse(&RawSubscription {
+            source_id: "mieru-invalid".to_string(),
+            content: invalid.to_string(),
+        });
+        let rejected = match result {
+            Err(_) => true,
+            Ok(document) => document.nodes.is_empty(),
+        };
+        assert!(rejected, "{invalid} should be rejected");
+    }
+}
+
+#[test]
+fn parses_clash_mieru_proxies() {
+    let service = CoreSubscriptionService::new();
+    let document = service
+        .parse(&RawSubscription {
+            source_id: "clash-mieru".to_string(),
+            content: r#"
+proxies:
+  - name: mieru-range
+    type: mieru
+    server: mieru.example.test
+    port-range: 2090-2099
+    transport: TCP
+    username: alice
+    password: secret
+    multiplexing: MULTIPLEXING_LOW
+  - name: mieru-port
+    type: mieru
+    server: 192.0.2.7
+    port: 2999
+    username: bob
+    password: hunter2
+"#
+            .to_string(),
+        })
+        .expect("clash mieru proxies should parse");
+    let catalog = service
+        .normalize(&document)
+        .expect("clash mieru should normalize");
+    assert_eq!(catalog.nodes.len(), 2);
+    let ranged = &catalog.nodes[0];
+    assert_eq!(ranged.protocol, Protocol::Mieru);
+    assert_eq!(ranged.endpoint.port, 2090);
+    assert_metadata(&ranged.metadata, "mieru.username", "alice");
+    assert_metadata(&ranged.metadata, "mieru.password", "secret");
+    assert_metadata(&ranged.metadata, "mieru.port_range", "2090-2099");
+    assert_metadata(&ranged.metadata, "mieru.transport", "TCP");
+    assert_metadata(&ranged.metadata, "mieru.multiplexing", "true");
+    let single = &catalog.nodes[1];
+    assert_eq!(single.endpoint.port, 2999);
+    assert_metadata(&single.metadata, "mieru.transport", "TCP");
+    assert!(!single
+        .metadata
+        .iter()
+        .any(|entry| entry.key == "mieru.port_range"));
+}
+
+#[test]
 fn parses_hysteria2_and_tuic_sing_box_outbounds_into_node_catalog() {
     let service = CoreSubscriptionService::new();
     let raw = RawSubscription {

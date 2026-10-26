@@ -16,7 +16,8 @@ use config_core::routing_import::import_subscription_routing;
 use control_domain::{
     NodeCatalog, NodeDescriptor, Protocol, SubscriptionService, SubscriptionSource,
     NODE_METADATA_HYSTERIA2_OBFS_PASSWORD, NODE_METADATA_HYSTERIA2_OBFS_TYPE,
-    NODE_METADATA_HYSTERIA2_PASSWORD, NODE_METADATA_SHADOWSOCKS_METHOD,
+    NODE_METADATA_HYSTERIA2_PASSWORD, NODE_METADATA_MIERU_PASSWORD, NODE_METADATA_MIERU_PORT_RANGE,
+    NODE_METADATA_MIERU_TRANSPORT, NODE_METADATA_MIERU_USERNAME, NODE_METADATA_SHADOWSOCKS_METHOD,
     NODE_METADATA_SHADOWSOCKS_PASSWORD, NODE_METADATA_SNELL_MODE, NODE_METADATA_SNELL_OBFS,
     NODE_METADATA_SNELL_OBFS_HOST, NODE_METADATA_SNELL_OBFS_URI, NODE_METADATA_SNELL_PSK,
     NODE_METADATA_SNELL_REUSE, NODE_METADATA_SNELL_USER_KEY, NODE_METADATA_SNELL_VERSION,
@@ -46,6 +47,7 @@ pub fn outbound_json(node: &NodeDescriptor) -> Result<Value, Unsupported> {
         Protocol::Hysteria2 => hysteria2(node),
         Protocol::Tuic => tuic(node),
         Protocol::Snell => snell(node),
+        Protocol::Mieru => mieru(node),
         _ => Err("protocol is not implemented by the embedded engine yet"),
     }
 }
@@ -409,6 +411,32 @@ fn snell(node: &NodeDescriptor) -> Result<Value, Unsupported> {
         "obfs_uri": obfs.and(metadata(node, NODE_METADATA_SNELL_OBFS_URI)),
         "reuse": metadata(node, NODE_METADATA_SNELL_REUSE) == Some("true"),
         "userkey": metadata(node, NODE_METADATA_SNELL_USER_KEY),
+    }))
+}
+
+fn mieru(node: &NodeDescriptor) -> Result<Value, Unsupported> {
+    let username =
+        metadata(node, NODE_METADATA_MIERU_USERNAME).ok_or("mieru username is missing")?;
+    let password =
+        metadata(node, NODE_METADATA_MIERU_PASSWORD).ok_or("mieru password is missing")?;
+    match metadata(node, NODE_METADATA_MIERU_TRANSPORT) {
+        None => {}
+        Some(transport) if transport.eq_ignore_ascii_case("tcp") => {}
+        Some(transport) if transport.eq_ignore_ascii_case("udp") => {
+            return Err("mieru udp transport is not implemented yet")
+        }
+        Some(_) => return Err("mieru transport must be TCP"),
+    }
+    // Multiplexing, handshake mode and traffic pattern only shape the
+    // official client; the server accepts this client without them.
+    Ok(json!({
+        "type": "mieru",
+        "server": node.endpoint.host,
+        "port": node.endpoint.port,
+        "username": username,
+        "password": password,
+        "port_range": metadata(node, NODE_METADATA_MIERU_PORT_RANGE),
+        "transport": "TCP",
     }))
 }
 

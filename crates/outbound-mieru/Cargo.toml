@@ -1,0 +1,22 @@
+[package]
+name = "outbound-mieru"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Mieru TCP outbound for the embedded engine, written from docs/protocols/mieru.md."
+
+[dependencies]
+# XChaCha20-Poly1305 only; SHA-256, PBKDF2 and randomness come from ring.
+chacha20poly1305 = { version = "0.10", default-features = false }
+engine-outbound = { path = "../engine-outbound" }
+ring = "0.17"
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", default-features = false, features = ["io-util"] }
+
+[dev-dependencies]
+serde_json = "1"
+tokio = { version = "1", default-features = false, features = ["io-util", "net", "rt", "rt-multi-thread", "macros", "time"] }
+
+[lib]
+path = "src/lib.rs"

@@ -1,18 +1,20 @@
 #!/usr/bin/env bash
 # REALITY (outbound-vless), VMess (outbound-vmess), Hysteria2
-# (outbound-hysteria2), TUIC (outbound-tuic) and Snell (outbound-snell)
-# interop harness (Linux runners only).
+# (outbound-hysteria2), TUIC (outbound-tuic), Snell (outbound-snell) and
+# Mieru (outbound-mieru) interop harness (Linux runners only).
 #
 #   reality-interop.sh download   fetch Xray-core, sing-box and Hysteria
-#                                 release binaries and official snell-server
-#                                 builds (run in CI only, never redistributed)
+#                                 release binaries, official snell-server
+#                                 builds and the official mita package (run
+#                                 in CI only, never redistributed)
 #   reality-interop.sh start      start targets and REALITY servers, write env
 #   reality-interop.sh logs       print server logs (for failed runs)
 #
 # Versions come from XRAY_VERSION / SINGBOX_VERSION / HYSTERIA_VERSION (a
 # release tag or "latest") and SNELL_VERSIONS (space-separated snell-server
 # versions; a version that cannot be downloaded is skipped with a warning,
-# except the v6 one). Keys, UUID, short id and passwords are generated
+# except the v6 one) and MIERU_VERSION (an enfein/mieru release tag or
+# "latest"). Keys, UUID, short id and passwords are generated
 # per run.
 
 set -euo pipefail
@@ -75,6 +77,11 @@ download() {
       echo "::warning::snell-server ${snell_version} could not be downloaded; skipping it"
     fi
   done
+  # Official mita server package, black-box interop only (docs/protocols/mieru.md §7).
+  local mieru_tag
+  mieru_tag="$(resolve_tag enfein/mieru "${MIERU_VERSION:-latest}")"
+  gh release download "${mieru_tag}" -R enfein/mieru -p "mita_${mieru_tag#v}_amd64.deb" \
+    -O "${work}/mita.deb" --clobber
   if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
     {
       echo "### REALITY interop servers"
@@ -85,6 +92,7 @@ download() {
       echo "| sing-box | ${singbox_tag} |"
       echo "| Hysteria | ${hysteria_tag} |"
       printf '%s' "${snell_rows}"
+      echo "| mita | ${mieru_tag} |"
     } >> "${GITHUB_STEP_SUMMARY}"
   fi
 }
@@ -304,6 +312,47 @@ EOF
   start_snell v6.0.0rc2 snell-v6-unshaped 6 unshaped none
   start_snell v6.0.0rc2 snell-v6-unsafe-raw 6 unsafe-raw none
 
+  # TCP echo target.
+  python3 -c "
+import socketserver
+class Echo(socketserver.BaseRequestHandler):
+    def handle(self):
+        while data := self.request.recv(65536):
+            self.request.sendall(data)
+socketserver.ThreadingTCPServer.allow_reuse_address = True
+socketserver.ThreadingTCPServer(('127.0.0.1', 18090), Echo).serve_forever()
+" > "${work}/target-echo.log" 2>&1 &
+  wait_for_port 18090
+
+  # Official mita server (systemd service from the release package).
+  local mieru_user mieru_password
+  mieru_user="interop$(openssl rand -hex 3)"
+  mieru_password="$(openssl rand -hex 16)"
+  sudo dpkg -i "${work}/mita.deb" > "${work}/mita-install.log" 2>&1
+  sudo systemctl start mita
+  cat > "${work}/mita.json" <<JSON
+{
+  "portBindings": [
+    {"port": 28501, "protocol": "TCP"},
+    {"portRange": "28510-28512", "protocol": "TCP"}
+  ],
+  "users": [
+    {"name": "${mieru_user}", "password": "${mieru_password}", "allowLoopbackIP": true}
+  ],
+  "loggingLevel": "INFO",
+  "dns": {"dualStack": "PREFER_IPv4", "hosts": {"mieru.interop.test": "127.0.0.1"}}
+}
+JSON
+  for _ in $(seq 1 50); do
+    sudo mita status > /dev/null 2>&1 && break
+    sleep 0.2
+  done
+  sudo mita apply config "${work}/mita.json"
+  sudo mita start
+  for port in 28501 28510 28511 28512; do
+    wait_for_port "${port}"
+  done
+
   cat > "${work}/env" <<EOF
 NC_INTEROP_SERVERS=xray-vision=127.0.0.1:24431:vision,xray-plain=127.0.0.1:24432:none,sing-box-vision=127.0.0.1:25431:vision,sing-box-plain=127.0.0.1:25432:none
 NC_VLESS_UUID=${uuid}
@@ -325,12 +374,18 @@ NC_TLS_TARGET=127.0.0.1:18443
 NC_SNELL_SERVERS=${snell_servers}
 NC_SNELL_PSK=${snell_psk}
 NC_UDP_ECHO=127.0.0.1:18053
+NC_TCP_ECHO=127.0.0.1:18090
+NC_MIERU_SERVER=127.0.0.1:28501
+NC_MIERU_PORT_RANGE=28510-28512
+NC_MIERU_USER=${mieru_user}
+NC_MIERU_PASSWORD=${mieru_password}
+NC_MIERU_DOMAIN=mieru.interop.test
 EOF
 }
 
 logs() {
   local log
-  for log in xray sing-box hysteria hysteria-salamander target-tls target-dest target-http target-udp; do
+  for log in xray sing-box hysteria hysteria-salamander target-tls target-dest target-http target-udp target-echo mita-install; do
     if [[ -f "${work}/${log}.log" ]]; then
       echo "::group::${log}.log"
       tail -n 200 "${work}/${log}.log"
@@ -343,6 +398,11 @@ logs() {
     tail -n 200 "${log}"
     echo "::endgroup::"
   done
+  if systemctl list-unit-files mita.service > /dev/null 2>&1; then
+    echo "::group::mita journal"
+    sudo journalctl -u mita --no-pager | tail -n 200 || true
+    echo "::endgroup::"
+  fi
 }
 
 case "${1:-}" in

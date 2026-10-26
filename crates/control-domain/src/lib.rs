@@ -142,6 +142,16 @@ pub const NODE_METADATA_HYSTERIA2_OBFS_MAX_PACKET_SIZE: &str = "hysteria2.obfs.m
 pub const NODE_METADATA_TUIC_UUID: &str = "tuic.uuid";
 pub const NODE_METADATA_TUIC_PASSWORD: &str = "tuic.password";
 pub const NODE_METADATA_TUIC_CONGESTION_CONTROL: &str = "tuic.congestion_control";
+pub const NODE_METADATA_MIERU_USERNAME: &str = "mieru.username";
+pub const NODE_METADATA_MIERU_PASSWORD: &str = "mieru.password";
+/// `TCP` or `UDP`, the transport of the binding the endpoint port came from.
+pub const NODE_METADATA_MIERU_TRANSPORT: &str = "mieru.transport";
+/// `low-high`, when the server listens on a port range.
+pub const NODE_METADATA_MIERU_PORT_RANGE: &str = "mieru.port_range";
+pub const NODE_METADATA_MIERU_MTU: &str = "mieru.mtu";
+pub const NODE_METADATA_MIERU_MULTIPLEXING: &str = "mieru.multiplexing";
+pub const NODE_METADATA_MIERU_HANDSHAKE_MODE: &str = "mieru.handshake_mode";
+pub const NODE_METADATA_MIERU_TRAFFIC_PATTERN: &str = "mieru.traffic_pattern";
 pub const NODE_METADATA_SNELL_PSK: &str = "snell.psk";
 pub const NODE_METADATA_SNELL_VERSION: &str = "snell.version";
 pub const NODE_METADATA_SNELL_MODE: &str = "snell.mode";

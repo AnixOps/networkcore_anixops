@@ -288,6 +288,57 @@ fn hysteria2_nodes_map_password_and_tls() {
     assert!(outbound_for_node(&missing).is_err());
 }
 
+#[cfg(feature = "mieru")]
+#[test]
+fn mieru_nodes_map_credentials_and_port_range() {
+    let mieru = node(
+        "mieru",
+        Protocol::Mieru,
+        &[
+            ("mieru.username", "alice"),
+            ("mieru.password", "mieru-secret"),
+            ("mieru.transport", "TCP"),
+            ("mieru.port_range", "443-445"),
+            ("mieru.multiplexing", "true"),
+        ],
+    );
+    let outbound = outbound_for_node(&mieru).unwrap();
+    assert_eq!(
+        outbound,
+        serde_json::json!({
+            "type": "mieru",
+            "server": "192.0.2.1",
+            "port": 443,
+            "username": "alice",
+            "password": "mieru-secret",
+            "port_range": "443-445",
+            "transport": "TCP",
+        })
+    );
+    let (envelope, _) = single_node_envelope("p", &[mieru], None).unwrap();
+    assert_eq!(builds(&envelope), "mieru");
+
+    let udp = node(
+        "mieru-udp",
+        Protocol::Mieru,
+        &[
+            ("mieru.username", "alice"),
+            ("mieru.password", "mieru-secret"),
+            ("mieru.transport", "UDP"),
+        ],
+    );
+    assert_eq!(
+        outbound_for_node(&udp).unwrap_err(),
+        "mieru udp transport is not implemented yet"
+    );
+    let missing = node(
+        "mieru-missing",
+        Protocol::Mieru,
+        &[("mieru.username", "alice")],
+    );
+    assert!(outbound_for_node(&missing).is_err());
+}
+
 #[cfg(feature = "snell")]
 #[test]
 fn snell_nodes_map_psk_version_and_obfs() {
