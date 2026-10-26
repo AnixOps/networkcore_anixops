@@ -93,50 +93,8 @@ fn main() {
                     | networkcore_linux::LinuxCliCommand::ProxyRollback { .. }
                     | networkcore_linux::LinuxCliCommand::MitmCertificateTrustApply { .. }
                     | networkcore_linux::LinuxCliCommand::MitmCertificateTrustRollback { .. }
-                    | networkcore_linux::LinuxCliCommand::NodeSwitch { .. }
-                    | networkcore_linux::LinuxCliCommand::NodeHealth { .. }
             ) {
                 networkcore_linux::handle_entrypoint(command, &platform)
-            } else if let networkcore_linux::LinuxCliCommand::InstallMieru {
-                binary_path,
-                expected_sha256,
-                release_url,
-                confirm,
-                force,
-                ..
-            } = &command
-            {
-                networkcore_linux::handle_install_mieru_with_options(
-                    binary_path,
-                    expected_sha256,
-                    release_url.as_deref(),
-                    *confirm,
-                    *force,
-                )
-            } else if let networkcore_linux::LinuxCliCommand::StartMieru {
-                binary_path,
-                expected_sha256,
-                config_path,
-                ..
-            } = &command
-            {
-                networkcore_linux::handle_start_mieru(binary_path, expected_sha256, config_path)
-            } else if let networkcore_linux::LinuxCliCommand::StopMieru {
-                binary_path,
-                expected_sha256,
-                config_path,
-                ..
-            } = &command
-            {
-                networkcore_linux::handle_stop_mieru(binary_path, expected_sha256, config_path)
-            } else if let networkcore_linux::LinuxCliCommand::StatusMieru {
-                binary_path,
-                expected_sha256,
-                config_path,
-                ..
-            } = &command
-            {
-                networkcore_linux::handle_status_mieru(binary_path, expected_sha256, config_path)
             } else if let networkcore_linux::LinuxCliCommand::ServiceControl {
                 action,
                 unit_name,
@@ -186,63 +144,40 @@ fn main() {
                     state_directory,
                     *confirm,
                 )
-            } else if let Some(response) = match &command {
-                networkcore_linux::LinuxCliCommand::RunUrl {
+            } else if let networkcore_linux::LinuxCliCommand::RunUrl {
+                url,
+                selected_node_id,
+                listen_host,
+                listen_port,
+                ..
+            } = &command
+            {
+                networkcore_linux::run_url_with_embedded_engine(
+                    &networkcore_linux::CommandRemoteSubscriptionFetcher,
                     url,
-                    selected_node_id,
+                    selected_node_id.as_deref(),
                     listen_host,
-                    listen_port,
-                    engine,
-                    ..
-                } if *engine != networkcore_linux::LinuxRunEngine::SingBox => {
-                    networkcore_linux::run_url_with_embedded_engine(
-                        &networkcore_linux::CommandRemoteSubscriptionFetcher,
-                        url,
-                        selected_node_id.as_deref(),
-                        listen_host,
-                        *listen_port,
-                        *engine,
-                        networkcore_linux::wait_for_stop_signal,
-                    )
-                }
-                _ => None,
-            } {
-                response
-            } else if matches!(
-                &command,
-                networkcore_linux::LinuxCliCommand::InstallSingBox { .. }
-                    | networkcore_linux::LinuxCliCommand::RunUrl { .. }
-                    | networkcore_linux::LinuxCliCommand::RunCatalog { .. }
-            ) {
-                match engine_singbox::GithubSingBoxReleaseInstaller::new() {
-                    Ok(sing_box_installer) => {
-                        let orchestrator = control_runtime::RuntimeOrchestrator::new(
-                            config_core::CoreConfigurationService::new(),
-                            platform.clone(),
-                            networkcore_linux::UnavailableProxyEngineService,
-                        );
-                        let sing_box_runner = engine_singbox::CommandSingBoxProcessRunner::new();
-                        networkcore_linux::handle_entrypoint_with_runtime_lifecycle_and_sing_box(
-                            command,
-                            &platform,
-                            &orchestrator,
-                            &reader,
-                            &lifecycle_host,
-                            &sing_box_installer,
-                            &sing_box_runner,
-                        )
-                    }
-                    Err(error) => networkcore_linux::LinuxCliResponse::failure(
-                        command.name(),
-                        networkcore_linux::LinuxCliExitCode::GeneralFailure,
-                        control_domain::Diagnostic::new(
-                            control_domain::DiagnosticSeverity::Error,
-                            networkcore_linux::CLI_SING_BOX_INSTALL_FAILED_CODE,
-                            error.message,
-                            Some(networkcore_linux::SOURCE_CLI_SING_BOX.to_string()),
-                        ),
-                    ),
-                }
+                    *listen_port,
+                    networkcore_linux::wait_for_stop_signal,
+                )
+            } else if let networkcore_linux::LinuxCliCommand::RunCatalog {
+                catalog_path,
+                source_id,
+                selected_node_id,
+                listen_host,
+                listen_port,
+                ..
+            } = &command
+            {
+                networkcore_linux::run_catalog_with_embedded_engine(
+                    &networkcore_linux::CommandRemoteSubscriptionFetcher,
+                    catalog_path,
+                    source_id,
+                    selected_node_id.as_deref(),
+                    listen_host,
+                    *listen_port,
+                    networkcore_linux::wait_for_stop_signal,
+                )
             } else if matches!(
                 &command,
                 networkcore_linux::LinuxCliCommand::MitmCertificateApply { .. }

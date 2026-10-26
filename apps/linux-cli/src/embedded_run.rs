@@ -14,8 +14,9 @@ use engine_embedded::nodes::{routing_envelope, single_node_envelope};
 use inbound_mixed::MixedSettings;
 
 use super::{
-    cli_diagnostic, domain_error_response, read_run_url_subscription_content, LinuxCliExitCode,
-    LinuxCliResponse, RemoteSubscriptionFetcher, CLI_RUN_URL_PARSE_FAILED_CODE,
+    cli_diagnostic, domain_error_response, read_run_url_subscription_content,
+    read_subscription_catalog_source_location, LinuxCliExitCode, LinuxCliResponse,
+    RemoteSubscriptionFetcher, CLI_RUN_URL_PARSE_FAILED_CODE,
 };
 
 pub const CLI_RUN_URL_EMBEDDED_STARTED_CODE: &str = "cli.linux.run_url.embedded_started";
@@ -28,57 +29,24 @@ pub const SOURCE_CLI_EMBEDDED_ENGINE: &str = "cli.embedded_engine";
 
 const PROFILE_ID: &str = "cli-run-url";
 
-/// Which engine `run-url` uses.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum LinuxRunEngine {
-    /// The embedded engine when it supports the subscription, else sing-box.
-    #[default]
-    Auto,
-    Embedded,
-    SingBox,
-}
-
-impl LinuxRunEngine {
-    pub fn parse(value: &str) -> Option<Self> {
-        match value {
-            "auto" => Some(Self::Auto),
-            "embedded" => Some(Self::Embedded),
-            "sing-box" => Some(Self::SingBox),
-            _ => None,
-        }
-    }
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Auto => "auto",
-            Self::Embedded => "embedded",
-            Self::SingBox => "sing-box",
-        }
-    }
-}
-
 /// Runs `run-url` on the embedded engine. `wait` is called while the proxy
 /// serves and returns when it should stop (the binary waits for SIGINT or
-/// SIGTERM). Returns `None` in [`LinuxRunEngine::Auto`] mode when the
-/// subscription needs an engine the embedded one does not replace yet; the
-/// caller then falls back to sing-box.
+/// SIGTERM).
 pub fn run_url_with_embedded_engine<F, W>(
     fetcher: &F,
     url: &str,
     selected_node_id: Option<&str>,
     listen_host: &str,
     listen_port: u16,
-    engine: LinuxRunEngine,
     wait: W,
-) -> Option<LinuxCliResponse>
+) -> LinuxCliResponse
 where
     F: RemoteSubscriptionFetcher,
     W: FnOnce(&mut LocalProxy) -> LinuxCliExitCode,
 {
-    let required = engine == LinuxRunEngine::Embedded;
     let content = match read_run_url_subscription_content(url, fetcher) {
         Ok(content) => content,
-        Err(error) => return Some(failure(LinuxCliExitCode::ArgumentOrConfig, error)),
+        Err(error) => return failure(LinuxCliExitCode::ArgumentOrConfig, error),
     };
     let subscription = CoreSubscriptionService::new();
     let raw = RawSubscription {
@@ -93,16 +61,16 @@ where
     };
     let document = match subscription.parse(&raw) {
         Ok(document) => document,
-        Err(error) => return Some(parse_failed(error)),
+        Err(error) => return parse_failed(error),
     };
     let catalog = match subscription.normalize(&document) {
         Ok(catalog) => catalog,
-        Err(error) => return Some(parse_failed(error)),
+        Err(error) => return parse_failed(error),
     };
     let mut diagnostics = document.diagnostics.clone();
 
-    // Same choice as the sing-box path: an explicit node runs alone, otherwise
-    // subscription rules and policy groups drive the route.
+    // An explicit node runs alone, otherwise subscription rules and policy
+    // groups drive the route.
     let mut routed = None;
     if selected_node_id.is_none() {
         let imported = import_subscription_routing(&raw.content, &catalog.nodes);
@@ -118,7 +86,6 @@ where
                     );
                     routed = Some((envelope, summary));
                 }
-                Err(_) if !required => return None,
                 Err(reason) => diagnostics.push(diagnostic(
                     DiagnosticSeverity::Warning,
                     CLI_RUN_URL_EMBEDDED_ROUTING_FALLBACK_CODE,
@@ -133,9 +100,8 @@ where
         Some(routed) => routed,
         None => match single_node_envelope(PROFILE_ID, &catalog.nodes, selected_node_id) {
             Ok((envelope, node)) => (envelope, format!("node {}", node.id)),
-            Err(_) if !required => return None,
             Err(reason) => {
-                return Some(LinuxCliResponse::failure(
+                return LinuxCliResponse::failure(
                     "run-url",
                     LinuxCliExitCode::ArgumentOrConfig,
                     diagnostic(
@@ -143,17 +109,17 @@ where
                         CLI_RUN_URL_EMBEDDED_UNSUPPORTED_CODE,
                         format!("the embedded engine cannot run this node: {reason}"),
                     ),
-                ))
+                )
             }
         },
     };
 
     let Some(listen) = resolve_listen(listen_host, listen_port) else {
-        return Some(start_failed("the listen address is not a local IP address"));
+        return start_failed("the listen address is not a local IP address");
     };
     let mut proxy = match LocalProxy::start(envelope.as_bytes(), listen, MixedSettings::default()) {
         Ok(proxy) => proxy,
-        Err(error) => return Some(start_failed(error.message)),
+        Err(error) => return start_failed(error.message),
     };
     diagnostics.push(diagnostic(
         DiagnosticSeverity::Info,
@@ -171,14 +137,44 @@ where
         "embedded engine stopped",
     ));
     let response = LinuxCliResponse::success("run-url").with_diagnostics(diagnostics);
-    Some(match exit_code {
+    match exit_code {
         LinuxCliExitCode::Success => response,
         exit_code => LinuxCliResponse {
             ok: false,
             exit_code,
             ..response
         },
-    })
+    }
+}
+
+/// Runs `run-catalog`: resolves the saved source's location, then runs it as
+/// `run-url` does.
+pub fn run_catalog_with_embedded_engine<F, W>(
+    fetcher: &F,
+    catalog_path: &str,
+    source_id: &str,
+    selected_node_id: Option<&str>,
+    listen_host: &str,
+    listen_port: u16,
+    wait: W,
+) -> LinuxCliResponse
+where
+    F: RemoteSubscriptionFetcher,
+    W: FnOnce(&mut LocalProxy) -> LinuxCliExitCode,
+{
+    let mut response = match read_subscription_catalog_source_location(catalog_path, source_id) {
+        Ok(location) => run_url_with_embedded_engine(
+            fetcher,
+            &location,
+            selected_node_id,
+            listen_host,
+            listen_port,
+            wait,
+        ),
+        Err(error) => failure(LinuxCliExitCode::ArgumentOrConfig, error),
+    };
+    response.command = "run-catalog".to_string();
+    response
 }
 
 fn resolve_listen(host: &str, port: u16) -> Option<SocketAddr> {

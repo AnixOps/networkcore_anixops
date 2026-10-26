@@ -122,6 +122,7 @@ current-main-cross-platform-run-plan=public-engine-run-plan-active
 ### Removed
 
 - Windows 客户端移除第三方内核：服务、托管配置和图形界面不再启动、安装或校验兼容内核和 Mieru 外部内核，节点、策略组、分流模式和 DNS 只走内置引擎。HTTPS 解密改为把本机 MITM（`127.0.0.1:7890`，系统代理指向它）的上游接到内置引擎的本地代理（`127.0.0.1:7891`）。设置页去掉“兼容内核”和“附加协议内核”卡片，规则页去掉策略组 JSON 编辑和 DNS JSON（DNS 卡片固定说明系统 DNS 行为），旧的 Win32 窗口代码一并删除。托管配置和状态文件里的旧字段会被忽略；用兼容内核导入的旧配置需要重新导入订阅。Linux 图形客户端同步去掉对应的占位命令。
+- Linux 命令行移除第三方内核：删除 `install-sing-box`/`sing-box install`、`core install|start|stop|status mieru`，以及依赖兼容内核控制接口的 `node switch` 和 `node health`。`run-url` 和 `run-catalog` 只用内置引擎（去掉 `--engine`、`--install-dir`、`--force`、`--binary`、`--sha256`），内置引擎不支持的节点直接报错，不再退回外部内核；`core list` 只列出原生适配器。`mitm browser-capture session-plan` 直接从订阅取第一个节点，不再生成兼容内核配置。
 
 ### Changed
 

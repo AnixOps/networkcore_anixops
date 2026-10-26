@@ -1,11 +1,11 @@
-//! `run-url` on the embedded engine: engine selection, fallback and a real
-//! local listener.
+//! `run-url` and `run-catalog` on the embedded engine: unsupported nodes and a
+//! real local listener.
 
 use std::net::{TcpListener, TcpStream};
 
 use control_domain::DomainResult;
 use networkcore_linux::{
-    parse_args, run_url_with_embedded_engine, LinuxCliCommand, LinuxCliExitCode, LinuxRunEngine,
+    parse_args, run_catalog_with_embedded_engine, run_url_with_embedded_engine, LinuxCliExitCode,
     RemoteSubscriptionFetcher, CLI_RUN_URL_EMBEDDED_STARTED_CODE,
     CLI_RUN_URL_EMBEDDED_UNSUPPORTED_CODE,
 };
@@ -25,36 +25,9 @@ impl RemoteSubscriptionFetcher for NoRemoteFetch {
 }
 
 #[test]
-fn engine_option_parses_and_defaults_to_auto() {
-    let engine_of = |args: &[&str]| match parse_args(args.iter().copied()).unwrap() {
-        LinuxCliCommand::RunUrl { engine, .. } => engine,
-        other => panic!("unexpected command {other:?}"),
-    };
-    assert_eq!(engine_of(&["run-url", SS_2022_LINK]), LinuxRunEngine::Auto);
-    assert_eq!(
-        engine_of(&["run-url", SS_2022_LINK, "--engine", "embedded"]),
-        LinuxRunEngine::Embedded
-    );
-    assert_eq!(
-        engine_of(&["run-url", SS_2022_LINK, "--engine", "sing-box"]),
-        LinuxRunEngine::SingBox
-    );
-    assert!(parse_args(["run-url", SS_2022_LINK, "--engine", "other"]).is_err());
-    assert!(parse_args(["run-url", SS_2022_LINK, "--engine"]).is_err());
-}
-
-#[test]
-fn auto_falls_back_for_protocols_the_embedded_engine_lacks() {
-    let response = run_url_with_embedded_engine(
-        &NoRemoteFetch,
-        HYSTERIA2_OBFS_LINK,
-        None,
-        "127.0.0.1",
-        0,
-        LinuxRunEngine::Auto,
-        |_| panic!("the proxy must not start"),
-    );
-    assert!(response.is_none());
+fn the_engine_option_is_gone() {
+    assert!(parse_args(["run-url", SS_2022_LINK]).is_ok());
+    assert!(parse_args(["run-url", SS_2022_LINK, "--engine", "embedded"]).is_err());
 }
 
 #[test]
@@ -65,10 +38,8 @@ fn embedded_reports_unsupported_nodes_without_their_secrets() {
         None,
         "127.0.0.1",
         0,
-        LinuxRunEngine::Embedded,
         |_| panic!("the proxy must not start"),
-    )
-    .expect("embedded mode never falls back");
+    );
     assert!(!response.ok);
     assert_eq!(response.exit_code, LinuxCliExitCode::ArgumentOrConfig);
     assert_eq!(
@@ -88,15 +59,13 @@ fn shadowsocks_2022_runs_on_a_local_listener_until_stopped() {
         None,
         "127.0.0.1",
         0,
-        LinuxRunEngine::Auto,
         |proxy| {
             assert!(proxy.is_running());
             assert_eq!(proxy.protocol(), "shadowsocks-2022");
             TcpStream::connect(proxy.local_addr()).expect("listener accepts connections");
             LinuxCliExitCode::Interrupted
         },
-    )
-    .expect("auto mode runs a supported node");
+    );
     assert!(!response.ok);
     assert_eq!(response.exit_code, LinuxCliExitCode::Interrupted);
     assert!(response
@@ -115,10 +84,24 @@ fn a_busy_listen_port_fails_to_start() {
         None,
         "127.0.0.1",
         taken.local_addr().unwrap().port(),
-        LinuxRunEngine::Embedded,
         |_| panic!("the proxy must not start"),
-    )
-    .unwrap();
+    );
     assert!(!response.ok);
     assert_eq!(response.exit_code, LinuxCliExitCode::GeneralFailure);
+}
+
+#[test]
+fn run_catalog_reports_a_missing_catalog_as_a_config_error() {
+    let response = run_catalog_with_embedded_engine(
+        &NoRemoteFetch,
+        "/nonexistent/networkcore-catalog.json",
+        "work",
+        None,
+        "127.0.0.1",
+        0,
+        |_| panic!("the proxy must not start"),
+    );
+    assert!(!response.ok);
+    assert_eq!(response.command, "run-catalog");
+    assert_eq!(response.exit_code, LinuxCliExitCode::ArgumentOrConfig);
 }

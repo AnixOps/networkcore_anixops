@@ -776,19 +776,9 @@ jobs:
           grep -q "SING_BOX_LATEST_RELEASE_API_URL" crates/engine-singbox/src/lib.rs
           grep -q "ENGINE_SINGBOX_DOWNLOAD_CHECKSUM_VERIFIED_CODE" crates/engine-singbox/src/lib.rs
           grep -q "GithubSingBoxReleaseInstaller" crates/engine-singbox/src/lib.rs
-          grep -q "install-sing-box" apps/linux-cli/src/lib.rs
-          grep -q "sing_box_install" apps/linux-cli/src/lib.rs
           grep -q "run-url" apps/linux-cli/src/lib.rs
-          grep -q "sing_box_run" apps/linux-cli/src/lib.rs
-          grep -q "handle_run_url_with_sing_box" apps/linux-cli/src/lib.rs
           grep -q "PublicEngineRunPlan" crates/control-domain/src/lib.rs
-          grep -q "PublicEngineKind::Mieru" apps/linux-cli/src/lib.rs
-          grep -q "run_mieru_public_engine_plan" apps/linux-cli/src/lib.rs
-          grep -q "run_url_mieru_plan_requires_explicit_binary" apps/linux-cli/tests/linux_cli_contracts.rs
-          grep -q "run_url_handler_runs_supported_direct_share_link_protocols" apps/linux-cli/tests/linux_cli_contracts.rs
-          grep -q "run_url_handler_runs_supported_catalog_payload_formats" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "hysteria2://.*tuic://" apps/linux-cli/README.md
-          grep -q "CommandSingBoxProcessRunner" apps/linux-cli/src/main.rs
           grep -q "render_sing_box_local_proxy_config" crates/engine-singbox/src/lib.rs
           grep -q "ENGINE_SINGBOX_CONFIG_RENDERED_CODE" crates/engine-singbox/src/lib.rs
           grep -q "SingBoxProcessRunner" crates/engine-singbox/src/lib.rs
@@ -797,9 +787,6 @@ jobs:
           grep -q "official status command should succeed" crates/engine-mieru/tests/engine_mieru_contracts.rs
           grep -q "download_mieru_release" crates/engine-mieru/src/lib.rs
           grep -q "MIERU_RELEASE_MAX_BYTES" crates/engine-mieru/src/lib.rs
-          grep -q "official Mieru release install should parse" apps/linux-cli/tests/linux_cli_contracts.rs
-          grep -q "core install mieru --url" apps/linux-cli/src/lib.rs
-          grep -q "read_mieru_local_listener_config" apps/linux-cli/src/lib.rs
           grep -q "listener_config_rejects_lan_binding" crates/engine-mieru/tests/engine_mieru_contracts.rs
           grep -q "pub fn poll_health" apps/windows-service/src/lib.rs
           grep -q "pub fn stop_after_runtime_failure" apps/windows-service/src/lib.rs
@@ -891,8 +878,6 @@ jobs:
           grep -q "parses_v2ray_family_sing_box_outbounds_with_tls_reality_and_transport" crates/config-core/tests/config_core_contracts.rs
           grep -q "renders_v2ray_tls_reality_and_transport_options" crates/engine-singbox/tests/engine_singbox_contracts.rs
           grep -q "renders_v2ray_http_and_quic_transport_options" crates/engine-singbox/tests/engine_singbox_contracts.rs
-          grep -q "run_url_handler_runs_supported_direct_share_link_protocols" apps/linux-cli/tests/linux_cli_contracts.rs
-          grep -q "run_url_handler_runs_supported_catalog_payload_formats" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "Supported direct links are" docs/architecture/subscription-url-to-sing-box-run-source-contract.md
           grep -q "Hysteria2/TUIC share-link parser gate" README.md
           grep -q "Hysteria2/TUIC share-link parser gate" ROADMAP.md
@@ -951,9 +936,6 @@ jobs:
           grep -q "persistent-subscription-catalog-remote-fetch=explicit-foreground-run-catalog-active" docs/architecture/subscription-catalog-persistence-source-contract.md
           grep -q "persistent-subscription-catalog-file-fetch=explicit-foreground-run-catalog-active" docs/architecture/subscription-catalog-persistence-source-contract.md
           grep -q "persistent-subscription-catalog-runtime-start=explicit-foreground-run-catalog-active" docs/architecture/subscription-catalog-persistence-source-contract.md
-          grep -q "handle_run_catalog_with_sing_box" apps/linux-cli/src/lib.rs
-          grep -q "run_catalog_handler_resolves_a_saved_source_into_the_foreground_runner" apps/linux-cli/tests/linux_cli_contracts.rs
-          grep -q "run_catalog_handler_fetches_a_saved_remote_source_through_the_same_runner" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "SubscriptionCatalogAddRequest" docs/architecture/subscription-catalog-persistence-source-contract.md
           grep -q "SubscriptionCatalogAddReport" docs/architecture/subscription-catalog-persistence-source-contract.md
           grep -q "CommandSubscriptionCatalogStore::add_source" docs/architecture/subscription-catalog-persistence-source-contract.md
@@ -1004,18 +986,9 @@ jobs:
           grep -q "subscription_catalog_remote_update_failure_keeps_old_catalog" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "added_node_count" apps/linux-cli/src/lib.rs
           grep -q "changed_node_count" apps/linux-cli/tests/linux_cli_contracts.rs
-          grep -q "NodeSwitch" apps/linux-cli/src/lib.rs
-          grep -q "handle_node_switch" apps/linux-cli/src/lib.rs
-          grep -q "LinuxCliCommand::NodeSwitch" apps/linux-cli/src/main.rs
           grep -q "LinuxNodeCatalogReport" apps/linux-cli/src/lib.rs
           grep -q "node_catalog" apps/linux-cli/src/lib.rs
           grep -q "structured catalog" apps/linux-cli/tests/linux_cli_contracts.rs
-          grep -q "NodeHealth" apps/linux-cli/src/lib.rs
-          grep -q "handle_node_health" apps/linux-cli/src/lib.rs
-          grep -q "LinuxCliCommand::NodeHealth" apps/linux-cli/src/main.rs
-          grep -q "node_health_reads_loopback_selector_without_claiming_full_proxy_health" apps/linux-cli/tests/linux_cli_contracts.rs
-          grep -q "node_health_rejects_zero_port_without_network_or_mutation" apps/linux-cli/tests/linux_cli_contracts.rs
-          grep -q "parses_node_switch_and_rejects_missing_loopback_controller_port" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "node_switch_rejects_missing_confirmation_before_any_network_or_file_mutation" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "Loopback Selector Switch" docs/architecture/linux-native-proxy-engine-start.md
           grep -q "Explicit Remote Update Boundary" docs/architecture/subscription-catalog-persistence-source-contract.md
@@ -1199,7 +1172,6 @@ jobs:
           grep -q "networkcore-linux managed-event list" CHANGELOG.md
           grep -q "networkcore-linux managed-event list" apps/linux-cli/README.md
           grep -q "networkcore-linux managed-event list" docs/alpha-release-feature-matrix.md
-          grep -q "handle_entrypoint_with_runtime_lifecycle_and_sing_box" apps/linux-cli/src/main.rs
           git submodule status third_party/mitm_anixops | grep -q "6382f0147e02a8653343571791ef61b8cc885cb1"
           grep -Fq "MITM_ANIXOPS_RELEASE_TAG=v1.4.6" docs/architecture/managed-sdwan-mitm-policy-gate-source-contract.md
           grep -Fq "MITM_ANIXOPS_RELEASE_TAG_OBJECT=e1edd61a4a7d7f8c6828f1d791eaa925f2ccc06c" docs/architecture/managed-sdwan-mitm-policy-gate-source-contract.md
@@ -1882,11 +1854,7 @@ jobs:
           grep -q "CommandRemoteSubscriptionFetcher" apps/linux-cli/src/lib.rs
           grep -q "command_remote_subscription_fetcher_reads_a_loopback_http_subscription" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "RUN_URL_REMOTE_SUBSCRIPTION_MAX_BYTES" apps/linux-cli/src/lib.rs
-          grep -q "handle_run_url_with_sing_box_and_node_id" apps/linux-cli/src/lib.rs
           grep -Fq -- "--node-id <id>" apps/linux-cli/README.md
-          grep -q "run_url_handler_reads_an_explicit_file_uri_through_the_subscription_parser" apps/linux-cli/tests/linux_cli_contracts.rs
-          grep -q "run_url_handler_fetches_an_explicit_remote_subscription_through_the_same_parser" apps/linux-cli/tests/linux_cli_contracts.rs
-          grep -q "run_url_handler_selects_the_requested_catalog_node" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "LinuxMitmHttpRewriteReport" apps/linux-cli/src/lib.rs
           grep -q "MITM_HTTP_REWRITE_CONTROLLED_TLS_TERMINATION_PLAN_READY" apps/linux-cli/src/lib.rs
           grep -q "MITM_HTTP_REWRITE_DOWNSTREAM_TLS_TERMINATION_PLAN_READY" apps/linux-cli/src/lib.rs
@@ -1940,12 +1908,8 @@ jobs:
           grep -q "confirmed_restart_uses_managed_systemd_control_command" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "confirmed_connect_and_disconnect_use_managed_systemd_control" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "handle_core_list" apps/linux-cli/src/lib.rs
-          grep -q "handle_install_mieru" apps/linux-cli/src/lib.rs
           grep -q "handle_subscription_command" apps/linux-cli/src/lib.rs
           grep -q "parses_subscription_catalog_command_contracts" apps/linux-cli/tests/linux_cli_contracts.rs
-          grep -q "handle_start_mieru" apps/linux-cli/src/lib.rs
-          grep -q "handle_stop_mieru" apps/linux-cli/src/lib.rs
-          grep -q "handle_status_mieru" apps/linux-cli/src/lib.rs
           grep -q "handle_install_service_apply" apps/linux-cli/src/lib.rs
           grep -q "handle_install_service_apply_with_runner" apps/linux-cli/src/lib.rs
           grep -q "handle_uninstall_service_apply" apps/linux-cli/src/lib.rs
@@ -1970,14 +1934,9 @@ jobs:
           grep -q "LinuxCliCommand::ProxyStatus" apps/linux-cli/src/main.rs
           grep -q "LinuxCliCommand::ProxyRollback" apps/linux-cli/src/main.rs
           grep -q "node rollback" apps/linux-cli/tests/linux_cli_contracts.rs
-          grep -q "parses_core_list_and_mieru_local_install_contract" apps/linux-cli/tests/linux_cli_contracts.rs
-          grep -q "parses_core_mieru_start_and_stop_control_contract" apps/linux-cli/tests/linux_cli_contracts.rs
-          grep -q "parses_and_executes_core_mieru_status_without_exposing_config" apps/linux-cli/tests/linux_cli_contracts.rs
-          grep -q "parses_core_mieru_start_and_stop_control_contract" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "install_service_apply_writes_and_verifies_unit_with_snapshot" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "uninstall_service_apply_snapshots_and_removes_unit" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "parses_service_control_and_requires_confirmation" apps/linux-cli/tests/linux_cli_contracts.rs
-          grep -q "parses_core_install_sing_box_alias" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "BrowserCaptureProcessRunner" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "BrowserCaptureEndpointProbe" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "BrowserCaptureTrafficProofProbe" docs/architecture/linux-mitm-browser-capture-source-contract.md
