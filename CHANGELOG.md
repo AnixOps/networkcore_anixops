@@ -15,6 +15,8 @@
 
 ### Added
 
+- 自研 XHTTP 传输：新增 `transport-xhttp`（按 [docs/protocols/xhttp.md](docs/protocols/xhttp.md) 净室实现，与 Xray-core XHTTP/SplitHTTP 线上兼容）。HTTP/1.1 支持 `packet-up`，HTTP/2 支持 `packet-up`、`stream-up`、`stream-one`；版本按 TLS ALPN 选择（无 TLS 或仅 `http/1.1` 为 HTTP/1.1，否则 HTTP/2，空 ALPN 时提供 `h2`）；每个请求在 `Referer` 中带随机长度的 `x_padding`。VLESS（非 REALITY）出站支持 `"transport": {"type": "xhttp", "path": ..., "mode": ...}`（也接受 `splithttp` 和 Xray 的字段名）。CI 互通测试新增 Xray-core 的 VLESS-XHTTP 入站（无 TLS 和 TLS 两个），覆盖上述五种组合的下载与回显。服务端传输、HTTP/3、REALITY 上的 XHTTP 和订阅导入后续补上。
+
 - 订阅导入支持 iWAN 节点和前置节点：
   - sing-box JSON 新增 AnixOps 扩展类型 `iwan`（`username`、`password`，可选 `mtu`、`encrypt`），对应 `control_domain::Protocol::Iwan` 和 `iwan.*` 元数据。
   - sing-box 的 `detour` 按 tag 解析为节点 id（`proxy.via` 元数据），`node-import` 输出为出站的 `via`。
