@@ -217,8 +217,6 @@ struct GrpcStream {
     response: Option<ResponseFuture>,
     recv: Option<RecvStream>,
     send: SendStream<Bytes>,
-    /// Encoded frames not yet handed to `send`.
-    pending: BytesMut,
     /// Received bytes not yet decoded.
     frames: BytesMut,
     /// Decoded data not yet returned.
@@ -240,7 +238,6 @@ impl GrpcStream {
             response,
             recv,
             send,
-            pending: BytesMut::new(),
             frames: BytesMut::new(),
             payload: Bytes::new(),
             eof: false,
@@ -249,23 +246,18 @@ impl GrpcStream {
         }
     }
 
-    /// Hands `pending` to h2 as flow control allows.
-    fn poll_send(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        while !self.pending.is_empty() {
-            self.send.reserve_capacity(self.pending.len());
-            let capacity = match ready!(self.send.poll_capacity(cx)) {
-                Some(Ok(capacity)) => capacity,
+    /// Waits until the peer's flow control window has room again. A message
+    /// is handed to h2 whole once there is any room; h2 sends what it holds
+    /// as the window opens, so nothing waits on a flush, and the next write
+    /// waits until that message is out.
+    fn poll_send_ready(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        self.send.reserve_capacity(1);
+        while self.send.capacity() == 0 {
+            match ready!(self.send.poll_capacity(cx)) {
+                Some(Ok(_)) => {}
                 Some(Err(err)) => return Poll::Ready(Err(h2_error(err))),
                 None => return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into())),
-            };
-            if capacity == 0 {
-                continue;
             }
-            let chunk = self
-                .pending
-                .split_to(capacity.min(self.pending.len()))
-                .freeze();
-            self.send.send_data(chunk, false).map_err(h2_error)?;
         }
         Poll::Ready(Ok(()))
     }
@@ -348,26 +340,26 @@ impl AsyncWrite for GrpcStream {
         if this.shut {
             return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into()));
         }
-        ready!(this.poll_send(cx))?;
         if buf.is_empty() {
             return Poll::Ready(Ok(0));
         }
+        ready!(this.poll_send_ready(cx))?;
         let n = buf.len().min(MAX_MESSAGE_PAYLOAD);
-        encode_message(&buf[..n], &mut this.pending);
-        // Accepted now; what flow control holds back goes on the next call.
-        if let Poll::Ready(Err(err)) = this.poll_send(cx) {
-            return Poll::Ready(Err(err));
-        }
+        let mut message = BytesMut::new();
+        encode_message(&buf[..n], &mut message);
+        this.send
+            .send_data(message.freeze(), false)
+            .map_err(h2_error)?;
         Poll::Ready(Ok(n))
     }
 
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        self.poll_send(cx)
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        // Messages are with h2 once written; its connection task sends them.
+        Poll::Ready(Ok(()))
     }
 
-    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+    fn poll_shutdown(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         let this = &mut *self;
-        ready!(this.poll_send(cx))?;
         if !this.shut {
             this.shut = true;
             if this.server {
