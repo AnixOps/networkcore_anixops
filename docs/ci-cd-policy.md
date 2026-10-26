@@ -20,14 +20,14 @@
 作为稳定的最终门禁名称。启动顺序：
 
 1. `changes`：根据 PR base/head、push before/head 或触发类型计算变更范围，输出 `docs`、
-   `governance`、`go`、`rust`、`node`、`windows`、`linux`、`ios`、`apple`、`workflow`、
+   `governance`、`go`、`rust`、`windows`、`linux`、`ios`、`apple`、`workflow`、
    `release_sensitive` 和 `full_matrix`。无法取得可靠 diff、出现未知路径、tag 或
    `workflow_dispatch` 时安全回退到完整矩阵。
 2. `policy-fast`：五分钟预算内运行 `.github/scripts/verify-repository-policy.sh fast`，检查关键治理文件和
    manifest、已提交的 `Cargo.lock`、本地构建产物、签名/私钥文件、明显凭据模式、workflow 入口以及与变更平台对应的最小合同。
 3. `policy-full`：运行 `.github/scripts/verify-repository-policy.sh full`，保留全部文档一致性、架构 marker、
    源码合同和 release 状态断言；只依赖 `changes`，与 `policy-fast` 和平台验证并行，不作为平台 job 的串行前置条件。
-4. `detect-projects`：检测 Go、Rust、Node、Swift、Apple 项目，仅作信息参考；实际 job 执行完全由
+4. `detect-projects`：检测 Go、Rust 项目，仅作信息参考；实际 job 执行完全由
    `changes` 的路径分类决定，不因“仓库存在 Cargo.toml”就无条件运行全部 Rust 平台。
 
 路径门控：
@@ -36,27 +36,16 @@
 |---|---|
 | 仅 Markdown、普通 `docs/**` 或 Agent 治理文件 | fast/full policy，跳过无关三平台构建 |
 | 根 `Cargo.toml`、`Cargo.lock`、共享 `crates/**`（非平台特定）、`.github/workflows/**`、CI 脚本、发布关键合同、无法分类的路径 | `full_matrix`（Linux、macOS、Windows 完整 Rust 矩阵） |
-| `apps/windows-*`、`crates/platform-windows/**`、`installer/windows/**`、Windows 架构源码文件 | Windows Rust、Node 前端合同和 MSI 验证 |
+| `apps/windows-cli/**`、`crates/platform-windows/**` | Windows Rust 验证 |
 | `apps/linux-cli/**`、`crates/platform-linux/**`、Linux 架构文件 | Ubuntu Rust 验证 |
-| `apps/ios/**`、`crates/platform-ios/**`、Swift/Package.swift/Xcode/entitlement/privacy manifest、Apple workflow 文件 | macOS/iOS 验证 |
-| `package.json`、`pnpm-lock.yaml`、`apps/windows-gui/ui/**` | Node 验证 |
+| `crates/platform-ios/**`、Swift/Package.swift/Xcode/entitlement/privacy manifest、Apple workflow 文件 | macOS Rust 验证与 `iOS runtime static libraries` |
 | tag 与手动触发 | 始终完整验证，不允许被路径过滤跳过 |
 
-Full CI 保留 Linux、macOS、Windows Rust 覆盖、Rust dependency audit、Node lint/test/build、
-Windows managed-client/MSI、Swift/Apple 及既有合同检查。PR 矩阵使用 `fail-fast: true` 尽快反馈；
+Full CI 保留 Linux、macOS、Windows Rust 覆盖、Rust dependency audit、`iOS runtime static libraries`
+（`macos-26` 上为 `aarch64-apple-ios` 构建 `engine-embedded` 与 `node-import` 静态库并检查 C header）及既有合同检查。
+客户端（Windows GUI 前端、Node lint/test、Linux GUI、Windows MSI、Swift/Xcode）的验证在
+[AnixOps/anixops-net](https://github.com/AnixOps/anixops-net) 的 CI 中运行。PR 矩阵使用 `fail-fast: true` 尽快反馈；
 main、tag 和手动完整验证使用 `fail-fast: false`，保留全部平台兼容性结果。
-
-#### Windows GUI 前端产物复用
-
-Windows GUI 前端在独立的 `windows-gui-frontend` Ubuntu producer job 中构建一次，以
-`windows-gui-ui-<commit-sha>` 上传同一 workflow run 的短期 artifact（保留一天）；Windows Rust 与 MSI
-job 显式等待 producer 完成，只从当前 run 下载 artifact 并检查 `index.html`。Node lint/test 仍覆盖三个
-runner，与 producer 解耦。该复用只用于普通 CI；Release workflow 必须独立安装 frozen dependencies、
-构建前端和生成发布产物，不得信任或复用普通 CI artifact。
-
-`apps/windows-gui/ui/pnpm-lock.yaml` 必须随源码提交，Node CI 和 release 均使用
-`pnpm install --frozen-lockfile`；两者不共享 `dist` 或发布产物缓存，release 不共享 Rust target 缓存。
-pnpm lockfile 只能由 `.github/workflows/refresh-pnpm-lock.yml` 在 GitHub Actions 中生成，经 artifact 审查后提交。
 
 #### Job 超时预算
 
@@ -68,10 +57,8 @@ pnpm lockfile 只能由 `.github/workflows/refresh-pnpm-lock.yml` 在 GitHub Act
 | full policy | 15 分钟 |
 | workspace smoke | 10 分钟 |
 | Rust | Ubuntu 30 / macOS 40 / Windows 45 分钟 |
-| Node | 25 分钟 |
-| Windows MSI | 45 分钟 |
 | dependency audit | 20 分钟 |
-| Swift/Apple | 45 分钟 |
+| iOS runtime static libraries | 45 分钟 |
 | Release 轻量 policy/summary / package / attestation | 5–15 / 45 / 20 分钟 |
 
 调整预算必须基于 GitHub Actions 运行证据，不能用无限等待规避失败。
@@ -116,12 +103,7 @@ CI 的静态治理检查（`verify-repository-policy.sh` 与 `ci.yml` 中的文�
     - `MITM_CERTIFICATE_LIFECYCLE_GATE` artifact-lifecycle-active/profile-trust-artifact-active/trust-mutation-blocked
     - `MITM_BROWSER_CAPTURE_GATE` pac-policy-profile-prefs-active/system-mutation-blocked
     - `MITM_HTTP_TLS_DATA_PLANE_GATE` plain-http-live-data-plane-active/tls-decryption-blocked
-- **iOS**：Network Extension design；platform adapter source contract、crate README、workspace 与合同测试；
-  Swift/Network Extension bridge design 与 Swift/Xcode bridge source contract；embedded runtime FFI boundary；
-  MITM certificate lifecycle design；entitlement/provisioning；App Review/privacy release readiness、Privacy
-  Manifest 和 App Review manual confirmation；TestFlight/App Store Connect upload workflow 与 upload workflow
-  activation validation；Swift/Xcode source tree activation preflight、Package.swift source ownership activation
-  preflight 和 Package.swift manifest-only activation validation。
+- **iOS/macOS 运行时**：embedded runtime FFI boundary、`platform-ios` crate README 与合同测试，以及 `engine-embedded`/`node-import` 的 C header 存在性；iOS/macOS App、Swift/Xcode、entitlement、Privacy Manifest、App Review 与 TestFlight 合同已迁到 AnixOps/anixops-net。
 - **Linux 发布链路**：Linux artifact 发布前设计、platform adapter 设计与 crate README、CLI entrypoint 与 runtime
   wiring、artifact 安装/卸载/回滚、package artifact manifest、license/NOTICE confirmation source contract；
   Linux artifact release state consistency（README、ROADMAP、TODO、CHANGELOG、release strategy、license/NOTICE
@@ -135,24 +117,21 @@ CI 的静态治理检查（`verify-repository-policy.sh` 与 `ci.yml` 中的文�
   eligibility execution validation contracts；Release workflow Linux artifact readiness gate 与 manifest output summary。
 - **版本与 Windows 发布**：Alpha Release Feature Matrix（README、ROADMAP、TODO、Release Strategy 和
   `docs/alpha-release-feature-matrix.md` 同步记录各已发布版本与已拍板的版本边界）；历史 Windows CLI artifact
-  gate（`windows-cli-artifact-readiness` 对 `v0.1.1-alpha.2` zip 的 source identity、`package-windows`、
-  `attest-windows`、release notes/rollback、publish eligibility 和 system mutation blocked marker）；当前
-  Windows managed client MSI gate（`apps/windows-gui`、`apps/windows-service`、`apps/windows-cli`、
-  `platform-windows`、WiX 4.0.6、MSI validation、checksum/manifest、attestation、release notes/rollback 和
-  managed system mutation eligibility，只有 JavaScript script dispatch 仍 blocked）；Alpha placeholder release
-  version policy、Windows manual smoke 测试清单、confirmed marker 与 release placeholder/summary 输出。
+  source/release contract（`v0.1.1-alpha.2` zip，只作审计记录；对应 release job 已随客户端拆分删除）；
+  Windows managed client MSI 与 portable ZIP 由 AnixOps/anixops-net 打包发布（其 release 从固定的内核 commit 构建
+  `networkcore-windows` CLI）；Alpha placeholder release version policy、confirmed marker 与 release placeholder/summary 输出。
 - **构建与测试**：Linux、macOS、Windows 基础工作区；出现对应代码后的 Go 构建与测试、Rust 构建/测试与依赖安全扫描、
-  Node 构建与测试、Swift/Xcode/iOS Apple 平台验证。
+  `aarch64-apple-ios` 静态库构建。
 
 #### CI summary
 
-CI summary job 必须显式输出 commit SHA、workflow run ID/URL、变更来源和路径分组、Go/Rust/Node/Swift/Apple
+CI summary job 必须显式输出 commit SHA、workflow run ID/URL、变更来源和路径分组、Go/Rust
 项目检测开关，以及运行、跳过、失败的 job 和下一步建议，并写入 GitHub Step Summary。
 
 - 无关 job 的 `skipped` 是合法结果；应运行 job 的 `skipped`、任何 `failure`、任何非并发替代 run 的
   `cancelled` 都必须使 summary 失败。
 - 检测到 Rust workspace 且 Rust 路径需要验证时，summary 必须同时检查 Rust build/test 矩阵和 Rust dependency
-  security audit；Go、Node、Swift 或 Apple 路径需要验证时，必须检查对应 job。
+  security audit；Go 路径需要验证时必须检查 Go job；iOS/Apple 路径或完整矩阵需要验证时必须检查 `iOS runtime static libraries`。
 - Rust 路径或完整矩阵变化时，summary 还必须检查 `REALITY interop (Linux)`：该 job 在 Ubuntu runner 上下载
   Xray-core 与 sing-box 官方 release 二进制（`XRAY_VERSION`/`SINGBOX_VERSION`，默认解析为最新正式 release，
   并写入 Step Summary），每次生成新的 REALITY 密钥、UUID 与 short id，只监听 127.0.0.1，再以 `--ignored`
@@ -167,14 +146,9 @@ CI 的 `concurrency` 只取消同一 pull request 上被新提交取代的旧 ru
 - 普通 CI 允许的缓存（仅限 `ci.yml` 的验证 job）：
   - Rust：`Swatinem/rust-cache` 缓存 cargo registry、git 依赖和 `target/`。key 由 job、runner OS 与架构、rustc
     版本、相关 `CARGO_*` 环境变量、`Cargo.lock`、`Cargo.toml`、`.cargo/config.toml` 与 `rust-toolchain` 决定。
-    只有成功的 run 保存缓存。Rust 验证 job 设置 `CARGO_INCREMENTAL=0`。Windows MSI job 先安装工具链再恢复缓存，
-    保证 key 中的 rustc 版本与实际构建一致；构建前清除恢复出的 `webview2-com-sys` 构建输出，使 WebView2
-    加载器唯一性校验只看到本次构建的产物。
+    只有成功的 run 保存缓存。Rust 验证 job 设置 `CARGO_INCREMENTAL=0`。
   - Rust 缓存只由 `main` 的 push run 写入（`save-if`），pull request 只恢复不保存，避免各 PR 分支在仓库缓存配额内
-    互相驱逐。Windows 的 `rust-build-test` 与 MSI job 共用 `shared-key: windows-gnu`；MSI 只构建子集，只恢复不写入。
-  - Windows 的 `windres`/`rc` 兼容 shim 用 `actions/cache` 缓存，key 绑定 `windres_compat.rs` 与 `rc_compat.rs`
-    的哈希；未命中时照常用 `rustc` 编译。
-  - Node：`setup-node` 的 pnpm store 缓存，key 绑定 `apps/windows-gui/ui/pnpm-lock.yaml`。
+    互相驱逐。Windows 的 `rust-build-test` 使用 `shared-key: windows-gnu`。
   - CI 工具：`cargo-audit` 通过 `taiki-e/install-action` 安装预编译二进制。
   - Go：`setup-go` 的模块缓存。
 - 禁止的缓存：
@@ -194,20 +168,18 @@ CI 的 `concurrency` 只取消同一 pull request 上被新提交取代的旧 ru
 - 只能通过 tag 或 `workflow_dispatch` 触发；不允许在本机打包 release artifact；产物必须由 GitHub-hosted
   runner 或后续配置的受控 runner 生成。
 - release policy job 检查版本格式与触发来源一致性：允许稳定版本和 `alpha.N`、`beta.N`、`rc.N` 预发布，N 为无前导零的
-  正整数，为保持 Windows Installer 版本排序分别限制为 `1-499`、`1-399` 和 `1-98`；`workflow_dispatch`
+  正整数，为让同版本号的 AnixOps/anixops-net Windows Installer 版本排序保持有效，分别限制为 `1-499`、`1-399` 和 `1-98`；`workflow_dispatch`
   placeholder release 必须从 `main` 发起，tag release 版本必须与 tag 名一致。
 - `release-ci-gate` 使用 `actions: read` 读取 `main` 上同 commit 的成功 CI，校验 `CI summary` job，并输出 CI
   run/source 字段及 release CI gate activation/execution/API implementation 字段。
 
-产物 job（`package-linux`、`package-windows`、`attest-linux`、`attest-windows`、`post-release-summary`、
-`windows-release-summary`、`publish-eligibility-gate`、`windows-publish-eligibility-gate`、`publish-github-release`）
-全部受 GitHub Actions gates 约束：
+产物 job（`package-linux`、`attest-linux`、`post-release-summary`、`publish-eligibility-gate`、
+`publish-github-release`）全部受 GitHub Actions gates 约束；本仓库 tag 只发布 Linux CLI 四件套，Windows/Linux 桌面客户端、
+MSI、portable ZIP 与 iOS App 由 [AnixOps/anixops-net](https://github.com/AnixOps/anixops-net) 发布，release body 写明该来源：
 
 - `linux-artifact-readiness` 检查 Linux CLI 源码、platform adapter、native listener/node 配置、foreground
   stop/release 源码与合同测试、artifact manifest、license/NOTICE、release CI gate 以及上文“Linux 发布链路”列出的全部
   package 合同和安装/回滚设计；`docs/manual-intervention.md` 的 license/NOTICE marker 仍为 pending 时必须失败，且不得进入构建、打包、上传或发布。
-- 历史 `windows-cli-artifact-readiness` 负责 `v0.1.1-alpha.2` zip 合同；当前 Windows managed client gate 验证
-  `apps/windows-gui`、`apps/windows-service`、WiX MSI、managed system mutation 和 source identity。
 - `package-linux` 在 GitHub Actions 中安装 Rust stable/minimal toolchain、验证已提交的 `Cargo.lock`，用
   `cargo build --locked --release --package networkcore-linux --bin networkcore-linux --target x86_64-unknown-linux-gnu`
   构建，把 pinned `mitm_anixops` 的 `libexec/anixops-runner.js` 一同放入单顶层目录 tarball；生成 archive sha256、
@@ -223,35 +195,20 @@ CI 的 `concurrency` 只取消同一 pull request 上被新提交取代的旧 ru
 
 - `release-artifact-contract`、`release-signing-contract`、`release-rollback-contract` 分别记录 artifact checksum
   算法与输出字段、签名或 attestation 策略、发布说明回滚字段。
-- `ios-upload-readiness` 保持 blocked：检查 iOS upload workflow activation、Swift/Xcode source tree、Package.swift
-  ownership 和 manifest-only 合同、`ios-upload-workflow` pending/blocked marker、protected environment/manual
-  approval blocked、App Store Connect API secret status not-read-blocked 以及 archive/export/upload/submission
-  blocked 输出；不得读取 secret、定义真实 iOS upload job 或生成 iOS release asset。
-- release placeholder 与 release summary job 显式输出发布来源、policy、release-ci-gate、上述各合同与 readiness 状态、
-  Linux artifact manifest output fields、license/NOTICE status、Alpha Windows manual smoke 清单与 confirmed 状态、artifact
-  状态和后续门禁，以及 iOS 源码树、Package.swift、Xcode project、Network Extension target、`PrivacyInfo.xcprivacy`、
-  entitlement/provisioning、`macos-26` source scan、upload workflow enabled marker、protected environment、manual
-  approval、App Store Connect API secret status、archive/export、TestFlight/App Store upload、App Review submission、
-  build processing check 和 iOS release asset 的 blocked 状态。
+- release summary job 显式输出发布来源、policy、release-ci-gate、上述各合同与 readiness 状态、
+  Linux artifact manifest output fields、license/NOTICE status、artifact 状态和客户端发布来源。
 
 ## 多平台目标
 
 CI/CD 目标平台：`ubuntu-latest`、`macos-26`、`windows-latest`。
 
-- iOS Apple SDK、Swift/Xcode、archive/export、签名、TestFlight、App Store Connect 和 App Review submission 验证只在
-  macOS runner 中执行，默认 `macos-26`；如 hosted runner 不可用或工具链不兼容，须在 GitHub Actions 日志中确认后再调整。
-- 纯文档、manual marker 和 release placeholder 的静态治理检查可以在 `ubuntu-latest` 执行，但不得读取 secret、运行 Apple
-  工具链或生成 iOS artifact。
-- 签名、证书、Provisioning Profile 必须使用 GitHub Secrets 或 Apple 官方流程，不得写入仓库。
+- `macos-26` 只为 iOS/macOS 运行时构建 `aarch64-apple-ios` 静态库并运行 JavaScriptCore 合同；Swift/Xcode、
+  archive/export、签名、TestFlight、App Store Connect 和 App Review submission 在 AnixOps/anixops-net 执行。
+- 纯文档、manual marker 和 release placeholder 的静态治理检查可以在 `ubuntu-latest` 执行，但不得读取 secret。
+- 签名、证书、Provisioning Profile 必须使用 GitHub Secrets 或 Apple 官方流程，不得写入仓库；本仓库 policy 拒绝任何
+  Swift、Xcode、entitlement、Privacy Manifest、签名或 archive 材料。
 
-iOS 当前状态：`apps/ios/` 已有 Swift package（`Package.swift`）、`Sources`/`Tests`、`project.yml`、Entitlements 与
-Privacy 目录，包括 NetworkCorePacketTunnel target，在 `macos-26` 上做 Swift package 验证。上文 iOS 各 design/source
-contract 仍定义 FFI、证书生命周期、entitlement/provisioning、Privacy Manifest、App Review 和上传流程的边界；签名、
-archive/export、TestFlight/App Store upload、App Review submission 和 iOS release asset 仍 blocked，计划见
-[ROADMAP.md](../ROADMAP.md)。相关 `cargo build`、`swift build`、`swift test`、`xcodebuild`、archive/export、签名、TestFlight、
-App Store Connect 或 App Review submission 验证只能在 GitHub Actions 或 Apple 官方平台执行。
-
-## 内核与客户端验证命令
+## 内核验证命令
 
 以下命令只能在 GitHub Actions 中运行：
 
@@ -259,8 +216,7 @@ App Store Connect 或 App Review submission 验证只能在 GitHub Actions 或 A
 - Rust：`cargo fmt --all -- --check`、`cargo clippy --locked --workspace --all-targets -- -D warnings`、
   `cargo test --locked --workspace --all-targets`、`cargo build --locked --workspace --all-targets`、
   `cargo metadata --locked --offline --no-deps --format-version=1`、`cargo audit`
-- Node / Web：`npm test`、`npm run build`
-- Swift / iOS：`swift test`、`swift build`、`xcodebuild`
+- iOS 运行时：`cargo build --locked --release -p engine-embedded -p node-import --lib --target aarch64-apple-ios`
 
 ## Agent CI 状态交接
 
@@ -279,11 +235,7 @@ App Store Connect 或 App Review submission 验证只能在 GitHub Actions 或 A
 
 - 首次创建 GitHub 仓库或配置远端、首次推送 bootstrap 文件
 - GitHub CLI 登录或授权、第一次确认 GitHub Actions 权限、GitHub Secrets 配置
-- Apple Developer 账号、证书、Provisioning Profile、App Store Connect 配置
-- App Store Connect App Privacy 问卷、Privacy Manifest/Required Reason API review、隐私政策 URL、App Review Notes、
-  TestFlight group 和 VPN compliance 材料
-- iOS archive/export、App Store Connect API、protected environment、manual approval、build processing 和 App Review
-  submission gate 确认
+- Apple Developer、App Store Connect、TestFlight 与 App Review 相关人工事项随客户端迁到 AnixOps/anixops-net
 - Linux artifact license/NOTICE 文本确认
 
 ## 首批运维诊断边界验证

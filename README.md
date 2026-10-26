@@ -1,13 +1,15 @@
 # networkcore_AnixOps
 
-`networkcore_AnixOps` 是面向全平台网络内核、MITM 插件兼容和客户端体系的规划与实现仓库。
+`networkcore_AnixOps` 是 AnixOps Net 的网络内核：控制层、自研嵌入式引擎、协议 crate、MITM 插件兼容、平台 adapter 与 Linux/Windows CLI。
+
+AnixOps Net 的客户端（Windows/Linux 桌面客户端、Windows MSI 与 portable ZIP、iOS/macOS App）位于 [AnixOps/anixops-net](https://github.com/AnixOps/anixops-net)。客户端仓库固定引用本仓库的一个内核 commit，并自行构建、测试和发布客户端；本仓库只发布内核与 Linux CLI artifact。
 
 ## 目标
 
 - 构建 Linux、macOS、Windows、iOS 可用的统一网络控制内核。
 - 维护三层运行架构：NetworkCore 控制层、执行内核 adapter 层、公有执行内核层；桌面与 iOS 都运行自研的嵌入式引擎（`engine-embedded`），协议按 crate 模块化增减，不再托管第三方内核。
 - 支持类似 Loon、Quantumult X 的 MITM 插件系统，优先兼容 Loon 插件格式的高频子集。
-- 建设全平台客户端，重点验证 iOS Network Extension、MITM、插件脚本、App Review 的可操作性。
+- 为 [AnixOps/anixops-net](https://github.com/AnixOps/anixops-net) 的全平台客户端提供稳定的内核接口：Rust crate、`platform-*` adapter 和 iOS/macOS 使用的 C ABI 静态库。
 
 ## 工作方式
 
@@ -42,6 +44,7 @@ current-main-cross-platform-run-plan=public-engine-run-plan-active
 - P3 是已完成历史基线；后续章节、TODO 已完成项或 CHANGELOG 中出现的 P3 只表示历史源码合同，不代表当前阶段、发布状态或开发优先级。
 - 最新 stable：`v0.2.0`（2026-10-26，tag 在 `a636b89`，与通过真机验收的 `v0.2.0-rc.2` 同一提交）：Linux CLI、Linux 图形客户端 tarball 与 `.deb`、Windows MSI 与 portable ZIP，各四件套。上一个 stable 是 `v0.1.0`（Linux-only）。
 - `v0.2.0` 已发布（macOS 不在范围内）。同名 tag 由 GitHub Actions 发布 Linux CLI 四件套、Linux 图形客户端 tarball 与 `.deb` 四件套、Windows managed-client MSI 四件套和 Windows portable ZIP 四件套；`v0.2.0-beta.5` 与 `v0.2.0-rc.1` 已作为 prerelease 发布。历史 `v0.1.1-alpha.2` Windows manual-extract CLI zip 只保留为审计记录。
+- 自客户端拆分起，本仓库 tag 只发布 Linux CLI 四件套；Linux 图形客户端、Windows MSI 与 portable ZIP、iOS App 由 [AnixOps/anixops-net](https://github.com/AnixOps/anixops-net) 发布。
 - Linux artifact release-state marker：`linux-artifact-release-state=confirmed-release-path`。`docs/manual-intervention.md` 中的 license/NOTICE 状态已是 `confirmed`，但每次 Linux tag release 仍须通过同 commit CI、checksum、manifest、attestation、release notes、rollback 和 publish eligibility gates。
 
 ### 能力概览
@@ -52,13 +55,13 @@ current-main-cross-platform-run-plan=public-engine-run-plan-active
 |---|---|
 | 订阅解析 | `CoreSubscriptionService` 归一化到 `SubscriptionDocument`/`NodeCatalog`：`ss://`、Trojan/VLESS/VMess、Hysteria2/TUIC share-link parser gate、Clash YAML parser gate、sing-box JSON parser gate、Surge proxy line parser gate、Loon proxy line parser gate、Quantumult X proxy/server line parser gate、明文/base64 链接列表。`rules`/`policy_groups` 可解析，但 beta.5 客户端运行时忽略。 |
 | 前台运行 | Linux `run-url`/`run-catalog` 在进程内用嵌入式引擎前台启动 SOCKS5/HTTP 本地代理，默认 `127.0.0.1:7890`；订阅带规则和策略组且节点都受支持时按订阅分流。 |
-| 订阅持久化与刷新 | 显式本地 JSON catalog（v0.1.2-alpha.1 起）：add/list/remove/select/update/rollback，写前 snapshot、失败保留旧 catalog。Linux `subscription refresh schedule` 生成 systemd oneshot service + timer；Windows GUI 可 opt-in 单 HTTP(S) source 小时级刷新。不扫描默认路径。 |
-| 节点选择 | Windows 与 Linux 图形客户端切换节点或 select 策略组时重写嵌入式引擎配置并重启；url-test/fallback 组由引擎后台测速。Linux CLI `node list/select/rollback` 管理显式选择文件。 |
+| 订阅持久化与刷新 | 显式本地 JSON catalog（v0.1.2-alpha.1 起）：add/list/remove/select/update/rollback，写前 snapshot、失败保留旧 catalog。Linux `subscription refresh schedule` 生成 systemd oneshot service + timer；Windows 客户端可 opt-in 单 HTTP(S) source 小时级刷新。不扫描默认路径。 |
+| 节点选择 | AnixOps Net 桌面客户端切换节点或 select 策略组时重写嵌入式引擎配置并重启；url-test/fallback 组由引擎后台测速。Linux CLI `node list/select/rollback` 管理显式选择文件。 |
 | managed session 记录 | `managed-status`、`managed-event`（含 `networkcore-linux managed-event list` 有界分页查询）、`managed-log` 只读写显式 schema v1 记录，固定 `liveness_verified=false`。 |
 | Linux 系统集成 | 显式确认下安装/卸载命名 systemd unit；`proxy apply/status/rollback` 写显式环境代理文件；`mitm certificate trust-apply/trust-rollback` 管理 Ubuntu-style CA trust-file。安装 tarball 本身不创建 daemon，也不改 TUN/DNS/firewall/trust store。 |
-| Windows 客户端 | 原生 GUI（概览/代理/规则/扩展/活动/设置，AnixOps Net 品牌界面，支持跟随系统、浅色、深色和纯黑主题）+ SCM service + per-machine WiX MSI + portable ZIP。服务和桌面模式在进程内运行嵌入式引擎，可回滚系统代理与 LocalMachine ROOT CA；不下载或启动第三方内核。见 [Windows Managed Client Source Release Contract](docs/architecture/windows-managed-client-source-release-contract.md) 与 [Windows GUI Daily Usability](docs/architecture/windows-gui-daily-usability.md)。 |
-| iOS | `apps/ios` 已有 Swift package、XcodeGen spec 和 `NetworkCorePacketTunnel` extension target（`swift-source-gate-active`），嵌入式 Rust runtime 尚未链接；签名、archive/export、TestFlight/App Store upload 和 iOS release asset 仍 blocked。 |
-| macOS | `apps/ios/project.yml` 中的 `NetworkCoreMac` SwiftUI App（概览/代理/规则/扩展/活动/设置 + 菜单栏开关）和 `NetworkCoreMacTunnel` 包隧道扩展，复用 iOS 隧道与导入流程，CI 无签名构建；签名与 Mac TestFlight 待人工配置。 |
+| Windows 平台 | `networkcore-windows` CLI 与 `platform-windows`：SCM service 管理、signed INF driver package lifecycle、WinINet/WinHTTP 系统代理与 LocalMachine ROOT CA 的 apply/rollback、managed lifecycle。Windows GUI、SCM service 程序、WiX MSI 与 portable ZIP 在 [AnixOps/anixops-net](https://github.com/AnixOps/anixops-net)。 |
+| iOS/macOS 运行时 | `engine-embedded`（包隧道运行时，`networkcore_ios_runtime.h`）与 `node-import`（订阅导入，`networkcore_import.h`）以 C ABI 静态库供 iOS/macOS App 与包隧道扩展链接；CI 为 `aarch64-apple-ios` 构建这两个静态库。边界见 [iOS Embedded Runtime FFI Boundary Design](docs/architecture/ios-embedded-runtime-ffi-boundary-design.md)；Swift/Xcode 工程、签名与 TestFlight 在 [AnixOps/anixops-net](https://github.com/AnixOps/anixops-net)。 |
+| 客户端 | Windows/Linux 桌面客户端、Windows MSI、iOS/macOS App 位于 [AnixOps/anixops-net](https://github.com/AnixOps/anixops-net)，其 CI 与 release 固定引用本仓库的一个内核 commit。 |
 | MITM | 见下节。 |
 
 ## MITM
@@ -74,7 +77,7 @@ current-main-cross-platform-run-plan=public-engine-run-plan-active
 在 CONNECT authority 与 ClientHello SNI 一致时签发 authority-bound leaf、终止下游 TLS、以 web-PKI 校验上游 TLS，
 并在每个 TLS session 内处理最多四个有界 HTTP/1.1 request/response exchange（reject/redirect/header/body rewrite）。
 显式映射的本地脚本在无网络 namespace 和 Node 最小 read permission 下执行，失败 fail-open，不下载远程脚本。
-Windows 可通过 GUI/service 显式启用受控 HTTP/1.1 MITM 和 CA lifecycle，但在具备等价 sandbox 前拒绝脚本执行。
+Windows 客户端可通过 `platform-windows` 显式启用受控 HTTP/1.1 MITM 和 CA lifecycle，但在具备等价 sandbox 前拒绝脚本执行。
 HTTP/2、HTTP/3/QUIC、pinning bypass、streaming、无界 CONNECT session 和 browser/system proxy mutation 均未启用；CA 私钥不进入日志或诊断。
 
 **四个门禁：**
@@ -140,15 +143,17 @@ HTTP/2、HTTP/3/QUIC、pinning bypass、streaming、无界 CONNECT session 和 b
 | 路径 | 内容 |
 |---|---|
 | [apps/linux-cli](apps/linux-cli) | `networkcore-linux` CLI |
-| [apps/linux-gui](apps/linux-gui) | Linux 图形客户端 `anixops-net`：共用 Windows 的 Tauri + React 界面，进程内运行自研引擎（`--features gui` 构建窗口） |
-| [apps/windows-gui](apps/windows-gui)、[apps/windows-service](apps/windows-service)、[apps/windows-cli](apps/windows-cli) | Windows 原生 GUI、SCM service、`networkcore-windows` CLI；安装器在 [installer/windows](installer/windows) |
-| [apps/ios](apps/ios) | iOS/macOS Swift package、XcodeGen spec、`NetworkCorePacketTunnel`/`NetworkCoreMacTunnel` 扩展 |
+| [apps/windows-cli](apps/windows-cli) | `networkcore-windows` CLI |
+| [apps/anixcore](apps/anixcore) | `anixcore` 节点内核：由本地管理 API 驱动的协议服务端 inbound |
 | [crates/control-domain](crates/control-domain) | 领域类型与端口 trait（含维护事件契约） |
 | [crates/control-runtime](crates/control-runtime) | 纯运行层编排（含 subscription catalog runtime gate） |
 | [crates/config-core](crates/config-core) | 配置/订阅解析与归一化、规则与策略组模型 |
 | [crates/engine-native](crates/engine-native) | 原生 SOCKS5/HTTP 执行内核：回环 listener、CONNECT relay、MITM hook、受控 TLS 数据面 |
+| [crates/engine-embedded](crates/engine-embedded)、[crates/node-import](crates/node-import) | 嵌入式引擎（桌面与 iOS/macOS 包隧道共用，协议按 cargo feature 增减）与订阅导入；两者另以 C ABI 静态库供 iOS/macOS 链接 |
 | [crates/engine-outbound](crates/engine-outbound) | 嵌入式引擎与协议 crate 共用的出站接口 |
 | [crates/mitm-anixops-sys](crates/mitm-anixops-sys)、[crates/mitm-policy](crates/mitm-policy) | `mitm_anixops` FFI 与 safe wrapper / 插件 adapter |
 | [crates/platform-linux](crates/platform-linux)、[crates/platform-windows](crates/platform-windows)、[crates/platform-ios](crates/platform-ios) | 各平台能力 adapter |
+
+客户端源码（`apps/windows-gui`、`apps/windows-service`、`apps/linux-gui`、`apps/ios`、`installer/windows`）已连同历史迁到 [AnixOps/anixops-net](https://github.com/AnixOps/anixops-net)。
 
 公有内核客户端参考见 [public-core-client-reference](docs/architecture/public-core-client-reference.md)；持久订阅边界见 [subscription-catalog-persistence-source-contract.md](docs/architecture/subscription-catalog-persistence-source-contract.md)。

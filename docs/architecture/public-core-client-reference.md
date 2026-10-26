@@ -29,7 +29,7 @@
 
 - `crates/engine-singbox` 负责官方 release metadata、资产选择、digest 校验、
   `.tar.gz`/Windows `.zip` 可执行文件提取和 managed process supervisor。
-- `apps/windows-service` 消费 supervisor，并由
+- `apps/windows-service`（现位于 [AnixOps/anixops-net](https://github.com/AnixOps/anixops-net)）消费 supervisor，并由
   `managed-config.json.sing_box` 提供显式 executable/config/working-directory/log
   路径。
 - Windows MSI 不隐式下载或捆绑第三方 core；下载和安装 orchestration 需要独立

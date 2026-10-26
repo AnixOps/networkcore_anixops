@@ -1,8 +1,0 @@
-{
-  "schema_version": 2,
-  "system_proxy": null,
-  "system_proxy_owner": "service",
-  "root_certificate_path": null,
-  "driver_package": null,
-  "native_mitm": null
-}

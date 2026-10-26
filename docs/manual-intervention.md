@@ -4,6 +4,12 @@
 
 ## v0.2.0 Release Acceptance Gate
 
+This is the historical record of the last joint kernel + client release. The client moved to
+[AnixOps/anixops-net](https://github.com/AnixOps/anixops-net) afterwards: future Windows MSI/portable, Linux GUI and iOS
+acceptance, and the client sections referenced below (Windows GUI Daily Usability Acceptance, Windows 内置引擎真机验收,
+Linux GUI Real-Desktop Acceptance, iOS), live in that repository's `docs/manual-intervention.md`. From now on a release
+of this repository ships only the Linux CLI four-file set.
+
 Result (2026-10-26): the maintainer reported Windows and Linux real-host acceptance passed on `v0.2.0-rc.2`
 (tag on `a636b89`, release run 40244631348). `v0.2.0` was tagged on the same commit after a green dry-run
 (run 40248295002). The record below is kept for the next release.
@@ -142,129 +148,20 @@ recorded-at=[utc-timestamp]
 
 Keep `release-state=pending_manual_acceptance` until every required Windows and Linux row is passed. A failed or missing row blocks production-ready acceptance and must be fixed or explicitly documented before promotion beyond the maintainer-authorized beta tag. For beta.5, each row covers only the must items in "beta.5 必须项与可推迟项"; for example `windows-gui-service-proxy-ca-driver-acceptance` may pass while W12 is listed in `deferred-items-unaccepted`.
 
-## Windows managed client
+## 客户端人工事项（已迁移）
 
-The managed Windows client is implemented and its MSI is built and validated in
-GitHub Actions. The current beta MSI is intentionally unsigned because an
-Authenticode certificate/private key must be supplied by the maintainer through
-a protected GitHub Actions secret or an external signing service; signing
-material must never be committed. Until that secret is configured, Windows may
-show the normal unsigned-installer warning, but the MSI, service, GUI, proxy,
-certificate, and driver lifecycle remain functional.
+客户端已连同历史迁到 [AnixOps/anixops-net](https://github.com/AnixOps/anixops-net)。以下人工事项及其状态 marker 现在记录在该仓库的
+`docs/manual-intervention.md`，本仓库不再维护：
 
-The driver lifecycle accepts an operator-provided signed INF package. A driver
-vendor or maintainer must provide the package and its license/NOTICE evidence;
-the Windows service installs and removes it through NewDev only after Windows
-validates the package signature. After the package and optional Authenticode
-secret are configured, rerun the Windows MSI CI/release workflow; no local
-installer or signing validation is allowed.
+- Windows managed client（MSI Authenticode 签名、签名 INF 驱动包）、Windows GUI Daily Usability Acceptance、
+  Windows 内置引擎与去除第三方内核/SD-WAN 隧道后的真机验收、Windows Tauri/pnpm lockfile 刷新、Alpha Windows Manual Smoke Test；
+- Linux GUI Real-Desktop Acceptance（`anixops-net` tarball 与 `.deb`）；
+- iOS Activation Status、iOS 真机验收（M1a、WireGuard、全协议导入、订阅规则与策略组、订阅链接与节点切换）、
+  iOS Widget And Control Center Setup、iOS App Review Manual Confirmation、iOS TestFlight/App Store Connect Upload Workflow；
+- macOS App Signing And TestFlight。
 
-## Windows GUI Daily Usability Acceptance
-
-The headless GitHub Actions Windows runner verifies source, Rust tests, MSI
-install/uninstall, and portable ZIP contents. It cannot verify visual layout,
-DPI, shell ownership, interactive-user proxy state, or suspend/resume. Record
-the following from an elevated Windows desktop before calling the daily GUI
-experience production-ready:
-
-1. At 100%, 125%, 150%, and 200% DPI, resize the window to its normal and
-   minimum useful size. Check light and dark modes, long node names, long
-   errors, empty subscription state, and a catalog with several hundred nodes.
-2. Import a local NodeCatalog profile and an HTTP(S) URL. Confirm the Nodes
-   page search/filter/selection, a successful explicit update, and a failed
-   update retaining the prior managed config and displaying its error. Restart
-   with networking disabled and confirm unchanged generated config restores the
-   saved node names/protocols without fetching; after externally changing that
-   config, confirm the stale catalog is not restored.
-3. With a running generated profile, confirm `Check core`, one delay test, and
-   a successful selector switch. Disconnect and reconnect, then use `Restart
-   service`; verify the newly selected node remains active and the interactive
-   proxy is restored while the core restarts, then reapplied only after the
-   listener and selector are ready. Make `sing-box check -c` fail and confirm
-   Restart does not stop the existing service or change the interactive proxy.
-   Force a rejected switch and verify the former selected node remains displayed.
-4. Confirm Home reports `Connected` only after SCM is running, `sing-box check -c`
-   succeeded, the service-owned sing-box child exists, the selected loopback
-   listener accepts connections, and the interactive user's proxy exactly
-   matches the managed setting. For a NodeCatalog profile, verify the loopback
-   selector API's active outbound equals its generated default before the proxy
-   changes, then force an API failure or mismatched selection and verify the
-   service records failure, restores the proxy, and stops. Test missing
-   service/core, invalid config, occupied port, no network, and a
-   non-administrator launch/elevation rejection.
-5. Stop and forcibly terminate the service separately, force a core exit,
-   close/reopen the GUI, sleep/resume, and reboot Windows. After the forced
-   Service exit, verify its owned sing-box PID and listener are gone before the
-   next start. For each case verify the interactive-user proxy is restored or
-   an explicit recovery failure is shown; capture the GUI, service, and core
-   diagnostic report paths.
-6. Verify MSI upgrade/uninstall and portable extraction separately. Enable
-   login startup first, then confirm MSI uninstall removes only NetworkCore's
-   matching Run value. The portable ZIP must not register or start a service on
-   extraction; its GUI still exposes the explicit service-install path and its
-   optional login startup must be disabled before moving the extracted folder.
-7. Capture before/after screenshots on the same Windows/DPI/theme setup for
-   the release evidence. Source-only and headless CI runs cannot produce an
-   authoritative desktop screenshot.
-8. Enable login startup and sign in again. Confirm NetworkCore creates its
-   tray icon before hiding the main window; launch it again from the installed
-   shortcut and from its login-startup entry. Confirm the existing hidden
-   window is restored and no second GUI process can submit a competing
-   connect, disconnect, or proxy operation.
-9. While the main window is hidden, restart Explorer or change the primary
-   display DPI. Confirm the NetworkCore notification-area icon returns with
-   its current shared status tooltip and can restore the window. If an
-   interrupted GUI-owned proxy recovery fails, confirm it stops after that
-   attempt, shows the in-page recovery error, and `Restore network settings`
-   performs the explicit retry.
-10. With an elevated Windows desktop, enable and disable HTTPS MITM for both a
-    native sing-box JSON profile and a generated NodeCatalog profile. Confirm
-    the service proxy points at the native local listener while enabled, the
-    native JSON listener snapshot is restored on disable, and the
-    service-recorded CA is removed. Before disable, inspect
-    `%ProgramData%\\AnixOps\\NetworkCore\\mitm\\root-ca-key.pem`: inheritance
-    must be disabled and only the generating account and `SYSTEM` may have
-    access. Stop the service, deliberately add a third ACL entry, and start it
-    again: verify MITM fails before installing its CA or applying its proxy and
-    any previously recorded managed CA is revoked while the existing rollback
-    restores the previous proxy state. Restore the strict ACL,
-    then confirm the private key is deleted after disable.
-11. With native HTTPS MITM disabled and the service stopped, retain or manually
-    stage a legacy managed Script dispatch configuration containing a local
-    policy source, Node runner, Node executable, and HTTP(S)-URL-to-script
-    mapping. Confirm the GUI refuses new configuration and HTTPS MITM enable
-    before it stops the service or creates CA material. Confirm a direct service
-    start rejects the legacy configuration before installing a CA certificate,
-    changing the system proxy, or reading the policy/runner. Clear the legacy
-    runtime, then verify normal HTTPS MITM enable/disable remains available.
-12. Import a native sing-box profile containing both a selector and a
-    non-selector outbound group. With the service stopped, record the listed
-    groups, switch the selector default to a listed member, and replace one
-    group's same-tag JSON using its editor on the 规则 page. Verify the saved managed
-    JSON changes only that group, start the service, and retain the relevant
-    sing-box check/runtime evidence. Restore the original group JSON after
-    the proof.
-13. With HTTPS MITM disabled, choose the first-party Bilibili web promotional
-    request-blocking trial on the 扩展 page, enable HTTPS MITM, and use a Bilibili
-    web search page through the trusted local proxy. Record only redacted
-    evidence that recommendation-word requests are rejected and normal home
-    feed/video/comment requests still work. Then disable the selection,
-    re-enable HTTPS MITM, and confirm the general policy is restored. Do not
-    add CA keys, cookies, URLs containing tokens, or raw traffic captures to
-    Git.
-14. While each of Connect, Disconnect, Restart service, selector check/switch,
-    service install/start/stop, proxy recovery, TUN/DNS/script configuration,
-    HTTPS MITM enable/disable, and certificate/driver lifecycle is pending,
-    keep the GUI visible and interact with a non-mutating view. Confirm its
-    window continues to repaint and shows a single pending operation instead
-    of freezing or submitting a duplicate mutation. Record any SCM, UAC, or
-    system-API delay that cannot be reproduced in headless CI.
-
-GitHub-hosted Windows runners cannot provide WebView interaction, an operator's
-trusted MITM CA, locally approved Node runner and script assets, or authoritative
-live traffic through the interactive desktop proxy. The above evidence complements,
-rather than replaces, the GitHub Actions Rust, TypeScript, MSI, and portable-package
-verification.
+本仓库只保留内核相关的人工事项：Linux artifact 与 managed-service、Linux HTTP/1.1 MITM、HTTP/2/HTTP/3 依赖刷新、
+协议出站真机互通，以及 Linux artifact license/NOTICE 确认。
 
 ## Linux HTTP/1.1 MITM Acceptance
 
@@ -363,19 +260,6 @@ These proofs complement the GitHub Actions contracts; their absence means the
 Linux artifact and managed-service paths remain source/CI validated rather than
 manually accepted on the target host.
 
-## Windows Tauri Dependency Lock Refresh
-
-The Windows GUI now declares Tauri and a pnpm-managed React frontend. Repository
-policy prohibits generating Cargo or pnpm lockfiles locally. Use
-`.github/workflows/refresh-cargo-lock.yml` for `Cargo.lock` and
-`.github/workflows/refresh-pnpm-lock.yml` for
-`apps/windows-gui/ui/pnpm-lock.yaml`. The initial pnpm lockfile was generated
-by GitHub Actions run `30288969826`; future updates must likewise download only
-the generated workflow artifact, review it, and commit it before the `--locked`
-Rust and frozen pnpm
-checks can pass. After that commit, rerun CI and the Windows MSI workflow; do not
-generate either lockfile on a developer workstation.
-
 ## HTTP/2 and HTTP/3 MITM Dependency Lock Refresh
 
 The native MITM path now contains an HTTP/2 data plane
@@ -450,88 +334,12 @@ Before describing VLESS + REALITY as usable on iOS, the maintainer records here
 - a multi-hour transfer on the target network with no resets or blocks, once
   through `engine-embedded` on an iPhone after M1a wires the outbound in.
 
-## iOS 全协议导入真机验收
-
-CI 只验证 Rust 导入库、Swift 解析与密钥拆分，以及 App 和扩展分别链接的库。需要在 iPhone 上确认：
-
-- 粘贴 Trojan、VMess、VLESS（TLS/WS）、Hysteria2、TUIC 链接各一条，预览显示正确协议，保存后能连接上网。
-- 粘贴一段 Clash YAML 或 base64 订阅内容，导入第一个可用节点并能连接；全部不支持时提示具体协议。
-- 设备锁屏后按需重连仍能读取钥匙串里的出站参数。
-
-## iOS 订阅规则与策略组真机验收
-
-CI 只验证导入器输出的规则和策略组、节点列表保存，以及扩展拿到的 `routing` 配置。需要在 iPhone 上确认：
-
-- 导入一个带 `proxy-groups` 和 `rules` 的 Clash 订阅后，“规则”页显示规则数和策略组，连接后按规则分流（例如规则里的直连域名不走代理）。
-- 在规则页切换 select 策略组的成员，隧道自动重连，流量换到新的成员。
-- 关闭“按订阅规则分流”后，全部流量走代理页选中的节点。
-- 开发者模式的诊断里能看到 “subscription rules on, N nodes …”。
-
-## iOS 订阅链接与节点切换真机验收
-
-CI 只验证节点列表的保存、恢复、选中规则和订阅链接识别。需要在 iPhone 上确认：
-
-- 粘贴一个真实订阅链接，导入后代理页列出全部节点；下拉能更新，原选中节点保持不变。
-- 已连接时点选另一个节点，隧道自动断开并用新节点重连。
-- “测试延迟”对 TCP 节点给出毫秒数，不可达节点显示超时，Hysteria2/TUIC 显示 UDP。
-
-## Windows 内置引擎真机验收（Phase 2c-1）
-
-CI 只验证托管配置、服务进程内启停和健康检查（`managed_runtime_contracts`），
-以及 GUI 代码能在 Windows 上编译。下面这些需要在真实 Windows 10/11 上确认：
-
-- 未安装 sing-box 时导入订阅，概览页显示内置引擎运行中，连接后浏览器经
-  `127.0.0.1:7890` 正常上网；断开后系统代理恢复到连接前的设置。
-- 同一订阅在服务模式下也能连接（服务进程内运行内置引擎），停止服务后监听端口释放。
-- 已安装兼容内核（rc.1 的“安装内核”或 rc.2 的“安装兼容内核”）时重新导入订阅，仍由内置引擎运行，
-  “规则”页提供“规则”分流模式；只有 sing-box 原生 JSON 配置和内置引擎一个节点都跑不了的订阅才交给兼容内核。
-- 订阅里的节点内置引擎全都不支持、又没装兼容内核时，导入报错，不出现半配置状态。
-- 内置引擎下切换四种分流模式后重新连接：绕过大陆时国内域名和 IP 直连、其余走代理；GFW
-  列表时只有列表内域名走代理；回国和直连同理（Phase 2c-2）。
-- 内置引擎下单节点配置的节点列表：切换节点后（已连接时自动重启内核）出口 IP 随之变化；
-  延迟测试在未连接时也能出结果且与浏览器体感一致；“选择最快节点”切到延迟最低的节点
-  （Phase 2c-3）。
-- 内置引擎下导入带规则和策略组的 Clash/Surge/Loon 订阅：导入后分流模式自动切到“规则”，
-  节点列表列出全部节点；“规则”页的策略组可切换手动选择组的出口，已连接时内核自动重启，
-  出口 IP 随之变化；节点页切换节点会改主策略组（FINAL 经过的第一个手动选择组）的出口；
-  刷新订阅后原来的选择保留。订阅里 `IP-CIDR` 等需要 IP 的规则（未写 `no-resolve`）对域名
-  先用系统 DNS 解析再匹配，解析失败的连接被拒绝；切回其他四种分流模式时订阅规则不用，
-  但 FINAL 的策略组选择仍然生效。自动测速组连接后按实测延迟选节点（url-test 取最快，fallback
-  取第一个能用的，按组的间隔重测，最短 30 秒）；界面上显示的是组里第一个成员。
-- 内置引擎没有自定义 DNS 段：规则匹配用系统 DNS，经节点的连接由节点服务器解析域名。
-  HTTPS 解密由本机 MITM 把上游接到内置引擎的本地代理。
-
 ## 当前待处理
 
 - 首批运维上线环境尚未提供：真实邮件/Telegram 接收渠道、第三方独立 Control 监控、跨地域节点和设备以及维护负责人。当前自动化只能运行测试适配器与代码 CI，不能证明这些真实环境门槛。维护负责人补齐渠道与部署范围后，记录投递/监控/网络/设备及回滚演练证据，再由 CI/CD 推进获准的灰度发布；真实地址与密钥仅放部署系统或密码库。
 - NetworkCore 的首批诊断库不含宿主运行时事件接线。后续实现真实观察源、宿主认证身份和持久化发送适配后，需在 CI 中补 Agent/Control 的端到端验收，再安排环境演练。
 
-- iOS App Review manual confirmation 仍为 pending；完成前不得启用 TestFlight upload、App Store upload、
-  App Review submission 或 iOS release asset。
-- iOS TestFlight/App Store Connect upload workflow 仍为 pending；完成前不得执行 archive/export、
-  TestFlight upload、App Store upload、App Review submission 或 iOS release asset。当前 release workflow 仅允许
-  `ios-upload-readiness` blocked placeholder 读取这些 marker，输出 source tree preflight 和 safe summary。
 - `third_party/mitm_anixops` 只能固定在已发布的 release commit（当前 v1.4.6 / `6382f01`，CI policy 同时校验 tag object 与 manifest digest）。mitm_anixops main 上的 `6c71236`（脚本 runner 在 Windows 上替换 store 文件时对 EPERM/EACCES/EBUSY 重试，修复 Windows engine-native 偶发失败）需要维护者批准并发布 mitm_anixops 新版本后，再在独立 PR 中同步更新 submodule、`ci.yml` 与 `managed-sdwan-mitm-policy-gate-source-contract.md` 中的 release tag/commit/manifest 字段。
-## Windows 去除第三方内核后真机验收（Phase 4A）
-
-在 Windows 真机上安装包含 Phase 4A 的构建后：
-
-- 用旧版本（兼容内核导入）留下的配置启动，记录连接时的提示；重新导入订阅后能连接，节点切换、延迟测试、策略组切换和五种分流模式都可用。
-- 服务模式下开启 HTTPS 解密：系统代理指向 `127.0.0.1:7890`，内置引擎监听 `127.0.0.1:7891`，浏览器经解密访问 HTTPS 站点正常；关闭解密后系统代理回到 `127.0.0.1:7890` 的内置引擎，且 7891 不再监听。
-- 设置页不再出现兼容内核和附加协议内核卡片，规则页不再出现 JSON 编辑和 DNS JSON。
-- 诊断报告里只有内置引擎和 MITM 的状态字段。
-
-## Windows 去除 SD-WAN 隧道后真机验收
-
-在 Windows 真机上安装去除前台隧道的构建后：
-
-- 用带 `"tunnel"` 字段的旧托管配置启动服务，服务正常启动，不再尝试拉起外部隧道进程；
-  旧版本留下的隧道进程和路由需要先用旧版本停止，或手动结束进程并删除其路由。
-- 设置页的“系统与网络”卡片不再出现 TUN 配置输入框；`networkcore-windows tunnel ...` 返回未知命令。
-
-前台隧道原有的人工验收要求随功能一并移除（历史见
-`docs/archive/2026-10-removed-engines/windows-stage-4-pop-peer-manual-acceptance.md`）。SD-WAN 组网将在
-ANX 私有协议中重新提供。
 
 ## 已完成的人工/外部事项
 
@@ -565,21 +373,13 @@ run URL 和状态，以 `task_state: pending_ci`、`next_action: resume_after_ci
 
 ## 后续预计人工事项
 
-后续涉及 iOS 时，还需要人工处理：
-
-- Apple Developer Program 组织账号和账号角色确认
-- App ID、Bundle ID、Network Extension capability、entitlement 与 Provisioning Profile 配置
-- 证书、signing asset redaction 和 Provisioning Profile 轮换策略确认
-- App Store Connect 或 TestFlight 初次配置、App Privacy 问卷、Privacy Manifest/Required Reason API review、privacy policy URL、TestFlight group 和 export compliance 确认
-- GitHub Secrets 写入 Apple 相关凭据
-- App Review Notes、demo account、review attachment、隐私政策和目标地区 VPN compliance/VPN 牌照材料确认
+iOS/macOS（Apple Developer、App Store Connect、TestFlight、App Review）与 Windows 代码签名相关的人工事项随客户端在 AnixOps/anixops-net 跟踪。
 
 后续涉及新的平台 release artifact、artifact 范围扩大或 license/NOTICE 来源变化时，还需要人工处理：
 
 - 对应平台或新增 artifact 文件集合的 license/NOTICE 文本确认；Linux `networkcore-linux` 当前范围已确认，
   但范围变化前不得复用旧确认绕过 release gates
 - GitHub Environments、protected tags、branch protection 和 release approval policy 配置
-- Windows 代码签名证书、时间戳服务和商店账号确认
 - 第三方发布渠道账号、API token、税务或合规材料确认
 
 ## Linux Artifact License/NOTICE Confirmation
@@ -607,272 +407,3 @@ linux-artifact-license-notice-release-assets=eligible-after-package-signing-chec
 `package-linux` 和 release assets 仍必须遵守
 `docs/architecture/linux-package-license-notice-transition-validation-contract.md`、同 commit CI、
 checksum/manifest、attestation、release notes、rollback 和 publish eligibility gates。
-
-## Alpha Windows Manual Smoke Test
-
-以下字段记录 alpha 启动期间由用户在外部 Windows 环境执行的手工 smoke 测试状态。该测试不能在本机自动完成，
-也不能替代 GitHub Actions 的 `windows-latest` CI 矩阵。
-
-```text
-alpha-release-windows-manual-test-status=confirmed
-alpha-release-windows-manual-test-source-contract=docs/alpha-windows-smoke-test.md
-alpha-release-windows-manual-test-source=manual-user-windows-environment
-alpha-release-windows-manual-test-version=v0.1.0-alpha.1
-alpha-release-windows-manual-test-commit=67e86a84388023df77e53537f3f209b5a05c1682
-alpha-release-windows-manual-test-ci-run=28901464670
-alpha-release-windows-manual-test-release-run=28901692913
-alpha-release-windows-manual-test-scope=windows-local-smoke-user-run
-alpha-release-windows-manual-test-windows=Windows 11 24H2
-alpha-release-windows-manual-test-arch=x64
-alpha-release-windows-manual-test-ci=github-actions-windows-latest-confirmed-success
-alpha-release-windows-manual-test-artifacts=not-produced-placeholder
-alpha-release-windows-manual-test-local-build-test=not-run
-alpha-release-windows-manual-test-result=passed
-alpha-release-windows-manual-test-confirmed-at=2026-07-07T22:10:50Z
-alpha-release-windows-manual-test-confirmed-by=operator
-alpha-release-windows-manual-test-next-action=rerun-ci-release-workflows-after-marker-update
-```
-
-该确认仅覆盖上述 alpha placeholder 候选版本和 GitHub Actions Windows 证据；当前仍不生成 Windows artifact、
-installer、service、code signing、store upload 或 release asset。
-
-## iOS Activation Status
-
-以下字段记录 iOS 激活的维护者决定和账号类型，不记录 Team ID、Bundle ID、证书或描述文件标识。
-
-```text
-ios-activation-status=swift-source-gate-active
-ios-xcode-project-gate=xcodegen-spec-active
-ios-xcode-project-committed=no-generated-in-github-actions
-ios-testflight-distribution=user-confirmed-2026-10-12
-ios-network-extension-target=active-embedded-runtime-shadowsocks-2022
-ios-embedded-runtime=engine-embedded-xcframework-built-in-github-actions
-ios-entitlements=minimal-network-extension-only
-ios-privacy-manifest=active-no-collected-data-tunnel-system-boot-time-35F9.1
-ios-activation-maintainer-decision=unfrozen-2026-10-12
-ios-activation-branch=claude/ios-app-development-342512
-ios-apple-developer-account-type=individual
-ios-apple-developer-account-type-source=user-reported-2026-10-12
-ios-organization-account-for-vpn-release=blocked
-ios-individual-account-release-review=blocked-pending-account-review
-```
-
-人工确认 marker 仍由维护者在独立提交中更新；CI 不得自动设为 confirmed 或 enabled。
-
-## iOS M1a Real-Device Acceptance
-
-M1a 的退出标准只能在真实 iPhone 上验证，CI 只能证明内核能编译、互通测试通过、扩展链接了内核。安装内部 TestFlight
-构建后，由维护者完成并把脱敏结果记录在这里（不记录节点地址、密钥、Apple 账号标识或流量内容）：
-
-1. 在 App 中粘贴一个 Shadowsocks-2022 `ss://` 链接并保存，系统弹出 VPN 授权时允许。
-2. 点击连接，确认状态变为“已连接”，Safari 能打开网页，App 内“运行状态”的 `tcp_total` 与 `dns_queries` 递增。
-3. 在 Xcode Instruments 或设备控制台记录 `NetworkCorePacketTunnel` 进程的峰值内存，目标是在 50 MB 上限内留出至少 15 MB。
-4. 保持连接 24 小时，确认没有 jetsam 终止（设备“分析数据”中无 `NetworkCorePacketTunnel` 的 JetsamEvent）。
-
-```text
-ios-m1a-acceptance-status=pending
-ios-m1a-acceptance-peak-memory-mb=pending
-ios-m1a-acceptance-24h-no-jetsam=pending
-ios-m1a-acceptance-recorded-at=pending
-ios-m1a-tunnel-profile-secret-storage=keychain-password-reference-shared-access-group
-```
-
-节点密钥保存在钥匙串中，隧道配置只保存 `passwordReference`。两个 target 的 entitlements 都把
-`$(AppIdentifierPrefix)networkcore.shared` 放在 `keychain-access-groups` 第一位；Apple 默认生成的描述文件已允许
-`TEAMID.*`，不需要额外开启 App ID capability。真机验收时额外确认：导入节点后锁屏重连仍可启动隧道（设备首次解锁之后）。
-
-隧道启动失败时，App 底部会显示“隧道已停止：”加上扩展返回的固定失败原因（来自 `fetchLastDisconnectError`）。需要更多
-信息时，在 Mac 的“控制台”中选中设备，过滤子系统 `networkcore.packet-tunnel`，日志只含固定原因和错误码，不含节点或密钥。
-已连接但无法上网时，看“运行状态”的 `dns_last_failure` / `tcp_last_failure`：`connect_*` 表示连不上代理服务器，
-`reply_timeout` 表示服务器不回应（常见于密钥或加密方式不匹配，服务器静默丢弃），`reply_closed` 表示服务器主动断开，
-`reply_rejected` 表示回应未通过认证。
-
-## iOS WireGuard Real-Device Acceptance
-
-WireGuard 模式由 `engine-embedded` 的 boringtun 封装直接处理 IP 包，CI 只验证与进程内 boringtun 对端的回环。
-真机验收由维护者在内部 TestFlight 构建上完成，结果同样脱敏记录：
-
-1. 在 App 中粘贴一份只有一个 `[Peer]` 的 `wg-quick` 配置并保存。
-2. 连接后确认能打开网页，“运行状态”中 `outbound` 为 `wireguard`，`packets_out` 与 `bytes_down` 递增；对端
-   `wg show` 能看到最近握手。
-3. 记录 `NetworkCorePacketTunnel` 峰值内存，并确认切换 Wi-Fi 与蜂窝网络后仍能恢复（boringtun 会按计时器重新握手）。
-
-```text
-ios-wireguard-acceptance-status=pending
-ios-wireguard-acceptance-peak-memory-mb=pending
-ios-wireguard-acceptance-recorded-at=pending
-```
-
-## iOS Widget And Control Center Setup
-
-The widget extension (`NetworkCoreWidget`: Home Screen and Lock Screen status widget plus the iOS 18 Control
-Center switch) builds in CI without signing. The TestFlight workflow only ships it after the maintainer does the
-Apple Developer steps below; until then each upload drops the target and prints `widget=skipped`.
-
-1. In Certificates, Identifiers & Profiles, register an App ID `<IOS_APP_BUNDLE_ID>.widget` with the Network
-   Extensions capability (the widget reads the saved VPN configuration and starts or stops it).
-2. Create an App Store distribution profile for that App ID with the same distribution certificate.
-3. In the `ios-app-store-connect` environment, add the variable `IOS_WIDGET_BUNDLE_ID` and the secret
-   `APPLE_WIDGET_PROVISIONING_PROFILE_BASE64` (base64 of the `.mobileprovision`).
-4. Run the upload workflow and confirm the log prints `widget=included`.
-5. On a real iPhone: add the small and medium widgets and the Lock Screen widgets, tap the route line to connect
-   and disconnect, add the "连接 AnixOps Net" control in Control Center (iOS 18), and confirm both follow the
-   status within a few seconds when changed from the app. Record whether the switch works while the app is not
-   running; if iOS refuses to start the tunnel from the widget process, the intent must move to the app process.
-
-```text
-ios-widget-signing-status=pending
-ios-widget-real-device-status=pending
-```
-
-## macOS App Signing And TestFlight
-
-The macOS app (`NetworkCoreMac`, product "AnixOps Net.app") and its packet tunnel app extension
-(`NetworkCoreMacTunnel`) are defined in `apps/ios/project.yml` and build in CI without signing (scheme
-`NetworkCoreMac`). Distribution is planned through the Mac App Store / TestFlight, where a Network Extension ships
-as an app extension; Developer ID distribution outside the store would need a System Extension instead and is not
-built. Nothing below can be automated without the maintainer's Apple account.
-
-1. In Certificates, Identifiers & Profiles, register the macOS App IDs `<MACOS_APP_BUNDLE_ID>` and
-   `<MACOS_APP_BUNDLE_ID>.packettunnel`, both with the Network Extensions capability and the shared keychain group
-   `networkcore.shared` (or reuse the iOS App ID as a universal purchase).
-2. Create the app record (or add the macOS platform to the existing one) in App Store Connect.
-3. Create Mac App Store distribution profiles for both App IDs, plus a "Mac App Distribution" and a
-   "Mac Installer Distribution" certificate.
-4. Give the go to add a macOS upload workflow; it needs the profiles, both certificates and the bundle IDs as
-   secrets and variables in the `ios-app-store-connect` environment.
-5. On a real Mac: import a node, allow the VPN configuration prompt, connect from the window, the menu bar item
-   and ⇧⌘C, check the elapsed time and the Activity page, and toggle "登录 Mac 后打开 AnixOps Net".
-
-```text
-macos-signing-status=pending
-macos-real-device-status=pending
-```
-
-## Linux GUI Real-Desktop Acceptance
-
-The Linux window (`apps/linux-gui`, binary `anixops-net`) builds and lints in the "Linux GUI build" CI job, but
-CI has no desktop session, so the window itself and the system proxy switch must be checked on a real Linux
-desktop. Build it there with `pnpm --dir apps/windows-gui/ui install && pnpm --dir apps/windows-gui/ui build`
-and `cargo build --release -p networkcore-linux-gui --features gui` (WebKitGTK 4.1 development packages needed).
-
-1. On GNOME and on KDE Plasma: import a subscription link, pasted share links and a local file; connect, and check
-   that the desktop's proxy setting points at `127.0.0.1:7890` and that a browser goes through the node.
-2. Switch nodes while connected, run a delay test and "选择最快节点", then disconnect and check the proxy mode is
-   back to what it was before connecting.
-3. Kill the process while connected, start it again, and check the previous proxy mode is restored at startup.
-4. Toggle "登录后启动", log out and back in, and check the window opens; toggle it off and check
-   `~/.config/autostart/anixops-net.desktop` is gone.
-5. Switch the language to English and the appearance to dark and OLED black.
-6. Import a Clash subscription with `proxy-groups` and `rules`: the Rules page lists its groups, switching a select
-   group while connected reconnects through the new member, and a node switch on the Proxies page changes the main
-   group. Switch to 绕过大陆, GFW 列表, 回国 and 直连 and check a mainland site and a blocked site take the expected path;
-   the first switch downloads the rule lists into `~/.config/anixops-net/rules/`.
-
-Confirmed by the maintainer on 2026-10-24. From v0.2.0 the tag release also publishes the window as a tarball
-(`anixops-net-linux-<version>-x86_64-unknown-linux-gnu.tar.gz`) and a Debian package (`anixops-net_<version>_amd64.deb`),
-each with a manifest and checksums. Before v0.2.0 is called stable, install the `.deb` from the release candidate on
-Ubuntu 22.04 or later (`sudo apt install ./anixops-net_*.deb`), check that "AnixOps Net" appears in the app menu with its
-icon and opens the interface (not a blank window), repeat step 1, then remove it with `sudo apt remove anixops-net`.
-AppImage and a tray icon come later.
-
-```text
-linux-gui-real-desktop-status=confirmed
-```
-
-## iOS App Review Manual Confirmation
-
-以下字段是后续 iOS upload/release readiness 读取的机器状态。当前仍未完成 App Privacy answers、
-privacy policy URL、App Review Notes、demo account、review attachment、VPN compliance、TestFlight group、
-App Store Connect app record、export compliance、beta app review 和 App Review submission 人工确认，
-因此 iOS upload 和 release asset 发布保持阻断。
-
-```text
-ios-app-review-manual-confirmation-status=pending
-ios-app-review-manual-confirmation-source-contract=docs/architecture/ios-app-review-manual-confirmation-source-contract.md
-ios-app-review-app-privacy-answers=blocked
-ios-app-review-privacy-policy-url=blocked
-ios-app-review-notes=blocked
-ios-app-review-demo-account=blocked
-ios-app-review-demo-mode=blocked
-ios-app-review-review-attachment=blocked
-ios-app-review-vpn-compliance=blocked
-ios-app-review-testflight-group=blocked
-ios-app-review-app-store-connect-app-record=blocked
-ios-app-review-export-compliance=blocked
-ios-app-review-beta-app-review=blocked
-ios-app-review-app-review-submission=blocked
-ios-app-review-testflight-upload=blocked
-ios-app-review-release-assets=blocked
-ios-app-review-confirmed-at=pending
-ios-app-review-confirmed-by=pending
-```
-
-人工确认完成前，不得定义 TestFlight upload、App Store upload、App Review submission 或 iOS release asset。
-未来从 pending 切换到 confirmed 时，必须遵守
-`docs/architecture/ios-app-review-manual-confirmation-source-contract.md` 中的独立人工确认提交、
-字段、脱敏和 upload/release 阻断规则。
-
-## iOS TestFlight/App Store Connect Upload Workflow
-
-以下字段是后续 iOS release readiness 读取的机器状态。当前没有真实 Swift/Xcode source、signing、
-archive/export、App Store Connect API、protected environment 或 manual approval，因此 upload/release 保持阻断。
-
-```text
-ios-upload-workflow-status=enabled
-ios-upload-workflow-source-contract=docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
-ios-upload-workflow-archive-export=blocked
-ios-upload-workflow-app-store-connect-api=blocked
-ios-upload-workflow-protected-environment=blocked
-ios-upload-workflow-manual-approval=blocked
-ios-upload-workflow-testflight-upload=blocked
-ios-upload-workflow-app-store-upload=blocked
-ios-upload-workflow-app-review-submission=blocked
-ios-upload-workflow-release-assets=blocked
-ios-upload-workflow-macos-runner=blocked
-ios-upload-workflow-build-processing-check=blocked
-ios-upload-workflow-confirmed-at=2026-10-22
-ios-upload-workflow-confirmed-by=kalijerry
-ios-upload-scope=internal-testflight-only
-ios-upload-scope-decision=maintainer-2026-10-13
-ios-upload-external-testflight=blocked
-ios-upload-beta-app-review=blocked-not-required-for-internal
-ios-upload-bundle-id-storage=github-variables-only
-ios-upload-api-key-status=team-key-added-to-environment
-ios-export-compliance-answer=standard-https-only-exempt-2026-10-13
-ios-upload-internal-confirmation-status=confirmed
-ios-upload-internal-confirmation-items=app-record,export-compliance,internal-testing-group,app-privacy-determination,privacy-policy-determination,environment-secrets-and-variables
-ios-upload-internal-workflow=.github/workflows/ios-testflight.yml
-ios-upload-internal-workflow-status=enabled-manual-dispatch-internal-testflight-only
-ios-upload-internal-workflow-variables=IOS_APP_BUNDLE_ID,IOS_TUNNEL_BUNDLE_ID
-ios-upload-internal-workflow-secrets=APP_STORE_CONNECT_API_KEY_ID,APP_STORE_CONNECT_ISSUER_ID,APP_STORE_CONNECT_API_PRIVATE_KEY,TEAM_ID,APPLE_CERTIFICATE_P12_BASE64,APPLE_CERTIFICATE_PASSWORD,APPLE_KEYCHAIN_PASSWORD,APPLE_PROVISIONING_PROFILE_BASE64,APPLE_PACKET_TUNNEL_PROVISIONING_PROFILE_BASE64
-```
-
-内部 TestFlight 首次上传前的人工步骤（维护者完成后在独立提交中把 `ios-upload-internal-confirmation-status` 设为
-`confirmed`、`ios-upload-workflow-status` 设为 `enabled`，并同步 CI 中对应的 pending 检查）：
-
-1. 在 Apple Developer 注册 App ID 和 Packet Tunnel 扩展的 App ID，两者都开启 Network Extensions capability。
-2. 创建 Apple Distribution 证书，导出为 `.p12`；为两个 App ID 各创建一个 App Store 类型的 provisioning profile。
-3. 在 App Store Connect 创建 app record，建立 internal testing group。
-4. 在 GitHub Environment `ios-app-store-connect` 中配置 required reviewer，写入上面列出的 secrets（证书和描述文件用 base64），
-   并在仓库或 environment Variables 中写入两个 bundle ID。
-5. 在 Actions 页面手动运行 `iOS internal TestFlight`，在 App Store Connect 确认 build 处理完成并分发给内部测试组。
-
-当前 workflow activation validation 仍是 blocked placeholder：`ios-upload-readiness` 只读取本节 marker、
-检查 source contract、输出 source tree preflight、protected environment/manual approval/App Store Connect API secret status/
-archive/export/upload/submission/release asset 的 blocked 状态，不读取 secret、不定义真实 upload job。
-
-iOS Swift/Xcode source tree activation preflight 也保持 blocked：仓库只允许 `apps/ios/README.md` 作为 source tree
-governance placeholder，仍没有真实 `apps/ios` Swift source tree、`Package.swift`、Swift source、Xcode project、
-Network Extension target、`PrivacyInfo.xcprivacy`、entitlement/provisioning source 或 iOS release asset。
-`ios-upload-workflow-status` 不得切换为 `enabled`，直到 source tree、manual confirmation、protected environment
-和 secret setup 都按合同完成并通过 GitHub Actions。`Package.swift` source ownership preflight contract 和
-`docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md` 已补充，当前 Package.swift ownership gate
-与 manifest-only activation validation gate 仍是 blocked-placeholder；仍不得新增真实 `Package.swift` 或 Swift source。
-
-人工确认和 workflow activation enabled marker 完成前，不得定义 archive/export、TestFlight upload、App Store upload、
-App Review submission 或 iOS release asset。未来从 pending 切换到 enabled 时，必须遵守
-`docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md` 和
-`docs/architecture/ios-upload-workflow-activation-validation-contract.md`、
-`docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md` 中的独立启用提交、protected environment、
-manual approval、secret redaction、source tree gate 和 upload/release 阻断规则。

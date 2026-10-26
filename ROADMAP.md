@@ -19,14 +19,15 @@ current-main-subscription-background=linux-systemd-oneshot-timer-and-windows-opt
 
 当前 main 概况：
 
+- **仓库边界**：本仓库是 AnixOps Net 的网络内核；客户端（Windows/Linux 桌面、Windows MSI、iOS/macOS App）在 [AnixOps/anixops-net](https://github.com/AnixOps/anixops-net)，固定引用本仓库的一个内核 commit。此后本仓库 tag 只发布 Linux CLI artifact。
 - **发布**：最新 stable `v0.2.0`（2026-10-26，Linux CLI tarball + Linux 图形客户端 tarball/.deb + Windows MSI + Windows portable ZIP，各四件套；rc.1/rc.2 为候选，rc.2 通过真机验收），全部须通过同 commit CI、checksum、manifest、attestation、release notes、rollback 和 publish eligibility。Linux artifact marker：`linux-artifact-release-state=confirmed-release-path`。
 - **订阅与运行**：所有平台都在进程内运行自研嵌入式引擎（`engine-embedded`），协议按 crate 和 cargo feature 模块化；第三方内核 adapter 已于 2026-10-26 移除。解析层包含 Hysteria2/TUIC share-link parser gate、Clash YAML parser gate、sing-box JSON parser gate、Surge proxy line parser gate、Loon proxy line parser gate 和 Quantumult X proxy/server line parser gate；Hysteria2/TUIC 前台路径不启用 HTTP/3 MITM。
-- **持久订阅与刷新**：`v0.1.2-alpha.1` 起的显式本地 catalog（add/list/remove/select/update/rollback，见 [Persistent Subscription Catalog Source Contract](docs/architecture/subscription-catalog-persistence-source-contract.md)）；`subscription update` 先验证候选再写 snapshot，失败保留旧 catalog。Linux `subscription refresh schedule` 生成 systemd oneshot/timer；Windows GUI 提供 opt-in 单 HTTP(S) source 小时级刷新。默认路径扫描仍未启用。
+- **持久订阅与刷新**：`v0.1.2-alpha.1` 起的显式本地 catalog（add/list/remove/select/update/rollback，见 [Persistent Subscription Catalog Source Contract](docs/architecture/subscription-catalog-persistence-source-contract.md)）；`subscription update` 先验证候选再写 snapshot，失败保留旧 catalog。Linux `subscription refresh schedule` 生成 systemd oneshot/timer；Windows 客户端提供 opt-in 单 HTTP(S) source 小时级刷新。默认路径扫描仍未启用。
 - **managed 记录**：`managed-status`、`managed-event`（含 `networkcore-linux managed-event list` 有界分页）和 `managed-log` 只读写显式 schema v1 记录，固定 `liveness_verified=false`。
 - **Linux 系统集成**：显式 systemd unit 安装/控制（`connect`/`disconnect`/`restart` 映射到该 unit）；`proxy apply/status/rollback` 写显式环境代理文件（绝对路径、独立 snapshot、`--confirm`，Unix `0600`，rollback 检测外部修改）；`mitm certificate trust-apply/trust-rollback` 管理 Ubuntu-style CA trust-file（见 [Linux Trust-File Source Contract](docs/architecture/linux-trust-file-source-contract.md)），其他 trust backend 仍 blocked。
-- **Windows**：原生 GUI（Home/Nodes/Subscriptions/Settings/Diagnostics/Advanced）、SCM service、WiX MSI、portable ZIP；连接状态由 SCM、嵌入式引擎的 loopback listener 和交互用户代理共同确认。见 [Windows GUI Daily Usability](docs/architecture/windows-gui-daily-usability.md)。HTTP/2/HTTP/3 MITM 仍未启用。
+- **Windows**：本仓库提供 `networkcore-windows` CLI 与 `platform-windows`（SCM service 管理、系统代理与 ROOT CA apply/rollback、managed lifecycle）；原生 GUI、SCM service 程序、WiX MSI 与 portable ZIP 已迁到 [AnixOps/anixops-net](https://github.com/AnixOps/anixops-net)。HTTP/2/HTTP/3 MITM 仍未启用。
 - **MITM**：`mitm-cli-command-gate-status=partial-active`。Linux `start --enable-https-mitm --mitm-ca-cert <path> --mitm-ca-key <path> --confirm` 提供受控 HTTP/1.1 TLS 终止、web-PKI 上游校验、每 session 最多四次有界 rewrite 和 no-network sandbox 本地脚本；Windows 可显式启用同类 HTTP/1.1 MITM，但拒绝脚本。边界合同：[certificate lifecycle](docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md)、[browser capture](docs/architecture/linux-mitm-browser-capture-source-contract.md)、[HTTP rewrite](docs/architecture/linux-mitm-http-rewrite-source-contract.md)。四个 gate 的当前状态见 [README](README.md#mitm)。
-- **iOS**：`apps/ios` 已有 Swift package、XcodeGen spec 和 `NetworkCorePacketTunnel` target；嵌入式 Rust runtime、签名、TestFlight/App Store upload 和 iOS release asset 仍 blocked。
+- **iOS/macOS**：本仓库提供 `engine-embedded` 与 `node-import` 的 C ABI 静态库（CI 为 `aarch64-apple-ios` 构建，边界见 [iOS Embedded Runtime FFI Boundary Design](docs/architecture/ios-embedded-runtime-ffi-boundary-design.md)）；Swift/Xcode 工程、签名与 TestFlight 已迁到 [AnixOps/anixops-net](https://github.com/AnixOps/anixops-net)。
 
 P4 backlog buckets：
 
@@ -66,7 +67,7 @@ iOS Network Extension 与桌面端都使用仓库内自研的 Rust 引擎，不�
 
 ### P1 Domain And Architecture Specification (Completed)
 
-定义统一控制内核领域模型，配置、订阅、策略路由、DNS、MITM 插件和控制 API 边界，插件权限模型与 iOS 审核风险初评，并选定 Rust 首选栈（[ADR 0001](docs/architecture/adr-0001-initial-core-stack.md)）。规格见 [Control Kernel Domain](docs/architecture/control-kernel-domain.md)、[Control Kernel Interfaces](docs/architecture/control-kernel-interfaces.md)、[iOS Platform Risk Assessment](docs/architecture/ios-platform-risk-assessment.md)。
+定义统一控制内核领域模型，配置、订阅、策略路由、DNS、MITM 插件和控制 API 边界，插件权限模型与 iOS 审核风险初评，并选定 Rust 首选栈（[ADR 0001](docs/architecture/adr-0001-initial-core-stack.md)）。规格见 [Control Kernel Domain](docs/architecture/control-kernel-domain.md)、[Control Kernel Interfaces](docs/architecture/control-kernel-interfaces.md)；iOS 平台风险评估已随客户端迁到 [AnixOps/anixops-net](https://github.com/AnixOps/anixops-net)。
 
 ### P2 Core Kernel Skeleton (Completed)
 

@@ -30,7 +30,6 @@ jobs:
       governance: ${{ steps.changes.outputs.governance }}
       go: ${{ steps.changes.outputs.go }}
       rust: ${{ steps.changes.outputs.rust }}
-      node: ${{ steps.changes.outputs.node }}
       windows: ${{ steps.changes.outputs.windows }}
       linux: ${{ steps.changes.outputs.linux }}
       ios: ${{ steps.changes.outputs.ios }}
@@ -154,18 +153,17 @@ jobs:
           grep -q '^linux-artifact-release-state=confirmed-release-path$' docs/manual-intervention.md
 
           if [[ "${WINDOWS_CHANGED}" == true ]]; then
-            test -f apps/windows-gui/Cargo.toml
-            test -f apps/windows-gui/ui/package.json
-            test -f apps/windows-service/Cargo.toml
-            test -f installer/windows/Package.wxs
+            test -f apps/windows-cli/Cargo.toml
+            test -f crates/platform-windows/Cargo.toml
           fi
           if [[ "${LINUX_CHANGED}" == true ]]; then
             test -f apps/linux-cli/Cargo.toml
             test -f crates/platform-linux/Cargo.toml
           fi
           if [[ "${APPLE_CHANGED}" == true ]]; then
-            test -f apps/ios/README.md
             test -f crates/platform-ios/Cargo.toml
+            test -f crates/engine-embedded/include/networkcore_ios_runtime.h
+            test -f crates/node-import/include/networkcore_import.h
           fi
 
           echo "Fast repository policy passed."
@@ -274,27 +272,30 @@ jobs:
           grep -Fqx 'validation_matrix={"include":[{"os":"ubuntu-latest","timeout":30}]}' "${linux_output}"
 
           base_sha="${head_sha}"
-          mkdir -p "${fixture}/apps/windows-gui/ui/src"
-          echo node > "${fixture}/apps/windows-gui/ui/src/App.tsx"
-          git -C "${fixture}" add apps/windows-gui/ui/src/App.tsx
-          git -C "${fixture}" commit --quiet -m node-ui
+          mkdir -p "${fixture}/crates/platform-windows/src"
+          echo windows-platform > "${fixture}/crates/platform-windows/src/lib.rs"
+          git -C "${fixture}" add crates/platform-windows/src/lib.rs
+          git -C "${fixture}" commit --quiet -m windows-platform
           head_sha="$(git -C "${fixture}" rev-parse HEAD)"
-          node_output="${fixture}/node.output"
-          classify_commit "${base_sha}" "${head_sha}" "${node_output}"
-          grep -qx 'node=true' "${node_output}"
-          grep -qx 'windows=true' "${node_output}"
-          grep -qx 'full_matrix=false' "${node_output}"
+          windows_platform_output="${fixture}/windows-platform.output"
+          classify_commit "${base_sha}" "${head_sha}" "${windows_platform_output}"
+          grep -qx 'rust=true' "${windows_platform_output}"
+          grep -qx 'windows=true' "${windows_platform_output}"
+          grep -qx 'full_matrix=false' "${windows_platform_output}"
+          grep -Fqx 'validation_matrix={"include":[{"os":"windows-latest","timeout":45}]}' "${windows_platform_output}"
 
           base_sha="${head_sha}"
-          mkdir -p "${fixture}/apps/ios/Sources"
-          echo apple > "${fixture}/apps/ios/Sources/App.swift"
-          git -C "${fixture}" add apps/ios/Sources/App.swift
+          mkdir -p "${fixture}/crates/platform-ios/src"
+          echo apple > "${fixture}/crates/platform-ios/src/lib.rs"
+          git -C "${fixture}" add crates/platform-ios/src/lib.rs
           git -C "${fixture}" commit --quiet -m apple
           head_sha="$(git -C "${fixture}" rev-parse HEAD)"
           apple_output="${fixture}/apple.output"
           classify_commit "${base_sha}" "${head_sha}" "${apple_output}"
+          grep -qx 'rust=true' "${apple_output}"
           grep -qx 'ios=true' "${apple_output}"
           grep -qx 'apple=true' "${apple_output}"
+          grep -qx 'full_matrix=false' "${apple_output}"
           grep -Fqx 'validation_matrix={"include":[{"os":"macos-26","timeout":40}]}' "${apple_output}"
 
           base_sha="${head_sha}"
@@ -384,8 +385,6 @@ jobs:
             docs/ci-cd-policy.md
             docs/manual-intervention.md
             docs/release-strategy.md
-            docs/architecture/windows-gui-daily-usability.md
-            docs/alpha-windows-smoke-test.md
             .github/workflows/release.yml
             apps/linux-cli/Cargo.toml
             apps/linux-cli/README.md
@@ -394,23 +393,8 @@ jobs:
             apps/linux-cli/tests/linux_cli_contracts.rs
             apps/windows-cli/Cargo.toml
             apps/windows-cli/src/main.rs
-            apps/windows-gui/Cargo.toml
-            apps/windows-gui/build.rs
-            apps/windows-gui/tauri.conf.json
-            apps/windows-gui/icons/networkcore.png
-            apps/windows-gui/src/main.rs
-            apps/windows-gui/src/gui/tauri_ui.rs
-            apps/windows-gui/ui/package.json
-            apps/windows-gui/ui/src/App.tsx
-            apps/windows-gui/src/gui/runtime_status.rs
-            apps/windows-gui/src/gui/ui_state.rs
-            apps/windows-service/Cargo.toml
-            apps/windows-service/src/lib.rs
-            apps/windows-service/src/main.rs
             crates/platform-windows/src/managed.rs
             crates/platform-windows/src/system_integration.rs
-            installer/windows/Package.wxs
-            installer/windows/default-managed-config.json
             crates/config-core/README.md
             crates/control-domain/README.md
             crates/control-runtime/README.md
@@ -428,7 +412,6 @@ jobs:
             crates/config-core/tests/sdwan_delivery_contracts.rs
             crates/platform-ios/README.md
             crates/platform-linux/README.md
-            apps/ios/README.md
           )
 
           for file in "${required_files[@]}"; do
@@ -441,22 +424,7 @@ jobs:
             docs/architecture/control-kernel-domain.md
             docs/architecture/control-kernel-interfaces.md
             docs/architecture/control-runtime-orchestration.md
-            docs/architecture/ios-app-review-manual-confirmation-source-contract.md
-            docs/architecture/ios-app-review-privacy-release-readiness-design.md
             docs/architecture/ios-embedded-runtime-ffi-boundary-design.md
-            docs/architecture/ios-entitlement-provisioning-source-contract.md
-            docs/architecture/ios-mitm-certificate-lifecycle-design.md
-            docs/architecture/ios-network-extension-design.md
-            docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
-            docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md
-            docs/architecture/ios-platform-adapter-source-contract.md
-            docs/architecture/ios-platform-risk-assessment.md
-            docs/architecture/ios-privacy-manifest-source-contract.md
-            docs/architecture/ios-swift-network-extension-bridge-design.md
-            docs/architecture/ios-swift-xcode-bridge-source-contract.md
-            docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md
-            docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
-            docs/architecture/ios-upload-workflow-activation-validation-contract.md
             docs/architecture/linux-artifact-license-notice-confirmation.md
             docs/architecture/linux-artifact-pre-release-design.md
             docs/architecture/linux-cli-artifact-installation-rollback.md
@@ -505,7 +473,6 @@ jobs:
             docs/architecture/subscription-catalog-runtime-orchestration.md
             docs/architecture/third-party-plugin-onboarding-process.md
             docs/architecture/windows-cli-artifact-source-release-contract.md
-            docs/architecture/windows-managed-client-source-release-contract.md
           )
 
           for file in "${required_architecture_files[@]}"; do
@@ -585,41 +552,6 @@ jobs:
           grep -Fq "windows-cli-artifact-package-windows=defined" docs/architecture/windows-cli-artifact-source-release-contract.md
           grep -Fq "windows-cli-artifact-release-assets=enabled-after-attestation-and-publish-gate" docs/architecture/windows-cli-artifact-source-release-contract.md
           grep -Fq "windows-cli-artifact-source-release-contract.md" docs/release-strategy.md
-          grep -Fq "windows-managed-client-source-release-contract=present" docs/architecture/windows-managed-client-source-release-contract.md
-          grep -Fq "WINDOWS_CLI_ARTIFACT_GATE=windows-managed-client-active" docs/architecture/windows-managed-client-source-release-contract.md
-          grep -Fq "windows-managed-client-package-format=msi" docs/architecture/windows-managed-client-source-release-contract.md
-          grep -Fq "windows-managed-client-wix-version=4.0.6" docs/architecture/windows-managed-client-source-release-contract.md
-          grep -Fq "windows-managed-client-gui=active" docs/architecture/windows-managed-client-source-release-contract.md
-          grep -Fq "windows-managed-client-gui-daily-usability=home-nodes-subscriptions-settings-diagnostics-advanced-active" docs/architecture/windows-managed-client-source-release-contract.md
-          grep -Fq "windows-managed-client-gui-runtime-status=scm-embedded-listener-current-user-proxy-active" docs/architecture/windows-managed-client-source-release-contract.md
-          grep -Fq "windows-managed-client-gui-background-commands=active" docs/architecture/windows-managed-client-source-release-contract.md
-          grep -Fq "windows-managed-client-service=active" docs/architecture/windows-managed-client-source-release-contract.md
-          grep -Fq "windows-managed-client-driver-package-lifecycle=active" docs/architecture/windows-managed-client-source-release-contract.md
-          grep -Fq "windows-managed-client-installer=active" docs/architecture/windows-managed-client-source-release-contract.md
-          grep -Fq "windows-managed-client-msi-service-start=asynchronous-on-install" docs/architecture/windows-managed-client-source-release-contract.md
-          grep -Fq "windows-managed-client-service-start-handoff=immediate-scm-running-then-managed-runtime" docs/architecture/windows-managed-client-source-release-contract.md
-          grep -Fq "windows-managed-client-diagnostics=gui-config-preflight-and-local-report-active" docs/architecture/windows-managed-client-source-release-contract.md
-          grep -Fq "windows-managed-client-remote-subscription-fetch=operator-initiated-http-s-profile-import-and-update-active" docs/architecture/windows-managed-client-source-release-contract.md
-          grep -Fq "windows-managed-client-remote-subscription-update=single-saved-url-explicit-only" docs/architecture/windows-managed-client-source-release-contract.md
-          grep -Fq "windows-managed-client-profile-node-selector=embedded-envelope-node-and-policy-group-active" docs/architecture/windows-managed-client-source-release-contract.md
-          grep -Fq "windows-managed-client-embedded-engine=in-process-local-proxy-active" docs/architecture/windows-managed-client-source-release-contract.md
-          grep -Fq "windows-managed-client-third-party-core=removed" docs/architecture/windows-managed-client-source-release-contract.md
-          grep -Fq "windows-managed-client-embedded-supervision=service-poll-failure-rollback-active" docs/architecture/windows-managed-client-source-release-contract.md
-          grep -Fq "windows-managed-client-embedded-node-switch=envelope-rewrite-and-engine-restart-active" docs/architecture/windows-managed-client-source-release-contract.md
-          grep -Fq "windows-managed-client-embedded-delay-test=in-process-url-request-active" docs/architecture/windows-managed-client-source-release-contract.md
-          grep -Fq "windows-managed-client-embedded-urltest=background-group-health-checks-active" docs/architecture/windows-managed-client-source-release-contract.md
-          grep -Fq "windows-managed-client-embedded-basic-protocols=shadowsocks-trojan-vless-vmess-hysteria2-tuic" docs/architecture/windows-managed-client-source-release-contract.md
-          grep -Fq "windows-managed-client-mitm-upstream=embedded-engine-loopback-socks-7891" docs/architecture/windows-managed-client-source-release-contract.md
-          grep -Fq "windows-managed-client-system-proxy-mutation=active" docs/architecture/windows-managed-client-source-release-contract.md
-          grep -Fq "windows-managed-client-system-proxy-lifecycle=service-owned-runtime-snapshot-active" docs/architecture/windows-managed-client-source-release-contract.md
-          grep -Fq "windows-managed-client-trust-store-mutation=active" docs/architecture/windows-managed-client-source-release-contract.md
-          grep -Fq "windows-managed-client-managed-lifecycle=active" docs/architecture/windows-managed-client-source-release-contract.md
-          grep -Fq "windows-managed-client-portable-zip=active" docs/architecture/windows-managed-client-source-release-contract.md
-          grep -Fq "windows-managed-client-portable-release-assets=enabled-after-attestation-and-publish-gate" docs/architecture/windows-managed-client-source-release-contract.md
-          grep -Fq "windows-managed-client-webview2-loader=app-local-x64-required" docs/architecture/windows-managed-client-source-release-contract.md
-          grep -Fq "windows-managed-client-webview2-runtime=system-evergreen-runtime-required" docs/architecture/windows-managed-client-source-release-contract.md
-          grep -Fq "WebView2Loader.dll" docs/architecture/windows-managed-client-source-release-contract.md
-          test -f installer/windows/PORTABLE-README.txt
           grep -Fq "networkcore-windows" apps/windows-cli/README.md
           grep -Fq "WINDOWS_CLI_ARTIFACT_GATE=windows-managed-client-active" crates/platform-windows/README.md
           grep -Fq "system-proxy-mutation" apps/windows-cli/README.md
@@ -751,14 +683,6 @@ jobs:
           grep -q "runtime_rollback_rejects_a_non_recovering_lifecycle_jump" crates/control-runtime/tests/runtime_contracts.rs
           grep -q "run-url" apps/linux-cli/src/lib.rs
           grep -q "hysteria2://.*tuic://" apps/linux-cli/README.md
-          grep -q "pub fn poll_health" apps/windows-service/src/lib.rs
-          grep -q "pub fn stop_after_runtime_failure" apps/windows-service/src/lib.rs
-          grep -q "runtime_error=" apps/windows-gui/src/main.rs
-          grep -q "runtime.poll_health" apps/windows-service/src/main.rs
-          grep -q 'windows-gui-view-runtime=tauri-react-active' docs/architecture/windows-gui-daily-usability.md
-          grep -q 'windows-gui-command-execution=rust-command-bridge-background-workers-all-system-operations-subscription-catalog-refresh-fastest-node-script-runtime-native-groups-active' docs/architecture/windows-gui-daily-usability.md
-          grep -q 'windows-gui-tauri-lifecycle=auto-connect-core-recovery-single-instance-tray-proxy-recovery-active' docs/architecture/windows-gui-daily-usability.md
-          grep -q 'windows-gui-tauri-mitm=enable-disable-legacy-native-mitm-active' docs/architecture/windows-gui-daily-usability.md
           grep -q 'read_chunked_http_body' crates/engine-native/src/lib.rs
           grep -q 'CONTROLLED_TLS_MAX_HTTP_EXCHANGES' crates/engine-native/src/lib.rs
           grep -q 'http_message_requests_close' crates/engine-native/src/lib.rs
@@ -771,42 +695,10 @@ jobs:
           grep -q 'managed_control_socket_accepts_confirmed_stop_and_cleans_up' apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q 'linux-managed-control-socket-operation=explicit-foreground-stop' docs/architecture/linux-managed-control-socket-source-contract.md
           grep -q 'Transfer-Encoding: chunked' docs/architecture/linux-mitm-http-rewrite-source-contract.md
-          grep -q 'bounded.*chunked' docs/architecture/windows-managed-client-source-release-contract.md
           grep -q '## Current Main Override' docs/alpha-release-feature-matrix.md
           grep -q 'HTTP/2, HTTP/3/QUIC MITM' docs/alpha-release-feature-matrix.md
           grep -q '^current-main-subscription-run-url=embedded-engine-foreground-active$' TODO.md
           grep -q 'direct.*share links' TODO.md
-          grep -q 'tauri::Builder' apps/windows-gui/src/gui/tauri_ui.rs
-          grep -q 'tauri_plugin_single_instance::init' apps/windows-gui/src/gui/tauri_ui.rs
-          grep -q 'TrayIconBuilder' apps/windows-gui/src/gui/tauri_ui.rs
-          grep -q 'WindowEvent::CloseRequested' apps/windows-gui/src/gui/tauri_ui.rs
-          grep -q 'icons/networkcore.png' apps/windows-gui/tauri.conf.json
-          grep -q 'start_automatic_connection' apps/windows-gui/src/gui/tauri_ui.rs
-          grep -q 'start_core_recovery_monitor' apps/windows-gui/src/gui/tauri_ui.rs
-          grep -q 'restore_network_settings' apps/windows-gui/src/gui/tauri_ui.rs
-          grep -q 'enable_https_mitm' apps/windows-gui/src/gui/tauri_ui.rs
-          grep -q 'disable_https_mitm' apps/windows-gui/src/gui/tauri_ui.rs
-          grep -q 'run_blocking' apps/windows-gui/src/gui/tauri_ui.rs
-          grep -q 'async fn runtime_snapshot' apps/windows-gui/src/gui/tauri_ui.rs
-          grep -q 'async fn connect' apps/windows-gui/src/gui/tauri_ui.rs
-          grep -q 'async fn install_service' apps/windows-gui/src/gui/tauri_ui.rs
-          grep -q 'async fn install_certificate' apps/windows-gui/src/gui/tauri_ui.rs
-          grep -q 'async fn select_native_group_outbound' apps/windows-gui/src/gui/tauri_ui.rs
-          grep -q 'start_subscription_refresh_monitor' apps/windows-gui/src/gui/tauri_ui.rs
-          grep -q 'start_fastest_node_monitor' apps/windows-gui/src/gui/tauri_ui.rs
-          grep -q 'list_subscriptions' apps/windows-gui/src/gui/tauri_ui.rs
-          ! grep -q 'configure_tunnel' apps/windows-gui/src/gui/tauri_ui.rs
-          grep -q 'configure_script_runtime' apps/windows-gui/src/gui/tauri_ui.rs
-          grep -rq 'scriptRuntimeConfigured' apps/windows-gui/ui/src
-          grep -q 'NativeNodeScriptRuntimeConfig' apps/windows-service/src/lib.rs
-          grep -q 'select_native_group_outbound' apps/windows-gui/src/gui/tauri_ui.rs
-          grep -rq 'selectNativeGroupOutbound' apps/windows-gui/ui/src
-          grep -q 'runtime_snapshot' apps/windows-gui/src/gui/tauri_ui.rs
-          grep -q 'desktop.snapshot' apps/windows-gui/ui/src/App.tsx
-          grep -q "connected_requires_scm_core_process_and_current_proxy" apps/windows-gui/src/gui/ui_state.rs
-          grep -q "write_diagnostic_report" apps/windows-gui/src/main.rs
-          grep -q "apply_proxy_after_readiness" apps/windows-gui/src/gui/actions/connection.rs
-          ! grep -q "apply_user_proxy_from_config" apps/windows-gui/src/main.rs
           grep -q "public-core-client-reference" README.md
           grep -q "NODE_METADATA_SHADOWSOCKS_METHOD" crates/control-domain/src/lib.rs
           grep -q "SUBSCRIPTION_SHADOWSOCKS_LINK_INVALID_CODE" crates/config-core/src/lib.rs
@@ -1998,11 +1890,6 @@ jobs:
           grep -q '^  post-release-summary:' "${release_workflow}"
           grep -q '^  publish-eligibility-gate:' "${release_workflow}"
           grep -q '^  publish-github-release:' "${release_workflow}"
-          grep -q '^  windows-cli-artifact-readiness:' "${release_workflow}"
-          grep -q '^  package-windows:' "${release_workflow}"
-          grep -q '^  attest-windows:' "${release_workflow}"
-          grep -q '^  windows-release-summary:' "${release_workflow}"
-          grep -q '^  windows-publish-eligibility-gate:' "${release_workflow}"
           grep -q 'actions/upload-artifact@v4' "${release_workflow}"
           grep -q 'actions/download-artifact@v4' "${release_workflow}"
           grep -q 'actions/attest@v4' "${release_workflow}"
@@ -2015,21 +1902,13 @@ jobs:
             exit 1
           fi
           grep -Fq 'cargo build --locked --release --package "${PACKAGE}" --bin "${BINARY}" --target "${TARGET}"' "${release_workflow}"
-          grep -Fq -- '--package networkcore-windows-gui `' "${release_workflow}"
-          grep -Fq -- '--package networkcore-windows-service `' "${release_workflow}"
-          grep -Fq 'wix build installer/windows/Package.wxs' "${release_workflow}"
-          grep -Fq 'wix msi validate $archivePath' "${release_workflow}"
           grep -Fq 'script_runner_source="third_party/mitm_anixops/mitm_anixops/e2e/script_runtime/anixops_runner.js"' "${release_workflow}"
           grep -Fq 'libexec/anixops-runner.js' "${release_workflow}"
           grep -Fq 'top_level_dir="networkcore-linux-${version}-${target}"' "${release_workflow}"
           grep -Fq 'archive_name="${top_level_dir}.tar.gz"' "${release_workflow}"
           grep -Fq 'manifest_name="${top_level_dir}.manifest.json"' "${release_workflow}"
-          grep -Fq '$artifactStem = "networkcore-windows-$version-$target"' "${release_workflow}"
-          grep -Fq '$archiveName = "$artifactStem.msi"' "${release_workflow}"
-          grep -Fq '$manifestName = "$artifactStem.manifest.json"' "${release_workflow}"
           grep -q 'linux-artifact-license-notice-status=confirmed' "${release_workflow}"
           grep -q 'package_publish_eligibility_status=eligible' "${release_workflow}"
-          grep -q 'windows-release-assets' "${release_workflow}"
           grep -Fq "github.event_name == 'push' && github.ref_type == 'tag'" "${release_workflow}"
 
           grep -q '^linux-artifact-license-notice-source-contract=docs/architecture/linux-artifact-license-notice-confirmation.md$' docs/manual-intervention.md
@@ -2053,59 +1932,10 @@ jobs:
             grep -q '^linux-artifact-license-notice-release-assets=blocked$' docs/manual-intervention.md
           fi
 
-          # enabled is only valid for the internal TestFlight scope and after the independent maintainer confirmation.
-          if grep -q '^ios-upload-workflow-status=enabled$' docs/manual-intervention.md; then
-            grep -q '^ios-upload-internal-confirmation-status=confirmed$' docs/manual-intervention.md
-            grep -q '^ios-upload-external-testflight=blocked$' docs/manual-intervention.md
-          else
-            grep -q '^ios-upload-workflow-status=pending$' docs/manual-intervention.md
-          fi
-          grep -q '^ios-upload-scope=internal-testflight-only$' docs/manual-intervention.md
-          grep -q '^ios-upload-internal-confirmation-status=' docs/manual-intervention.md
-          grep -q 'Internal TestFlight Scope' docs/architecture/ios-upload-workflow-activation-validation-contract.md
-          grep -q '^ios-upload-workflow-release-assets=blocked$' docs/manual-intervention.md
-          grep -q '^ios-upload-internal-workflow=.github/workflows/ios-testflight.yml$' docs/manual-intervention.md
-          test -f .github/workflows/ios-testflight.yml
-          if grep -Eq '^  (push|pull_request|pull_request_target|schedule|release|workflow_run):' .github/workflows/ios-testflight.yml; then
-            echo "::error::the internal TestFlight workflow must be workflow_dispatch only."
-            exit 1
-          fi
-          grep -q '^  workflow_dispatch:' .github/workflows/ios-testflight.yml
-          grep -q '^    environment: ios-app-store-connect$' .github/workflows/ios-testflight.yml
-          grep -q '^    needs: ios-upload-preflight$' .github/workflows/ios-testflight.yml
-          grep -q "grep -q '\^ios-upload-workflow-status=enabled\$'" .github/workflows/ios-testflight.yml
-          grep -q "grep -q '\^ios-upload-internal-confirmation-status=confirmed\$'" .github/workflows/ios-testflight.yml
-          grep -q 'testFlightInternalTestingOnly bool true' .github/workflows/ios-testflight.yml
-          grep -q 'build-ios-runtime-xcframework.sh device' .github/workflows/ios-testflight.yml
-          if grep -Eq 'upload-artifact|action-gh-release|gh release' .github/workflows/ios-testflight.yml; then
-            echo "::error::the internal TestFlight workflow must not publish workflow artifacts or release assets."
-            exit 1
-          fi
-          grep -q "iOS Source Tree Governance Placeholder" apps/ios/README.md
-          test -f apps/ios/project.yml
-          grep -q 'NetworkCorePacketTunnel:' apps/ios/project.yml
-          test -f apps/ios/Sources/NetworkCorePacketTunnel/PacketTunnelProvider.swift
-          test -f apps/ios/Entitlements/NetworkCoreApp.entitlements
-          test -f apps/ios/Entitlements/NetworkCorePacketTunnel.entitlements
-          test -f apps/ios/Sources/NetworkCoreApp/Resources/PrivacyInfo.xcprivacy
-          test -f apps/ios/Sources/NetworkCorePacketTunnel/Resources/PrivacyInfo.xcprivacy
-          grep -q '^# iOS Package.swift Manifest-Only Activation Validation Contract$' docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
-          grep -q 'manifest-only source scan' docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
-          grep -q 'target list verification' docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
-          grep -q 'no Swift source before source gate' docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
-          grep -q '^# iOS Package.swift Source Ownership Activation Preflight Contract$' docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md
-          grep -q 'macos-26 Swift package validation hook' docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md
-          grep -q '^# iOS Swift Xcode Source Tree Activation Preflight Contract$' docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md
-          grep -q 'NetworkCorePacketTunnel' docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md
-          grep -q '^# iOS Swift Xcode Bridge Source Contract$' docs/architecture/ios-swift-xcode-bridge-source-contract.md
-          grep -q 'IosPlatformSnapshotDTO' docs/architecture/ios-swift-xcode-bridge-source-contract.md
           ios_allowed='^$'
-          if [[ -f apps/ios/Package.swift ]]; then
-            ios_allowed='^\./apps/ios/(Package\.swift|Sources/.+\.swift|Tests/.+\.swift|Sources/NetworkCoreApp/Resources/PrivacyInfo\.xcprivacy|Sources/NetworkCorePacketTunnel/Resources/PrivacyInfo\.xcprivacy|Entitlements/NetworkCore(App|PacketTunnel|Widget|Mac|MacTunnel)\.entitlements)$'
-          fi
           ios_forbidden="$(find . -path ./.git -prune -o \( -type f \( -name "Package.swift" -o -name "*.swift" -o -name "PrivacyInfo.xcprivacy" -o -name "*.entitlements" -o -name "*.mobileprovision" -o -name "*.provisionprofile" -o -name "*.p12" -o -name "*.cer" -o -name "*.key" -o -name "*.pem" -o -name "*.xcframework" -o -name "*.a" -o -name "ExportOptions.plist" -o -name "*.ipa" \) -o -type d \( -name "*.xcodeproj" -o -name "*.xcworkspace" -o -name "*.xcarchive" -o -name "*.xcresult" -o -name "*.dSYM" \) \) -print | grep -v -E "${ios_allowed}" | head -n 1 || true)"
           if [[ -n "${ios_forbidden}" ]]; then
-            echo "::error::iOS source, signing, archive/export, upload, or release material must stay out of the repository until the iOS contracts allow it."
+            echo "::error::iOS/Apple source, signing, archive/export or upload material belongs to AnixOps/anixops-net, not the kernel repository."
             exit 1
           fi
 
@@ -2126,11 +1956,6 @@ jobs:
     outputs:
       go: ${{ steps.detect.outputs.go }}
       rust: ${{ steps.detect.outputs.rust }}
-      node: ${{ steps.detect.outputs.node }}
-      swift: ${{ steps.detect.outputs.swift }}
-      swift_sources: ${{ steps.detect.outputs.swift_sources }}
-      ios_xcode_spec: ${{ steps.detect.outputs.ios_xcode_spec }}
-      apple: ${{ steps.detect.outputs.apple }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -2157,36 +1982,6 @@ jobs:
             echo "rust=false" >> "$GITHUB_OUTPUT"
           fi
 
-          if has_file -name package.json; then
-            echo "node=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "node=false" >> "$GITHUB_OUTPUT"
-          fi
-
-          if has_file -name Package.swift; then
-            echo "swift=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "swift=false" >> "$GITHUB_OUTPUT"
-          fi
-
-          if has_file -name "*.xcodeproj" -o -name "*.xcworkspace"; then
-            echo "apple=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "apple=false" >> "$GITHUB_OUTPUT"
-          fi
-
-          if find apps/ios/Sources apps/ios/Tests -name '*.swift' -print -quit 2>/dev/null | grep -q .; then
-            echo "swift_sources=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "swift_sources=false" >> "$GITHUB_OUTPUT"
-          fi
-
-          if test -f apps/ios/project.yml; then
-            echo "ios_xcode_spec=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "ios_xcode_spec=false" >> "$GITHUB_OUTPUT"
-          fi
-
           echo "Project detection is informational only; job execution is governed by changed paths."
 
   workspace-smoke:
@@ -2201,7 +1996,6 @@ jobs:
         needs.changes.outputs.full_matrix == 'true' ||
         needs.changes.outputs.go == 'true' ||
         needs.changes.outputs.rust == 'true' ||
-        needs.changes.outputs.node == 'true' ||
         needs.changes.outputs.windows == 'true' ||
         needs.changes.outputs.linux == 'true' ||
         needs.changes.outputs.apple == 'true' ||
@@ -2271,55 +2065,6 @@ jobs:
             echo "::endgroup::"
           done < <(find . -name go.mod -not -path "*/vendor/*" | sort)
 
-  windows-gui-frontend:
-    name: Windows GUI frontend artifact
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    needs:
-      - changes
-      - policy-fast
-      - detect-projects
-    if: >-
-      ${{
-        needs.detect-projects.outputs.node == 'true' &&
-        (
-          needs.changes.outputs.full_matrix == 'true' ||
-          needs.changes.outputs.node == 'true' ||
-          needs.changes.outputs.windows == 'true'
-        )
-      }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9
-
-      - name: Setup Node
-        uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: apps/windows-gui/ui/pnpm-lock.yaml
-
-      - name: Install dependencies
-        shell: bash
-        run: pnpm --dir apps/windows-gui/ui install --frozen-lockfile
-
-      - name: Build Windows GUI frontend
-        shell: bash
-        run: pnpm --dir apps/windows-gui/ui run build
-
-      - name: Upload Windows GUI frontend
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-gui-ui-${{ github.sha }}
-          path: apps/windows-gui/ui/dist
-          if-no-files-found: error
-          retention-days: 1
-
   rust-build-test:
     name: Rust build and test
     runs-on: ${{ matrix.os }}
@@ -2330,7 +2075,6 @@ jobs:
       - changes
       - policy-fast
       - detect-projects
-      - windows-gui-frontend
     if: >-
       ${{
         always() &&
@@ -2338,11 +2082,6 @@ jobs:
         needs.policy-fast.result == 'success' &&
         needs.detect-projects.result == 'success' &&
         needs.detect-projects.outputs.rust == 'true' &&
-        (
-          needs.windows-gui-frontend.result == 'success' ||
-          needs.windows-gui-frontend.result == 'skipped' ||
-          (needs.changes.outputs.full_matrix != 'true' && needs.changes.outputs.node != 'true' && needs.changes.outputs.windows != 'true')
-        ) &&
         (
           needs.changes.outputs.full_matrix == 'true' ||
           needs.changes.outputs.rust == 'true' ||
@@ -2360,18 +2099,6 @@ jobs:
         uses: actions/checkout@v7
         with:
           submodules: true
-
-      - name: Download Windows GUI frontend
-        if: runner.os == 'Windows' && needs.windows-gui-frontend.result == 'success'
-        uses: actions/download-artifact@v4
-        with:
-          name: windows-gui-ui-${{ github.sha }}
-          path: apps/windows-gui/ui/dist
-
-      - name: Verify Windows GUI frontend
-        if: runner.os == 'Windows' && needs.windows-gui-frontend.result == 'success'
-        shell: bash
-        run: test -s apps/windows-gui/ui/dist/index.html
 
       - name: Setup Windows C toolchain
         if: runner.os == 'Windows'
@@ -2391,11 +2118,9 @@ jobs:
         run: |
           $MsysRoot = "${{ steps.msys2.outputs.msys2-location }}"
           $MingwPrefix = Join-Path $MsysRoot "mingw64"
-          "${{ github.workspace }}\.github\scripts" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           "$MingwPrefix\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           "MSYS2_LOCATION=$MsysRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "MINGW_PREFIX=$MingwPrefix" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "RC_x86_64_pc_windows_gnu=${{ github.workspace }}\.github\scripts\rc.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "CARGO_BUILD_TARGET=x86_64-pc-windows-gnu" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "CC_x86_64_pc_windows_gnu=$MingwPrefix\bin\gcc.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "AR_x86_64_pc_windows_gnu=$MingwPrefix\bin\ar.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
@@ -2414,7 +2139,7 @@ jobs:
 
       # Only main writes Rust caches; pull requests restore them. Per-branch saves
       # evicted each other under the repository cache quota and left Windows cold.
-      # The Windows entry shares its key with the MSI job, which builds a subset.
+      # The Windows entry keeps its own shared key so the GNU target cache stays separate.
       - name: Restore Rust build cache
         uses: Swatinem/rust-cache@v2
         with:
@@ -2425,24 +2150,6 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: 22
-
-      - name: Restore windres compatibility shim
-        if: runner.os == 'Windows'
-        id: windres-shim-cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            .github/scripts/windres.exe
-            .github/scripts/rc.exe
-          key: windres-shim-${{ runner.os }}-${{ hashFiles('.github/scripts/windres_compat.rs', '.github/scripts/rc_compat.rs') }}
-
-      - name: Build windres compatibility shim
-        if: runner.os == 'Windows' && steps.windres-shim-cache.outputs.cache-hit != 'true'
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          rustc .github/scripts/windres_compat.rs -o .github/scripts/windres.exe
-          rustc .github/scripts/rc_compat.rs -o .github/scripts/rc.exe
 
       - name: Format
         shell: bash
@@ -2562,375 +2269,6 @@ jobs:
           IPHONEOS_DEPLOYMENT_TARGET=17.0 cargo build --locked -p script-runtime --no-default-features --features javascriptcore --target aarch64-apple-ios
           # The packet tunnel runtime, MITM (engine-native, mitm-policy and its C core) included, must build for the iPhone.
           IPHONEOS_DEPLOYMENT_TARGET=17.0 cargo build --locked -p engine-embedded --lib --target aarch64-apple-ios
-
-  linux-gui:
-    name: Linux GUI build
-    runs-on: ubuntu-latest
-    timeout-minutes: 40
-    env:
-      CARGO_INCREMENTAL: "0"
-    needs:
-      - changes
-      - policy-fast
-      - detect-projects
-    if: >-
-      ${{
-        needs.detect-projects.outputs.rust == 'true' &&
-        needs.detect-projects.outputs.node == 'true' &&
-        (
-          needs.changes.outputs.full_matrix == 'true' ||
-          needs.changes.outputs.linux == 'true' ||
-          needs.changes.outputs.node == 'true'
-        )
-      }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-        with:
-          submodules: true
-
-      # Tauri on Linux renders through WebKitGTK.
-      - name: Install WebKitGTK
-        shell: bash
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9
-
-      - name: Setup Node
-        uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: apps/windows-gui/ui/pnpm-lock.yaml
-
-      # The Linux window shares the Windows React interface.
-      - name: Build the shared interface
-        shell: bash
-        run: |
-          pnpm --dir apps/windows-gui/ui install --frozen-lockfile
-          pnpm --dir apps/windows-gui/ui run build
-
-      - name: Setup Rust
-        run: |
-          rustup toolchain install stable --profile minimal --component clippy
-          rustup default stable
-
-      - name: Restore Rust build cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          key: linux-gui
-          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-
-      - name: Lint, test and build the Linux GUI
-        shell: bash
-        run: |
-          set -euo pipefail
-          cargo clippy --locked -p networkcore-linux-gui --features gui --all-targets -- -D warnings
-          cargo test --locked -p networkcore-linux-gui
-          cargo build --locked -p networkcore-linux-gui --features gui --release
-          test -x target/release/anixops-net
-
-  windows-managed-client-installer:
-    name: Windows managed client MSI
-    runs-on: windows-latest
-    timeout-minutes: 45
-    env:
-      CARGO_INCREMENTAL: "0"
-    needs:
-      - changes
-      - policy-fast
-      - detect-projects
-      - windows-gui-frontend
-    if: >-
-      ${{
-        always() &&
-        needs.changes.result == 'success' &&
-        needs.policy-fast.result == 'success' &&
-        needs.detect-projects.result == 'success' &&
-        (needs.windows-gui-frontend.result == 'success' || needs.windows-gui-frontend.result == 'skipped' || needs.detect-projects.outputs.node != 'true') &&
-        (needs.changes.outputs.full_matrix == 'true' || needs.changes.outputs.windows == 'true')
-      }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-        with:
-          submodules: true
-
-      - name: Download Windows GUI frontend
-        if: needs.windows-gui-frontend.result == 'success'
-        uses: actions/download-artifact@v4
-        with:
-          name: windows-gui-ui-${{ github.sha }}
-          path: apps/windows-gui/ui/dist
-
-      - name: Verify Windows GUI frontend
-        if: needs.windows-gui-frontend.result == 'success'
-        shell: bash
-        run: test -s apps/windows-gui/ui/dist/index.html
-
-      - name: Setup Windows C toolchain
-        uses: msys2/setup-msys2@v2
-        id: windows-msys2
-        with:
-          msystem: MINGW64
-          update: true
-          install: >-
-            mingw-w64-x86_64-binutils
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-libsystre
-
-      - name: Configure Windows Rust GNU target
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $MsysRoot = "${{ steps.windows-msys2.outputs.msys2-location }}"
-          $MingwPrefix = Join-Path $MsysRoot "mingw64"
-          "${{ github.workspace }}\.github\scripts" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          "$MingwPrefix\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          "MSYS2_LOCATION=$MsysRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "MINGW_PREFIX=$MingwPrefix" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "RC_x86_64_pc_windows_gnu=${{ github.workspace }}\.github\scripts\rc.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "CARGO_BUILD_TARGET=x86_64-pc-windows-gnu" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "CC_x86_64_pc_windows_gnu=$MingwPrefix\bin\gcc.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "AR_x86_64_pc_windows_gnu=$MingwPrefix\bin\ar.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=$MingwPrefix\bin\gcc.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
-      - name: Setup Rust toolchain
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          rustup toolchain install stable --profile minimal
-          rustup default stable
-          rustup target add x86_64-pc-windows-gnu
-
-      # Restores the Windows cache saved by rust-build-test on main; this job
-      # builds a subset of that workspace, so it never writes the shared entry.
-      - name: Restore Rust build cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: windows-gnu
-          save-if: false
-
-      # A restored cache can hold webview2-com-sys outputs from an older Cargo.lock.
-      # Drop them so the WebView2Loader.dll uniqueness check below sees only this build.
-      - name: Clear stale WebView2 build outputs
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $releaseDir = "target\x86_64-pc-windows-gnu\debug"
-          foreach ($subDir in @("build", ".fingerprint")) {
-            $outputDir = Join-Path $releaseDir $subDir
-            if (Test-Path $outputDir) {
-              Get-ChildItem -Path $outputDir -Directory -Filter "webview2-com-sys-*" |
-                Remove-Item -Recurse -Force
-            }
-          }
-
-      - name: Restore windres compatibility shim
-        id: windres-shim-cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            .github/scripts/windres.exe
-            .github/scripts/rc.exe
-          key: windres-shim-${{ runner.os }}-${{ hashFiles('.github/scripts/windres_compat.rs', '.github/scripts/rc_compat.rs') }}
-
-      - name: Build windres compatibility shim
-        if: steps.windres-shim-cache.outputs.cache-hit != 'true'
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          rustc .github/scripts/windres_compat.rs -o .github/scripts/windres.exe
-          rustc .github/scripts/rc_compat.rs -o .github/scripts/rc.exe
-
-      - name: Build Windows binaries
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          cargo build --locked `
-            --package networkcore-windows `
-            --package networkcore-windows-gui `
-            --package networkcore-windows-service `
-            --target x86_64-pc-windows-gnu
-
-      - name: Build and validate WiX MSI
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          dotnet tool install --global wix --version 4.0.6
-          wix extension add -g WixToolset.UI.wixext/4.0.6
-          New-Item -ItemType Directory -Force -Path dist\windows-ci | Out-Null
-          $releaseDir = (Resolve-Path "target\x86_64-pc-windows-gnu\debug").Path
-          $webView2LoaderCandidates = @(
-            Get-ChildItem -Path (Join-Path $releaseDir "build") -Recurse -Filter "WebView2Loader.dll" |
-              Where-Object {
-                $_.Directory.Name -eq "x64" -and
-                $_.Directory.Parent.Name -eq "out" -and
-                $_.Directory.Parent.Parent.Name -like "webview2-com-sys-*"
-              }
-          )
-          if ($webView2LoaderCandidates.Count -ne 1) {
-            $candidatePaths = $webView2LoaderCandidates.FullName -join ", "
-            throw "Expected exactly one x64 WebView2Loader.dll generated by webview2-com-sys; found $($webView2LoaderCandidates.Count): $candidatePaths"
-          }
-          $webView2LoaderPath = $webView2LoaderCandidates[0].FullName
-          if ((Get-Item $webView2LoaderPath).Length -le 0) {
-            throw "WebView2Loader.dll is empty: $webView2LoaderPath"
-          }
-          $defaultConfig = (Resolve-Path "installer\windows\default-managed-config.json").Path
-          wix build installer/windows/Package.wxs `
-            -ext WixToolset.UI.wixext `
-            -arch x64 `
-            -d "ProductVersion=0.2.1" `
-            -d "CliExe=$releaseDir\networkcore-windows.exe" `
-            -d "GuiExe=$releaseDir\networkcore-windows-gui.exe" `
-            -d "WebView2LoaderDll=$webView2LoaderPath" `
-            -d "ServiceExe=$releaseDir\networkcore-windows-service.exe" `
-            -d "DefaultConfig=$defaultConfig" `
-            -o dist\windows-ci\networkcore-windows-ci.msi
-          wix msi validate dist\windows-ci\networkcore-windows-ci.msi
-          if (-not (Test-Path dist\windows-ci\networkcore-windows-ci.msi -PathType Leaf)) {
-            throw "Windows managed client MSI was not created."
-          }
-          if ((Get-Item dist\windows-ci\networkcore-windows-ci.msi).Length -le 0) {
-            throw "Windows managed client MSI is empty."
-          }
-
-      - name: Install and uninstall Windows managed client MSI
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $msiPath = (Resolve-Path "dist\windows-ci\networkcore-windows-ci.msi").Path
-          $installLog = Join-Path $env:RUNNER_TEMP "networkcore-msi-install.log"
-          $uninstallLog = Join-Path $env:RUNNER_TEMP "networkcore-msi-uninstall.log"
-
-          function Invoke-MsiTransaction {
-            param(
-              [string[]]$Arguments,
-              [string]$LogPath,
-              [string]$Operation
-            )
-
-            $process = Start-Process -FilePath "msiexec.exe" -ArgumentList $Arguments -PassThru
-            if (-not $process.WaitForExit(120000)) {
-              Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
-              if (Test-Path $LogPath) {
-                Get-Content $LogPath -Tail 200
-              }
-              throw "Windows managed client MSI $Operation exceeded 120 seconds."
-            }
-            if ($process.ExitCode -notin @(0, 3010)) {
-              if (Test-Path $LogPath) {
-                Get-Content $LogPath -Tail 200
-              }
-              throw "Windows managed client MSI $Operation failed with exit code $($process.ExitCode)."
-            }
-          }
-
-          Invoke-MsiTransaction `
-            -Arguments @("/i", "`"$msiPath`"", "/qn", "/norestart", "/l*v", "`"$installLog`"") `
-            -LogPath $installLog `
-            -Operation "install"
-
-          $service = Get-Service -Name "AnixOpsNetworkCore" -ErrorAction SilentlyContinue
-          if ($null -eq $service) {
-            throw "Windows managed client MSI did not register AnixOpsNetworkCore."
-          }
-
-          $serviceExe = Join-Path $env:ProgramFiles "AnixOps\NetworkCore\networkcore-windows-service.exe"
-          $guiExe = Join-Path $env:ProgramFiles "AnixOps\NetworkCore\networkcore-windows-gui.exe"
-          $webView2Loader = Join-Path $env:ProgramFiles "AnixOps\NetworkCore\WebView2Loader.dll"
-          $managedConfigPath = Join-Path $env:ProgramData "AnixOps\NetworkCore\managed-config.json"
-          if (-not (Test-Path $serviceExe -PathType Leaf)) {
-            throw "Windows managed client MSI did not install the service executable."
-          }
-          if (-not (Test-Path $managedConfigPath -PathType Leaf)) {
-            throw "Windows managed client MSI did not install managed-config.json."
-          }
-          if (-not (Test-Path $guiExe -PathType Leaf)) {
-            throw "Windows managed client MSI did not install the GUI executable."
-          }
-          if (-not (Test-Path $webView2Loader -PathType Leaf)) {
-            throw "Windows managed client MSI did not install WebView2Loader.dll beside the GUI executable."
-          }
-
-          # GitHub-hosted Windows runners have no dependable interactive desktop session for
-          # WebView2 navigation. Verify the installed binary through its non-windowed entrypoint;
-          # the real page-load assertion remains an explicit Windows beta acceptance step.
-          $guiProcess = Start-Process -FilePath $guiExe -ArgumentList "--cleanup-startup" -PassThru
-          if (-not $guiProcess.WaitForExit(15000)) {
-            Stop-Process -Id $guiProcess.Id -Force -ErrorAction SilentlyContinue
-            throw "Windows GUI cleanup entrypoint did not exit within 15 seconds."
-          }
-          if ($guiProcess.ExitCode -ne 0) {
-            throw "Windows GUI cleanup entrypoint exited with code $($guiProcess.ExitCode)."
-          }
-
-          $startupKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
-          New-Item -Path $startupKey -Force | Out-Null
-          $startupCommand = "`"$guiExe`" --start-after-login"
-          New-ItemProperty -Path $startupKey -Name "AnixOpsNetworkCore" -Value $startupCommand -PropertyType String -Force | Out-Null
-
-          $service = Get-Service -Name "AnixOpsNetworkCore" -ErrorAction Stop
-          if ($service.Status -ne "Stopped") {
-            Stop-Service -Name "AnixOpsNetworkCore" -ErrorAction Stop
-            $service.WaitForStatus("Stopped", [TimeSpan]::FromSeconds(30))
-          }
-
-          $originalManagedConfig = Get-Content -Path $managedConfigPath -Raw
-          try {
-            Set-Content -Path $managedConfigPath -Value "{ invalid managed configuration" -Encoding utf8
-            $startOutput = Join-Path $env:RUNNER_TEMP "networkcore-service-start-invalid-config.out"
-            $startError = Join-Path $env:RUNNER_TEMP "networkcore-service-start-invalid-config.err"
-            $startProcess = Start-Process -FilePath $serviceExe -ArgumentList "start" -PassThru -RedirectStandardOutput $startOutput -RedirectStandardError $startError
-            if (-not $startProcess.WaitForExit(10000)) {
-              Stop-Process -Id $startProcess.Id -Force -ErrorAction SilentlyContinue
-              if (Test-Path $startOutput) { Get-Content $startOutput }
-              if (Test-Path $startError) { Get-Content $startError }
-              throw "Windows service start waited for an invalid managed configuration."
-            }
-            if ($startProcess.ExitCode -ne 0) {
-              if (Test-Path $startOutput) { Get-Content $startOutput }
-              if (Test-Path $startError) { Get-Content $startError }
-              throw "Windows service start request failed for an invalid managed configuration."
-            }
-
-            $deadline = [DateTime]::UtcNow.AddSeconds(15)
-            do {
-              $service = Get-Service -Name "AnixOpsNetworkCore" -ErrorAction Stop
-              if ($service.Status -eq "Stopped") { break }
-              Start-Sleep -Milliseconds 250
-            } while ([DateTime]::UtcNow -lt $deadline)
-            if ($service.Status -ne "Stopped") {
-              throw "Windows service did not report failure after invalid managed configuration."
-            }
-          } finally {
-            Set-Content -Path $managedConfigPath -Value $originalManagedConfig -Encoding utf8
-          }
-          $serviceLog = Join-Path $env:ProgramData "AnixOps\NetworkCore\logs\service.log"
-          if (-not (Test-Path $serviceLog -PathType Leaf)) {
-            throw "Windows service did not write a startup diagnostic log."
-          }
-          if (-not (Select-String -Path $serviceLog -SimpleMatch "runtime start failed" -Quiet)) {
-            throw "Windows service did not record the invalid managed configuration failure."
-          }
-
-          Invoke-MsiTransaction `
-            -Arguments @("/x", "`"$msiPath`"", "/qn", "/norestart", "/l*v", "`"$uninstallLog`"") `
-            -LogPath $uninstallLog `
-            -Operation "uninstall"
-
-          if ($null -ne (Get-Service -Name "AnixOpsNetworkCore" -ErrorAction SilentlyContinue)) {
-            throw "Windows managed client MSI uninstall left AnixOpsNetworkCore registered."
-          }
-          if ($null -ne (Get-ItemProperty -Path $startupKey -Name "AnixOpsNetworkCore" -ErrorAction SilentlyContinue)) {
-            throw "Windows managed client MSI uninstall left the current-user NetworkCore startup entry."
-          }
 
   rust-security-audit:
     name: Rust dependency security audit
@@ -3126,138 +2464,20 @@ jobs:
           path: crates/engine-native/fuzz/artifacts
           if-no-files-found: ignore
 
-  node-build-test:
-    name: Node build and test
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 25
-    needs:
-      - changes
-      - policy-fast
-      - detect-projects
-    if: >-
-      ${{
-        needs.detect-projects.outputs.node == 'true' &&
-        (
-          needs.changes.outputs.full_matrix == 'true' ||
-          needs.changes.outputs.node == 'true' ||
-          needs.changes.outputs.windows == 'true'
-        )
-      }}
-    strategy:
-      fail-fast: ${{ github.event_name == 'pull_request' }}
-      matrix:
-        os:
-          - ubuntu-latest
-          - macos-26
-          - windows-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9
-
-      - name: Setup Node
-        uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: apps/windows-gui/ui/pnpm-lock.yaml
-
-      - name: Install dependencies
-        shell: bash
-        run: |
-          set -euo pipefail
-          pnpm --dir apps/windows-gui/ui install --frozen-lockfile
-
-      - name: Lint
-        shell: bash
-        run: pnpm --dir apps/windows-gui/ui run lint
-
-      - name: Test
-        shell: bash
-        run: |
-          set -euo pipefail
-          pnpm --dir apps/windows-gui/ui test
-
-  swift-build-test:
-    name: Swift build and test
+  ios-runtime-static-libs:
+    name: iOS runtime static libraries
     runs-on: macos-26
     timeout-minutes: 45
-    needs:
-      - changes
-      - policy-fast
-      - detect-projects
-    if: >-
-      ${{
-        needs.detect-projects.outputs.swift_sources == 'true' &&
-        (
-          needs.changes.outputs.full_matrix == 'true' ||
-          needs.changes.outputs.ios == 'true' ||
-          needs.changes.outputs.apple == 'true'
-        )
-      }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Test
-        shell: bash
-        working-directory: apps/ios
-        run: swift test
-
-      - name: Build
-        shell: bash
-        working-directory: apps/ios
-        run: swift build
-
-  swift-manifest-validation:
-    name: Swift package manifest validation
-    runs-on: macos-26
-    timeout-minutes: 15
-    needs:
-      - changes
-      - policy-fast
-      - detect-projects
-    if: >-
-      ${{
-        needs.detect-projects.outputs.swift == 'true' &&
-        (
-          needs.changes.outputs.full_matrix == 'true' ||
-          needs.changes.outputs.ios == 'true' ||
-          needs.changes.outputs.apple == 'true'
-        )
-      }}
     env:
-      SWIFT_SOURCES: ${{ needs.detect-projects.outputs.swift_sources }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Validate Package.swift against the activation gate
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ "${SWIFT_SOURCES}" == true ]]; then
-            phase=source
-          else
-            phase=manifest-only
-          fi
-          bash .github/scripts/verify-ios-package-manifest.sh "${phase}"
-
-  ios-xcode-build:
-    name: iOS Xcode project build
-    runs-on: macos-26
-    timeout-minutes: 60
+      CARGO_INCREMENTAL: "0"
+      IPHONEOS_DEPLOYMENT_TARGET: "17.0"
     needs:
       - changes
       - policy-fast
       - detect-projects
     if: >-
       ${{
-        needs.detect-projects.outputs.ios_xcode_spec == 'true' &&
+        needs.detect-projects.outputs.rust == 'true' &&
         (
           needs.changes.outputs.full_matrix == 'true' ||
           needs.changes.outputs.ios == 'true' ||
@@ -3277,6 +2497,7 @@ jobs:
           set -euo pipefail
           rustup toolchain install stable --profile minimal
           rustup default stable
+          rustup target add aarch64-apple-ios
 
       - name: Restore Rust build cache
         uses: Swatinem/rust-cache@v2
@@ -3284,155 +2505,20 @@ jobs:
           key: ios-runtime
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
 
-      - name: Build the embedded runtime XCFramework
+      # The AnixOps/anixops-net iOS and macOS apps link these static libraries through
+      # the C headers below; the kernel only guarantees that they build for the iPhone.
+      - name: Build the embedded runtime and node import static libraries
         shell: bash
-        run: bash .github/scripts/build-ios-runtime-xcframework.sh all
+        run: cargo build --locked --release -p engine-embedded -p node-import --lib --target aarch64-apple-ios
 
-      - name: Install XcodeGen
-        shell: bash
-        run: brew install xcodegen
-
-      - name: Generate the Xcode project from apps/ios/project.yml
-        shell: bash
-        working-directory: apps/ios
-        run: |
-          set -euo pipefail
-          xcodegen generate --spec project.yml
-          # XcodeGen must not rewrite the committed entitlements, and both targets must sign with them.
-          git diff --exit-code -- Entitlements
-          grep -q 'CODE_SIGN_ENTITLEMENTS = Entitlements/NetworkCoreApp.entitlements;' NetworkCore.xcodeproj/project.pbxproj
-          grep -q 'CODE_SIGN_ENTITLEMENTS = Entitlements/NetworkCorePacketTunnel.entitlements;' NetworkCore.xcodeproj/project.pbxproj
-          grep -q 'CODE_SIGN_ENTITLEMENTS = Entitlements/NetworkCoreWidget.entitlements;' NetworkCore.xcodeproj/project.pbxproj
-          grep -q 'CODE_SIGN_ENTITLEMENTS = Entitlements/NetworkCoreMac.entitlements;' NetworkCore.xcodeproj/project.pbxproj
-          grep -q 'CODE_SIGN_ENTITLEMENTS = Entitlements/NetworkCoreMacTunnel.entitlements;' NetworkCore.xcodeproj/project.pbxproj
-
-      - name: Build the app without signing
+      - name: Check the static libraries and their C headers
         shell: bash
         run: |
           set -euo pipefail
-          xcodebuild \
-            -project apps/ios/NetworkCore.xcodeproj \
-            -scheme NetworkCoreApp \
-            -destination 'generic/platform=iOS Simulator' \
-            -derivedDataPath apps/ios/build \
-            CODE_SIGNING_ALLOWED=NO \
-            build
-
-      - name: Check bundled privacy manifests and the tunnel extension point
-        shell: bash
-        run: |
-          set -euo pipefail
-          app=apps/ios/build/Build/Products/Debug-iphonesimulator/NetworkCoreApp.app
-          appex="${app}/PlugIns/NetworkCorePacketTunnel.appex"
-          test -f "${app}/PrivacyInfo.xcprivacy"
-          test -f "${appex}/PrivacyInfo.xcprivacy"
-          /usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "${appex}/Info.plist" \
-            | grep -qx 'com.apple.networkextension.packet-tunnel'
-          /usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "${app}/PlugIns/NetworkCoreWidget.appex/Info.plist" \
-            | grep -qx 'com.apple.widgetkit-extension'
-          # App Store Connect rejects uploads without an asset-catalog icon or declared orientations.
-          # actool records the icon under CFBundleIcons:CFBundlePrimaryIcon; some Xcode versions also add it at the top level.
-          icon="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIcons:CFBundlePrimaryIcon:CFBundleIconName' "${app}/Info.plist" 2>/dev/null \
-            || /usr/libexec/PlistBuddy -c 'Print :CFBundleIconName' "${app}/Info.plist" 2>/dev/null || true)"
-          if [ "${icon}" != "AppIcon" ]; then
-            echo "::error::the built app has no compiled AppIcon"
-            plutil -p "${app}/Info.plist"
-            ls "${app}"
-            exit 1
-          fi
-          /usr/libexec/PlistBuddy -c 'Print :UISupportedInterfaceOrientations' "${app}/Info.plist" | grep -q 'UIInterfaceOrientationPortrait'
-          test -f "${app}/Assets.car"
-
-      - name: Check the tunnel extension links the embedded runtime
-        shell: bash
-        run: |
-          set -euo pipefail
-          products=apps/ios/build/Build/Products/Debug-iphonesimulator
-          # Debug builds may move code into <name>.debug.dylib, so read every Mach-O next to the executable.
-          symbols() {
-            local dir="$1" name="$2" out="$3"
-            : > "${out}"
-            find "${dir}" -maxdepth 1 -type f -name "${name}*" -print0 | while IFS= read -r -d '' file; do
-              nm "${file}" >> "${out}" 2>/dev/null || true
-            done
-          }
-          symbols "${products}/NetworkCoreApp.app/PlugIns/NetworkCorePacketTunnel.appex" NetworkCorePacketTunnel "${RUNNER_TEMP}/appex-symbols.txt"
-          symbols "${products}/NetworkCoreApp.app" NetworkCoreApp "${RUNNER_TEMP}/app-symbols.txt"
-          grep -q '_networkcore_ios_runtime_init$' "${RUNNER_TEMP}/appex-symbols.txt"
-          if grep -q '_networkcore_ios_runtime_init$' "${RUNNER_TEMP}/app-symbols.txt"; then
-            echo "::error::the containing app must not link the embedded runtime"
-            exit 1
-          fi
-          grep -q '_networkcore_import_nodes$' "${RUNNER_TEMP}/app-symbols.txt"
-
-      - name: Build the macOS app without signing
-        shell: bash
-        run: |
-          set -euo pipefail
-          xcodebuild \
-            -project apps/ios/NetworkCore.xcodeproj \
-            -scheme NetworkCoreMac \
-            -destination 'generic/platform=macOS' \
-            -derivedDataPath apps/ios/build \
-            CODE_SIGNING_ALLOWED=NO \
-            build
-
-      - name: Check the macOS app bundle and its tunnel extension
-        shell: bash
-        run: |
-          set -euo pipefail
-          app="apps/ios/build/Build/Products/Debug/AnixOps Net.app"
-          appex="${app}/Contents/PlugIns/NetworkCoreMacTunnel.appex"
-          test -f "${app}/Contents/Resources/PrivacyInfo.xcprivacy"
-          test -f "${app}/Contents/Resources/Assets.car"
-          /usr/libexec/PlistBuddy -c 'Print :CFBundleIconName' "${app}/Contents/Info.plist" | grep -qx 'AppIcon'
-          /usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "${appex}/Contents/Info.plist" \
-            | grep -qx 'com.apple.networkextension.packet-tunnel'
-          test -d "${app}/Contents/Resources/en.lproj"
-          symbols() {
-            local dir="$1" name="$2" out="$3"
-            : > "${out}"
-            find "${dir}" -maxdepth 1 -type f -name "${name}*" -print0 | while IFS= read -r -d '' file; do
-              nm "${file}" >> "${out}" 2>/dev/null || true
-            done
-          }
-          symbols "${appex}/Contents/MacOS" NetworkCoreMacTunnel "${RUNNER_TEMP}/mac-appex-symbols.txt"
-          symbols "${app}/Contents/MacOS" "AnixOps Net" "${RUNNER_TEMP}/mac-app-symbols.txt"
-          grep -q '_networkcore_ios_runtime_init$' "${RUNNER_TEMP}/mac-appex-symbols.txt"
-          if grep -q '_networkcore_ios_runtime_init$' "${RUNNER_TEMP}/mac-app-symbols.txt"; then
-            echo "::error::the macOS app must not link the embedded runtime"
-            exit 1
-          fi
-          grep -q '_networkcore_import_nodes$' "${RUNNER_TEMP}/mac-app-symbols.txt"
-          lipo -archs "${appex}/Contents/MacOS/NetworkCoreMacTunnel" | tee "${RUNNER_TEMP}/mac-archs.txt"
-          grep -q arm64 "${RUNNER_TEMP}/mac-archs.txt"
-
-  apple-project-smoke:
-    name: Apple project smoke
-    runs-on: macos-26
-    timeout-minutes: 45
-    needs:
-      - changes
-      - policy-fast
-      - detect-projects
-    if: >-
-      ${{
-        needs.detect-projects.outputs.apple == 'true' &&
-        (
-          needs.changes.outputs.full_matrix == 'true' ||
-          needs.changes.outputs.ios == 'true' ||
-          needs.changes.outputs.apple == 'true'
-        )
-      }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Inspect Xcode projects
-        shell: bash
-        run: |
-          set -euo pipefail
-          find . -maxdepth 4 \( -name "*.xcodeproj" -o -name "*.xcworkspace" \) -print
+          test -s target/aarch64-apple-ios/release/libengine_embedded.a
+          test -s target/aarch64-apple-ios/release/libnode_import.a
+          test -f crates/engine-embedded/include/networkcore_ios_runtime.h
+          test -f crates/node-import/include/networkcore_import.h
 
   ci-summary:
     name: CI summary
@@ -3446,21 +2532,14 @@ jobs:
       - detect-projects
       - workspace-smoke
       - go-build-test
-      - windows-gui-frontend
       - rust-build-test
-      - windows-managed-client-installer
       - rust-security-audit
       - reality-interop
       - rust-h2-mitm-fuzz
       - maintenance-contracts
       - protocol-features
       - script-runtime-jsc
-      - linux-gui
-      - node-build-test
-      - swift-build-test
-      - swift-manifest-validation
-      - ios-xcode-build
-      - apple-project-smoke
+      - ios-runtime-static-libs
     steps:
       - name: Check required jobs
         shell: bash
@@ -3472,7 +2551,6 @@ jobs:
           CHANGE_GOVERNANCE: ${{ needs.changes.outputs.governance }}
           CHANGE_GO: ${{ needs.changes.outputs.go }}
           CHANGE_RUST: ${{ needs.changes.outputs.rust }}
-          CHANGE_NODE: ${{ needs.changes.outputs.node }}
           CHANGE_WINDOWS: ${{ needs.changes.outputs.windows }}
           CHANGE_LINUX: ${{ needs.changes.outputs.linux }}
           CHANGE_IOS: ${{ needs.changes.outputs.ios }}
@@ -3483,52 +2561,33 @@ jobs:
           CHANGE_UNKNOWN: ${{ needs.changes.outputs.unknown }}
           DETECTED_GO: ${{ needs.detect-projects.outputs.go }}
           DETECTED_RUST: ${{ needs.detect-projects.outputs.rust }}
-          DETECTED_NODE: ${{ needs.detect-projects.outputs.node }}
-          DETECTED_SWIFT: ${{ needs.detect-projects.outputs.swift }}
-          DETECTED_SWIFT_SOURCES: ${{ needs.detect-projects.outputs.swift_sources }}
-          RESULT_SWIFT_MANIFEST: ${{ needs.swift-manifest-validation.result }}
-          DETECTED_IOS_XCODE_SPEC: ${{ needs.detect-projects.outputs.ios_xcode_spec }}
-          RESULT_IOS_XCODE_BUILD: ${{ needs.ios-xcode-build.result }}
-          DETECTED_APPLE: ${{ needs.detect-projects.outputs.apple }}
           RESULT_CHANGES: ${{ needs.changes.result }}
           RESULT_POLICY_FAST: ${{ needs.policy-fast.result }}
           RESULT_POLICY_FULL: ${{ needs.policy-full.result }}
           RESULT_DETECT_PROJECTS: ${{ needs.detect-projects.result }}
           RESULT_WORKSPACE_SMOKE: ${{ needs.workspace-smoke.result }}
           RESULT_GO_BUILD_TEST: ${{ needs.go-build-test.result }}
-          RESULT_WINDOWS_GUI_FRONTEND: ${{ needs.windows-gui-frontend.result }}
           RESULT_RUST_BUILD_TEST: ${{ needs.rust-build-test.result }}
-          RESULT_WINDOWS_INSTALLER: ${{ needs.windows-managed-client-installer.result }}
           RESULT_RUST_AUDIT: ${{ needs.rust-security-audit.result }}
           RESULT_RUST_H2_FUZZ: ${{ needs.rust-h2-mitm-fuzz.result }}
           RESULT_MAINTENANCE: ${{ needs.maintenance-contracts.result }}
           RESULT_REALITY_INTEROP: ${{ needs.reality-interop.result }}
           RESULT_PROTOCOL_FEATURES: ${{ needs.protocol-features.result }}
           RESULT_SCRIPT_RUNTIME_JSC: ${{ needs.script-runtime-jsc.result }}
-          RESULT_LINUX_GUI: ${{ needs.linux-gui.result }}
-          RESULT_NODE_BUILD_TEST: ${{ needs.node-build-test.result }}
-          RESULT_SWIFT_BUILD_TEST: ${{ needs.swift-build-test.result }}
-          RESULT_APPLE_SMOKE: ${{ needs.apple-project-smoke.result }}
+          RESULT_IOS_RUNTIME_LIBS: ${{ needs.ios-runtime-static-libs.result }}
           WORKFLOW_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
 
           workspace_required=false
           go_required=false
-          windows_gui_frontend_required=false
           rust_required=false
-          windows_required=false
           audit_required=false
-          node_required=false
-          swift_required=false
-          swift_manifest_required=false
-          ios_xcode_required=false
-          apple_required=false
+          ios_runtime_required=false
           reality_interop_required=false
-          linux_gui_required=false
 
           if [[ "${CHANGE_FULL_MATRIX}" == true || "${CHANGE_GO}" == true || "${CHANGE_RUST}" == true ||
-                "${CHANGE_NODE}" == true || "${CHANGE_WINDOWS}" == true || "${CHANGE_LINUX}" == true ||
+                "${CHANGE_WINDOWS}" == true || "${CHANGE_LINUX}" == true ||
                 "${CHANGE_IOS}" == true || "${CHANGE_APPLE}" == true ]]; then
             workspace_required=true
           fi
@@ -3544,35 +2603,9 @@ jobs:
           if [[ "${CHANGE_FULL_MATRIX}" == true || "${CHANGE_RUST}" == true ]]; then
             reality_interop_required=true
           fi
-          if [[ "${CHANGE_FULL_MATRIX}" == true || "${CHANGE_WINDOWS}" == true ]]; then
-            windows_required=true
-          fi
-          if [[ "${DETECTED_RUST}" == true && "${DETECTED_NODE}" == true &&
-                ("${CHANGE_FULL_MATRIX}" == true || "${CHANGE_LINUX}" == true || "${CHANGE_NODE}" == true) ]]; then
-            linux_gui_required=true
-          fi
-          if [[ "${DETECTED_NODE}" == true && ("${CHANGE_FULL_MATRIX}" == true || "${CHANGE_WINDOWS}" == true) ]]; then
-            windows_gui_frontend_required=true
-          fi
-          if [[ "${DETECTED_NODE}" == true && ("${CHANGE_FULL_MATRIX}" == true || "${CHANGE_NODE}" == true ||
-                "${CHANGE_WINDOWS}" == true) ]]; then
-            node_required=true
-          fi
-          if [[ "${DETECTED_SWIFT}" == true && ("${CHANGE_FULL_MATRIX}" == true || "${CHANGE_IOS}" == true ||
+          if [[ "${DETECTED_RUST}" == true && ("${CHANGE_FULL_MATRIX}" == true || "${CHANGE_IOS}" == true ||
                 "${CHANGE_APPLE}" == true) ]]; then
-            swift_manifest_required=true
-          fi
-          if [[ "${DETECTED_SWIFT_SOURCES}" == true && ("${CHANGE_FULL_MATRIX}" == true || "${CHANGE_IOS}" == true ||
-                "${CHANGE_APPLE}" == true) ]]; then
-            swift_required=true
-          fi
-          if [[ "${DETECTED_IOS_XCODE_SPEC}" == true && ("${CHANGE_FULL_MATRIX}" == true || "${CHANGE_IOS}" == true ||
-                "${CHANGE_APPLE}" == true) ]]; then
-            ios_xcode_required=true
-          fi
-          if [[ "${DETECTED_APPLE}" == true && ("${CHANGE_FULL_MATRIX}" == true || "${CHANGE_IOS}" == true ||
-                "${CHANGE_APPLE}" == true) ]]; then
-            apple_required=true
+            ios_runtime_required=true
           fi
 
           ran_jobs=()
@@ -3617,21 +2650,14 @@ jobs:
           record_job "Detect project types" "${RESULT_DETECT_PROJECTS}" true
           record_job "Workspace smoke" "${RESULT_WORKSPACE_SMOKE}" "${workspace_required}"
           record_job "Go build and test" "${RESULT_GO_BUILD_TEST}" "${go_required}"
-          record_job "Windows GUI frontend artifact" "${RESULT_WINDOWS_GUI_FRONTEND}" "${windows_gui_frontend_required}"
           record_job "Rust build and test" "${RESULT_RUST_BUILD_TEST}" "${rust_required}"
-          record_job "Windows managed client MSI" "${RESULT_WINDOWS_INSTALLER}" "${windows_required}"
           record_job "Rust dependency security audit" "${RESULT_RUST_AUDIT}" "${audit_required}"
           record_job "HTTP/2 MITM fuzz" "${RESULT_RUST_H2_FUZZ}" "${rust_required}"
           record_job "Maintenance diagnostic contract" "${RESULT_MAINTENANCE}" "${rust_required}"
           record_job "REALITY interop (Linux)" "${RESULT_REALITY_INTEROP}" "${reality_interop_required}"
           record_job "Protocol feature matrix" "${RESULT_PROTOCOL_FEATURES}" "${rust_required}"
           record_job "JavaScriptCore script conformance" "${RESULT_SCRIPT_RUNTIME_JSC}" "${rust_required}"
-          record_job "Linux GUI build" "${RESULT_LINUX_GUI}" "${linux_gui_required}"
-          record_job "Node build and test" "${RESULT_NODE_BUILD_TEST}" "${node_required}"
-          record_job "Swift build and test" "${RESULT_SWIFT_BUILD_TEST}" "${swift_required}"
-          record_job "Swift package manifest validation" "${RESULT_SWIFT_MANIFEST}" "${swift_manifest_required}"
-          record_job "iOS Xcode project build" "${RESULT_IOS_XCODE_BUILD}" "${ios_xcode_required}"
-          record_job "Apple project smoke" "${RESULT_APPLE_SMOKE}" "${apple_required}"
+          record_job "iOS runtime static libraries" "${RESULT_IOS_RUNTIME_LIBS}" "${ios_runtime_required}"
 
           join_list() {
             local joined
@@ -3673,7 +2699,6 @@ jobs:
             echo "| governance | ${CHANGE_GOVERNANCE} |"
             echo "| go | ${CHANGE_GO} |"
             echo "| rust | ${CHANGE_RUST} |"
-            echo "| node | ${CHANGE_NODE} |"
             echo "| windows | ${CHANGE_WINDOWS} |"
             echo "| linux | ${CHANGE_LINUX} |"
             echo "| ios | ${CHANGE_IOS} |"
@@ -3691,18 +2716,13 @@ jobs:
             echo "| Detect project types | true | ${RESULT_DETECT_PROJECTS} |"
             echo "| Workspace smoke | ${workspace_required} | ${RESULT_WORKSPACE_SMOKE} |"
             echo "| Go build and test | ${go_required} | ${RESULT_GO_BUILD_TEST} |"
-            echo "| Windows GUI frontend artifact | ${windows_gui_frontend_required} | ${RESULT_WINDOWS_GUI_FRONTEND} |"
             echo "| Rust build and test | ${rust_required} | ${RESULT_RUST_BUILD_TEST} |"
-            echo "| Windows managed client MSI | ${windows_required} | ${RESULT_WINDOWS_INSTALLER} |"
             echo "| Rust dependency security audit | ${audit_required} | ${RESULT_RUST_AUDIT} |"
             echo "| REALITY interop (Linux) | ${reality_interop_required} | ${RESULT_REALITY_INTEROP} |"
             echo "| HTTP/2 MITM fuzz | ${rust_required} | ${RESULT_RUST_H2_FUZZ} |"
             echo "| Protocol feature matrix | ${rust_required} | ${RESULT_PROTOCOL_FEATURES} |"
             echo "| JavaScriptCore script conformance | ${rust_required} | ${RESULT_SCRIPT_RUNTIME_JSC} |"
-            echo "| Linux GUI build | ${linux_gui_required} | ${RESULT_LINUX_GUI} |"
-            echo "| Node build and test | ${node_required} | ${RESULT_NODE_BUILD_TEST} |"
-            echo "| Swift build and test | ${swift_required} | ${RESULT_SWIFT_BUILD_TEST} |"
-            echo "| Apple project smoke | ${apple_required} | ${RESULT_APPLE_SMOKE} |"
+            echo "| iOS runtime static libraries | ${ios_runtime_required} | ${RESULT_IOS_RUNTIME_LIBS} |"
           } >> "$GITHUB_STEP_SUMMARY"
 
           echo "commit-sha=${{ github.sha }}"

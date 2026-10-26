@@ -1,17 +1,14 @@
 # iOS Embedded Runtime FFI Boundary Design
 
-本文件定义后续 iOS Network Extension 内嵌 Rust runtime 的 FFI boundary。它承接
-[iOS Network Extension Design](ios-network-extension-design.md)、
-[iOS Platform Adapter Source Contract](ios-platform-adapter-source-contract.md)、
-[iOS Swift Network Extension Bridge Design](ios-swift-network-extension-bridge-design.md)、
-[iOS Swift Xcode Bridge Source Contract](ios-swift-xcode-bridge-source-contract.md)、
-[iOS MITM Certificate Lifecycle Design](ios-mitm-certificate-lifecycle-design.md)、
-[iOS Entitlement Provisioning Source Contract](ios-entitlement-provisioning-source-contract.md)、
-[iOS App Review Privacy Release Readiness Design](ios-app-review-privacy-release-readiness-design.md)、
-[iOS Privacy Manifest Source Contract](ios-privacy-manifest-source-contract.md)、
-[iOS App Review Manual Confirmation Source Contract](ios-app-review-manual-confirmation-source-contract.md)、
-[iOS TestFlight App Store Connect Upload Workflow Source Contract](ios-testflight-app-store-connect-upload-workflow-source-contract.md) 和
-[iOS Platform Risk Assessment](ios-platform-risk-assessment.md)。
+本文件定义后续 iOS Network Extension 内嵌 Rust runtime 的 FFI boundary，是本内核仓库与
+[AnixOps/anixops-net](https://github.com/AnixOps/anixops-net) 中 iOS/macOS App 之间的边界。iOS Network Extension、
+Swift bridge、Xcode、entitlement/provisioning、MITM 证书、隐私清单、App Review 与 TestFlight 上传等客户端设计和合同已随客户端
+迁到该仓库的 `docs/architecture/`。
+
+> 客户端拆分后的实现现状：`engine-embedded` 与 `node-import` 已声明 `staticlib`，C header 分别为
+> `crates/engine-embedded/include/networkcore_ios_runtime.h` 和 `crates/node-import/include/networkcore_import.h`；
+> CI 的 `iOS runtime static libraries` job 为 `aarch64-apple-ios` 构建两个静态库。XCFramework 组装、Swift/Xcode 构建与签名在
+> AnixOps/anixops-net 完成。下文保留最初的 design-only 记录。
 
 当前状态：design-only。仓库仍不包含 iOS runtime FFI crate、C header、generated bindings、Swift source、
 `Package.swift`、Xcode project、Network Extension target、staticlib、XCFramework、entitlement、
@@ -62,7 +59,7 @@ crates/ios-runtime-ffi/
   src/lib.rs
   tests/ios_runtime_ffi_contracts.rs
 
-apps/ios/
+apps/ios/            # 现位于 AnixOps/anixops-net
   Sources/NetworkCoreBridge/
     NetworkCoreRuntimeFFI.swift
     NetworkCoreRuntimeBuffers.swift
@@ -184,8 +181,8 @@ Extension 内 runtime lifecycle 必须显式可重入：
 
 Runtime 可用性只表示 Extension 进程内 embedded runtime 可加载且 ABI/schema 兼容，不代表 Network Extension entitlement、
 VPN authorization、MITM certificate 或 remote script policy 已通过；MITM certificate lifecycle 必须遵守
-[iOS MITM Certificate Lifecycle Design](ios-mitm-certificate-lifecycle-design.md)，entitlement/provisioning 边界必须遵守
-[iOS Entitlement Provisioning Source Contract](ios-entitlement-provisioning-source-contract.md)，这些状态仍由 `IosPlatformSnapshot`
+AnixOps/anixops-net 中的 iOS MITM Certificate Lifecycle Design，entitlement/provisioning 边界必须遵守
+该仓库的 iOS Entitlement Provisioning Source Contract，这些状态仍由 `IosPlatformSnapshot`
 和 `control-runtime` gate 独立判断。
 
 ## GitHub Actions Validation Entry

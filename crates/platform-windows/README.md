@@ -31,4 +31,5 @@ operations are `null` until an operator supplies absolute paths or proxy
 settings. The GUI and service append diagnostics under
 `%ProgramData%\\AnixOps\\NetworkCore\\logs`; errors are always recorded, while
 verbose GUI status logging can be toggled from the desktop client or enabled
-with `networkcore-windows-gui.exe --debug`.
+with `networkcore-windows-gui.exe --debug` (the GUI and service live in
+[AnixOps/anixops-net](https://github.com/AnixOps/anixops-net)).
