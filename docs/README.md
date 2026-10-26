@@ -26,6 +26,7 @@
 ## 协议规格
 
 - [Snell 协议规格（净室实现用）](protocols/snell.md)：v1–v6 线上格式、复用、UDP、v4 整形与 v6 画像派生
+- [Mieru 协议规格（净室实现用）](protocols/mieru.md)：TCP 密钥派生、nonce、分段格式与会话流程，含官方 mita 黑盒实测
 
 ## 订阅
 

@@ -77,7 +77,7 @@ beta.5 只用真实主机验收“候选工件能安全安装、跑通主路径�
 | Windows GUI Daily Usability Acceptance 第 1–9、12、14 条 | 日常可用性覆盖矩阵、选择器组编辑、待处理操作期间的重绘 | 下一个 Windows 发布前 |
 | Windows GUI Daily Usability Acceptance 第 13 条 | Bilibili 推广请求拦截试用（默认关闭的可选功能） | 不设期限 |
 | Windows managed client | Authenticode 签名（未签名警告是 beta 已知限制） | 维护者提供签名材料后 |
-| Mieru External Core Acceptance | Mieru 外部 core 互通 | Mieru 宣称可用前 |
+| Mieru Native Outbound Acceptance | 内置 Mieru 出站对远端 mita 的真机互通 | Mieru 宣称可用前 |
 | 当前待处理中的运维上线环境与诊断运行时接线 | 告警渠道、独立监控、跨地域设备 | 运维上线前 |
 | iOS 各章节 | iOS 不产生 beta.5 工件，按自己的门禁推进 | 不属于 beta.5 |
 
@@ -409,28 +409,28 @@ selected crate versions, license/NOTICE review, ALPN behavior, QUIC UDP
 listener boundary, bounded stream/body limits, and rollback behavior. No local
 dependency resolution, build, or protocol runtime smoke test is allowed.
 
-## Mieru External Core Acceptance
+## Mieru Native Outbound Acceptance
 
-The source and contract layers now require an operator-supplied Mieru binary or
-an explicitly confirmed `enfein/mieru` GitHub release asset with a pinned
-SHA-256 digest. Before calling Mieru production-ready, record the selected
-release URL, digest, license/NOTICE evidence, and binary provenance in the
-protected release record. Do not place the binary, credentials, or client JSON
-in the repository or diagnostic artifact.
+`outbound-mieru` is the built-in Mieru client, written clean-room from
+`docs/protocols/mieru.md`. The external Mieru core and its binary allowlist are
+gone. CI checks it two ways:
 
-On a supported Windows host and an Ubuntu/systemd Linux host, import a test
-`mierus://` node, render the client config, run the official Mieru `apply
-config`, `start`, and `status` flow, and verify that the loopback SOCKS5 port
-accepts connections through the intended remote node. Stop the client and
-confirm the loopback listener, system proxy, and service-owned temporary state
-are cleaned up. Terminate the official client unexpectedly and preserve the
-failed-state, status-check, listener-check, and proxy-rollback evidence.
+- Loopback contract tests.
+- The `REALITY interop (Linux)` job, which runs it against the official `mita`
+  package. The package is installed on the runner from the enfein/mieru GitHub
+  release and is never redistributed.
 
-The automated contracts verify source allowlisting, digest checks, command
-ordering, redaction, and bounded loopback probing; they do not prove external
-Mieru server interoperability, real traffic forwarding, or Windows GUI/DPI
-behavior. Those results must be recorded here before M3/M4/M5 are described as
-fully accepted.
+CI cannot prove behaviour against a real remote server. Before calling Mieru
+production-ready on a platform:
+
+1. Import a test `mierus://` simple share link (or a Clash `type: mieru`
+   entry) for a TCP port binding on a remote `mita` server.
+2. Browse and download through it on iOS, Windows and Linux.
+3. Record the platform, the `mita` version and the result here. Leave out
+   addresses and credentials.
+4. Confirm that UDP-only links and nodes are reported as unsupported rather
+   than failing silently. The UDP transport, multiplexing and low-entropy
+   segments are not implemented yet.
 
 ## VLESS + REALITY Outbound Acceptance (M1b)
 
