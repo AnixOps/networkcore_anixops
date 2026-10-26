@@ -15,18 +15,18 @@
 //! UDP relay is not implemented yet.
 
 mod factory;
-mod salts;
 
 use std::io;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{ready, Context, Poll};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use aes::cipher::{BlockCipherDecrypt, KeyInit};
 use aes::{Aes128, Aes256, Block};
 use base64::Engine as _;
+use engine_inbound::replay::ReplayCache;
 use engine_inbound::users::{UserIndex, Validator};
 use engine_inbound::{Accepted, Rejected, StreamInbound, User, UserStore};
 use engine_outbound::{BoxFuture, BoxStream, TargetAddr};
@@ -36,8 +36,6 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, ReadBuf};
 
 pub use factory::{ShadowsocksInboundFactory, TYPE_NAME};
 pub use outbound_shadowsocks::Method;
-
-use salts::SaltCache;
 
 pub const PROTOCOL: &str = "shadowsocks-2022";
 
@@ -51,6 +49,9 @@ const SERVER_STREAM: u8 = 1;
 /// Request fixed header: type, timestamp, variable header length.
 const REQUEST_FIXED_LEN: usize = 1 + 8 + 2;
 const MAX_TIMESTAMP_DIFF_SECS: u64 = 30;
+/// SIP022 asks servers to remember salts for at least twice the timestamp
+/// window.
+const SALT_TTL: Duration = Duration::from_secs(60);
 /// Plaintext bytes per outgoing chunk; the protocol allows 0xFFFF.
 const MAX_CHUNK: usize = 16 * 1024;
 
@@ -62,7 +63,7 @@ pub struct Ss2022Inbound {
     multi_user: bool,
     users: Arc<UserStore>,
     index: UserIndex<[u8; IDENTITY_HEADER_LEN]>,
-    salts: SaltCache,
+    salts: ReplayCache,
 }
 
 impl Ss2022Inbound {
@@ -92,7 +93,7 @@ impl Ss2022Inbound {
             multi_user,
             index: UserIndex::new(users.clone(), user_identity),
             users,
-            salts: SaltCache::default(),
+            salts: ReplayCache::new(SALT_TTL),
         })
     }
 

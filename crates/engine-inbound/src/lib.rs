@@ -20,6 +20,7 @@
 
 pub mod addr;
 pub mod registry;
+pub mod replay;
 pub mod server;
 pub mod stream;
 pub mod users;

@@ -2600,6 +2600,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "inbound-vmess"
+version = "0.2.0"
+dependencies = [
+ "aes",
+ "crc32fast",
+ "engine-inbound",
+ "engine-outbound",
+ "inbound-transport",
+ "outbound-vmess",
+ "ring",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "indexmap"
 version = "1.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

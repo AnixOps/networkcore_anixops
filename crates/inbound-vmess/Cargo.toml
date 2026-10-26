@@ -1,0 +1,27 @@
+[package]
+name = "inbound-vmess"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "VMess AEAD server inbound with per-user UUIDs."
+
+[dependencies]
+# AuthID block decryption only; AEAD uses ring.
+aes = "0.9"
+crc32fast = "1.5"
+engine-inbound = { path = "../engine-inbound" }
+engine-outbound = { path = "../engine-outbound" }
+inbound-transport = { path = "../inbound-transport" }
+# Shares the KDF, key derivations and size mask with the client outbound.
+outbound-vmess = { path = "../outbound-vmess" }
+ring = "0.17"
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", default-features = false, features = ["io-util"] }
+
+[dev-dependencies]
+serde_json = "1"
+tokio = { version = "1", default-features = false, features = ["io-util", "net", "rt", "rt-multi-thread", "macros", "time"] }
+
+[lib]
+path = "src/lib.rs"

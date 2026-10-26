@@ -19,6 +19,7 @@ members = [
     "crates/inbound-transport",
     "crates/inbound-trojan",
     "crates/inbound-vless",
+    "crates/inbound-vmess",
     "crates/mitm-anixops-sys",
     "crates/mitm-policy",
     "crates/node-import",
