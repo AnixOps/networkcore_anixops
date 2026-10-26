@@ -15,7 +15,7 @@ iWAN 是 Panabit 的 SD-WAN 私有隧道协议，没有公开文档。本仓库�
 
 - [S1] github.com/Ricky-Hao/iwand（commit 9f6a0e3）。作者称是对官方 `linux_sdwand_x86` 的逆向重写。仓库没有 LICENSE 文件，只在打包元数据里写了 MIT，因此按"许可不明"对待，只取协议事实。
 - [S2] 同仓库的 Go 原型服务端（`server/`），作者明确说是本地兼容性测试用的原型，不是官方服务端行为。
-- [S3] 黑盒互通 CI（待实现后补充 run 编号）。
+- [S3] 黑盒互通 CI：PR #109 run [40381164071](https://github.com/AnixOps/networkcore_anixops/actions/runs/40381164071)（head d50592e），`outbound-iwan` 对 iwand-server（9f6a0e3）通过：握手与下发、错误口令 OPENREJ、明文 / XOR / 用户不允许加密时的回显、ECHO RTT、CLOSE 后会话移除、两个节点之间 200 KB 以上的 TCP 与 UDP。这只证明与 S2 原型一致；真实 Panabit 设备的结果由 anx 仓库的 `panabit-interop.yml` 补测。
 
 凡标注 **[待实测]** 的条目必须在互通 CI 或真实 Panabit 设备上确认后才能去掉标注。标注 **[S1 推测]** 的条目连参考实现自己都写明是简化或猜测，不进入第一版实现。
 
