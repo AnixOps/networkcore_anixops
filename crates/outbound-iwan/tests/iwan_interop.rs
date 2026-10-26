@@ -12,6 +12,15 @@
 //! mask. Packet-level cases drive the sans-IO client over a blocking socket;
 //! the outbound cases pass TCP and UDP between two nodes through the
 //! server's forwarding.
+//!
+//! Setting `IWAN_SERVER` targets an external server instead, such as a real
+//! Panabit device: `IWAN_SERVER` (IPv4 or host name), `IWAN_PORT` (default
+//! 4567), `IWAN_USER_PLAIN`/`IWAN_PASS_PLAIN`, optional
+//! `IWAN_USER_XOR`/`IWAN_PASS_XOR`, `IWAN_MTU` (client MTU, default 1400) and
+//! optional `IWAN_FETCH` (`host:port` of an HTTP server reachable through the
+//! server's exit). Only the handshake and lease, OPENREJ, ECHO RTT and the
+//! fetch run then; cases that rely on iwand-server's echo and forwarding
+//! are skipped.
 
 use std::collections::VecDeque;
 use std::io;
@@ -38,12 +47,62 @@ fn env(name: &str) -> String {
     std::env::var(name).unwrap_or_else(|_| panic!("{name} is not set"))
 }
 
-fn server() -> SocketAddr {
-    env("NC_IWAN_SERVER").parse().unwrap()
+fn optional_env(name: &str) -> Option<String> {
+    std::env::var(name).ok().filter(|value| !value.is_empty())
 }
 
-fn user(name: &str) -> User {
-    let value = env(name);
+/// An external server (`IWAN_SERVER`) rather than the CI iwand-server.
+fn external() -> bool {
+    optional_env("IWAN_SERVER").is_some()
+}
+
+/// Skips a case that needs iwand-server's echo or forwarding.
+fn iwand_only(case: &str) -> bool {
+    if external() {
+        eprintln!("{case}: skipped against an external server");
+    }
+    external()
+}
+
+/// Host and port as the outbound config takes them.
+fn server_host() -> (String, u16) {
+    match optional_env("IWAN_SERVER") {
+        Some(host) => {
+            let port = optional_env("IWAN_PORT").map_or(4567, |port| port.parse().unwrap());
+            (host, port)
+        }
+        None => {
+            let server: SocketAddr = env("NC_IWAN_SERVER").parse().unwrap();
+            (server.ip().to_string(), server.port())
+        }
+    }
+}
+
+fn server() -> SocketAddr {
+    use std::net::ToSocketAddrs;
+    let (host, port) = server_host();
+    (host.as_str(), port)
+        .to_socket_addrs()
+        .unwrap()
+        .find(SocketAddr::is_ipv4)
+        .expect("iwan server has no IPv4 address")
+}
+
+fn client_mtu() -> u16 {
+    optional_env("IWAN_MTU").map_or(1400, |mtu| mtu.parse().unwrap())
+}
+
+/// `kind` is `PLAIN` or `XOR`. Against an external server the tunnel address
+/// is not known in advance and stays unspecified.
+fn user(kind: &str) -> User {
+    if external() {
+        return User {
+            name: env(&format!("IWAN_USER_{kind}")),
+            password: env(&format!("IWAN_PASS_{kind}")),
+            address: Ipv4Addr::UNSPECIFIED,
+        };
+    }
+    let value = env(&format!("NC_IWAN_{kind}"));
     let mut parts = value.splitn(3, ':');
     User {
         name: parts.next().unwrap().to_owned(),
@@ -101,7 +160,7 @@ impl Harness {
         let config = ClientConfig {
             username: user.name.clone().into_bytes(),
             password: password.as_bytes().to_vec(),
-            mtu: 1400,
+            mtu: client_mtu(),
             encrypt,
             pipe_id: 0,
             pipe_idx: 0,
@@ -203,19 +262,34 @@ fn is_timeout(err: &io::Error) -> bool {
 #[test]
 #[ignore = "needs iwand-server; run by the interop CI job"]
 fn handshake_hands_out_address_dns_and_mtu() {
-    let plain = user("NC_IWAN_PLAIN");
+    let plain = user("PLAIN");
     let mut harness = Harness::new(&plain, &plain.password, false);
     let network = harness.established();
+    assert!(!network.address.is_unspecified());
+    assert!(network.mtu <= client_mtu());
+    if external() {
+        eprintln!(
+            "lease: address {} dns {:?} mtu {}",
+            network.address, network.dns, network.mtu
+        );
+        if optional_env("IWAN_USER_XOR").is_some() {
+            let masked = user("XOR");
+            let mut harness = Harness::new(&masked, &masked.password, true);
+            harness.established();
+            eprintln!("xor user: masking {}", harness.client.encrypted());
+        }
+        return;
+    }
     assert_eq!(network.address, plain.address);
     assert_eq!(network.dns, dns());
-    assert_eq!(network.mtu, server_mtu().min(1400));
+    assert_eq!(network.mtu, server_mtu().min(client_mtu()));
     assert!(!harness.client.encrypted());
 }
 
 #[test]
 #[ignore = "needs iwand-server; run by the interop CI job"]
 fn wrong_password_is_rejected() {
-    let plain = user("NC_IWAN_PLAIN");
+    let plain = user("PLAIN");
     let mut harness = Harness::new(&plain, "not-the-password", false);
     let event = harness.wait_for(WAIT, |event| {
         matches!(event, Output::Established(_) | Output::Rejected)
@@ -232,12 +306,15 @@ fn assert_echo(harness: &mut Harness, source: Ipv4Addr) {
 #[test]
 #[ignore = "needs iwand-server; run by the interop CI job"]
 fn plain_and_masked_packets_are_echoed() {
-    let plain = user("NC_IWAN_PLAIN");
+    if iwand_only("echo") {
+        return;
+    }
+    let plain = user("PLAIN");
     let mut harness = Harness::new(&plain, &plain.password, false);
     harness.established();
     assert_echo(&mut harness, plain.address);
 
-    let masked = user("NC_IWAN_XOR");
+    let masked = user("XOR");
     let mut harness = Harness::new(&masked, &masked.password, true);
     harness.established();
     assert!(
@@ -256,7 +333,7 @@ fn plain_and_masked_packets_are_echoed() {
 #[test]
 #[ignore = "needs iwand-server; run by the interop CI job"]
 fn echo_round_trip_updates_latency() {
-    let plain = user("NC_IWAN_PLAIN");
+    let plain = user("PLAIN");
     let mut harness = Harness::new(&plain, &plain.password, false);
     harness.established();
     let rtt = harness.wait_for(WAIT, |event| matches!(event, Output::Rtt { .. }));
@@ -269,7 +346,10 @@ fn echo_round_trip_updates_latency() {
 #[test]
 #[ignore = "needs iwand-server; run by the interop CI job"]
 fn closed_session_is_removed() {
-    let plain = user("NC_IWAN_PLAIN");
+    if iwand_only("session removal") {
+        return;
+    }
+    let plain = user("PLAIN");
     let mut harness = Harness::new(&plain, &plain.password, false);
     harness.established();
     let packet = udp_packet(plain.address, ECHO_TARGET, b"before close");
@@ -287,13 +367,14 @@ fn closed_session_is_removed() {
 }
 
 fn node(user: &User, encrypt: bool) -> IwanOutbound {
-    let server = server();
+    let (host, port) = server_host();
     let json = serde_json::json!({
-        "server": server.ip().to_string(),
-        "port": server.port(),
+        "server": host,
+        "port": port,
         "username": user.name,
         "password": user.password,
         "encrypt": encrypt,
+        "mtu": client_mtu(),
     });
     let config: IwanConfig = serde_json::from_value(json).unwrap();
     IwanOutbound::new(config.validate().unwrap())
@@ -302,8 +383,11 @@ fn node(user: &User, encrypt: bool) -> IwanOutbound {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "needs iwand-server; run by the interop CI job"]
 async fn outbound_tcp_and_udp_between_two_nodes() {
-    let plain_user = user("NC_IWAN_PLAIN");
-    let masked_user = user("NC_IWAN_XOR");
+    if iwand_only("forwarding between nodes") {
+        return;
+    }
+    let plain_user = user("PLAIN");
+    let masked_user = user("XOR");
     let plain = node(&plain_user, false);
     let masked = node(&masked_user, true);
 
@@ -363,4 +447,35 @@ async fn outbound_tcp_and_udp_between_two_nodes() {
         .unwrap()
         .unwrap();
     assert_eq!(pong, b"pong");
+}
+
+/// An HTTP request through the tunnel to `IWAN_FETCH`, for a server with an
+/// exit; skipped when it is not set.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "needs an iWAN server with an exit"]
+async fn fetch_through_the_tunnel() {
+    let Some(fetch) = optional_env("IWAN_FETCH") else {
+        eprintln!("fetch: skipped, IWAN_FETCH is not set");
+        return;
+    };
+    let (host, port) = fetch.rsplit_once(':').expect("IWAN_FETCH is host:port");
+    let port: u16 = port.parse().unwrap();
+    let target = match host.parse::<Ipv4Addr>() {
+        Ok(address) => TargetAddr::Ip(SocketAddr::new(address.into(), port)),
+        Err(_) => TargetAddr::Domain(host.to_owned(), port),
+    };
+    let plain = node(&user("PLAIN"), false);
+    let mut stream = tokio::time::timeout(WAIT, plain.connect(&target))
+        .await
+        .unwrap()
+        .unwrap();
+    let request = format!("HEAD / HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n");
+    stream.write_all(request.as_bytes()).await.unwrap();
+    let mut head = [0u8; 5];
+    tokio::time::timeout(WAIT, stream.read_exact(&mut head))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(&head, b"HTTP/");
+    eprintln!("fetch: ECHO rtt {:?}", plain.rtt());
 }
