@@ -202,11 +202,13 @@ async fn users_added_and_removed_at_runtime() {
         .await
         .expect("revoked connection should close");
     assert!(matches!(read, Ok(0) | Err(_)));
-    // A new connection with the removed user's credentials is closed.
-    let mut again = carol.connect(&TargetAddr::Ip(echo_addr)).await.unwrap();
-    let _ = again.write_all(b"carol").await;
-    let read = tokio::time::timeout(TIMEOUT, again.read_exact(&mut buf[..5]))
-        .await
-        .expect("refusal timed out");
-    assert!(read.is_err());
+    // A new connection with the removed user's credentials is closed; the
+    // close can already arrive while the client opens its stream.
+    if let Ok(mut again) = carol.connect(&TargetAddr::Ip(echo_addr)).await {
+        let _ = again.write_all(b"carol").await;
+        let read = tokio::time::timeout(TIMEOUT, again.read_exact(&mut buf[..5]))
+            .await
+            .expect("refusal timed out");
+        assert!(read.is_err());
+    }
 }
