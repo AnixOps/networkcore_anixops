@@ -24,6 +24,7 @@ use ring::rand::{SecureRandom, SystemRandom};
 use transport_grpc::GrpcConnector;
 use transport_tls::TlsConnector;
 use transport_ws::WsConnector;
+use transport_xhttp::XhttpConnector;
 
 pub use factory::{parse_uuid, VmessFactory, TYPE_NAME};
 
@@ -82,6 +83,7 @@ pub struct VmessOutbound {
     tls: Option<TlsConnector>,
     websocket: Option<WsConnector>,
     grpc: Option<GrpcConnector>,
+    xhttp: Option<XhttpConnector>,
     dialer: Arc<dyn Dialer>,
     random: SystemRandom,
 }
@@ -96,6 +98,7 @@ impl fmt::Debug for VmessOutbound {
             .field("tls", &self.tls.is_some())
             .field("websocket", &self.websocket.is_some())
             .field("grpc", &self.grpc.is_some())
+            .field("xhttp", &self.xhttp.is_some())
             .finish()
     }
 }
@@ -125,6 +128,7 @@ impl VmessOutbound {
             tls,
             websocket: None,
             grpc: None,
+            xhttp: None,
             dialer,
             random: SystemRandom::new(),
         })
@@ -139,6 +143,13 @@ impl VmessOutbound {
     /// Carries the stream in a gRPC (`gun`) call instead of a WebSocket.
     pub fn with_grpc(mut self, grpc: GrpcConnector) -> Self {
         self.grpc = Some(grpc);
+        self
+    }
+
+    /// Carries the stream in an XHTTP session, which dials (and runs TLS)
+    /// by itself; the TLS connector given to [`Self::new`] is not used then.
+    pub fn with_xhttp(mut self, xhttp: XhttpConnector) -> Self {
+        self.xhttp = Some(xhttp);
         self
     }
 
@@ -205,6 +216,22 @@ impl VmessOutbound {
 
     async fn open(&self, target: &TargetAddr, command: u8) -> io::Result<BoxStream> {
         let session = self.open_session(target, command)?;
+        let stream = match &self.xhttp {
+            Some(xhttp) => xhttp.connect().await?,
+            None => self.open_stream().await?,
+        };
+        Ok(Box::new(VmessStream::new(
+            stream,
+            session.sealed,
+            session.writer,
+            session.reader,
+            session.response,
+        )) as BoxStream)
+    }
+}
+
+impl VmessOutbound {
+    async fn open_stream(&self) -> io::Result<BoxStream> {
         let mut stream = self.dialer.dial(&self.server, self.port).await?;
         if let Some(tls) = &self.tls {
             stream = tls.connect(stream).await?;
@@ -215,13 +242,7 @@ impl VmessOutbound {
         if let Some(grpc) = &self.grpc {
             stream = grpc.connect(stream).await?;
         }
-        Ok(Box::new(VmessStream::new(
-            stream,
-            session.sealed,
-            session.writer,
-            session.reader,
-            session.response,
-        )) as BoxStream)
+        Ok(stream)
     }
 }
 

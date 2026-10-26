@@ -227,6 +227,24 @@ const CASES: &[Case] = &[
         tls: true,
     },
     Case {
+        tag: "vmess-tls-xhttp",
+        proto: Proto::Vmess,
+        net: Net::Xhttp {
+            mode: "auto",
+            h1: false,
+        },
+        tls: true,
+    },
+    Case {
+        tag: "trojan-tls-xhttp",
+        proto: Proto::Trojan,
+        net: Net::Xhttp {
+            mode: "stream-up",
+            h1: false,
+        },
+        tls: true,
+    },
+    Case {
         tag: "trojan-tls",
         proto: Proto::Trojan,
         net: Net::Tcp,

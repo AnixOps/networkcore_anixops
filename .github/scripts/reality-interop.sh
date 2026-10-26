@@ -186,7 +186,7 @@ while True:
     sock.sendto(data, peer)
 " > "${work}/target-udp.log" 2>&1 &
 
-  local keypair private_key public_key uuid short_id server_name hy2_password hy2_obfs_password tuic_password
+  local keypair private_key public_key uuid short_id server_name hy2_password hy2_obfs_password tuic_password trojan_password
   keypair="$("${bin}/sing-box" generate reality-keypair)"
   private_key="$(awk '/PrivateKey/ {print $2}' <<<"${keypair}")"
   public_key="$(awk '/PublicKey/ {print $2}' <<<"${keypair}")"
@@ -194,6 +194,7 @@ while True:
   short_id="$(openssl rand -hex 8)"
   server_name="reality.interop.test"
   hy2_password="$(openssl rand -hex 16)"
+  trojan_password="$(openssl rand -hex 16)"
   tuic_password="$(openssl rand -hex 16)"
   hy2_obfs_password="$(openssl rand -hex 16)"
 
@@ -224,6 +225,16 @@ while True:
      "streamSettings": {"network": "xhttp", "xhttpSettings": {"path": "/xh"}}},
     {"tag": "xhttp-tls", "listen": "127.0.0.1", "port": 24452, "protocol": "vless",
      "settings": {"clients": [{"id": "${uuid}"}], "decryption": "none"},
+     "streamSettings": {"network": "xhttp", "xhttpSettings": {"path": "/xh"}, "security": "tls",
+       "tlsSettings": {"alpn": ["h2", "http/1.1"],
+         "certificates": [{"certificateFile": "${work}/server.crt", "keyFile": "${work}/server.key"}]}}},
+    {"tag": "vmess-xhttp", "listen": "127.0.0.1", "port": 24454, "protocol": "vmess",
+     "settings": {"clients": [{"id": "${uuid}"}]},
+     "streamSettings": {"network": "xhttp", "xhttpSettings": {"path": "/xh"}, "security": "tls",
+       "tlsSettings": {"alpn": ["h2", "http/1.1"],
+         "certificates": [{"certificateFile": "${work}/server.crt", "keyFile": "${work}/server.key"}]}}},
+    {"tag": "trojan-xhttp", "listen": "127.0.0.1", "port": 24455, "protocol": "trojan",
+     "settings": {"clients": [{"password": "${trojan_password}"}]},
      "streamSettings": {"network": "xhttp", "xhttpSettings": {"path": "/xh"}, "security": "tls",
        "tlsSettings": {"alpn": ["h2", "http/1.1"],
          "certificates": [{"certificateFile": "${work}/server.crt", "keyFile": "${work}/server.key"}]}}},
@@ -310,7 +321,7 @@ obfs:
 EOF
   "${bin}/hysteria" server -c "${work}/hysteria-salamander.yaml" > "${work}/hysteria-salamander.log" 2>&1 &
 
-  for port in 18080 18443 18444 24431 24432 24441 24442 24443 24451 24452 24453 25431 25432 25441 25442 25443; do
+  for port in 18080 18443 18444 24431 24432 24441 24442 24443 24451 24452 24453 24454 24455 25431 25432 25441 25442 25443; do
     wait_for_port "${port}"
   done
   for port in 26441 26442 26451 27441 27442 18053; do
@@ -414,6 +425,9 @@ NC_VMESS_UUID=${uuid}
 NC_XHTTP_PLAIN=127.0.0.1:24451
 NC_XHTTP_TLS=127.0.0.1:24452
 NC_XHTTP_REALITY=127.0.0.1:24453
+NC_VMESS_XHTTP=127.0.0.1:24454
+NC_TROJAN_XHTTP=127.0.0.1:24455
+NC_TROJAN_PASSWORD=${trojan_password}
 NC_HYSTERIA2_SERVERS=sing-box=127.0.0.1:26441,hysteria=127.0.0.1:27441,sing-box-salamander=127.0.0.1:26442:salamander,hysteria-salamander=127.0.0.1:27442:salamander
 NC_HYSTERIA2_OBFS_PASSWORD=${hy2_obfs_password}
 NC_HYSTERIA2_PASSWORD=${hy2_password}

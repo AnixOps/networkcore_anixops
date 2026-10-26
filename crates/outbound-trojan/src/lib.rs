@@ -33,6 +33,7 @@ use tokio::io::{
 use transport_grpc::GrpcConnector;
 use transport_tls::{TlsConnector, TlsSettings};
 use transport_ws::WsConnector;
+use transport_xhttp::XhttpConnector;
 
 pub use factory::{TrojanFactory, TYPE_NAME};
 
@@ -52,6 +53,7 @@ pub struct TrojanOutbound {
     tls: TlsConnector,
     websocket: Option<WsConnector>,
     grpc: Option<GrpcConnector>,
+    xhttp: Option<XhttpConnector>,
     dialer: Arc<dyn Dialer>,
 }
 
@@ -77,6 +79,7 @@ impl TrojanOutbound {
             tls: TlsConnector::new(tls)?,
             websocket: None,
             grpc: None,
+            xhttp: None,
             dialer,
         })
     }
@@ -93,8 +96,30 @@ impl TrojanOutbound {
         self
     }
 
+    /// Carries the stream in an XHTTP session, which dials and runs TLS by
+    /// itself; the TLS settings given to [`Self::new`] are not used then.
+    pub fn with_xhttp(mut self, xhttp: XhttpConnector) -> Self {
+        self.xhttp = Some(xhttp);
+        self
+    }
+
     async fn open(&self, command: u8, target: &TargetAddr) -> io::Result<TrojanStream> {
         let request = request_header(&self.password_hash, command, target)?;
+        let inner = match &self.xhttp {
+            Some(xhttp) => xhttp.connect().await?,
+            None => self.open_stream().await?,
+        };
+        Ok(TrojanStream {
+            inner,
+            pending: request,
+            written: 0,
+            merged: false,
+        })
+    }
+}
+
+impl TrojanOutbound {
+    async fn open_stream(&self) -> io::Result<BoxStream> {
         let transport = self.dialer.dial(&self.server, self.port).await?;
         let mut tls = self.tls.connect(transport).await?;
         if let Some(websocket) = &self.websocket {
@@ -103,12 +128,7 @@ impl TrojanOutbound {
         if let Some(grpc) = &self.grpc {
             tls = grpc.connect(tls).await?;
         }
-        Ok(TrojanStream {
-            inner: tls,
-            pending: request,
-            written: 0,
-            merged: false,
-        })
+        Ok(tls)
     }
 }
 

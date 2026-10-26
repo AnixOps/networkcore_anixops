@@ -6,8 +6,9 @@ use engine_outbound::registry::{parse_settings, BuildError, OutboundFactory, Set
 use engine_outbound::{Dialer, TcpOutbound};
 use serde::Deserialize;
 use transport_grpc::{GrpcConnector, GrpcSettings};
-use transport_tls::TlsSettings;
+use transport_tls::{TlsConnector, TlsSettings};
 use transport_ws::{WsConnector, WsSettings};
+use transport_xhttp::{HttpVersion, Security, XhttpConnector, XhttpSettings, XhttpTarget};
 
 use crate::TrojanOutbound;
 
@@ -27,8 +28,9 @@ struct TrojanSettings {
     /// Skip certificate verification (`allowInsecure=1`).
     #[serde(default)]
     insecure: bool,
-    /// `{"type": "ws", "path": ..., "host": ...}` or
-    /// `{"type": "grpc", "service_name": ...}`; plain TLS when absent.
+    /// `{"type": "ws", "path": ..., "host": ...}`,
+    /// `{"type": "grpc", "service_name": ...}` or `{"type": "xhttp", ...}`;
+    /// plain TLS when absent.
     #[serde(default)]
     transport: Option<TransportSettings>,
 }
@@ -52,6 +54,9 @@ enum TransportSettings {
         #[serde(default)]
         authority: String,
     },
+    /// Xray XHTTP (SplitHTTP); `splithttp` is its older name.
+    #[serde(alias = "splithttp")]
+    Xhttp(XhttpSettings),
 }
 
 pub struct TrojanFactory;
@@ -72,9 +77,20 @@ impl OutboundFactory for TrojanFactory {
             .server_name
             .filter(|name| !name.is_empty())
             .unwrap_or_else(|| settings.server.clone());
+        // XHTTP picks HTTP/1.1 or HTTP/2 from the configured ALPN, as Xray does.
+        let xhttp_version = match &settings.transport {
+            Some(TransportSettings::Xhttp(_)) => Some(
+                HttpVersion::select(Some(settings.alpn.as_slice()))
+                    .map_err(|_| "trojan xhttp over http/3 is not supported yet")?,
+            ),
+            _ => None,
+        };
         let mut alpn = settings.alpn;
-        // gRPC needs HTTP/2.
-        if alpn.is_empty() && matches!(settings.transport, Some(TransportSettings::Grpc { .. })) {
+        // gRPC and XHTTP over HTTP/2 need ALPN `h2`.
+        if alpn.is_empty()
+            && (matches!(settings.transport, Some(TransportSettings::Grpc { .. }))
+                || xhttp_version == Some(HttpVersion::Http2))
+        {
             alpn.push("h2".to_owned());
         }
         let tls = TlsSettings {
@@ -83,6 +99,7 @@ impl OutboundFactory for TrojanFactory {
             insecure: settings.insecure,
         };
         let mut grpc = None;
+        let mut xhttp = None;
         let websocket = match settings.transport {
             None | Some(TransportSettings::Tcp) => None,
             Some(TransportSettings::Grpc {
@@ -113,6 +130,25 @@ impl OutboundFactory for TrojanFactory {
                 )
                 .map_err(|_| "trojan websocket settings are invalid")?,
             ),
+            Some(TransportSettings::Xhttp(xhttp_settings)) => {
+                let connector =
+                    TlsConnector::new(&tls).map_err(|_| "trojan tls settings are invalid")?;
+                xhttp = Some(
+                    XhttpConnector::new(
+                        &xhttp_settings,
+                        XhttpTarget {
+                            server: settings.server.clone(),
+                            port: settings.port,
+                            default_host: tls.server_name.clone(),
+                            security: Security::Tls(connector),
+                            version: xhttp_version.unwrap_or(HttpVersion::Http2),
+                            dialer: dialer.clone(),
+                        },
+                    )
+                    .map_err(|_| "trojan xhttp settings are invalid")?,
+                );
+                None
+            }
         };
         let mut outbound = TrojanOutbound::new(
             settings.server,
@@ -127,6 +163,9 @@ impl OutboundFactory for TrojanFactory {
         }
         if let Some(grpc) = grpc {
             outbound = outbound.with_grpc(grpc);
+        }
+        if let Some(xhttp) = xhttp {
+            outbound = outbound.with_xhttp(xhttp);
         }
         Ok(Arc::new(outbound))
     }

@@ -392,9 +392,6 @@ fn vmess(node: &NodeDescriptor) -> Result<Value, Unsupported> {
         return Err("vmess alterId other than 0 (legacy headers) is not supported");
     }
     let transport = v2ray_transport(node)?;
-    if transport["type"] == "xhttp" {
-        return Err("vmess over xhttp is not implemented yet");
-    }
     Ok(json!({
         "type": "vmess",
         "server": node.endpoint.host,
@@ -626,9 +623,6 @@ fn trojan(node: &NodeDescriptor) -> Result<Value, Unsupported> {
     let password =
         metadata(node, NODE_METADATA_TROJAN_PASSWORD).ok_or("trojan password is missing")?;
     let transport = v2ray_transport(node)?;
-    if transport["type"] == "xhttp" {
-        return Err("trojan over xhttp is not implemented yet");
-    }
     if metadata(node, NODE_METADATA_TLS_ENABLED) == Some("false") {
         return Err("trojan without tls is not supported");
     }

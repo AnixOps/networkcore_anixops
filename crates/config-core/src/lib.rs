@@ -3120,6 +3120,8 @@ fn parse_vmess_link(link: &str) -> DomainResult<NodeDescriptor> {
         ("host", "host"),
         ("path", "path"),
         ("serviceName", "servicename"),
+        ("mode", "mode"),
+        ("extra", "extra"),
     ] {
         if let Some(field) = optional_json_text_field(&value, json_key) {
             query.insert(query_key.to_string(), field);

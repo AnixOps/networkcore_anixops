@@ -20,6 +20,7 @@ tokio = { version = "1", default-features = false, features = ["io-util"] }
 transport-grpc = { path = "../transport-grpc" }
 transport-tls = { path = "../transport-tls" }
 transport-ws = { path = "../transport-ws" }
+transport-xhttp = { path = "../transport-xhttp" }
 
 [dev-dependencies]
 serde_json = "1"

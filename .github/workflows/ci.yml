@@ -2365,6 +2365,8 @@ jobs:
           cargo test --locked -p outbound-vless --test reality_interop --no-run
           cargo test --locked -p outbound-vless --test xhttp_interop --no-run
           cargo test --locked -p outbound-vmess --test vmess_interop --no-run
+          cargo test --locked -p outbound-vmess --test xhttp_interop --no-run
+          cargo test --locked -p outbound-trojan --test xhttp_interop --no-run
           cargo test --locked -p outbound-hysteria2 --test hysteria2_interop --no-run
           cargo test --locked -p outbound-tuic --test tuic_interop --no-run
           cargo test --locked -p outbound-snell --test snell_interop --no-run
@@ -2399,6 +2401,8 @@ jobs:
           cargo test --locked -p outbound-vless --test reality_interop -- --ignored --test-threads=1 --nocapture
           cargo test --locked -p outbound-vless --test xhttp_interop -- --ignored --test-threads=1 --nocapture
           cargo test --locked -p outbound-vmess --test vmess_interop -- --ignored --test-threads=1 --nocapture
+          cargo test --locked -p outbound-vmess --test xhttp_interop -- --ignored --test-threads=1 --nocapture
+          cargo test --locked -p outbound-trojan --test xhttp_interop -- --ignored --test-threads=1 --nocapture
           cargo test --locked -p outbound-hysteria2 --test hysteria2_interop -- --ignored --test-threads=1 --nocapture
           cargo test --locked -p outbound-tuic --test tuic_interop -- --ignored --test-threads=1 --nocapture
           cargo test --locked -p outbound-snell --test snell_interop -- --ignored --test-threads=1 --nocapture
