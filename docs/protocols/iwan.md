@@ -246,6 +246,59 @@ iWAN 的"加密"不提供保密性或认证：
    - 主动 CLOSE 后服务端会话被移除（再发 DATA 不再回显）。
 3. 真实 Panabit 设备：需要用户提供测试账号后补测，结果写回本文档并去掉对应 **[待实测]**。
 
+### 10.1 测试服务端 `iwand-server` 的运行事实（来自 S2，仅用于搭建 CI）
+
+构建：
+
+- Go 模块路径 `github.com/Ricky-Hao/iwand`，go.mod 声明 `go 1.22`，只用标准库，无第三方依赖。
+- 在仓库根目录：`CGO_ENABLED=0 go build -trimpath -o iwand-server ./cmd/iwand-server`。不需要 CGO，不需要 build tag。其上游 CI 也是这样构建的（`actions/setup-go` 读 go.mod 的版本）。
+
+运行：
+
+- 唯一参数 `-config <JSON 文件路径>`（必需）。没有日志级别参数；日志写到 stderr，前缀 `iwand-server: `，启动时打印监听地址，之后只在处理出错时打印。SIGINT / SIGTERM 退出。
+- 无出口模式（默认）只开一个 UDP 套接字，**不需要 root、CAP_NET_ADMIN 或 TUN 设备**。出口模式才需要，CI 不开。
+
+配置（单个 JSON 对象，**拒绝未知字段**）：
+
+| 字段 | 类型 | 默认 | 说明 |
+| --- | --- | --- | --- |
+| `listen` | 字符串 `host:port` | `127.0.0.1:4567` | UDP 监听地址。启动时 stderr 打印一行 `listening on <实际地址>`，所以也可以用 `127.0.0.1:0` 再从这行读出端口 |
+| `mtu` | 整数 | 1400 | 46–1600；OPENACK 下发 min(此值, 客户端 MTU) |
+| `dns` | 字符串数组 | 空 | 0–2 个 IPv4；1 个时下发 TLV 5，2 个时下发 TLV 6，0 个时不下发 DNS |
+| `users` | 数组 | 必需，至少 1 个 | 每项 `username`、`password`（都必需、非空）、`address`（必需，非 0 的 IPv4，用户间不能重复，就是 OPENACK 下发的隧道地址，没有地址池）、`allow_encrypt`（bool，**默认 true**） |
+| `exit` | 对象 | `enabled: false` | 省略即为无出口模式 |
+
+示例（两个用户，一个禁止加密）：
+
+```json
+{
+  "listen": "127.0.0.1:45670",
+  "mtu": 1400,
+  "dns": ["1.1.1.1", "8.8.8.8"],
+  "users": [
+    {"username": "plain", "password": "pw-plain", "address": "10.20.30.10", "allow_encrypt": false},
+    {"username": "xor", "password": "pw-xor", "address": "10.20.30.11"}
+  ]
+}
+```
+
+行为：
+
+- 加密协商：OPEN 标志字节非 0 **或** TLV 8 值非 0 表示客户端请求加密；最终加密 = 请求加密且该用户 `allow_encrypt`。OPENACK 头部标志字节和 TLV 8 都给出最终结果（总是带 TLV 8）。token 和 session_id 每次随机生成。
+- 认证失败（用户不存在、口令不符、签名错、TLV 格式错、缺用户名或口令 TLV、MTU 越界）一律回 OPENREJ（只有签名过的 24 字节头，token / session_id 为 0）。
+- XOR 密钥用完整口令计算；口令 TLV 按完整口令截断/补齐到 16 字节后加密比对。
+- 同一 UDP 源地址或同一用户名再次 OPEN 成功时，旧会话被替换。会话按（UDP 源地址、token、session_id）三元组查找。
+- DATA / DATA_ENC 的处理（无出口模式）：
+  - 找不到会话（包括 CLOSE 之后）：**静默丢弃**，不回 CLOSE 也不回 OPENREJ。ECHOREQ 同理。
+  - 类型与协商结果不符（已协商加密却发 0x14，或反之）：静默丢弃。
+  - 载荷是合法 IPv4 包且目的地址等于某个**已连接用户**的 `address`：转发给那个用户（用该用户自己的 token、session_id 和加密模式重新封装）。目的地址就是发送者自己时，等于回给发送者。
+  - 其他情况（目的地址不属于任何已连接用户，或载荷不是 IPv4）：把**收到的原始载荷字节**回给发送者。
+  - 回送 / 转发都不修改 IP 包：不交换源/目的地址，不重算校验和（无出口模式不按 IPv4 总长度截断）。
+  - 回送时按接收方会话的协商结果封装：加密会话用 0x18（标志字节 1）并 XOR，否则用 0x14（标志字节 0）。
+- CI 建议：回显测试的目的地址用不属于任何用户的地址（如 192.0.2.1），期望收到逐字节相同的包；转发测试让两个客户端同时在线，A 发往 B 的 `address`，B 应收到。
+- ECHOREQ：校验签名并找到会话后，把载荷原样放进 ECHORESP 回给该会话。
+- CLOSE：校验签名后移除会话，不回包。
+
 ## 11. 内核集成（本仓库架构约定，非协议内容）
 
 - iWAN 与 WireGuard 一样是三层隧道，走 `engine-embedded` 的整隧道模式（参照 `Tunnel::start_wireguard`），不经过用户态 TCP/IP 栈和逐连接出站。
