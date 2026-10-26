@@ -377,3 +377,43 @@ fn c_abi_exports_share_links() {
         NETWORKCORE_IMPORT_ERR_UNSUPPORTED
     );
 }
+
+#[test]
+fn clash_rule_providers_come_with_the_routing() {
+    let text = r#"
+proxies:
+  - { name: HK 01, type: ss, server: 82.47.34.99, port: 11111, cipher: aes-256-gcm, password: f43c0eee-13b9-4f07-bec9-d4b744141503 }
+proxy-groups:
+  - { name: Proxy, type: select, proxies: [HK 01, DIRECT] }
+rule-providers:
+  gfw:
+    type: http
+    behavior: domain
+    url: https://rules.example/gfw.txt
+    interval: 86400
+    proxy: Proxy
+rules:
+  - RULE-SET,gfw,Proxy
+  - GEOSITE,cn,DIRECT
+  - MATCH,DIRECT
+"#;
+    let routing = import_text(text).unwrap().routing.unwrap();
+    assert_eq!(
+        routing["rules"],
+        serde_json::json!(["RULE-SET,gfw,Proxy", "GEOSITE,cn,DIRECT", "FINAL,DIRECT"])
+    );
+    assert_eq!(
+        routing["rule_sets"],
+        serde_json::json!({
+            "gfw": {
+                "url": "https://rules.example/gfw.txt",
+                "format": "domain",
+                "interval_secs": 86400,
+                "via": "Proxy"
+            }
+        })
+    );
+    // Without remote sets the key is left out.
+    let plain = text.replace("RULE-SET,gfw,Proxy", "DOMAIN-SUFFIX,gfw.example,Proxy");
+    assert!(import_text(&plain).unwrap().routing.unwrap()["rule_sets"].is_null());
+}
