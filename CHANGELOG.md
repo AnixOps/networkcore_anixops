@@ -15,6 +15,7 @@
 
 ### Added
 
+- XHTTP 客户端支持 HTTP/3：TLS ALPN 恰好为 `h3` 时，每条代理流走一条 QUIC 连接（`transport-quic`，`h3`/`h3-quinn`），三种模式都支持，VLESS、VMess、Trojan 出站均可用。互通测试新增 Xray 的 VLESS-XHTTP-H3 入站（UDP），覆盖三种模式。服务端 HTTP/3 暂不支持。
 - VMess、Trojan 出站支持 XHTTP：`"transport": {"type": "xhttp", ...}`（也接受 `splithttp`），HTTP 版本按 TLS ALPN 选择，与 VLESS 相同。订阅导入和分享链接导出支持 VMess（`net: "xhttp"`、`mode`、`extra`）和 Trojan（`type=xhttp`）的 XHTTP 节点。互通测试新增 Xray 的 VMess、Trojan + XHTTP + TLS 入站（本内核作客户端，四种组合）和 Xray 客户端以 VMess、Trojan + XHTTP 连接本内核入站。
 - REALITY 上的 XHTTP：VLESS 出站可同时配置 `reality` 和 `{"type": "xhttp", ...}`（每条连接先做 REALITY 握手再跑 HTTP/2，`auto` 为 `stream-one`，与 Xray 相同）；VLESS 入站可同时配置 `reality` 和 XHTTP 传输，未认证连接照常转给 `handshake` 站点。订阅导入接受 `security=reality&type=xhttp`。互通测试新增 Xray 的 VLESS-REALITY-XHTTP 入站（本内核作客户端）和 Xray 客户端连接本内核同类入站，各三种模式。
 - 订阅导入 XHTTP 节点：`vless://` 链接的 `type=xhttp`（或 `splithttp`）连同 `path`、`host`、`mode` 和 `extra` 中的请求头、填充与上传分段设置导入为 VLESS-XHTTP 出站，`xmux` 和仅服务端的设置忽略；`downloadSettings` 和 VMess/Trojan 的 XHTTP 暂标为不支持。分享链接导出写回同样的字段。

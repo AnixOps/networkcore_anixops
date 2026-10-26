@@ -15,10 +15,12 @@
 //!
 //! [`XhttpConnector`] dials (and runs TLS) itself, because `packet-up` over
 //! HTTP/1.1 needs a second connection for the uploads. Over HTTP/2 every
-//! proxied stream uses its own connection. [`server::XhttpServer`] is the
-//! server side.
+//! proxied stream uses its own connection, as over HTTP/3 (QUIC, see
+//! [`Security::Quic`]). [`server::XhttpServer`] is the server side (HTTP/1.1
+//! and HTTP/2).
 
 mod h1;
+mod http3;
 pub mod server;
 mod settings;
 
@@ -39,7 +41,8 @@ use tokio::io::{
 };
 use tokio::sync::watch;
 use tokio::time::Instant;
-use transport_tls::TlsConnector;
+use transport_quic::{Congestion, QuicConnector};
+use transport_tls::{TlsConnector, TlsSettings};
 
 use settings::invalid;
 pub use settings::{
@@ -64,20 +67,19 @@ const FIRST_UPLOAD: usize = 16 * 1024;
 pub enum HttpVersion {
     Http11,
     Http2,
+    /// Over QUIC; the target's security must be [`Security::Quic`].
+    Http3,
 }
 
 impl HttpVersion {
     /// No TLS: HTTP/1.1. TLS with exactly `http/1.1`: HTTP/1.1; exactly
-    /// `h3`: HTTP/3, not supported yet. Otherwise HTTP/2, so a caller with an
-    /// empty ALPN list should offer `h2`.
+    /// `h3`: HTTP/3. Otherwise HTTP/2, so a caller with an empty ALPN list
+    /// should offer `h2`.
     pub fn select(tls_alpn: Option<&[String]>) -> io::Result<Self> {
         match tls_alpn {
             None => Ok(Self::Http11),
             Some([only]) if only == "http/1.1" => Ok(Self::Http11),
-            Some([only]) if only == "h3" => Err(io::Error::new(
-                io::ErrorKind::Unsupported,
-                "xhttp over http/3 is not supported yet",
-            )),
+            Some([only]) if only == "h3" => Ok(Self::Http3),
             Some(_) => Ok(Self::Http2),
         }
     }
@@ -104,6 +106,18 @@ pub enum Security {
     Tls(TlsConnector),
     /// Another handshake, such as REALITY; HTTP runs as `https`.
     Custom(Arc<dyn Handshake>),
+    /// QUIC for HTTP/3; the dialer is not used.
+    Quic(Arc<QuicConnector>),
+}
+
+impl Security {
+    /// QUIC to `server` with `tls`, offering ALPN `h3`.
+    pub fn quic(server: &str, port: u16, tls: &TlsSettings) -> io::Result<Self> {
+        let mut tls = tls.clone();
+        tls.alpn = vec!["h3".to_owned()];
+        let connector = QuicConnector::new(server, port, &tls, &[], Congestion::default())?;
+        Ok(Self::Quic(Arc::new(connector)))
+    }
 }
 
 /// A secure layer that is not standard TLS.
@@ -147,6 +161,11 @@ impl XhttpConnector {
         };
         if target.version == HttpVersion::Http11 && mode != Mode::PacketUp {
             return Err(invalid("xhttp stream-up and stream-one need HTTP/2"));
+        }
+        if (target.version == HttpVersion::Http3) != matches!(target.security, Security::Quic(_)) {
+            return Err(invalid(
+                "xhttp over http/3 needs quic and quic needs http/3",
+            ));
         }
         let secure = !matches!(target.security, Security::None);
         let scheme = if secure { "https" } else { "http" };
@@ -303,6 +322,55 @@ impl XhttpConnector {
                     }
                 }
             }
+            HttpVersion::Http3 => {
+                let Security::Quic(quic) = &inner.security else {
+                    return Err(invalid("xhttp over http/3 needs quic"));
+                };
+                let mut sender = http3::connect(quic).await?;
+                match inner.mode {
+                    Mode::StreamOne => {
+                        let request =
+                            inner.h2_request(http::Method::POST, &inner.target(""), None)?;
+                        let (send, recv) = http3::request(&mut sender, request).await?;
+                        let download = Download::H3(recv, sender.clone());
+                        tokio::spawn(run_download(abort.clone(), output, download));
+                        tokio::spawn(run_upload(
+                            abort.clone(),
+                            http3::stream_upload(send, input, sender),
+                        ));
+                    }
+                    Mode::StreamUp => {
+                        let target = inner.target(&session_id());
+                        let request = inner.h2_request(http::Method::GET, &target, None)?;
+                        let recv = http3::get(&mut sender, request).await?;
+                        let download = Download::H3(recv, sender.clone());
+                        tokio::spawn(run_download(abort.clone(), output, download));
+                        let request = inner.h2_request(http::Method::POST, &target, None)?;
+                        let (send, recv) = http3::request(&mut sender, request).await?;
+                        tokio::spawn(run_upload(
+                            abort.clone(),
+                            http3::stream_upload(send, input, sender.clone()),
+                        ));
+                        tokio::spawn(run_upload(
+                            abort.clone(),
+                            http3::drain_response(recv, sender),
+                        ));
+                    }
+                    Mode::PacketUp | Mode::Auto => {
+                        let session = session_id();
+                        let request =
+                            inner.h2_request(http::Method::GET, &inner.target(&session), None)?;
+                        let recv = http3::get(&mut sender, request).await?;
+                        let download = Download::H3(recv, sender.clone());
+                        tokio::spawn(run_download(abort.clone(), output, download));
+                        let chunker = Chunker::new(&inner, input);
+                        tokio::spawn(run_upload(
+                            abort.clone(),
+                            http3::packet_upload(inner, session, sender, chunker),
+                        ));
+                    }
+                }
+            }
         }
         Ok(Box::new(XhttpStream { pipe: user, abort }))
     }
@@ -315,6 +383,7 @@ impl Inner {
             Security::None => Ok(stream),
             Security::Tls(tls) => tls.connect(stream).await,
             Security::Custom(handshake) => handshake.handshake(stream).await,
+            Security::Quic(_) => Err(invalid("xhttp over quic does not dial streams")),
         }
     }
 
@@ -471,6 +540,8 @@ impl Abort {
 enum Download {
     H1(BufReader<BoxStream>),
     H2(ResponseFuture),
+    /// The sender keeps the HTTP/3 connection open.
+    H3(http3::RecvHalf, http3::Sender),
 }
 
 /// Runs a download into `output`, then ends the proxied stream's read side.
@@ -507,6 +578,7 @@ async fn copy_download(download: Download, output: &mut WriteHalf<DuplexStream>)
             }
             Ok(())
         }
+        Download::H3(mut recv, _sender) => http3::copy_response(&mut recv, output).await,
     }
 }
 
@@ -722,7 +794,10 @@ mod tests {
             HttpVersion::select(Some(alpn(&["h2", "http/1.1"]).as_slice())).unwrap(),
             HttpVersion::Http2
         );
-        assert!(HttpVersion::select(Some(alpn(&["h3"]).as_slice())).is_err());
+        assert_eq!(
+            HttpVersion::select(Some(alpn(&["h3"]).as_slice())).unwrap(),
+            HttpVersion::Http3
+        );
     }
 
     #[test]

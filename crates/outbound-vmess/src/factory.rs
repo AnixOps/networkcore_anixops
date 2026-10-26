@@ -98,7 +98,7 @@ impl OutboundFactory for VmessFactory {
         let xhttp_version = match &settings.transport {
             Some(TransportSettings::Xhttp(_)) => Some(
                 HttpVersion::select(settings.tls.as_ref().map(|tls| tls.alpn.as_slice()))
-                    .map_err(|_| "vmess xhttp over http/3 is not supported yet")?,
+                    .map_err(|_| "vmess xhttp settings are invalid")?,
             ),
             _ => None,
         };
@@ -165,9 +165,15 @@ impl OutboundFactory for VmessFactory {
                             server: settings.server.clone(),
                             port: settings.port,
                             default_host: default_host.to_owned(),
-                            security: connector
-                                .clone()
-                                .map_or(XhttpSecurity::None, XhttpSecurity::Tls),
+                            security: match (&tls, xhttp_version) {
+                                (Some(tls), Some(HttpVersion::Http3)) => {
+                                    XhttpSecurity::quic(&settings.server, settings.port, tls)
+                                        .map_err(|_| "vmess xhttp over quic settings are invalid")?
+                                }
+                                _ => connector
+                                    .clone()
+                                    .map_or(XhttpSecurity::None, XhttpSecurity::Tls),
+                            },
                             version: xhttp_version.unwrap_or(HttpVersion::Http11),
                             dialer: dialer.clone(),
                         },

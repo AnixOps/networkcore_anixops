@@ -81,7 +81,7 @@ impl OutboundFactory for TrojanFactory {
         let xhttp_version = match &settings.transport {
             Some(TransportSettings::Xhttp(_)) => Some(
                 HttpVersion::select(Some(settings.alpn.as_slice()))
-                    .map_err(|_| "trojan xhttp over http/3 is not supported yet")?,
+                    .map_err(|_| "trojan xhttp settings are invalid")?,
             ),
             _ => None,
         };
@@ -131,8 +131,14 @@ impl OutboundFactory for TrojanFactory {
                 .map_err(|_| "trojan websocket settings are invalid")?,
             ),
             Some(TransportSettings::Xhttp(xhttp_settings)) => {
-                let connector =
-                    TlsConnector::new(&tls).map_err(|_| "trojan tls settings are invalid")?;
+                let security = if xhttp_version == Some(HttpVersion::Http3) {
+                    Security::quic(&settings.server, settings.port, &tls)
+                        .map_err(|_| "trojan xhttp over quic settings are invalid")?
+                } else {
+                    Security::Tls(
+                        TlsConnector::new(&tls).map_err(|_| "trojan tls settings are invalid")?,
+                    )
+                };
                 xhttp = Some(
                     XhttpConnector::new(
                         &xhttp_settings,
@@ -140,7 +146,7 @@ impl OutboundFactory for TrojanFactory {
                             server: settings.server.clone(),
                             port: settings.port,
                             default_host: tls.server_name.clone(),
-                            security: Security::Tls(connector),
+                            security,
                             version: xhttp_version.unwrap_or(HttpVersion::Http2),
                             dialer: dialer.clone(),
                         },

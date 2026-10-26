@@ -3456,11 +3456,14 @@ dependencies = [
  "bytes",
  "engine-outbound",
  "h2",
+ "h3",
+ "h3-quinn",
  "http",
  "ring",
  "serde",
  "serde_json",
  "tokio",
+ "transport-quic",
  "transport-tls",
 ]
 
