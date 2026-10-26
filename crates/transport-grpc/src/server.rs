@@ -7,7 +7,7 @@
 //! anything else gets `404`. The call ends with `grpc-status: 0` trailers when
 //! the stream is shut down.
 
-use std::future::{poll_fn, Future};
+use std::future::poll_fn;
 use std::io;
 use std::task::Poll;
 use std::time::Duration;

@@ -130,7 +130,10 @@ async fn relays_over(transport: Value) {
         let _ = stream.write_all(b"nope").await;
         let mut buf = [0u8; 4];
         let read = tokio::time::timeout(Duration::from_secs(2), stream.read(&mut buf)).await;
-        assert!(!matches!(read, Ok(Ok(n)) if n > 0), "wrong password got data");
+        assert!(
+            !matches!(read, Ok(Ok(n)) if n > 0),
+            "wrong password got data"
+        );
     }
 }
 
