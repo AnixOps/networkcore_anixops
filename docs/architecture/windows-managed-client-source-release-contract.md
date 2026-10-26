@@ -172,10 +172,9 @@ normal launch/runtime diagnostics when unavailable.
 The GUI requests UAC elevation and controls SCM service state, configuration
 import, the current-user WinINet proxy, machine WinHTTP proxy, LocalMachine ROOT
 certificate entries, and signed INF driver packages. The service applies the
-same configuration under LocalSystem, owns the EasyTier tunnel lifecycle, and
-restores the captured proxy state on stop. Full MSI uninstall runs the service
+same configuration under LocalSystem and restores the captured proxy state on stop. Full MSI uninstall runs the service
 `purge` command after `StopServices`, removing managed proxy, certificate,
-driver, and tunnel state.
+and driver state.
 
 `root_certificate_path` remains a separate generic trust-store lifecycle
 operation. Native MITM supports explicit loopback HTTP proxy clients and

@@ -12,7 +12,6 @@ engine-embedded = { path = "../../crates/engine-embedded" }
 engine-native = { path = "../../crates/engine-native" }
 inbound-mixed = { path = "../../crates/inbound-mixed" }
 mitm-policy = { path = "../../crates/mitm-policy" }
-networkcore-windows = { path = "../windows-cli" }
 platform-windows = { path = "../../crates/platform-windows" }
 serde_json = "1"
 

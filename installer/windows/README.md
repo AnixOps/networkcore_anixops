@@ -13,8 +13,8 @@ The installer:
 - preserves `managed-config.json` under ProgramData across upgrades;
 - creates an AnixOps NetworkCore Start Menu shortcut;
 - runs `networkcore-windows-service.exe purge` as LocalSystem after stopping the
-  service and before a full uninstall so managed proxy, certificate, driver, and
-  tunnel state is removed.
+  service and before a full uninstall so managed proxy, certificate, and driver
+  state is removed.
 
 ## Portable package
 
@@ -46,7 +46,7 @@ proxy snapshot when the configuration requests it, and returns SCM to `Stopped`
 rather than leaving a system proxy pointed at an unavailable listener.
 The shipped `managed-config.json` deliberately contains only `null` values.
 That default is safe and does not change the system proxy, certificate store,
-driver state, or tunnel. The GUI writes this file when a subscription is
+or driver state. The GUI writes this file when a subscription is
 imported; it lives at:
 
 `C:\ProgramData\AnixOps\NetworkCore\managed-config.json`
@@ -64,7 +64,6 @@ A configuration for the embedded engine as a local proxy looks like:
   "system_proxy_owner": "service",
   "root_certificate_path": null,
   "driver_package": null,
-  "tunnel": null,
   "native_mitm": null,
   "embedded": {
     "enabled": true,
@@ -107,9 +106,7 @@ The optional fields are:
 - `root_certificate_path`: an existing certificate file that Windows CryptoAPI
   can decode, for example `C:\ProgramData\AnixOps\NetworkCore\root-ca.cer`.
 - `driver_package.inf_path`: the entry-point INF of a signed driver package.
-- `tunnel`: all explicit delivery, secret, and state paths required by the
-  Windows tunnel command. Leave it `null` until those signed delivery artifacts
-  exist.
+- A `tunnel` field left by an older version is ignored.
 - `embedded`: the embedded engine's envelope path and loopback listener.
 - `native_mitm`: a service-owned loopback HTTP proxy, CA certificate/key paths,
   and a local SOCKS upstream. The GUI writes this block when `Enable HTTPS

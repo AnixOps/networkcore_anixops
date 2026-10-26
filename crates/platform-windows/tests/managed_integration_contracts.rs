@@ -1,39 +1,17 @@
 use platform_windows::managed::{
     read_managed_config, WindowsDriverPackageConfig, WindowsManagedConfig,
     WindowsManagedEmbeddedConfig, WindowsManagedNativeMitmConfig,
-    WindowsManagedNativeMitmScriptRuntimeConfig, WindowsManagedState, WindowsManagedTunnelConfig,
-    WindowsProxySettings, WindowsProxySnapshot, WindowsSystemProxyOwner,
-    WINDOWS_MANAGED_CONFIG_INVALID_CODE, WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION,
-    WINDOWS_MANAGED_EMBEDDED_CONFIG_INVALID_CODE, WINDOWS_MANAGED_STATE_SCHEMA_VERSION,
+    WindowsManagedNativeMitmScriptRuntimeConfig, WindowsManagedState, WindowsProxySettings,
+    WindowsProxySnapshot, WindowsSystemProxyOwner, WINDOWS_MANAGED_CONFIG_INVALID_CODE,
+    WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION, WINDOWS_MANAGED_EMBEDDED_CONFIG_INVALID_CODE,
+    WINDOWS_MANAGED_STATE_SCHEMA_VERSION,
 };
 use platform_windows::system_integration::{WindowsServiceState, NETWORKCORE_WINDOWS_SERVICE_NAME};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-fn fixture_tunnel() -> WindowsManagedTunnelConfig {
-    WindowsManagedTunnelConfig {
-        client_envelope: PathBuf::from(r"C:\ProgramData\AnixOps\NetworkCore\client.json"),
-        pop_envelope: PathBuf::from(r"C:\ProgramData\AnixOps\NetworkCore\pop.json"),
-        pop_id: "pop-a".to_string(),
-        device_id: "device-a".to_string(),
-        delivery_public_key_file: PathBuf::from(r"C:\ProgramData\AnixOps\NetworkCore\delivery.pem"),
-        easytier_binary: PathBuf::from(r"C:\Program Files\EasyTier\easytier-core.exe"),
-        easytier_cli: PathBuf::from(r"C:\Program Files\EasyTier\easytier-cli.exe"),
-        easytier_version: "2.6.1".to_string(),
-        easytier_sha256: "d33d1d119b40c768c4d96c66236ba1c033e72a9c041e88aa9c84bd67a38d04a5"
-            .to_string(),
-        easytier_cli_sha256: "1a83ab65ea2cc02bbcd58f5bc8b24cd3942cbe9c4ac1b9cb2acd9881410bfcd3"
-            .to_string(),
-        network_name: "managed-network".to_string(),
-        network_secret_file: PathBuf::from(
-            r"C:\ProgramData\AnixOps\NetworkCore\network-secret.txt",
-        ),
-        state_path: PathBuf::from(r"C:\ProgramData\AnixOps\NetworkCore\tunnel-state.json"),
-    }
-}
-
 #[test]
-fn managed_configuration_activates_proxy_certificate_driver_and_tunnel() {
+fn managed_configuration_activates_proxy_certificate_and_driver() {
     let config = WindowsManagedConfig {
         schema_version: WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION,
         system_proxy: Some(WindowsProxySettings {
@@ -48,7 +26,6 @@ fn managed_configuration_activates_proxy_certificate_driver_and_tunnel() {
         driver_package: Some(WindowsDriverPackageConfig {
             inf_path: PathBuf::from(r"C:\Program Files\AnixOps\NetworkCore\driver\netcore.inf"),
         }),
-        tunnel: Some(fixture_tunnel()),
         native_mitm: None,
         embedded: None,
     };
@@ -65,26 +42,6 @@ fn managed_configuration_activates_proxy_certificate_driver_and_tunnel() {
         json["driver_package"]["inf_path"],
         r"C:\Program Files\AnixOps\NetworkCore\driver\netcore.inf"
     );
-}
-
-#[test]
-fn managed_tunnel_renders_existing_cli_start_and_stop_contracts() {
-    let tunnel = fixture_tunnel();
-    let start = tunnel.start_arguments();
-    let stop = tunnel.stop_arguments();
-
-    assert_eq!(start[0], "tunnel");
-    assert_eq!(start[1], "start");
-    assert!(start
-        .windows(2)
-        .any(|pair| pair[0] == "--pop-id" && pair[1] == "pop-a"));
-    assert!(start
-        .windows(2)
-        .any(|pair| pair[0] == "--network-name" && pair[1] == "managed-network"));
-    assert!(start.iter().any(|value| value == "--confirm"));
-    assert_eq!(stop[0], "tunnel");
-    assert_eq!(stop[1], "stop");
-    assert!(stop.iter().any(|value| value == "--confirm"));
 }
 
 #[test]
@@ -105,7 +62,6 @@ fn managed_configuration_runs_the_embedded_engine_as_the_only_core() {
         system_proxy_owner: WindowsSystemProxyOwner::Desktop,
         root_certificate_path: None,
         driver_package: None,
-        tunnel: None,
         native_mitm: None,
         embedded: Some(embedded.clone()),
     };
@@ -146,7 +102,6 @@ fn managed_configuration_rejects_enabled_proxy_without_endpoint() {
         system_proxy_owner: WindowsSystemProxyOwner::Service,
         root_certificate_path: None,
         driver_package: None,
-        tunnel: None,
         native_mitm: None,
         embedded: None,
     };
@@ -170,7 +125,6 @@ fn managed_state_retains_rollback_material_for_system_mutations() {
         certificate_sha1: Some("00112233445566778899AABBCCDDEEFF00112233".to_string()),
         driver_inf_path: Some(PathBuf::from(r"C:\driver\netcore.inf")),
         driver_reboot_required: false,
-        tunnel_running: true,
         native_mitm_running: true,
         native_mitm_listener: Some("127.0.0.1:7890".to_string()),
         native_mitm_certificate_sha1: Some("102132435465768798A9BACBDCEDFE0F10213243".to_string()),
@@ -184,7 +138,7 @@ fn managed_state_retains_rollback_material_for_system_mutations() {
 
     let json = serde_json::to_value(&state).expect("managed state serializes");
     assert_eq!(json["last_transition"], "running");
-    assert_eq!(json["tunnel_running"], true);
+    assert!(json.get("tunnel_running").is_none());
     assert!(json["proxy_snapshot"].is_object());
     assert_eq!(json["native_mitm_listener"], "127.0.0.1:7890");
     assert!(json["last_error"].is_null());
@@ -202,7 +156,6 @@ fn managed_configuration_accepts_native_https_mitm_with_explicit_socks_upstream(
         system_proxy_owner: WindowsSystemProxyOwner::Service,
         root_certificate_path: None,
         driver_package: None,
-        tunnel: None,
         native_mitm: Some(WindowsManagedNativeMitmConfig {
             enabled: true,
             listen_host: "127.0.0.1".to_string(),

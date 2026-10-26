@@ -1,4 +1,3 @@
-use networkcore_windows::native_windows_tunnel_command_service;
 use networkcore_windows_service::{copy_managed_configuration, WindowsManagedRuntime};
 use platform_windows::managed::{
     append_managed_log, windows_managed_config_path, windows_managed_state_path,
@@ -79,13 +78,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 
-fn native_runtime() -> WindowsManagedRuntime<
-    NativeWindowsSystemIntegration,
-    networkcore_windows::NativeWindowsTunnelCommandService,
-> {
+fn native_runtime() -> WindowsManagedRuntime<NativeWindowsSystemIntegration> {
     WindowsManagedRuntime::new(
         NativeWindowsSystemIntegration::new(),
-        native_windows_tunnel_command_service(),
         windows_managed_config_path(),
         windows_managed_state_path(),
     )
@@ -166,7 +161,7 @@ mod windows_service_host {
         report_status(status_handle, SERVICE_START_PENDING, 0, 10_000);
 
         // Complete the SCM handshake before any managed mutation can block on
-        // a core, certificate, driver, proxy, or tunnel operation. The runtime
+        // a core, certificate, driver, or proxy operation. The runtime
         // still records failures and moves the service back to Stopped.
         report_status(status_handle, SERVICE_RUNNING, 0, 0);
         let _ = append_managed_log(

@@ -69,7 +69,6 @@
 - [Windows Managed Client Source Release Contract](architecture/windows-managed-client-source-release-contract.md)
 - [Windows GUI Daily Usability](architecture/windows-gui-daily-usability.md)
 - [Windows CLI Artifact Source Release Contract](architecture/windows-cli-artifact-source-release-contract.md)
-- [Windows Stage 4 POP Peer Manual Acceptance](architecture/windows-stage-4-pop-peer-manual-acceptance.md)
 
 ## iOS
 

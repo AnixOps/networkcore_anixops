@@ -33,6 +33,7 @@ P4 backlog buckets：
 - 订阅和客户端兼容：规则/策略组运行时、运行中节点切换、默认路径与更多订阅格式（如 Hysteria v1），继续走 public engine adapter 路线。
 - MITM 数据面和证书生命周期：CA 安装/信任检测/撤销/trust-store 回滚、HTTP/2 等协议扩展、跨平台 script runtime；通过 `MITM_CLI_COMMAND_GATE`、`MITM_CERTIFICATE_LIFECYCLE_GATE`、`MITM_HTTP_TLS_DATA_PLANE_GATE`、`MITM_BROWSER_CAPTURE_GATE` 逐项放开。
 - 浏览器捕获用户闭环：完整 live browser traffic proof 自动化、显式 browser/system proxy 或系统 PAC、snapshot 与 rollback；完整 managed session 编排。
+- SD-WAN 组网：外部组网程序适配已于 2026-10-26 删除，组网能力等 ANX 私有协议重新提供。
 
 ## 里程碑（2026-10 起）
 

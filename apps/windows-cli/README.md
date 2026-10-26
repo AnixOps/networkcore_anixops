@@ -14,7 +14,7 @@ Current boundary:
 - System mutation policy: managed apply and rollback.
 
 The CLI command surface includes `help`, `version`, `capabilities`, `status`,
-`diagnostics`, and the explicit EasyTier tunnel lifecycle. Shared parser gates may
+and `diagnostics`; the former `tunnel` commands were removed. Shared parser gates may
 catalog-import Trojan/VLESS/VMess/Hysteria2/TUIC URLs, Clash YAML, sing-box JSON,
 Surge proxy lines, Loon proxy lines, and Quantumult X proxy/server lines in
 `config-core`.

@@ -2,8 +2,7 @@ use platform_windows::{
     ReadOnlyWindowsPlatformCapabilityService, WindowsPlatformCapabilityService,
     WINDOWS_ACTIVE_STATUS, WINDOWS_BLOCKED_STATUS, WINDOWS_CLI_ARTIFACT_GATE,
     WINDOWS_CLI_RELEASE_ASSETS_STATUS, WINDOWS_CLI_SOURCE_IDENTITY, WINDOWS_DEFERRED_STATUS,
-    WINDOWS_FOREGROUND_TUNNEL_MUTATION_POLICY, WINDOWS_MANAGED_MUTATION_POLICY,
-    WINDOWS_PLATFORM_ADAPTER_STATUS,
+    WINDOWS_MANAGED_MUTATION_POLICY, WINDOWS_PLATFORM_ADAPTER_STATUS,
 };
 
 #[test]
@@ -28,11 +27,6 @@ fn windows_platform_snapshot_reports_managed_client_system_integration_active() 
     assert_eq!(
         snapshot.subscription_compatibility.status,
         WINDOWS_DEFERRED_STATUS
-    );
-    assert_eq!(snapshot.foreground_tunnel.status, WINDOWS_ACTIVE_STATUS);
-    assert_eq!(
-        snapshot.foreground_tunnel.mutation_policy,
-        WINDOWS_FOREGROUND_TUNNEL_MUTATION_POLICY
     );
     assert_eq!(snapshot.service.status, WINDOWS_ACTIVE_STATUS);
     assert_eq!(snapshot.driver.status, WINDOWS_ACTIVE_STATUS);
