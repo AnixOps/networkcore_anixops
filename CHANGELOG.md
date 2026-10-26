@@ -4,10 +4,6 @@
 
 ## Unreleased
 
-### Fixed
-
-- 子模块 `third_party/mitm_anixops` 升级到 6c71236：Node 脚本运行器在 Windows 上替换持久化存储文件遇到 `EPERM`/`EACCES`/`EBUSY`（文件仍被其他进程占用）时短暂重试，修复 `engine-native` 的 `controlled_tls_connect_session_bounds_persistent_exchanges_over_live_sockets` 在 Windows CI 上偶发请求体未被脚本改写的问题。
-
 ### Added
 
 - 反向互通 CI：`node-runtime` 新增 `client_interop` 测试（`#[ignore]`，由 REALITY interop 作业运行），用 `anixcore` 入站配置起节点，让 Xray-core、sing-box 和官方 Hysteria 客户端经 SOCKS5 连入并回显 256 KiB 数据，同时核对按用户计费。覆盖 VLESS REALITY（含 Vision）、VLESS TLS+WS/gRPC、VMess TCP/WS/TLS+gRPC、Trojan TLS/TLS+WS/TLS+gRPC、Shadowsocks-2022 多用户、Hysteria2（含 salamander）和 TUIC；客户端按名称校验自签证书，不使用 insecure 选项。UDP 也经 SOCKS5 UDP ASSOCIATE 回显（Xray 测 Trojan 与 Shadowsocks；sing-box 测除 VLESS 以外的协议；Hysteria 全测），VLESS 与 Xray VMess 的 UDP 走 XUDP，入站暂不支持，只测 TCP。
