@@ -21,6 +21,7 @@ VLESS server inbound for the node kernel, built on `engine-inbound`.
   "max_time_difference_secs": 60}`.
 
 Not yet: Vision over standard `tls` (users with a Vision flow need
-`reality`), UDP and mux; REALITY does not mirror the handshake site's record
+`reality`), mux/XUDP (the UDP command, `LENGTH PAYLOAD` datagrams to the
+request target, is supported); REALITY does not mirror the handshake site's record
 sizes. `tests/vless_inbound.rs` and `tests/vless_reality.rs` run the engine's
 VLESS clients against the server.

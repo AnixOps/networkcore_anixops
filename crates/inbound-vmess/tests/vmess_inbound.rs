@@ -6,13 +6,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use engine_inbound::registry::InboundFactory;
-use engine_inbound::server::{serve, InboundStats, ServeSettings};
+use engine_inbound::server::{serve_with_udp, InboundStats, ServeSettings};
+use engine_inbound::udp::BoundUdpOutbound;
 use engine_inbound::{StreamInbound, User};
 use engine_outbound::{BoxFuture, BoxStream, TargetAddr, TcpDialer, TcpOutbound};
 use inbound_vmess::VmessInboundFactory;
 use outbound_vmess::{parse_uuid, Security, VmessOutbound};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::{TcpListener, TcpStream, UdpSocket};
 
 const TIMEOUT: Duration = Duration::from_secs(10);
 const ALICE: &str = "b831381d-6324-4d53-ad4f-8cda48b30811";
@@ -77,10 +78,13 @@ async fn start() -> Server {
         reject_hold: Duration::from_millis(300),
         ..ServeSettings::default()
     };
-    tokio::spawn(serve(
+    tokio::spawn(serve_with_udp(
         listener,
         inbound.clone(),
         Arc::new(Direct),
+        Some(Arc::new(BoundUdpOutbound::new(
+            "127.0.0.1:0".parse().unwrap(),
+        ))),
         serve_settings,
         stats.clone(),
     ));
@@ -185,4 +189,43 @@ async fn unknown_and_removed_users_get_nothing() {
         .await
         .unwrap();
     assert!(echo(&mut stream, b"bob").await.is_err());
+}
+
+async fn udp_echo_server() -> SocketAddr {
+    let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let addr = socket.local_addr().unwrap();
+    tokio::spawn(async move {
+        let mut buf = vec![0u8; 65_536];
+        while let Ok((n, from)) = socket.recv_from(&mut buf).await {
+            let _ = socket.send_to(&buf[..n], from).await;
+        }
+    });
+    addr
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn udp_command_relays_one_datagram_per_chunk() {
+    let server = start().await;
+    let echo = udp_echo_server().await;
+    let mut stream = client(server.addr, ALICE, Security::Aes128Gcm)
+        .connect_udp(&TargetAddr::Ip(echo))
+        .await
+        .unwrap();
+    let payloads = [b"query".to_vec(), vec![5u8; 1400]];
+    let mut buf = vec![0u8; 65_536];
+    for payload in &payloads {
+        stream.write_all(payload).await.unwrap();
+        stream.flush().await.unwrap();
+        let n = tokio::time::timeout(TIMEOUT, stream.read(&mut buf))
+            .await
+            .expect("udp reply timed out")
+            .unwrap();
+        assert_eq!(&buf[..n], &payload[..]);
+    }
+
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let traffic = server.inbound.users().traffic(false);
+    let alice = traffic.iter().find(|entry| entry.name == "alice").unwrap();
+    let total = payloads.iter().map(Vec::len).sum::<usize>() as u64;
+    assert_eq!((alice.up, alice.down), (total, total));
 }

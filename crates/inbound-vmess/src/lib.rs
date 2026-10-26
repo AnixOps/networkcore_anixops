@@ -7,14 +7,16 @@
 //! Unknown or replayed clients are held open and drained.
 //!
 //! Body securities `aes-128-gcm`, `chacha20-poly1305` and `none`, with the
-//! ChunkStream option and optional ChunkMasking and GlobalPadding. Not yet:
-//! authenticated length, the legacy MD5 header (alterId > 0), UDP and mux.
+//! ChunkStream option and optional ChunkMasking and GlobalPadding. The UDP
+//! command carries one datagram per body chunk to the request target. Not
+//! yet: authenticated length, the legacy MD5 header (alterId > 0) and mux.
 //!
 //! TLS is terminated by `inbound-transport` when the settings carry `tls`.
 
 mod factory;
 mod stream;
 
+use std::io;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -23,6 +25,7 @@ use aes::cipher::{BlockCipherDecrypt, KeyInit};
 use aes::{Aes128, Block};
 use engine_inbound::addr::{read_port_addr, VMESS};
 use engine_inbound::replay::ReplayCache;
+use engine_inbound::udp::{DatagramCodec, DatagramReader, MAX_DATAGRAM};
 use engine_inbound::users::Validator;
 use engine_inbound::{Accepted, Rejected, StreamInbound, User, UserEntry, UserStore};
 use engine_outbound::{BoxFuture, BoxStream, TargetAddr};
@@ -49,6 +52,7 @@ const AUTH_ID_TTL: Duration = Duration::from_secs(2 * MAX_AUTH_ID_AGE_SECS);
 const FIXED_HEADER_LEN: usize = 1 + 16 + 16 + 1 + 1 + 1 + 1 + 1;
 const CHECKSUM_LEN: usize = 4;
 const COMMAND_TCP: u8 = 1;
+const COMMAND_UDP: u8 = 2;
 
 const OPTION_CHUNK_STREAM: u8 = 0x01;
 const OPTION_CHUNK_MASKING: u8 = 0x04;
@@ -196,10 +200,16 @@ impl VmessInbound {
         );
         let response_header = seal_response_header(&response_key, &response_iv, request.response_v);
         let stream = VmessServerStream::new(stream, reader, writer, response_header, Vec::new());
+        let udp = (request.command == COMMAND_UDP).then(|| {
+            Box::new(VmessDatagrams {
+                target: request.target.clone(),
+            }) as Box<dyn DatagramCodec>
+        });
         Ok(Accepted {
             user: Some(user),
             target: request.target,
             stream: Box::new(stream),
+            udp,
         })
     }
 }
@@ -222,7 +232,36 @@ impl StreamInbound for VmessInbound {
     }
 }
 
+/// VMess UDP: the body stream returns one chunk per read and seals one
+/// chunk per write, so each chunk is one datagram to the request target.
+struct VmessDatagrams {
+    target: TargetAddr,
+}
+
+impl DatagramCodec for VmessDatagrams {
+    fn read<'a>(
+        &'a self,
+        reader: &'a mut DatagramReader,
+    ) -> BoxFuture<'a, io::Result<Option<(TargetAddr, Vec<u8>)>>> {
+        Box::pin(async move {
+            let mut payload = vec![0u8; MAX_DATAGRAM];
+            let n = reader.read(&mut payload).await?;
+            if n == 0 {
+                return Ok(None);
+            }
+            payload.truncate(n);
+            Ok(Some((self.target.clone(), payload)))
+        })
+    }
+
+    fn encode(&self, _source: SocketAddr, payload: &[u8], out: &mut Vec<u8>) -> io::Result<()> {
+        out.extend_from_slice(payload);
+        Ok(())
+    }
+}
+
 struct Request {
+    command: u8,
     body_iv: [u8; 16],
     body_key: [u8; 16],
     response_v: u8,
@@ -255,7 +294,8 @@ async fn parse_header(header: &[u8]) -> Result<Request, Rejected> {
     ) {
         return Err(Rejected::close("vmess security is not supported"));
     }
-    if body[37] != COMMAND_TCP {
+    let command = body[37];
+    if command != COMMAND_TCP && command != COMMAND_UDP {
         return Err(Rejected::close("vmess command is not supported"));
     }
     let mut rest = &body[FIXED_HEADER_LEN..];
@@ -268,6 +308,7 @@ async fn parse_header(header: &[u8]) -> Result<Request, Rejected> {
     let mut body_key = [0u8; 16];
     body_key.copy_from_slice(&body[17..33]);
     Ok(Request {
+        command,
         body_iv,
         body_key,
         response_v: body[33],
@@ -386,9 +427,15 @@ mod tests {
         assert!(parse_header(&bad_checksum).await.is_err());
 
         let mut udp = header.clone();
-        udp[37] = 2;
+        udp[37] = COMMAND_UDP;
         let checksum = fnv1a32(&udp);
         udp.extend_from_slice(&checksum.to_be_bytes());
-        assert!(parse_header(&udp).await.is_err());
+        assert_eq!(parse_header(&udp).await.ok().unwrap().command, COMMAND_UDP);
+
+        let mut mux = header.clone();
+        mux[37] = 3;
+        let checksum = fnv1a32(&mux);
+        mux.extend_from_slice(&checksum.to_be_bytes());
+        assert!(parse_header(&mux).await.is_err());
     }
 }

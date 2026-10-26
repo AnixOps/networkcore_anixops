@@ -190,6 +190,7 @@ impl SnellInbound {
                 Ending::Close,
                 first[used..].to_vec(),
             )),
+            udp: None,
         })
     }
 

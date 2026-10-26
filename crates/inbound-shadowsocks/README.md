@@ -1,6 +1,6 @@
 # inbound-shadowsocks
 
-Shadowsocks-2022 (SIP022) TCP server inbound for the node kernel, built on
+Shadowsocks-2022 (SIP022) TCP and UDP server inbound for the node kernel, built on
 `engine-inbound`.
 
 - Methods `2022-blake3-aes-128-gcm`, `2022-blake3-aes-256-gcm`,
@@ -12,10 +12,15 @@ Shadowsocks-2022 (SIP022) TCP server inbound for the node kernel, built on
   traffic and online IPs are charged per user.
 - 30 s timestamp window, 60 s replayed-salt cache, failed handshakes are held
   open and drained instead of closed at once.
+- UDP on the same port when the node has a UDP outbound
+  (`StreamInbound::datagram`): AES separate headers and identity headers,
+  XChaCha20-Poly1305 for the ChaCha method, one socket per client session,
+  replies to the client's latest address, the same timestamp window and a
+  1024-packet replay window per session.
 - Config: `{"type": "shadowsocks", "method": "...", "password": "<base64>",
   "users": [{"name": "...", "password": "<base64>"}]}` via
   `ShadowsocksInboundFactory`.
 
-Not yet: UDP relay. `tests/ss2022_server.rs` runs the engine's own client and
-the shadowsocks-rust client against the server; all verification runs in
+`tests/ss2022_server.rs` runs the engine's own client and the
+shadowsocks-rust client (TCP and UDP) against the server; all verification runs in
 GitHub Actions.

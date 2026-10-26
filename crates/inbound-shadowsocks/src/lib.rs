@@ -12,9 +12,12 @@
 //! (60 s). A client that fails authentication is held open and its input
 //! discarded instead of being closed at once.
 //!
-//! UDP relay is not implemented yet.
+//! UDP on the same port is relayed when the node has a UDP outbound (see
+//! `src/udp.rs` for the packet format): one socket per client session, the same
+//! timestamp window and a per-session packet id replay window.
 
 mod factory;
+mod udp;
 
 use std::io;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
@@ -27,6 +30,7 @@ use aes::cipher::{BlockCipherDecrypt, KeyInit};
 use aes::{Aes128, Aes256, Block};
 use base64::Engine as _;
 use engine_inbound::replay::ReplayCache;
+use engine_inbound::udp::DatagramInbound;
 use engine_inbound::users::{UserIndex, Validator};
 use engine_inbound::{Accepted, Rejected, StreamInbound, User, UserStore};
 use engine_outbound::{BoxFuture, BoxStream, TargetAddr};
@@ -64,6 +68,7 @@ pub struct Ss2022Inbound {
     users: Arc<UserStore>,
     index: UserIndex<[u8; IDENTITY_HEADER_LEN]>,
     salts: ReplayCache,
+    datagrams: Arc<udp::Ss2022Datagrams>,
 }
 
 impl Ss2022Inbound {
@@ -87,11 +92,18 @@ impl Ss2022Inbound {
                 .map_err(|_| "shadowsocks user key is invalid for the method")
         });
         let users = Arc::new(UserStore::new(Some(validator)));
+        let server_key: Arc<[u8]> = server_key.into();
         Ok(Self {
             method,
-            server_key: server_key.into(),
+            server_key: server_key.clone(),
             multi_user,
             index: UserIndex::new(users.clone(), user_identity),
+            datagrams: Arc::new(udp::Ss2022Datagrams::new(
+                method,
+                server_key,
+                multi_user,
+                UserIndex::new(users.clone(), user_identity),
+            )),
             users,
             salts: ReplayCache::new(SALT_TTL),
         })
@@ -189,6 +201,7 @@ impl Ss2022Inbound {
             user,
             target,
             stream: Box::new(stream),
+            udp: None,
         })
     }
 }
@@ -208,6 +221,10 @@ impl StreamInbound for Ss2022Inbound {
         _peer: SocketAddr,
     ) -> BoxFuture<'a, Result<Accepted, Rejected>> {
         Box::pin(self.handshake(stream))
+    }
+
+    fn datagram(&self) -> Option<Arc<dyn DatagramInbound>> {
+        Some(self.datagrams.clone() as Arc<dyn DatagramInbound>)
     }
 }
 
@@ -258,7 +275,20 @@ fn decrypt_identity(
 /// Parses ATYP, address, port, padding length and padding. Returns the target
 /// and the offset where the initial payload starts.
 fn parse_request_header(header: &[u8]) -> Option<(TargetAddr, usize)> {
-    let (target, mut pos) = match *header.first()? {
+    let (target, mut pos) = parse_socks_address(header)?;
+    let padding = usize::from(u16::from_be_bytes(
+        header.get(pos..pos + 2)?.try_into().ok()?,
+    ));
+    pos += 2;
+    if header.len() < pos + padding {
+        return None;
+    }
+    Some((target, pos + padding))
+}
+
+/// Parses a SOCKS-style `ATYP ADDR PORT`; returns the address and its length.
+fn parse_socks_address(header: &[u8]) -> Option<(TargetAddr, usize)> {
+    Some(match *header.first()? {
         1 => {
             let raw: [u8; 4] = header.get(1..5)?.try_into().ok()?;
             let port = u16::from_be_bytes(header.get(5..7)?.try_into().ok()?);
@@ -281,15 +311,7 @@ fn parse_request_header(header: &[u8]) -> Option<(TargetAddr, usize)> {
             (TargetAddr::Ip(SocketAddr::V6(addr)), 19)
         }
         _ => return None,
-    };
-    let padding = usize::from(u16::from_be_bytes(
-        header.get(pos..pos + 2)?.try_into().ok()?,
-    ));
-    pos += 2;
-    if header.len() < pos + padding {
-        return None;
-    }
-    Some((target, pos + padding))
+    })
 }
 
 /// Decodes one base64 key and checks its length against the method.

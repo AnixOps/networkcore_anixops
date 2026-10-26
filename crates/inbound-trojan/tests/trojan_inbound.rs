@@ -5,15 +5,17 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
+use engine_inbound::addr::{write_addr_port, SOCKS};
 use engine_inbound::registry::InboundFactory;
-use engine_inbound::server::{serve, InboundStats, ServeSettings};
+use engine_inbound::server::{serve_with_udp, InboundStats, ServeSettings};
+use engine_inbound::udp::BoundUdpOutbound;
 use engine_inbound::{StreamInbound, User};
 use engine_outbound::{BoxFuture, BoxStream, TargetAddr, TcpDialer, TcpOutbound};
 use inbound_trojan::TrojanInboundFactory;
-use outbound_trojan::TrojanOutbound;
+use outbound_trojan::{password_hash, TrojanOutbound};
 use rcgen::{CertificateParams, KeyPair};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use transport_tls::{TlsConnector, TlsSettings};
 
 const TIMEOUT: Duration = Duration::from_secs(10);
@@ -31,6 +33,18 @@ impl TcpOutbound for Direct {
             Ok(Box::new(stream) as BoxStream)
         })
     }
+}
+
+async fn udp_echo_server() -> SocketAddr {
+    let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let addr = socket.local_addr().unwrap();
+    tokio::spawn(async move {
+        let mut buf = vec![0u8; 65_536];
+        while let Ok((n, from)) = socket.recv_from(&mut buf).await {
+            let _ = socket.send_to(&buf[..n], from).await;
+        }
+    });
+    addr
 }
 
 async fn echo_server() -> SocketAddr {
@@ -100,10 +114,13 @@ async fn start(fallback: Option<SocketAddr>) -> Server {
         reject_hold: Duration::from_millis(300),
         ..ServeSettings::default()
     };
-    tokio::spawn(serve(
+    tokio::spawn(serve_with_udp(
         listener,
         inbound.clone(),
         Arc::new(Direct),
+        Some(Arc::new(BoundUdpOutbound::new(
+            "127.0.0.1:0".parse().unwrap(),
+        ))),
         serve_settings,
         stats.clone(),
     ));
@@ -244,4 +261,61 @@ async fn removed_users_are_refused() {
         .await
         .expect("held connection should close");
     assert!(read.is_err());
+}
+
+fn udp_packet(out: &mut Vec<u8>, target: SocketAddr, payload: &[u8]) {
+    write_addr_port(out, target, SOCKS);
+    out.extend_from_slice(&(payload.len() as u16).to_be_bytes());
+    out.extend_from_slice(b"\r\n");
+    out.extend_from_slice(payload);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn udp_associate_relays_datagrams() {
+    let server = start(None).await;
+    let echo = udp_echo_server().await;
+    let tcp = TcpStream::connect(server.addr).await.unwrap();
+    let mut stream = TlsConnector::new(&tls())
+        .unwrap()
+        .connect(Box::new(tcp))
+        .await
+        .unwrap();
+    let payloads = [b"first".to_vec(), vec![7u8; 1200]];
+    let mut request = password_hash("alice-secret").to_vec();
+    request.extend_from_slice(b"\r\n\x03");
+    write_addr_port(&mut request, "0.0.0.0:0".parse().unwrap(), SOCKS);
+    request.extend_from_slice(b"\r\n");
+    for payload in &payloads {
+        udp_packet(&mut request, echo, payload);
+    }
+    stream.write_all(&request).await.unwrap();
+    stream.flush().await.unwrap();
+
+    for payload in &payloads {
+        let mut head = [0u8; 11];
+        tokio::time::timeout(TIMEOUT, stream.read_exact(&mut head))
+            .await
+            .expect("udp reply timed out")
+            .unwrap();
+        assert_eq!(head[0], 1);
+        let source = SocketAddr::from((
+            [head[1], head[2], head[3], head[4]],
+            u16::from_be_bytes([head[5], head[6]]),
+        ));
+        assert_eq!(source, echo);
+        assert_eq!(
+            usize::from(u16::from_be_bytes([head[7], head[8]])),
+            payload.len()
+        );
+        assert_eq!(&head[9..], b"\r\n");
+        let mut body = vec![0u8; payload.len()];
+        stream.read_exact(&mut body).await.unwrap();
+        assert_eq!(&body, payload);
+    }
+
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let traffic = server.inbound.users().traffic(false);
+    let alice = traffic.iter().find(|entry| entry.name == "alice").unwrap();
+    let total = payloads.iter().map(Vec::len).sum::<usize>() as u64;
+    assert_eq!((alice.up, alice.down), (total, total));
 }

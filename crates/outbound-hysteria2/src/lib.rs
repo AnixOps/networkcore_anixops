@@ -18,11 +18,16 @@
 //! Port hopping and Brutal congestion control are not supported; the outbound
 //! uses QUIC's default congestion control.
 //!
+//! [`Hysteria2Outbound::udp_session`] relays UDP over QUIC datagrams when the
+//! server announces `Hysteria-UDP: true` (see [`udp`]).
+//!
 //! [`Hysteria2Factory`] registers the outbound under `"type": "hysteria2"`.
 
 mod factory;
+pub mod udp;
 
 use std::io;
+use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::Bytes;
@@ -36,6 +41,7 @@ use transport_quic::{quic_error, quinn, Congestion, QuicConnection, QuicConnecto
 use transport_tls::TlsSettings;
 
 pub use factory::{Hysteria2Factory, TYPE_NAME};
+pub use udp::Hysteria2UdpSession;
 
 pub const PROTOCOL: &str = "hysteria2";
 
@@ -61,6 +67,8 @@ struct Session {
     /// The connection closes when the last request sender is dropped.
     _requests: h3::client::SendRequest<h3_quinn::OpenStreams, Bytes>,
     driver: JoinHandle<()>,
+    /// Present when the server relays UDP.
+    udp: Option<Arc<udp::Dispatch>>,
 }
 
 impl Drop for Session {
@@ -96,12 +104,26 @@ impl Hysteria2Outbound {
         Ok(self)
     }
 
-    /// The live QUIC connection, authenticating a new one if needed.
-    async fn connection(&self) -> io::Result<quinn::Connection> {
+    /// Opens a UDP session on the shared connection. Fails when the server
+    /// does not relay UDP.
+    pub async fn udp_session(&self) -> io::Result<Hysteria2UdpSession> {
+        let (connection, dispatch) = self.connection().await?;
+        let dispatch = dispatch.ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::Unsupported,
+                "hysteria2 server does not relay udp",
+            )
+        })?;
+        Hysteria2UdpSession::new(connection, dispatch)
+    }
+
+    /// The live QUIC connection, authenticating a new one if needed, with
+    /// its UDP dispatch when the server relays UDP.
+    async fn connection(&self) -> io::Result<(quinn::Connection, Option<Arc<udp::Dispatch>>)> {
         let mut session = self.session.lock().await;
         if let Some(current) = session.as_ref() {
             if current.quic.connection.close_reason().is_none() {
-                return Ok(current.quic.connection.clone());
+                return Ok((current.quic.connection.clone(), current.udp.clone()));
             }
         }
         *session = None;
@@ -111,8 +133,9 @@ impl Hysteria2Outbound {
                 io::Error::new(io::ErrorKind::TimedOut, "hysteria2 handshake timed out")
             })??;
         let connection = fresh.quic.connection.clone();
+        let dispatch = fresh.udp.clone();
         *session = Some(fresh);
-        Ok(connection)
+        Ok((connection, dispatch))
     }
 
     async fn handshake(&self) -> io::Result<Session> {
@@ -126,10 +149,11 @@ impl Hysteria2Outbound {
         let driver = tokio::spawn(async move {
             let _ = driver.wait_idle().await;
         });
-        let session = Session {
+        let mut session = Session {
             quic,
             _requests: requests.clone(),
             driver,
+            udp: None,
         };
 
         let request = http::Request::post(AUTH_URI)
@@ -157,6 +181,14 @@ impl Hysteria2Outbound {
                 "hysteria2 authentication rejected",
             ));
         }
+        let relays_udp = response
+            .headers()
+            .get("hysteria-udp")
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.eq_ignore_ascii_case("true"));
+        if relays_udp {
+            session.udp = Some(udp::Dispatch::new(connection));
+        }
         Ok(session)
     }
 }
@@ -169,7 +201,7 @@ impl TcpOutbound for Hysteria2Outbound {
     fn connect<'a>(&'a self, target: &'a TargetAddr) -> BoxFuture<'a, io::Result<BoxStream>> {
         Box::pin(async move {
             let request = tcp_request(target)?;
-            let connection = self.connection().await?;
+            let (connection, _) = self.connection().await?;
             let (mut send, mut recv) = connection.open_bi().await.map_err(quic_error)?;
             send.write_all(&request).await?;
             read_tcp_response(&mut recv).await?;

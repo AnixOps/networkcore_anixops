@@ -5,15 +5,17 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
+use engine_inbound::addr::{write_port_addr, VMESS};
 use engine_inbound::registry::InboundFactory;
-use engine_inbound::server::{serve, InboundStats, ServeSettings};
+use engine_inbound::server::{serve_with_udp, InboundStats, ServeSettings};
+use engine_inbound::udp::BoundUdpOutbound;
 use engine_inbound::{StreamInbound, User};
 use engine_outbound::{BoxFuture, BoxStream, TargetAddr, TcpDialer, TcpOutbound};
 use inbound_vless::VlessInboundFactory;
 use outbound_vless::{parse_uuid, VlessTlsOutbound};
 use rcgen::{CertificateParams, KeyPair};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use transport_tls::{TlsConnector, TlsSettings};
 
 const TIMEOUT: Duration = Duration::from_secs(10);
@@ -104,10 +106,13 @@ async fn start(fallback: Option<SocketAddr>) -> Server {
         reject_hold: Duration::from_millis(300),
         ..ServeSettings::default()
     };
-    tokio::spawn(serve(
+    tokio::spawn(serve_with_udp(
         listener,
         inbound.clone(),
         Arc::new(Direct),
+        Some(Arc::new(BoundUdpOutbound::new(
+            "127.0.0.1:0".parse().unwrap(),
+        ))),
         serve_settings,
         stats.clone(),
     ));
@@ -248,4 +253,63 @@ async fn removed_users_are_refused() {
         .await
         .expect("held connection should close");
     assert!(read.is_err());
+}
+
+async fn udp_echo_server() -> SocketAddr {
+    let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let addr = socket.local_addr().unwrap();
+    tokio::spawn(async move {
+        let mut buf = vec![0u8; 65_536];
+        while let Ok((n, from)) = socket.recv_from(&mut buf).await {
+            let _ = socket.send_to(&buf[..n], from).await;
+        }
+    });
+    addr
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn udp_command_relays_datagrams() {
+    let server = start(None).await;
+    let echo = udp_echo_server().await;
+    let tcp = TcpStream::connect(server.addr).await.unwrap();
+    let mut stream = TlsConnector::new(&tls())
+        .unwrap()
+        .connect(Box::new(tcp))
+        .await
+        .unwrap();
+    let payloads = [b"query".to_vec(), vec![9u8; 1400]];
+    let mut request = vec![0u8];
+    request.extend_from_slice(&parse_uuid(ALICE).unwrap());
+    request.extend_from_slice(&[0, 2]);
+    write_port_addr(&mut request, echo, VMESS);
+    for payload in &payloads {
+        request.extend_from_slice(&(payload.len() as u16).to_be_bytes());
+        request.extend_from_slice(payload);
+    }
+    stream.write_all(&request).await.unwrap();
+    stream.flush().await.unwrap();
+
+    let mut header = [0u8; 2];
+    tokio::time::timeout(TIMEOUT, stream.read_exact(&mut header))
+        .await
+        .expect("vless response timed out")
+        .unwrap();
+    assert_eq!(header, [0, 0]);
+    for payload in &payloads {
+        let mut len = [0u8; 2];
+        tokio::time::timeout(TIMEOUT, stream.read_exact(&mut len))
+            .await
+            .expect("udp reply timed out")
+            .unwrap();
+        assert_eq!(usize::from(u16::from_be_bytes(len)), payload.len());
+        let mut body = vec![0u8; payload.len()];
+        stream.read_exact(&mut body).await.unwrap();
+        assert_eq!(&body, payload);
+    }
+
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let traffic = server.inbound.users().traffic(false);
+    let alice = traffic.iter().find(|entry| entry.name == "alice").unwrap();
+    let total = payloads.iter().map(Vec::len).sum::<usize>() as u64;
+    assert_eq!((alice.up, alice.down), (total, total));
 }

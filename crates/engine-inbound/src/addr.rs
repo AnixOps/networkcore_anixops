@@ -1,7 +1,7 @@
 //! Destination address encodings shared by several protocols.
 
 use std::io;
-use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
 
 use engine_outbound::TargetAddr;
 use tokio::io::{AsyncRead, AsyncReadExt};
@@ -88,6 +88,38 @@ async fn read_host<R: AsyncRead + Unpin>(reader: &mut R, codes: AddrCodes) -> io
     }
 }
 
+/// Appends `ATYP ADDR PORT` (SOCKS order), e.g. for a UDP reply source.
+pub fn write_addr_port(out: &mut Vec<u8>, addr: SocketAddr, codes: AddrCodes) {
+    write_ip(out, addr, codes);
+    out.extend_from_slice(&addr.port().to_be_bytes());
+}
+
+/// Appends `PORT ATYP ADDR` (VLESS and VMess order).
+pub fn write_port_addr(out: &mut Vec<u8>, addr: SocketAddr, codes: AddrCodes) {
+    out.extend_from_slice(&addr.port().to_be_bytes());
+    write_ip(out, addr, codes);
+}
+
+/// IPv4-mapped IPv6 addresses are written as IPv4.
+fn write_ip(out: &mut Vec<u8>, addr: SocketAddr, codes: AddrCodes) {
+    match addr.ip() {
+        IpAddr::V4(ip) => {
+            out.push(codes.ipv4);
+            out.extend_from_slice(&ip.octets());
+        }
+        IpAddr::V6(ip) => match ip.to_ipv4_mapped() {
+            Some(v4) => {
+                out.push(codes.ipv4);
+                out.extend_from_slice(&v4.octets());
+            }
+            None => {
+                out.push(codes.ipv6);
+                out.extend_from_slice(&ip.octets());
+            }
+        },
+    }
+}
+
 fn invalid(message: &'static str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message)
 }
@@ -117,5 +149,19 @@ mod tests {
         assert!(read_addr_port(&mut bad, SOCKS).await.is_err());
         let mut empty: &[u8] = &[3, 0, 0, 80];
         assert!(read_addr_port(&mut empty, SOCKS).await.is_err());
+
+        let mut out = Vec::new();
+        write_addr_port(&mut out, "[::ffff:10.0.0.1]:53".parse().unwrap(), SOCKS);
+        assert_eq!(out, [1, 10, 0, 0, 1, 0, 53]);
+        out.clear();
+        write_port_addr(&mut out, "[2001:db8::1]:443".parse().unwrap(), VMESS);
+        assert_eq!(out[..3], [1, 187, 3]);
+        assert_eq!(
+            read_port_addr(&mut out.as_slice(), VMESS)
+                .await
+                .unwrap()
+                .port(),
+            443
+        );
     }
 }

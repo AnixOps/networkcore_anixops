@@ -9,8 +9,10 @@
 //! or by the [`reality`] server when they carry `reality`. Behind REALITY,
 //! users may have the `xtls-rprx-vision` flow ([`vision`]); as in Xray, a
 //! client must request exactly the flow its user is configured with.
-//! Not yet: Vision over standard TLS, UDP and mux commands; a client asking
-//! for any of them is refused.
+//! The UDP command carries `LENGTH(2) PAYLOAD` datagrams to the request
+//! target in both directions; as in Xray it takes no flow, also for Vision
+//! users. Not yet: Vision over standard TLS and the mux command (XUDP); a
+//! client asking for either is refused.
 
 mod factory;
 pub mod reality;
@@ -22,6 +24,7 @@ use std::sync::Arc;
 
 use engine_inbound::addr::{read_port_addr, VMESS};
 use engine_inbound::stream::PrefixedStream;
+use engine_inbound::udp::{DatagramCodec, DatagramReader};
 use engine_inbound::users::{UserIndex, Validator};
 use engine_inbound::{
     fallback_or_hold, Accepted, Rejected, StreamInbound, User, UserEntry, UserStore,
@@ -42,6 +45,7 @@ const VERSION: u8 = 0;
 /// Version byte plus UUID.
 const AUTH_LEN: usize = 17;
 const COMMAND_TCP: u8 = 1;
+const COMMAND_UDP: u8 = 2;
 /// Protobuf tag of the `Flow` field in the addons message.
 const ADDONS_FLOW_TAG: u8 = 0x0a;
 /// Addons length byte, addons, command, port, address type and a domain.
@@ -55,6 +59,7 @@ pub struct VlessInbound {
 
 /// The request header after the UUID, and the payload read with it.
 struct Request {
+    command: u8,
     flow: Flow,
     target: TargetAddr,
     payload: Vec<u8>,
@@ -126,7 +131,7 @@ impl VlessInbound {
             );
         };
         let request = read_request(&mut stream, first[AUTH_LEN..].to_vec()).await?;
-        if request.flow != Flow::None || user_flow(&user) != Flow::None {
+        if request.flow == Flow::Vision || !flow_allowed(&user, &request) {
             return Err(Rejected::close("vless flow does not match the user"));
         }
         Ok(accepted(user, request, stream))
@@ -147,7 +152,7 @@ impl VlessInbound {
             );
         };
         let request = read_request(&mut tls, first[AUTH_LEN..].to_vec()).await?;
-        if request.flow != user_flow(&user) {
+        if !flow_allowed(&user, &request) {
             return Err(Rejected::close("vless flow does not match the user"));
         }
         if request.flow == Flow::Vision {
@@ -157,6 +162,7 @@ impl VlessInbound {
                 user: Some(user),
                 target: request.target,
                 stream: Box::new(VisionStream::new(tls, uuid, &request.payload)),
+                udp: None,
             });
         }
         Ok(accepted(user, request, Box::new(tls)))
@@ -164,6 +170,11 @@ impl VlessInbound {
 }
 
 fn accepted(user: Arc<UserEntry>, request: Request, stream: BoxStream) -> Accepted {
+    let udp = (request.command == COMMAND_UDP).then(|| {
+        Box::new(VlessDatagrams {
+            target: request.target.clone(),
+        }) as Box<dyn DatagramCodec>
+    });
     Accepted {
         user: Some(user),
         target: request.target,
@@ -172,6 +183,47 @@ fn accepted(user: Arc<UserEntry>, request: Request, stream: BoxStream) -> Accept
                 .with_read_prefix(request.payload)
                 .with_write_prefix(vec![VERSION, 0]),
         ),
+        udp,
+    }
+}
+
+/// VLESS UDP: `LENGTH(2) PAYLOAD` per datagram, all to the request target.
+struct VlessDatagrams {
+    target: TargetAddr,
+}
+
+impl DatagramCodec for VlessDatagrams {
+    fn read<'a>(
+        &'a self,
+        reader: &'a mut DatagramReader,
+    ) -> BoxFuture<'a, io::Result<Option<(TargetAddr, Vec<u8>)>>> {
+        Box::pin(async move {
+            let len = match reader.read_u16().await {
+                Ok(len) => usize::from(len),
+                Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => return Ok(None),
+                Err(error) => return Err(error),
+            };
+            let mut payload = vec![0u8; len];
+            reader.read_exact(&mut payload).await?;
+            Ok(Some((self.target.clone(), payload)))
+        })
+    }
+
+    fn encode(&self, _source: SocketAddr, payload: &[u8], out: &mut Vec<u8>) -> io::Result<()> {
+        let len = u16::try_from(payload.len())
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "udp payload too large"))?;
+        out.extend_from_slice(&len.to_be_bytes());
+        out.extend_from_slice(payload);
+        Ok(())
+    }
+}
+
+/// As in Xray: TCP uses exactly the user's flow, UDP never takes one.
+fn flow_allowed(user: &UserEntry, request: &Request) -> bool {
+    if request.command == COMMAND_UDP {
+        request.flow == Flow::None
+    } else {
+        request.flow == user_flow(user)
     }
 }
 
@@ -215,12 +267,13 @@ async fn parse_request(buffer: &[u8]) -> Result<Option<Request>, Rejected> {
     let Some(flow) = requested_flow(&buffer[1..command_at]) else {
         return Err(Rejected::close("vless flow is not supported"));
     };
-    if command != COMMAND_TCP {
+    if command != COMMAND_TCP && command != COMMAND_UDP {
         return Err(Rejected::close("vless command is not supported"));
     }
     let mut cursor = &buffer[command_at + 1..];
     match read_port_addr(&mut cursor, VMESS).await {
         Ok(target) => Ok(Some(Request {
+            command,
             flow,
             target,
             payload: cursor.to_vec(),

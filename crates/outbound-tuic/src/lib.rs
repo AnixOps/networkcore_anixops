@@ -20,15 +20,18 @@
 //! port) and then carries the payload both ways.
 //!
 //! The connection is shared by every stream and opened again when it closes;
-//! QUIC keep-alives keep it open between connections. UDP relay is not
-//! supported yet.
+//! QUIC keep-alives keep it open between connections.
+//! [`TuicOutbound::udp_session`] relays UDP in native mode over QUIC
+//! datagrams (see [`udp`]).
 //!
 //! [`TuicFactory`] registers the outbound under `"type": "tuic"`.
 
 mod factory;
+pub mod udp;
 
 use std::io;
 use std::net::IpAddr;
+use std::sync::{Arc, OnceLock};
 
 use engine_outbound::{BoxFuture, BoxStream, TargetAddr, TcpOutbound};
 use tokio::sync::Mutex;
@@ -36,6 +39,7 @@ use transport_quic::{quic_error, quinn, Congestion, QuicConnection, QuicConnecto
 use transport_tls::TlsSettings;
 
 pub use factory::{parse_uuid, TuicFactory, TYPE_NAME};
+pub use udp::TuicUdpSession;
 
 pub const PROTOCOL: &str = "tuic";
 
@@ -50,7 +54,14 @@ pub struct TuicOutbound {
     uuid: [u8; 16],
     password: Vec<u8>,
     quic: QuicConnector,
-    session: Mutex<Option<QuicConnection>>,
+    session: Mutex<Option<Session>>,
+}
+
+/// One authenticated QUIC connection.
+struct Session {
+    quic: QuicConnection,
+    /// Started with the first UDP session.
+    udp: OnceLock<Arc<udp::Dispatch>>,
 }
 
 impl TuicOutbound {
@@ -74,20 +85,43 @@ impl TuicOutbound {
         })
     }
 
+    /// Opens a UDP association on the shared connection.
+    pub async fn udp_session(&self) -> io::Result<TuicUdpSession> {
+        let (connection, dispatch) = {
+            let mut session = self.session.lock().await;
+            let current = self.live(&mut *session).await?;
+            let connection = current.quic.connection.clone();
+            let dispatch = current
+                .udp
+                .get_or_init(|| udp::Dispatch::new(connection.clone()))
+                .clone();
+            (connection, dispatch)
+        };
+        TuicUdpSession::new(connection, dispatch)
+    }
+
     /// The live QUIC connection, authenticating a new one if needed.
     async fn connection(&self) -> io::Result<quinn::Connection> {
         let mut session = self.session.lock().await;
-        if let Some(current) = session.as_ref() {
-            if current.connection.close_reason().is_none() {
-                return Ok(current.connection.clone());
-            }
+        Ok(self.live(&mut *session).await?.quic.connection.clone())
+    }
+
+    async fn live<'a>(&self, session: &'a mut Option<Session>) -> io::Result<&'a Session> {
+        let open = session
+            .as_ref()
+            .is_some_and(|current| current.quic.connection.close_reason().is_none());
+        if !open {
+            *session = None;
+            let fresh = self.quic.connect().await?;
+            authenticate(&fresh.connection, &self.uuid, &self.password).await?;
+            *session = Some(Session {
+                quic: fresh,
+                udp: OnceLock::new(),
+            });
         }
-        *session = None;
-        let fresh = self.quic.connect().await?;
-        authenticate(&fresh.connection, &self.uuid, &self.password).await?;
-        let connection = fresh.connection.clone();
-        *session = Some(fresh);
-        Ok(connection)
+        session
+            .as_ref()
+            .ok_or_else(|| io::Error::other("tuic session missing"))
     }
 }
 

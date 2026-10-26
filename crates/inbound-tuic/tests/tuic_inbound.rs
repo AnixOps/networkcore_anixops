@@ -7,13 +7,14 @@ use std::time::Duration;
 
 use engine_inbound::registry::PacketInboundFactory;
 use engine_inbound::server::{InboundStats, ServeSettings};
+use engine_inbound::udp::BoundUdpOutbound;
 use engine_inbound::{PacketInbound, User};
 use engine_outbound::{BoxFuture, BoxStream, TargetAddr, TcpOutbound};
 use inbound_tuic::TuicInboundFactory;
 use outbound_tuic::{parse_uuid, TuicOutbound};
 use rcgen::{CertificateParams, KeyPair};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use transport_quic::Congestion;
 use transport_tls::TlsSettings;
 
@@ -51,6 +52,18 @@ async fn echo_server() -> SocketAddr {
     addr
 }
 
+async fn udp_echo_server() -> SocketAddr {
+    let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let addr = socket.local_addr().unwrap();
+    tokio::spawn(async move {
+        let mut buf = vec![0u8; 65_536];
+        while let Ok((n, from)) = socket.recv_from(&mut buf).await {
+            let _ = socket.send_to(&buf[..n], from).await;
+        }
+    });
+    addr
+}
+
 struct Server {
     addr: SocketAddr,
     inbound: Arc<dyn PacketInbound>,
@@ -80,6 +93,9 @@ async fn start(congestion: &str) -> Server {
     tokio::spawn(inbound.clone().serve(
         socket,
         Arc::new(Direct),
+        Some(Arc::new(BoundUdpOutbound::new(
+            "127.0.0.1:0".parse().unwrap(),
+        ))),
         ServeSettings {
             handshake_timeout: Duration::from_secs(5),
             ..ServeSettings::default()
@@ -211,4 +227,55 @@ async fn users_added_and_removed_at_runtime() {
             .expect("refusal timed out");
         assert!(read.is_err());
     }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn udp_associations_relay_and_fragment_datagrams() {
+    let server = start("cubic").await;
+    let echo_addr = udp_echo_server().await;
+    let client = client(server.addr, BOB, "bob-secret", Congestion::Cubic);
+    let session = client.udp_session().await.unwrap();
+    let mut buf = vec![0u8; 65_536];
+    // A small datagram and one larger than the QUIC datagram limit.
+    let large: Vec<u8> = (0..6000).map(|i| (i % 251) as u8).collect();
+    for payload in [b"ping".to_vec(), large.clone()] {
+        // Datagrams may be lost; retry a few times and skip late replies to
+        // an earlier attempt.
+        let mut source = None;
+        'attempts: for _ in 0..5 {
+            session
+                .send_to(&TargetAddr::Ip(echo_addr), &payload)
+                .unwrap();
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+            while let Ok(reply) =
+                tokio::time::timeout_at(deadline, session.recv_from(&mut buf)).await
+            {
+                let (n, from) = reply.unwrap();
+                if buf[..n] == payload[..] {
+                    source = Some(from);
+                    break 'attempts;
+                }
+            }
+        }
+        assert_eq!(
+            source.expect("udp echo timed out"),
+            TargetAddr::Ip(echo_addr)
+        );
+    }
+
+    // A second association on the same connection gets its own socket.
+    let other = client.udp_session().await.unwrap();
+    other.send_to(&TargetAddr::Ip(echo_addr), b"two").unwrap();
+    let (n, _) = tokio::time::timeout(TIMEOUT, other.recv_from(&mut buf))
+        .await
+        .expect("second association timed out")
+        .unwrap();
+    assert_eq!(&buf[..n], b"two");
+
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let traffic = server.inbound.users().traffic(false);
+    assert_eq!(traffic.len(), 1);
+    assert_eq!(traffic[0].name, "bob");
+    let minimum = 4 + large.len() as u64 + 3;
+    assert!(traffic[0].up >= minimum && traffic[0].down >= minimum);
 }

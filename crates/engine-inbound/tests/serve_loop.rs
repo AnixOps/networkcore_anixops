@@ -46,6 +46,7 @@ impl StreamInbound for LineInbound {
                 user: Some(user),
                 target: TargetAddr::Ip(self.target),
                 stream: Box::new(reader),
+                udp: None,
             })
         })
     }

@@ -17,6 +17,15 @@ kernel that anix-agent drives on a proxy server). It mirrors `engine-outbound`:
   `engine_outbound::TcpOutbound` (direct or routed) and charges bytes to the
   user as they move. `server::handle_connection` is the same per-connection
   path for TLS or QUIC transports.
+- `udp`: UDP egress (`UdpOutbound`, implemented by the node's direct
+  outbound) and relays. Protocols that carry datagrams on the client stream
+  (Trojan UDP associate, VLESS/VMess UDP) set `Accepted::udp` to their
+  `DatagramCodec`; the serve loop (`serve_with_udp`) opens a session, relays
+  both ways, charges payload bytes and ends the session when idle for two
+  minutes or when the user is removed. Without a UDP outbound, UDP requests
+  are refused. `SessionRelay` keeps one socket per protocol session id for
+  QUIC protocols (Hysteria2, TUIC; `PacketInbound::serve` takes the UDP
+  outbound) and Shadowsocks UDP (`StreamInbound::datagram`, same port).
 - `registry`: config `type` name to `InboundFactory`, one crate and cargo
   feature per protocol.
 

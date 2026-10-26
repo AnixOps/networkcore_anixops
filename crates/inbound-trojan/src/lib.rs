@@ -8,16 +8,19 @@
 //! drained.
 //!
 //! TLS is terminated by `inbound-transport` when the settings carry `tls`;
-//! without it the inbound expects a TLS terminator in front. Only `CONNECT`
-//! is supported; UDP associate is refused for now.
+//! without it the inbound expects a TLS terminator in front. `CONNECT` and
+//! `UDP ASSOCIATE` are supported; UDP packets on the stream are `ATYP ADDR
+//! PORT LENGTH CRLF PAYLOAD` in both directions.
 
 mod factory;
 
+use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use engine_inbound::addr::{read_addr_port, SOCKS};
+use engine_inbound::addr::{read_addr_port, write_addr_port, SOCKS};
 use engine_inbound::stream::PrefixedStream;
+use engine_inbound::udp::{DatagramCodec, DatagramReader};
 use engine_inbound::users::{UserIndex, Validator};
 use engine_inbound::{
     fallback_or_hold, read_first, Accepted, Rejected, StreamInbound, User, UserStore,
@@ -33,6 +36,7 @@ pub const PROTOCOL: &str = "trojan";
 const HASH_LEN: usize = 56;
 const CRLF: &[u8] = b"\r\n";
 const CMD_CONNECT: u8 = 0x01;
+const CMD_UDP_ASSOCIATE: u8 = 0x03;
 
 pub struct TrojanInbound {
     users: Arc<UserStore>,
@@ -78,7 +82,8 @@ impl TrojanInbound {
 
         let mut reader =
             PrefixedStream::new(stream).with_read_prefix(first[HASH_LEN + CRLF.len()..].to_vec());
-        if reader.read_u8().await? != CMD_CONNECT {
+        let command = reader.read_u8().await?;
+        if command != CMD_CONNECT && command != CMD_UDP_ASSOCIATE {
             return Err(Rejected::close("trojan command is not supported"));
         }
         let target = read_addr_port(&mut reader, SOCKS).await?;
@@ -91,6 +96,8 @@ impl TrojanInbound {
             user: Some(user),
             target,
             stream: Box::new(reader),
+            udp: (command == CMD_UDP_ASSOCIATE)
+                .then(|| Box::new(TrojanDatagrams) as Box<dyn DatagramCodec>),
         })
     }
 }
@@ -110,6 +117,46 @@ impl StreamInbound for TrojanInbound {
         _peer: SocketAddr,
     ) -> BoxFuture<'a, Result<Accepted, Rejected>> {
         Box::pin(self.handshake(stream))
+    }
+}
+
+/// Trojan UDP packets: `ATYP ADDR PORT LENGTH CRLF PAYLOAD`.
+struct TrojanDatagrams;
+
+impl DatagramCodec for TrojanDatagrams {
+    fn read<'a>(
+        &'a self,
+        mut reader: &'a mut DatagramReader,
+    ) -> BoxFuture<'a, io::Result<Option<(TargetAddr, Vec<u8>)>>> {
+        Box::pin(async move {
+            let target = match read_addr_port(&mut reader, SOCKS).await {
+                Ok(target) => target,
+                Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => return Ok(None),
+                Err(error) => return Err(error),
+            };
+            let len = usize::from(reader.read_u16().await?);
+            let mut crlf = [0u8; 2];
+            reader.read_exact(&mut crlf).await?;
+            if crlf != CRLF {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "trojan udp packet is malformed",
+                ));
+            }
+            let mut payload = vec![0u8; len];
+            reader.read_exact(&mut payload).await?;
+            Ok(Some((target, payload)))
+        })
+    }
+
+    fn encode(&self, source: SocketAddr, payload: &[u8], out: &mut Vec<u8>) -> io::Result<()> {
+        let len = u16::try_from(payload.len())
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "udp payload too large"))?;
+        write_addr_port(out, source, SOCKS);
+        out.extend_from_slice(&len.to_be_bytes());
+        out.extend_from_slice(CRLF);
+        out.extend_from_slice(payload);
+        Ok(())
     }
 }
 
