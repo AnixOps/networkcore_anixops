@@ -4,6 +4,10 @@
 
 ## Unreleased
 
+## v0.2.0 - 2026-10-26
+
+正式版，tag 在 `a636b89`，与通过 Windows/Linux 真机验收的 `v0.2.0-rc.2` 同一提交（`v0.2.0-rc.1` 在 `54adc04`）。以下为自 `v0.2.0-alpha.21` 以来的全部变更。
+
 ### Security
 
 - 修复 Actions 依赖审计发现的 RUSTSEC-2026-0385（`ctutils` 掩码生成与 `u128` 比较非常数时间）：将 `ctutils` lock 提升到 `0.4.4`。未添加漏洞忽略规则。
@@ -87,10 +91,10 @@ described as production-ready. A maintainer may explicitly authorize a beta tag
 to generate candidate artifacts for that acceptance.
 
 ```text
-current-main-release-state=pending_manual_acceptance
-current-main-source-candidate=v0.2.0-rc.2
-current-main-latest-published-tag=v0.2.0-rc.1
-current-main-latest-stable-tag=v0.1.0
+current-main-release-state=released
+current-main-source-candidate=v0.2.0
+current-main-latest-published-tag=v0.2.0
+current-main-latest-stable-tag=v0.2.0
 current-main-subscription-foreground=public-engine-run-plan-mieru-and-sing-box-active
 current-main-subscription-refresh=explicit-http-single-source-status-stop-active
 current-main-subscription-background=linux-systemd-oneshot-timer-and-windows-opt-in-single-source-active

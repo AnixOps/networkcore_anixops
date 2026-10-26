@@ -4,11 +4,15 @@
 
 ## v0.2.0 Release Acceptance Gate
 
-release-version=v0.2.0-rc.2
+Result (2026-10-26): the maintainer reported Windows and Linux real-host acceptance passed on `v0.2.0-rc.2`
+(tag on `a636b89`, release run 40244631348). `v0.2.0` was tagged on the same commit after a green dry-run
+(run 40248295002). The record below is kept for the next release.
+
+release-version=v0.2.0
 release-final-version=v0.2.0
-release-state=pending_manual_acceptance
-release-tag-status=rc2-tag-pending-maintainer-approval
-release-dry-run-status=pending_github_actions_validation
+release-state=passed
+release-tag-status=v0.2.0-published-on-a636b89
+release-dry-run-status=passed
 release-required-artifacts=linux-tarball-four-file-set,linux-gui-tarball-four-file-set,linux-gui-deb-four-file-set,windows-msi-four-file-set,windows-portable-zip-four-file-set
 release-ci-source=main-same-commit-ci-summary-success-required
 release-out-of-scope=macos,ios-release-assets
