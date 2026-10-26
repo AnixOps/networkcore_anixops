@@ -8019,8 +8019,7 @@ fn subscription_error(command: &'static str, error: DomainError) -> LinuxCliResp
 }
 
 pub fn registered_core_engine_descriptors() -> Vec<ProxyEngineDescriptor> {
-    let mut descriptors = engine_native::NativeProxyEngineService::new().list_engines();
-    descriptors
+    engine_native::NativeProxyEngineService::new().list_engines()
 }
 
 #[allow(clippy::too_many_arguments)]
