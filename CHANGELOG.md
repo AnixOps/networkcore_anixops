@@ -15,6 +15,10 @@
 
 ### Added
 
+- 订阅导入支持 iWAN 节点和前置节点：
+  - sing-box JSON 新增 AnixOps 扩展类型 `iwan`（`username`、`password`，可选 `mtu`、`encrypt`），对应 `control_domain::Protocol::Iwan` 和 `iwan.*` 元数据。
+  - sing-box 的 `detour` 按 tag 解析为节点 id（`proxy.via` 元数据），`node-import` 输出为出站的 `via`。
+  - `detour` 指向的不是导入的节点，或前置节点本身无法运行时，该节点报为无法运行。
 - 前置节点（代理链）`via`，设计见 `docs/architecture/outbound-via.md`（入口 → 传输 → 出口模型）。
   - `engine-embedded` 的出站配置新增保留字段 `via`：写字符串时指向 `routing.outbounds` 里的另一个节点，多个节点共用同一个实例（同一 iWAN 会话）；写对象时是内联出站，单出站模式只接受这种写法。
   - 节点按依赖顺序构建，拒绝不存在的节点、成环和超过 4 层的链。
