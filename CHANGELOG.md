@@ -15,6 +15,7 @@
 
 ### Added
 
+- XHTTP 服务端传输：`transport-xhttp` 新增 `server::XhttpServer`（连接以 HTTP/2 前言开头按 HTTP/2/h2c，否则按 HTTP/1.1；入站内共享会话表，同一会话的请求可来自不同连接；`packet-up` 按 `seq` 重排、最多领先 30 段并以延后应答反压，`stream-up`、`stream-one` 走 HTTP/2；检查 Host、路径和 `x_padding` 长度，分别以 `404`/`400` 拒绝；会话 30 秒等不到下载即丢弃）。VLESS、VMess、Trojan 入站的 `transport` 新增 `{"type": "xhttp", ...}`（也接受 `splithttp`），TLS 未配置 ALPN 时提供 `h2` 和 `http/1.1`。客户端互通测试新增 Xray 客户端到本内核 VLESS-XHTTP 入站的五种组合，`transport-xhttp` 新增本实现客户端与服务端的回环测试。
 - 自研 XHTTP 传输：新增 `transport-xhttp`（按 [docs/protocols/xhttp.md](docs/protocols/xhttp.md) 净室实现，与 Xray-core XHTTP/SplitHTTP 线上兼容）。HTTP/1.1 支持 `packet-up`，HTTP/2 支持 `packet-up`、`stream-up`、`stream-one`；版本按 TLS ALPN 选择（无 TLS 或仅 `http/1.1` 为 HTTP/1.1，否则 HTTP/2，空 ALPN 时提供 `h2`）；每个请求在 `Referer` 中带随机长度的 `x_padding`。VLESS（非 REALITY）出站支持 `"transport": {"type": "xhttp", "path": ..., "mode": ...}`（也接受 `splithttp` 和 Xray 的字段名）。CI 互通测试新增 Xray-core 的 VLESS-XHTTP 入站（无 TLS 和 TLS 两个），覆盖上述五种组合的下载与回显。服务端传输、HTTP/3、REALITY 上的 XHTTP 和订阅导入后续补上。
 
 - 订阅导入支持 iWAN 节点和前置节点：

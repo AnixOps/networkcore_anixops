@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Server-side transports for protocol inbounds: TLS with certificate reload, WebSocket and gRPC."
+description = "Server-side transports for protocol inbounds: TLS with certificate reload, WebSocket, gRPC and XHTTP."
 
 [dependencies]
 engine-inbound = { path = "../engine-inbound" }
@@ -15,6 +15,7 @@ tokio = { version = "1", default-features = false, features = ["io-util", "time"
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 transport-grpc = { path = "../transport-grpc" }
 transport-ws = { path = "../transport-ws" }
+transport-xhttp = { path = "../transport-xhttp" }
 
 [dev-dependencies]
 rcgen = "0.14.8"

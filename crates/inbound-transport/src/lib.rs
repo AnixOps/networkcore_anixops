@@ -69,8 +69,9 @@ pub fn wrap(
     }
 }
 
-/// Wraps `inner` in `transport`, then in TLS when `tls` is set. gRPC under
-/// TLS offers ALPN `h2` when no ALPN is configured.
+/// Wraps `inner` in `transport`, then in TLS when `tls` is set. Without a
+/// configured ALPN, gRPC under TLS offers `h2` and XHTTP `h2` and
+/// `http/1.1`.
 pub fn wrap_all(
     inner: Arc<dyn StreamInbound>,
     transport: Option<&TransportSettings>,
@@ -78,9 +79,17 @@ pub fn wrap_all(
 ) -> Result<Arc<dyn StreamInbound>, BuildError> {
     let inner = wrap_transport(inner, transport)?;
     match tls {
-        Some(tls) if tls.alpn.is_empty() && transport.is_some_and(TransportSettings::needs_h2) => {
+        Some(tls)
+            if tls.alpn.is_empty()
+                && transport.is_some_and(|transport| !transport.default_alpn().is_empty()) =>
+        {
             let mut tls = tls.clone();
-            tls.alpn.push("h2".to_owned());
+            tls.alpn = transport
+                .map(TransportSettings::default_alpn)
+                .unwrap_or_default()
+                .iter()
+                .map(|protocol| (*protocol).to_owned())
+                .collect();
             wrap(inner, Some(&tls))
         }
         tls => wrap(inner, tls),
