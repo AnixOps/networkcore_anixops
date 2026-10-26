@@ -63,8 +63,8 @@ networkcore.adblock
 ```
 
 The plugin source must load through `anixops_engine_load_config` from the
-vendored `mitm_anixops` distribution release `v1.4.6` source commit
-`6382f0147e02a8653343571791ef61b8cc885cb1`. The linked C core version remains
+vendored `mitm_anixops` distribution release `v1.4.7` source commit
+`ee952234c35ddf36f2c63f8aa20f28ad744bd054`. The linked C core version remains
 `0.45.10`.
 
 The safe wrapper may expose 0.45.10 policy results as NetworkCore-owned Rust
@@ -250,8 +250,8 @@ mitm.policy.http_event.mutation_deferred
 CI must prove:
 
 - workspace contains `crates/mitm-policy`;
-- `mitm_anixops` submodule is pinned to distribution release `v1.4.6` source
-  commit `6382f0147e02a8653343571791ef61b8cc885cb1`, while linked C core
+- `mitm_anixops` submodule is pinned to distribution release `v1.4.7` source
+  commit `ee952234c35ddf36f2c63f8aa20f28ad744bd054`, while linked C core
   version remains `0.45.10`;
 - `mitm-policy` exposes the built-in ad-block package and adapter service;
 - `mitm-policy` exposes 0.45.10 rewrite plan, header, body chain, script, and

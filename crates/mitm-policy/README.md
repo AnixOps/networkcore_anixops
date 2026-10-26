@@ -1,7 +1,7 @@
 # mitm-policy
 
 `mitm-policy` is the safe Rust adapter over the vendored `mitm_anixops`
-distribution release `v1.4.6` source commit. The linked C core ABI reports
+distribution release `v1.4.7` source commit. The linked C core ABI reports
 version `0.45.10`.
 
 ## What the crate provides

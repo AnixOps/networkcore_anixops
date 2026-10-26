@@ -339,7 +339,6 @@ Before describing VLESS + REALITY as usable on iOS, the maintainer records here
 - 首批运维上线环境尚未提供：真实邮件/Telegram 接收渠道、第三方独立 Control 监控、跨地域节点和设备以及维护负责人。当前自动化只能运行测试适配器与代码 CI，不能证明这些真实环境门槛。维护负责人补齐渠道与部署范围后，记录投递/监控/网络/设备及回滚演练证据，再由 CI/CD 推进获准的灰度发布；真实地址与密钥仅放部署系统或密码库。
 - NetworkCore 的首批诊断库不含宿主运行时事件接线。后续实现真实观察源、宿主认证身份和持久化发送适配后，需在 CI 中补 Agent/Control 的端到端验收，再安排环境演练。
 
-- `third_party/mitm_anixops` 只能固定在已发布的 release commit（当前 v1.4.6 / `6382f01`，CI policy 同时校验 tag object 与 manifest digest）。mitm_anixops main 上的 `6c71236`（脚本 runner 在 Windows 上替换 store 文件时对 EPERM/EACCES/EBUSY 重试，修复 Windows engine-native 偶发失败）需要维护者批准并发布 mitm_anixops 新版本后，再在独立 PR 中同步更新 submodule、`ci.yml` 与 `managed-sdwan-mitm-policy-gate-source-contract.md` 中的 release tag/commit/manifest 字段。
 
 ## 已完成的人工/外部事项
 
