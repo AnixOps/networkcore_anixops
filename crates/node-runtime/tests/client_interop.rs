@@ -296,6 +296,13 @@ impl Client {
         }
     }
 
+    fn config_extension(self) -> &'static str {
+        match self {
+            Client::Xray | Client::SingBox => "json",
+            Client::Hysteria => "yaml",
+        }
+    }
+
     fn supports(self, case: &Case) -> bool {
         match self {
             Client::Xray => !matches!(case.proto, Proto::Hysteria2 { .. } | Proto::Tuic),
@@ -660,7 +667,8 @@ async fn run_client(
     let socks = free_port();
     let (config, args) = client.config(env, case, server, socks);
     let name = format!("{}-{}", client.binary(), case.tag);
-    let path = dir.join(format!("{name}.conf"));
+    // The clients pick the config format from the extension.
+    let path = dir.join(format!("{name}.{}", client.config_extension()));
     std::fs::write(&path, config).map_err(|error| format!("write config: {error}"))?;
     let running = spawn(&binary, &args, &path, dir.join(format!("{name}.log")))
         .map_err(|error| format!("start {}: {error}", binary.display()))?;
