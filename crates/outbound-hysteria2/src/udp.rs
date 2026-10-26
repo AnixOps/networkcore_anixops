@@ -421,7 +421,8 @@ mod tests {
         assert!(UdpMessage::parse(&[0, 0, 0, 1, 0, 0, 0, 1, 20, b'a']).is_none());
         // Zero-length address.
         assert!(UdpMessage::parse(&[0, 0, 0, 1, 0, 0, 0, 1, 0]).is_none());
-        assert!(encode_message(1, 1, "a:1", &[0u8; 300_000], 1200).is_empty());
+        // More than 255 fragments.
+        assert!(encode_message(1, 1, "a:1", &[0u8; 400_000], 1200).is_empty());
         assert!(encode_message(1, 1, "a:1", b"x", 8).is_empty());
     }
 }
