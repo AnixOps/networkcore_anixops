@@ -314,6 +314,20 @@ impl<'a> ConnectionContext<'a> {
         .await;
     }
 
+    /// Relays a stream that is already accepted, such as a fallback to a
+    /// camouflage site found before the transport took over.
+    pub async fn relay_accepted(self, accepted: Accepted) {
+        relay(
+            accepted,
+            self.peer,
+            self.outbound,
+            None,
+            self.settings,
+            self.stats,
+        )
+        .await;
+    }
+
     /// UDP egress, when the node provides one.
     pub fn udp(&self) -> Option<&'a dyn UdpOutbound> {
         self.udp

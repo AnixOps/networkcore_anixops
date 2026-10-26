@@ -10,6 +10,9 @@
 //! non-TLS probes, is relayed unchanged to the `handshake` site, so a prober
 //! sees that site's real certificate.
 //!
+//! With a transport (XHTTP), the transport serves the connection inside the
+//! REALITY TLS session instead of VLESS reading it directly.
+//!
 //! Not yet: mirroring the handshake site's ServerHello and record sizes, and
 //! the ML-KEM part of hybrid key shares (the X25519 half is used).
 
@@ -19,6 +22,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use engine_inbound::registry::BuildError;
+use engine_inbound::server::ConnectionContext;
 use engine_inbound::{
     fallback_or_hold, Accepted, FallbackSettings, Rejected, StreamInbound, UserStore,
 };
@@ -32,7 +36,7 @@ use tls_mimic::server::{
     accept, ed25519_certificate_template, parse_client_hello, read_client_hello, ClientHelloInfo,
     ServerIdentity,
 };
-use tls_mimic::SESSION_ID_OFFSET;
+use tls_mimic::{TlsStream, SESSION_ID_OFFSET};
 use x25519_dalek::{PublicKey, StaticSecret};
 
 use crate::VlessInbound;
@@ -69,6 +73,15 @@ pub struct RealityInbound {
     signer: Ed25519KeyPair,
     certificate: Vec<u8>,
     alpn: Vec<Vec<u8>>,
+    /// Serves connections inside the REALITY session when set.
+    transport: Option<Arc<dyn StreamInbound>>,
+}
+
+/// How the REALITY server handshake ended.
+enum Handshake {
+    Tls(Box<TlsStream<BoxStream>>),
+    /// Relayed to the handshake site, held, or closed.
+    Done(Result<Accepted, Rejected>),
 }
 
 impl RealityInbound {
@@ -106,7 +119,48 @@ impl RealityInbound {
             certificate: ed25519_certificate_template(&public),
             signer,
             alpn: ALPN.iter().map(|protocol| protocol.to_vec()).collect(),
+            transport: None,
         })
+    }
+
+    /// Runs `transport`, which must serve whole connections, inside the
+    /// REALITY session.
+    pub fn with_transport(mut self, transport: Arc<dyn StreamInbound>) -> Self {
+        self.transport = Some(transport);
+        self
+    }
+
+    async fn handshake(&self, mut stream: BoxStream) -> Handshake {
+        let mut consumed = Vec::new();
+        let message = match read_client_hello(&mut stream, &mut consumed).await {
+            Ok(message) => message,
+            Err(_) => {
+                return Handshake::Done(fallback_or_hold(
+                    Some(&self.handshake),
+                    consumed,
+                    stream,
+                    "not a reality client",
+                ))
+            }
+        };
+        let Some((hello, auth_key)) = self.authenticate(&message) else {
+            return Handshake::Done(fallback_or_hold(
+                Some(&self.handshake),
+                consumed,
+                stream,
+                "reality authentication failed",
+            ));
+        };
+        let chain = [self.certificate(&auth_key)];
+        let identity = ServerIdentity {
+            certificate_chain: &chain,
+            signer: &self.signer,
+            alpn: &self.alpn,
+        };
+        match accept(stream, &hello, &identity).await {
+            Ok(tls) => Handshake::Tls(Box::new(tls)),
+            Err(_) => Handshake::Done(Err(Rejected::close("reality tls handshake failed"))),
+        }
     }
 
     /// The X25519 public key clients configure (`publicKey` / `pbk`).
@@ -188,41 +242,46 @@ impl StreamInbound for RealityInbound {
 
     fn accept<'a>(
         &'a self,
-        mut stream: BoxStream,
+        stream: BoxStream,
         _peer: SocketAddr,
     ) -> BoxFuture<'a, Result<Accepted, Rejected>> {
         Box::pin(async move {
-            let mut consumed = Vec::new();
-            let message = match read_client_hello(&mut stream, &mut consumed).await {
-                Ok(message) => message,
-                Err(_) => {
-                    return fallback_or_hold(
-                        Some(&self.handshake),
-                        consumed,
-                        stream,
-                        "not a reality client",
-                    )
+            match self.handshake(stream).await {
+                Handshake::Tls(_) if self.transport.is_some() => Err(Rejected::close(
+                    "reality transports serve whole connections",
+                )),
+                Handshake::Tls(tls) => self.inner.handshake_reality(*tls).await,
+                Handshake::Done(result) => result,
+            }
+        })
+    }
+
+    fn serves_connections(&self) -> bool {
+        self.transport.is_some()
+    }
+
+    fn serve_connection<'a>(
+        &'a self,
+        stream: BoxStream,
+        context: ConnectionContext<'a>,
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            let Some(transport) = &self.transport else {
+                return;
+            };
+            let handshake =
+                tokio::time::timeout(context.settings.handshake_timeout, self.handshake(stream));
+            match handshake.await {
+                Ok(Handshake::Tls(tls)) => transport.serve_connection(tls, context).await,
+                Ok(Handshake::Done(Ok(accepted))) => context.relay_accepted(accepted).await,
+                Ok(Handshake::Done(Err(rejected))) => {
+                    context.handshake_failed();
+                    if let Some(stream) = rejected.stream {
+                        context.hold(stream).await;
+                    }
                 }
-            };
-            let Some((hello, auth_key)) = self.authenticate(&message) else {
-                return fallback_or_hold(
-                    Some(&self.handshake),
-                    consumed,
-                    stream,
-                    "reality authentication failed",
-                );
-            };
-            let chain = [self.certificate(&auth_key)];
-            let identity = ServerIdentity {
-                certificate_chain: &chain,
-                signer: &self.signer,
-                alpn: &self.alpn,
-            };
-            let tls = match accept(stream, &hello, &identity).await {
-                Ok(tls) => tls,
-                Err(_) => return Err(Rejected::close("reality tls handshake failed")),
-            };
-            self.inner.handshake_reality(tls).await
+                Err(_) => context.handshake_failed(),
+            }
         })
     }
 }

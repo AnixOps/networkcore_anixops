@@ -1,6 +1,6 @@
 //! Registry entry for `"type": "vless"` config entries: REALITY when
-//! `reality` is set, otherwise plain TCP or standard TLS (`tls`), optionally
-//! inside a WebSocket, gRPC or XHTTP (`transport`).
+//! `reality` is set (raw or inside XHTTP), otherwise plain TCP or standard
+//! TLS (`tls`), optionally inside a WebSocket, gRPC or XHTTP (`transport`).
 
 use std::sync::Arc;
 
@@ -11,11 +11,11 @@ use tls_mimic::Fingerprint;
 use transport_grpc::{GrpcConnector, GrpcSettings};
 use transport_tls::{TlsConnector, TlsSettings};
 use transport_ws::{WsConnector, WsSettings};
-use transport_xhttp::{HttpVersion, XhttpConnector, XhttpSettings, XhttpTarget};
+use transport_xhttp::{HttpVersion, Mode, Security, XhttpConnector, XhttpSettings, XhttpTarget};
 
 use crate::{
-    parse_public_key, parse_short_id, parse_uuid, Flow, RealityConfig, VlessRealityConfig,
-    VlessRealityOutbound, VlessTlsOutbound,
+    parse_public_key, parse_short_id, parse_uuid, Flow, RealityConfig, RealityLayer,
+    VlessRealityConfig, VlessRealityOutbound, VlessTlsOutbound,
 };
 
 pub const TYPE_NAME: &str = "vless";
@@ -104,22 +104,30 @@ impl OutboundFactory for VlessFactory {
         settings: &Settings,
         dialer: Arc<dyn Dialer>,
     ) -> Result<Arc<dyn TcpOutbound>, BuildError> {
-        let settings: VlessSettings =
+        let mut settings: VlessSettings =
             parse_settings(settings, "vless settings are missing or invalid")?;
         if settings.server.is_empty() || settings.port == 0 {
             return Err("vless server address is invalid");
         }
         let uuid = parse_uuid(&settings.uuid).map_err(|_| "vless uuid is invalid")?;
         let flow = Flow::from_name(&settings.flow).ok_or("unsupported vless flow")?;
-        if let Some(reality) = &settings.reality {
+        if let Some(reality) = settings.reality.take() {
             if settings.tls.is_some() {
                 return Err("vless reality and tls cannot both be set");
             }
-            if !matches!(settings.transport, None | Some(TransportSettings::Tcp)) {
-                return Err("vless reality supports only the tcp transport");
-            }
-            let config = reality_config(&settings, reality, uuid, flow)?;
-            return Ok(Arc::new(VlessRealityOutbound::new(config, dialer)));
+            let config = reality_config(&settings, &reality, uuid, flow)?;
+            return match settings.transport {
+                None | Some(TransportSettings::Tcp) => {
+                    Ok(Arc::new(VlessRealityOutbound::new(config, dialer)))
+                }
+                Some(TransportSettings::Xhttp(xhttp)) => {
+                    if flow != Flow::None {
+                        return Err("xtls-rprx-vision does not run over xhttp");
+                    }
+                    Ok(Arc::new(reality_xhttp_outbound(config, xhttp, dialer)?))
+                }
+                Some(_) => Err("vless reality supports only the tcp and xhttp transports"),
+            };
         }
         if flow != Flow::None {
             return Err("xtls-rprx-vision needs reality in this build");
@@ -206,7 +214,7 @@ fn standard_outbound(
                         server: settings.server.clone(),
                         port: settings.port,
                         default_host: default_host.clone(),
-                        tls: connector.clone(),
+                        security: connector.clone().map_or(Security::None, Security::Tls),
                         version: xhttp_version.unwrap_or(HttpVersion::Http11),
                         dialer: dialer.clone(),
                     },
@@ -229,6 +237,33 @@ fn standard_outbound(
         outbound = outbound.with_xhttp(xhttp);
     }
     Ok(outbound)
+}
+
+/// XHTTP over REALITY, which Xray always runs as HTTP/2, with `auto` as
+/// `stream-one`.
+fn reality_xhttp_outbound(
+    config: VlessRealityConfig,
+    mut xhttp: XhttpSettings,
+    dialer: Arc<dyn Dialer>,
+) -> Result<VlessTlsOutbound, BuildError> {
+    if xhttp.mode == Mode::Auto {
+        xhttp.mode = Mode::StreamOne;
+    }
+    let connector = XhttpConnector::new(
+        &xhttp,
+        XhttpTarget {
+            server: config.server.clone(),
+            port: config.port,
+            default_host: config.reality.server_name.clone(),
+            security: Security::Custom(Arc::new(RealityLayer::new(config.reality))),
+            version: HttpVersion::Http2,
+            dialer: dialer.clone(),
+        },
+    )
+    .map_err(|_| "vless xhttp settings are invalid")?;
+    let outbound = VlessTlsOutbound::new(config.server, config.port, config.uuid, None, dialer)
+        .map_err(|_| "vless outbound settings are invalid")?;
+    Ok(outbound.with_xhttp(connector))
 }
 
 fn reality_config(

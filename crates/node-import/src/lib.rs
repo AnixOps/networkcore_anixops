@@ -332,26 +332,36 @@ fn vless(node: &NodeDescriptor) -> Result<Value, Unsupported> {
     let flow = metadata(node, NODE_METADATA_VLESS_FLOW).unwrap_or_default();
     let transport = v2ray_transport(node)?;
     if let Some(public_key) = metadata(node, NODE_METADATA_TLS_REALITY_PUBLIC_KEY) {
-        if !transport.is_null() {
-            return Err("vless REALITY over transports other than tcp is not implemented yet");
+        let xhttp = transport["type"] == "xhttp";
+        if !transport.is_null() && !xhttp {
+            return Err(
+                "vless REALITY over transports other than tcp and xhttp is not implemented yet",
+            );
+        }
+        if xhttp && !flow.is_empty() && flow != "none" {
+            return Err("vless flows over xhttp are not supported");
         }
         let server_name = metadata(node, NODE_METADATA_TLS_SERVER_NAME)
             .ok_or("vless REALITY server name is missing")?;
         // tls-mimic ships one Chrome fingerprint; other names fall back to it,
         // as the iOS importer does.
-        return Ok(json!({
+        let mut outbound = json!({
             "type": "vless",
             "server": node.endpoint.host,
             "port": node.endpoint.port,
             "uuid": uuid,
-            "flow": flow,
+            "flow": if xhttp { "" } else { flow },
             "reality": {
                 "server_name": server_name,
                 "public_key": public_key,
                 "short_id": metadata(node, NODE_METADATA_TLS_REALITY_SHORT_ID).unwrap_or_default(),
                 "fingerprint": "chrome",
             },
-        }));
+        });
+        if xhttp {
+            outbound["transport"] = transport;
+        }
+        return Ok(outbound);
     }
     if !flow.is_empty() && flow != "none" {
         return Err("vless flows without REALITY are not implemented yet");

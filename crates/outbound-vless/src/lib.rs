@@ -101,6 +101,34 @@ impl VlessRealityOutbound {
     }
 }
 
+/// The REALITY handshake as the secure layer under XHTTP, one per
+/// connection.
+pub(crate) struct RealityLayer {
+    reality: RealityConfig,
+}
+
+impl RealityLayer {
+    pub(crate) fn new(reality: RealityConfig) -> Self {
+        Self { reality }
+    }
+}
+
+impl transport_xhttp::Handshake for RealityLayer {
+    fn handshake(&self, stream: BoxStream) -> BoxFuture<'_, io::Result<BoxStream>> {
+        Box::pin(async move {
+            let tls_config =
+                ClientConfig::new(self.reality.server_name.clone(), self.reality.fingerprint);
+            let mut hooks = RealityHooks::new(&self.reality);
+            let tls = tls_mimic::connect(stream, &tls_config, &mut hooks)
+                .await
+                .map_err(|error| {
+                    io::Error::new(error.kind(), format!("REALITY handshake: {error}"))
+                })?;
+            Ok(Box::new(tls) as BoxStream)
+        })
+    }
+}
+
 impl TcpOutbound for VlessRealityOutbound {
     fn protocol(&self) -> &'static str {
         "vless"
