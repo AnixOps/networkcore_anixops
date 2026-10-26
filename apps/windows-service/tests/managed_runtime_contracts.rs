@@ -1,8 +1,4 @@
 use control_domain::{DomainError, DomainResult};
-use networkcore_windows::{
-    WindowsTunnelCommandResult, WindowsTunnelCommandService, WindowsTunnelPrepareStorageArgs,
-    WindowsTunnelStartArgs, WindowsTunnelStatusArgs, WindowsTunnelStopArgs,
-};
 use networkcore_windows_service::WindowsManagedRuntime;
 #[cfg(not(windows))]
 use platform_windows::managed::WindowsManagedNativeMitmConfig;
@@ -13,10 +9,6 @@ use platform_windows::managed::{
 };
 use platform_windows::system_integration::{
     WindowsDriverInstallResult, WindowsServiceState, WindowsServiceStatus, WindowsSystemIntegration,
-};
-use platform_windows::tunnel_config::{
-    OwnedProcessHandle, WindowsRouteSnapshotEntry, WindowsTunnelLifecycleState,
-    WindowsTunnelRuntimeOwnership, WindowsTunnelState,
 };
 #[cfg(not(windows))]
 use rcgen::{
@@ -129,98 +121,7 @@ impl WindowsSystemIntegration for FakeIntegration {
     }
 }
 
-#[derive(Clone, Default)]
-struct FakeTunnel {
-    events: Rc<RefCell<Vec<String>>>,
-}
-
-impl WindowsTunnelCommandService for FakeTunnel {
-    fn prepare_storage(&mut self, _args: &WindowsTunnelPrepareStorageArgs) -> DomainResult<()> {
-        self.events.borrow_mut().push("prepare-storage".to_string());
-        Ok(())
-    }
-
-    fn start(
-        &mut self,
-        _args: &WindowsTunnelStartArgs,
-    ) -> DomainResult<WindowsTunnelCommandResult> {
-        self.events.borrow_mut().push("start-tunnel".to_string());
-        Ok(WindowsTunnelCommandResult {
-            state: fixture_tunnel_state(WindowsTunnelLifecycleState::Running),
-            peer_ready: true,
-            route_ready: true,
-            route_count: 1,
-        })
-    }
-
-    fn status(
-        &mut self,
-        _args: &WindowsTunnelStatusArgs,
-    ) -> DomainResult<WindowsTunnelCommandResult> {
-        self.events.borrow_mut().push("status-tunnel".to_string());
-        Ok(WindowsTunnelCommandResult {
-            state: fixture_tunnel_state(WindowsTunnelLifecycleState::Running),
-            peer_ready: true,
-            route_ready: true,
-            route_count: 1,
-        })
-    }
-
-    fn stop(&mut self, _args: &WindowsTunnelStopArgs) -> DomainResult<WindowsTunnelCommandResult> {
-        self.events.borrow_mut().push("stop-tunnel".to_string());
-        Ok(WindowsTunnelCommandResult {
-            state: fixture_tunnel_state(WindowsTunnelLifecycleState::Stopped),
-            peer_ready: false,
-            route_ready: false,
-            route_count: 0,
-        })
-    }
-}
-
-fn fixture_tunnel_state(state: WindowsTunnelLifecycleState) -> WindowsTunnelState {
-    WindowsTunnelState {
-        schema_version: 4,
-        session_id: "managed-session".to_string(),
-        plan_digest: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_string(),
-        selected_pop_id: "pop-a".to_string(),
-        selected_endpoint: "198.51.100.10:11010".to_string(),
-        state,
-        config_path: "managed-session.easytier.toml".to_string(),
-        last_client_sequence: 1,
-        last_pop_sequence: 1,
-        client_bundle_id: "client".to_string(),
-        client_sequence: 1,
-        pop_bundle_id: "pop".to_string(),
-        pop_sequence: 1,
-        easytier_version: "2.6.1".to_string(),
-        route_snapshot: vec![WindowsRouteSnapshotEntry {
-            destination_cidr: "198.51.100.10/32".to_string(),
-            gateway: Some("192.0.2.1".to_string()),
-            interface_index: Some(1),
-            metric: Some(10),
-        }],
-        rollback_status: "clean".to_string(),
-        runtime_ownership: WindowsTunnelRuntimeOwnership {
-            process: OwnedProcessHandle {
-                session_id: "managed-session".to_string(),
-                process_id: 100,
-                creation_marker: "marker".to_string(),
-            },
-            binary_sha256: "a".repeat(64),
-            cli_file_name: "easytier-cli.exe".to_string(),
-            cli_sha256: "b".repeat(64),
-            route_cidrs: vec!["203.0.113.0/24".to_string()],
-            virtual_route_snapshot: vec![WindowsRouteSnapshotEntry {
-                destination_cidr: "203.0.113.0/24".to_string(),
-                gateway: Some("10.10.0.1".to_string()),
-                interface_index: Some(42),
-                metric: Some(7),
-            }],
-        },
-    }
-}
-
-fn fixture_config(with_tunnel: bool) -> WindowsManagedConfig {
+fn fixture_config() -> WindowsManagedConfig {
     WindowsManagedConfig {
         schema_version: WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION,
         system_proxy: Some(WindowsProxySettings {
@@ -232,21 +133,6 @@ fn fixture_config(with_tunnel: bool) -> WindowsManagedConfig {
         root_certificate_path: Some(PathBuf::from("ca.pem")),
         driver_package: Some(WindowsDriverPackageConfig {
             inf_path: PathBuf::from("driver.inf"),
-        }),
-        tunnel: with_tunnel.then(|| platform_windows::managed::WindowsManagedTunnelConfig {
-            client_envelope: PathBuf::from("client.json"),
-            pop_envelope: PathBuf::from("pop.json"),
-            pop_id: "pop-a".to_string(),
-            device_id: "device-a".to_string(),
-            delivery_public_key_file: PathBuf::from("delivery.pem"),
-            easytier_binary: PathBuf::from("easytier-core.exe"),
-            easytier_cli: PathBuf::from("easytier-cli.exe"),
-            easytier_version: "2.6.1".to_string(),
-            easytier_sha256: "a".repeat(64),
-            easytier_cli_sha256: "b".repeat(64),
-            network_name: "managed-network".to_string(),
-            network_secret_file: PathBuf::from("secret.txt"),
-            state_path: PathBuf::from("tunnel-state.json"),
         }),
         native_mitm: None,
         embedded: None,
@@ -299,17 +185,13 @@ fn unused_loopback_port() -> u16 {
 #[test]
 fn managed_runtime_applies_and_purges_all_windows_mutations() {
     let (config_path, state_path, root) = fixture_paths("apply-purge");
-    write_managed_config(&config_path, &fixture_config(false)).expect("config writes");
+    write_managed_config(&config_path, &fixture_config()).expect("config writes");
     let events = Rc::new(RefCell::new(Vec::new()));
     let integration = FakeIntegration {
         events: events.clone(),
         fail_proxy: false,
     };
-    let tunnel = FakeTunnel {
-        events: events.clone(),
-    };
-    let mut runtime =
-        WindowsManagedRuntime::new(integration, tunnel, config_path, state_path.clone());
+    let mut runtime = WindowsManagedRuntime::new(integration, config_path, state_path.clone());
 
     let running = runtime.start().expect("managed runtime starts");
     assert_eq!(running.last_transition, "running");
@@ -334,15 +216,13 @@ fn managed_runtime_applies_and_purges_all_windows_mutations() {
 #[test]
 fn managed_runtime_rolls_back_certificate_when_proxy_apply_fails() {
     let (config_path, state_path, root) = fixture_paths("rollback");
-    write_managed_config(&config_path, &fixture_config(false)).expect("config writes");
+    write_managed_config(&config_path, &fixture_config()).expect("config writes");
     let events = Rc::new(RefCell::new(Vec::new()));
     let integration = FakeIntegration {
         events: events.clone(),
         fail_proxy: true,
     };
-    let tunnel = FakeTunnel::default();
-    let mut runtime =
-        WindowsManagedRuntime::new(integration, tunnel, config_path, state_path.clone());
+    let mut runtime = WindowsManagedRuntime::new(integration, config_path, state_path.clone());
 
     let error = runtime.start().expect_err("proxy failure is returned");
     assert_eq!(error.code, "fake.proxy.failed");
@@ -357,7 +237,7 @@ fn managed_runtime_rolls_back_certificate_when_proxy_apply_fails() {
 #[test]
 fn managed_runtime_leaves_desktop_owned_proxy_to_the_gui_session() {
     let (config_path, state_path, root) = fixture_paths("desktop-owned-proxy");
-    let mut config = fixture_config(false);
+    let mut config = fixture_config();
     config.system_proxy_owner = WindowsSystemProxyOwner::Desktop;
     config.root_certificate_path = None;
     config.driver_package = None;
@@ -367,8 +247,7 @@ fn managed_runtime_leaves_desktop_owned_proxy_to_the_gui_session() {
         events: events.clone(),
         fail_proxy: false,
     };
-    let mut runtime =
-        WindowsManagedRuntime::new(integration, FakeTunnel::default(), config_path, state_path);
+    let mut runtime = WindowsManagedRuntime::new(integration, config_path, state_path);
 
     let running = runtime.start().expect("managed runtime starts");
     assert!(running.proxy_snapshot.is_none());
@@ -392,7 +271,7 @@ fn managed_runtime_runs_the_embedded_engine_in_process() {
         .and_then(|listener| listener.local_addr())
         .expect("test port")
         .port();
-    let mut config = fixture_config(false);
+    let mut config = fixture_config();
     config.system_proxy_owner = WindowsSystemProxyOwner::Desktop;
     config.root_certificate_path = None;
     config.driver_package = None;
@@ -408,12 +287,8 @@ fn managed_runtime_runs_the_embedded_engine_in_process() {
         listen_port: port,
     });
     write_managed_config(&config_path, &config).expect("config writes");
-    let mut runtime = WindowsManagedRuntime::new(
-        FakeIntegration::default(),
-        FakeTunnel::default(),
-        config_path,
-        state_path.clone(),
-    );
+    let mut runtime =
+        WindowsManagedRuntime::new(FakeIntegration::default(), config_path, state_path.clone());
 
     let running = runtime.start().expect("embedded engine starts");
     assert!(running.embedded_running);
@@ -440,7 +315,7 @@ fn managed_runtime_reports_an_embedded_envelope_it_cannot_run() {
     let (config_path, state_path, root) = fixture_paths("embedded-invalid");
     let envelope_path = root.join("envelope.json");
     fs::write(&envelope_path, "{}").expect("envelope writes");
-    let mut config = fixture_config(false);
+    let mut config = fixture_config();
     config.system_proxy_owner = WindowsSystemProxyOwner::Desktop;
     config.root_certificate_path = None;
     config.driver_package = None;
@@ -451,12 +326,8 @@ fn managed_runtime_reports_an_embedded_envelope_it_cannot_run() {
         listen_port: 7890,
     });
     write_managed_config(&config_path, &config).expect("config writes");
-    let mut runtime = WindowsManagedRuntime::new(
-        FakeIntegration::default(),
-        FakeTunnel::default(),
-        config_path,
-        state_path.clone(),
-    );
+    let mut runtime =
+        WindowsManagedRuntime::new(FakeIntegration::default(), config_path, state_path.clone());
 
     let error = runtime.start().expect_err("invalid envelope fails");
     assert!(error.message.contains("embedded engine could not start"));
@@ -468,36 +339,12 @@ fn managed_runtime_reports_an_embedded_envelope_it_cannot_run() {
 }
 
 #[test]
-fn managed_runtime_owns_tunnel_start_and_stop_lifecycle() {
-    let (config_path, state_path, root) = fixture_paths("tunnel");
-    write_managed_config(&config_path, &fixture_config(true)).expect("config writes");
-    let events = Rc::new(RefCell::new(Vec::new()));
-    let integration = FakeIntegration {
-        events: events.clone(),
-        fail_proxy: false,
-    };
-    let tunnel = FakeTunnel {
-        events: events.clone(),
-    };
-    let mut runtime = WindowsManagedRuntime::new(integration, tunnel, config_path, state_path);
-
-    let running = runtime.start().expect("managed tunnel starts");
-    assert!(running.tunnel_running);
-    let stopped = runtime.stop().expect("managed tunnel stops");
-    assert!(!stopped.tunnel_running);
-    assert!(events.borrow().contains(&"prepare-storage".to_string()));
-    assert!(events.borrow().contains(&"start-tunnel".to_string()));
-    assert!(events.borrow().contains(&"stop-tunnel".to_string()));
-    let _ = fs::remove_dir_all(root);
-}
-
-#[test]
 #[cfg(not(windows))]
 fn managed_runtime_owns_native_https_mitm_lifecycle() {
     let (config_path, state_path, root) = fixture_paths("native-mitm");
     let (certificate_path, private_key_path) = write_mitm_ca(&root);
     let listener_port = unused_loopback_port();
-    let mut config = fixture_config(false);
+    let mut config = fixture_config();
     config.root_certificate_path = None;
     config.driver_package = None;
     config.native_mitm = Some(WindowsManagedNativeMitmConfig {
@@ -518,10 +365,7 @@ fn managed_runtime_owns_native_https_mitm_lifecycle() {
         events: events.clone(),
         fail_proxy: false,
     };
-    let tunnel = FakeTunnel {
-        events: events.clone(),
-    };
-    let mut runtime = WindowsManagedRuntime::new(integration, tunnel, config_path, state_path);
+    let mut runtime = WindowsManagedRuntime::new(integration, config_path, state_path);
 
     let running = runtime.start().expect("managed native MITM starts");
     assert!(running.native_mitm_running);

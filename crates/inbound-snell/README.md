@@ -15,7 +15,9 @@ frame codec of `outbound-snell`. Implemented only from
 - Config: `{"type": "snell", "psk": "...", "version": 4, "obfs": "http",
   "users": [{"name": "...", "password": "userkey"}]}`; v6 adds `"mode"`.
 
-Each connection serves one request and closes after it, without the server's
-zero chunk, so reusing clients do not pool it. Not yet: UDP over TCP, several
-CONNECTv2 requests per connection, ERROR replies for unreachable targets.
+- CONNECTv2 connections carry one request after another (§4) and close
+  after 240 s without a request. Unreachable targets get an ERROR reply.
+- UDP over TCP (v3+) goes out through the node's UDP egress, under the same
+  private-target policy as TCP.
+
 `tests/snell_inbound.rs` runs the engine's Snell client against the server.

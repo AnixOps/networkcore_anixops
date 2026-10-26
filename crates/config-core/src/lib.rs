@@ -7,7 +7,6 @@ pub mod routing;
 pub mod routing_import;
 pub mod rule_set;
 pub mod sdwan_delivery;
-pub mod windows_tunnel;
 
 use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD, URL_SAFE, URL_SAFE_NO_PAD};
 use base64::Engine as _;

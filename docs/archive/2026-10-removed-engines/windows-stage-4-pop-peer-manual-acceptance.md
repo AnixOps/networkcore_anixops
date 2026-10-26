@@ -1,5 +1,7 @@
 # Windows Stage 4 POP Peer Manual Acceptance
 
+> **Archived 2026-10-26.** The Windows foreground tunnel this acceptance described was removed together with its external core; SD-WAN networking will return on the ANX private protocol. Kept for history only.
+
 > Status: pending implementation and manual acceptance. This document defines the operator
 > topology and evidence boundary for signed POP peer identity and structured EasyTier readiness.
 > It does not authorize production routing changes or mark a release as accepted.

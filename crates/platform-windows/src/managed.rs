@@ -81,97 +81,6 @@ pub struct WindowsDriverPackageConfig {
     pub inf_path: PathBuf,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct WindowsManagedTunnelConfig {
-    pub client_envelope: PathBuf,
-    pub pop_envelope: PathBuf,
-    pub pop_id: String,
-    pub device_id: String,
-    pub delivery_public_key_file: PathBuf,
-    pub easytier_binary: PathBuf,
-    pub easytier_cli: PathBuf,
-    pub easytier_version: String,
-    pub easytier_sha256: String,
-    pub easytier_cli_sha256: String,
-    pub network_name: String,
-    pub network_secret_file: PathBuf,
-    pub state_path: PathBuf,
-}
-
-impl WindowsManagedTunnelConfig {
-    pub fn start_arguments(&self) -> Vec<String> {
-        vec![
-            "tunnel".to_string(),
-            "start".to_string(),
-            self.client_envelope.to_string_lossy().into_owned(),
-            self.pop_envelope.to_string_lossy().into_owned(),
-            "--pop-id".to_string(),
-            self.pop_id.clone(),
-            "--device-id".to_string(),
-            self.device_id.clone(),
-            "--delivery-public-key-file".to_string(),
-            self.delivery_public_key_file.to_string_lossy().into_owned(),
-            "--easytier-bin".to_string(),
-            self.easytier_binary.to_string_lossy().into_owned(),
-            "--easytier-cli".to_string(),
-            self.easytier_cli.to_string_lossy().into_owned(),
-            "--easytier-version".to_string(),
-            self.easytier_version.clone(),
-            "--easytier-sha256".to_string(),
-            self.easytier_sha256.clone(),
-            "--easytier-cli-sha256".to_string(),
-            self.easytier_cli_sha256.clone(),
-            "--network-name".to_string(),
-            self.network_name.clone(),
-            "--network-secret-file".to_string(),
-            self.network_secret_file.to_string_lossy().into_owned(),
-            "--state-path".to_string(),
-            self.state_path.to_string_lossy().into_owned(),
-            "--confirm".to_string(),
-        ]
-    }
-
-    pub fn stop_arguments(&self) -> Vec<String> {
-        vec![
-            "tunnel".to_string(),
-            "stop".to_string(),
-            self.state_path.to_string_lossy().into_owned(),
-            "--confirm".to_string(),
-        ]
-    }
-
-    fn validate(&self) -> DomainResult<()> {
-        let required_text = [
-            self.pop_id.as_str(),
-            self.device_id.as_str(),
-            self.easytier_version.as_str(),
-            self.easytier_sha256.as_str(),
-            self.easytier_cli_sha256.as_str(),
-            self.network_name.as_str(),
-        ];
-        if required_text.iter().any(|value| value.trim().is_empty()) {
-            return Err(config_error("managed tunnel fields must not be empty"));
-        }
-
-        let required_paths = [
-            self.client_envelope.as_path(),
-            self.pop_envelope.as_path(),
-            self.delivery_public_key_file.as_path(),
-            self.easytier_binary.as_path(),
-            self.easytier_cli.as_path(),
-            self.network_secret_file.as_path(),
-            self.state_path.as_path(),
-        ];
-        if required_paths
-            .iter()
-            .any(|path| path.as_os_str().is_empty())
-        {
-            return Err(config_error("managed tunnel paths must not be empty"));
-        }
-        Ok(())
-    }
-}
-
 /// The in-process engine (engine-embedded): the profile's nodes behind a local
 /// SOCKS5/HTTP listener, with no external engine binary.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -302,7 +211,6 @@ pub struct WindowsManagedConfig {
     pub system_proxy_owner: WindowsSystemProxyOwner,
     pub root_certificate_path: Option<PathBuf>,
     pub driver_package: Option<WindowsDriverPackageConfig>,
-    pub tunnel: Option<WindowsManagedTunnelConfig>,
     #[serde(default)]
     pub native_mitm: Option<WindowsManagedNativeMitmConfig>,
     #[serde(default)]
@@ -329,9 +237,6 @@ impl WindowsManagedConfig {
                 return Err(config_error("driver INF path must not be empty"));
             }
         }
-        if let Some(tunnel) = &self.tunnel {
-            tunnel.validate()?;
-        }
         if let Some(embedded) = &self.embedded {
             embedded.validate()?;
         }
@@ -354,7 +259,6 @@ pub struct WindowsManagedState {
     pub certificate_sha1: Option<String>,
     pub driver_inf_path: Option<PathBuf>,
     pub driver_reboot_required: bool,
-    pub tunnel_running: bool,
     #[serde(default)]
     pub native_mitm_running: bool,
     #[serde(default)]
@@ -384,7 +288,6 @@ impl Default for WindowsManagedState {
             certificate_sha1: None,
             driver_inf_path: None,
             driver_reboot_required: false,
-            tunnel_running: false,
             native_mitm_running: false,
             native_mitm_listener: None,
             native_mitm_certificate_sha1: None,

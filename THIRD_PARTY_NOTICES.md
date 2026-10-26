@@ -1,16 +1,10 @@
 # Third-Party Notices
 
-NetworkCore 源码以 Apache-2.0 发布。本文件说明仓库会调用、但不包含也不分发的外部执行内核，以及它们的移除计划。
+NetworkCore 源码以 Apache-2.0 发布。本文件说明仓库涉及的第三方名称与代码来源，以及已移除外部执行内核的记录。
 
 ## 外部执行内核
 
-仓库不再托管或启动 sing-box、Mieru 等第三方执行内核；所有平台的数据面由仓库内自研的 Rust 引擎实现。以下外部程序仍有适配代码：
-
-| 程序 | 上游 | 许可证 | 仓库中的适配代码 | 平台 |
-| --- | --- | --- | --- | --- |
-| EasyTier | https://github.com/EasyTier/EasyTier | LGPL-3.0 | `apps/windows-cli`、`crates/platform-windows`、`crates/config-core/src/windows_tunnel.rs` | Windows |
-
-EasyTier 只在用户显式提供可执行文件和签名下发物后作为独立子进程运行，不打包进任何发布产物。NetworkCore 与该项目没有隶属或合作关系，名称只用于说明调用的是哪个外部程序。
+仓库不再托管、启动或调用任何第三方执行内核；所有平台的数据面由仓库内自研的 Rust 引擎实现。
 
 ## 仅用于 CI 的互通测试服务端
 
@@ -36,4 +30,4 @@ Rust 依赖的许可证由 CI `rust-security-audit` job 中的 `cargo deny check
 
 ## 移除记录
 
-2026-10-26：`engine-singbox`、`engine-mieru` 及相关 UI、命令、文档和 CI 守卫已删除，桌面端改用自研嵌入式引擎。订阅里的 sing-box JSON 和 `mierus://` 链接仍可作为格式导入。EasyTier 隧道按 2026-10-26 的决定删除，组网能力等 ANX 私有协议提供。
+2026-10-26：`engine-singbox`、`engine-mieru` 及相关 UI、命令、文档和 CI 守卫已删除，桌面端改用自研嵌入式引擎。订阅里的 sing-box JSON 和 `mierus://` 链接仍可作为格式导入。同日删除 Windows 前台隧道及其外部组网程序适配（`tunnel` 命令、托管隧道配置、隧道运行时与安全存储），SD-WAN 组网等 ANX 私有协议提供。

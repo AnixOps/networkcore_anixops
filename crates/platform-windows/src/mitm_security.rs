@@ -92,11 +92,11 @@ foreach ($sidValue in @($owner, 'S-1-5-18')) {
 
 #[cfg(windows)]
 fn run_windows_managed_mitm_private_key_acl(path: &Path, mode: &str) -> DomainResult<()> {
-    use crate::tunnel_security::{native_windows_system_command, NativeWindowsSystemTool};
+    use crate::trusted_command::native_windows_powershell_command;
     use std::process::Stdio;
 
-    let mut command = native_windows_system_command(NativeWindowsSystemTool::PowerShell)
-        .map_err(|_| private_key_protection_error())?;
+    let mut command =
+        native_windows_powershell_command().map_err(|_| private_key_protection_error())?;
     let directory = path.parent().ok_or_else(private_key_protection_error)?;
     let output = command
         .arg("-NoProfile")

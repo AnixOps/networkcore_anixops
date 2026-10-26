@@ -23,6 +23,7 @@ pub mod registry;
 pub mod replay;
 pub mod server;
 pub mod stream;
+pub mod udp;
 pub mod users;
 
 use std::io;
@@ -94,6 +95,28 @@ pub trait StreamInbound: Send + Sync {
         stream: BoxStream,
         peer: SocketAddr,
     ) -> BoxFuture<'a, Result<Accepted, Rejected>>;
+
+    /// Whether the serve loop hands whole connections to
+    /// [`StreamInbound::serve_connection`] instead of calling
+    /// [`StreamInbound::accept`] once and relaying one target. Protocols
+    /// that carry several requests or UDP on one connection, or answer
+    /// connect failures, return `true`.
+    fn serves_connections(&self) -> bool {
+        false
+    }
+
+    /// Runs one client connection to completion; only called when
+    /// [`StreamInbound::serves_connections`] is `true`. The implementation
+    /// applies [`server::ServeSettings::handshake_timeout`] itself and
+    /// relays through the context, which charges users and counts.
+    fn serve_connection<'a>(
+        &'a self,
+        stream: BoxStream,
+        context: server::ConnectionContext<'a>,
+    ) -> BoxFuture<'a, ()> {
+        let _ = (stream, context);
+        Box::pin(async {})
+    }
 }
 
 /// A server protocol that owns a UDP socket, such as the QUIC-based

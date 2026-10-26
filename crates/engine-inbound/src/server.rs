@@ -9,11 +9,12 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
-use engine_outbound::{BoxStream, TcpOutbound};
+use engine_outbound::{BoxStream, TargetAddr, TcpOutbound};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, ReadBuf};
 use tokio::net::TcpListener;
 use tokio::sync::Semaphore;
 
+use crate::udp::UdpOutbound;
 use crate::{Accepted, StreamInbound, UserEntry};
 
 const RELAY_BUFFER_BYTES: usize = 16 * 1024;
@@ -63,6 +64,18 @@ pub async fn serve(
     settings: ServeSettings,
     stats: Arc<InboundStats>,
 ) -> io::Result<()> {
+    serve_with_udp(listener, inbound, outbound, None, settings, stats).await
+}
+
+/// [`serve`] with UDP egress for inbounds that relay datagrams.
+pub async fn serve_with_udp(
+    listener: TcpListener,
+    inbound: Arc<dyn StreamInbound>,
+    outbound: Arc<dyn TcpOutbound>,
+    udp: Option<Arc<dyn UdpOutbound>>,
+    settings: ServeSettings,
+    stats: Arc<InboundStats>,
+) -> io::Result<()> {
     let permits = Arc::new(Semaphore::new(settings.max_connections));
     let settings = Arc::new(settings);
     loop {
@@ -75,20 +88,24 @@ pub async fn serve(
         stats.accepted.fetch_add(1, Ordering::Relaxed);
         let inbound = inbound.clone();
         let outbound = outbound.clone();
+        let udp = udp.clone();
         let settings = settings.clone();
         let stats = stats.clone();
         tokio::spawn(async move {
             let _permit = permit;
             let _ = stream.set_nodelay(true);
-            handle_connection(
+            stats.active.fetch_add(1, Ordering::Relaxed);
+            run(
                 Box::new(stream),
                 peer,
                 inbound.as_ref(),
                 outbound.as_ref(),
+                udp.as_deref(),
                 &settings,
                 &stats,
             )
             .await;
+            stats.active.fetch_sub(1, Ordering::Relaxed);
         });
     }
 }
@@ -104,7 +121,7 @@ pub async fn handle_connection(
     stats: &Arc<InboundStats>,
 ) {
     stats.active.fetch_add(1, Ordering::Relaxed);
-    run(stream, peer, inbound, outbound, settings, stats).await;
+    run(stream, peer, inbound, outbound, None, settings, stats).await;
     stats.active.fetch_sub(1, Ordering::Relaxed);
 }
 
@@ -113,9 +130,21 @@ async fn run(
     peer: SocketAddr,
     inbound: &dyn StreamInbound,
     outbound: &dyn TcpOutbound,
+    udp: Option<&dyn UdpOutbound>,
     settings: &ServeSettings,
     stats: &Arc<InboundStats>,
 ) {
+    if inbound.serves_connections() {
+        let context = ConnectionContext {
+            peer,
+            settings,
+            stats,
+            outbound,
+            udp,
+        };
+        inbound.serve_connection(stream, context).await;
+        return;
+    }
     let handshake = tokio::time::timeout(settings.handshake_timeout, inbound.accept(stream, peer));
     let Accepted {
         user,
@@ -193,7 +222,7 @@ async fn relay(
     let mut client = Metered {
         inner: stream,
         user: user.clone(),
-        stats: stats.clone(),
+        stats,
     };
     let relay = tokio::io::copy_bidirectional_with_sizes(
         &mut client,
@@ -228,14 +257,109 @@ async fn discard(mut stream: BoxStream, hold: Duration) {
     }
 }
 
-/// The client side of a relay; counts bytes as they move.
-struct Metered {
-    inner: BoxStream,
-    user: Option<Arc<UserEntry>>,
-    stats: Arc<InboundStats>,
+/// What a [`StreamInbound::serve_connection`] implementation gets from the
+/// serve loop: the outbounds, the limits and the counters.
+pub struct ConnectionContext<'a> {
+    pub peer: SocketAddr,
+    pub settings: &'a ServeSettings,
+    pub stats: &'a Arc<InboundStats>,
+    outbound: &'a dyn TcpOutbound,
+    udp: Option<&'a dyn UdpOutbound>,
 }
 
-impl AsyncRead for Metered {
+impl<'a> ConnectionContext<'a> {
+    /// Counts a client that failed the protocol handshake.
+    pub fn handshake_failed(&self) {
+        self.stats.handshake_failed.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Counts a session closed because its user was removed.
+    pub fn revoked(&self) {
+        self.stats.revoked.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Reads and drops client input for [`ServeSettings::reject_hold`].
+    pub async fn hold(&self, stream: BoxStream) {
+        discard(stream, self.settings.reject_hold).await;
+    }
+
+    /// Connects to `target` within [`ServeSettings::connect_timeout`];
+    /// failures are counted.
+    pub async fn connect(&self, target: &TargetAddr) -> io::Result<BoxStream> {
+        let connected =
+            tokio::time::timeout(self.settings.connect_timeout, self.outbound.connect(target))
+                .await
+                .unwrap_or_else(|_| Err(io::ErrorKind::TimedOut.into()));
+        if connected.is_err() {
+            self.stats.connect_failed.fetch_add(1, Ordering::Relaxed);
+        }
+        connected
+    }
+
+    /// UDP egress, when the node provides one.
+    pub fn udp(&self) -> Option<&'a dyn UdpOutbound> {
+        self.udp
+    }
+
+    /// Charges relayed bytes (client to target, and back) to the inbound
+    /// and the user; for datagrams, which do not go through
+    /// [`ConnectionContext::relay`].
+    pub fn count(&self, user: Option<&Arc<UserEntry>>, up: u64, down: u64) {
+        self.stats.bytes_up.fetch_add(up, Ordering::Relaxed);
+        self.stats.bytes_down.fetch_add(down, Ordering::Relaxed);
+        if let Some(user) = user {
+            user.add_up(up);
+            user.add_down(down);
+        }
+    }
+
+    /// Copies both directions between `client` and `remote` until both
+    /// ended, charging the bytes. Fails with `PermissionDenied` when the
+    /// user is removed meanwhile. The streams stay usable afterwards, so a
+    /// protocol can carry the next request on the same client connection.
+    pub async fn relay<S>(
+        &self,
+        user: Option<&Arc<UserEntry>>,
+        client: &mut S,
+        remote: &mut BoxStream,
+    ) -> io::Result<()>
+    where
+        S: AsyncRead + AsyncWrite + Unpin + ?Sized,
+    {
+        let mut client = Metered {
+            inner: client,
+            user: user.cloned(),
+            stats: self.stats,
+        };
+        let relay = tokio::io::copy_bidirectional_with_sizes(
+            &mut client,
+            remote,
+            RELAY_BUFFER_BYTES,
+            RELAY_BUFFER_BYTES,
+        );
+        match user {
+            Some(user) => {
+                tokio::select! {
+                    copied = relay => copied.map(|_| ()),
+                    _ = user.revoked() => {
+                        self.revoked();
+                        Err(io::Error::new(io::ErrorKind::PermissionDenied, "user removed"))
+                    }
+                }
+            }
+            None => relay.await.map(|_| ()),
+        }
+    }
+}
+
+/// The client side of a relay; counts bytes as they move.
+struct Metered<'s, S> {
+    inner: S,
+    user: Option<Arc<UserEntry>>,
+    stats: &'s InboundStats,
+}
+
+impl<S: AsyncRead + Unpin> AsyncRead for Metered<'_, S> {
     fn poll_read(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -255,7 +379,7 @@ impl AsyncRead for Metered {
     }
 }
 
-impl AsyncWrite for Metered {
+impl<S: AsyncWrite + Unpin> AsyncWrite for Metered<'_, S> {
     fn poll_write(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,

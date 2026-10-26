@@ -4,21 +4,10 @@ fn main() {
         Ok(command) => {
             let format = command.format();
             let platform = platform_windows::ReadOnlyWindowsPlatformCapabilityService::new();
-            let response = match command {
-                command @ (networkcore_windows::WindowsCliCommand::TunnelPrepareStorage(_)
-                | networkcore_windows::WindowsCliCommand::TunnelStart(_)
-                | networkcore_windows::WindowsCliCommand::TunnelStatus(_)
-                | networkcore_windows::WindowsCliCommand::TunnelStop(_)) => {
-                    let mut tunnel = networkcore_windows::native_windows_tunnel_command_service();
-                    networkcore_windows::handle_entrypoint_with_tunnel(
-                        command,
-                        &platform,
-                        &mut tunnel,
-                    )
-                }
-                command => networkcore_windows::handle_entrypoint(command, &platform),
-            };
-            (format, response)
+            (
+                format,
+                networkcore_windows::handle_entrypoint(command, &platform),
+            )
         }
         Err(error) => (
             networkcore_windows::OutputFormat::Text,

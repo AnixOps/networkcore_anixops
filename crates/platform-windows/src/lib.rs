@@ -3,13 +3,7 @@
 pub mod managed;
 pub mod mitm_security;
 pub mod system_integration;
-pub mod tunnel_config;
-pub mod tunnel_runtime;
-pub mod tunnel_security;
-
-pub use config_core::windows_tunnel::{
-    WindowsTunnelPlan, WindowsTunnelPlanRequest, WindowsTunnelRouteIntent,
-};
+mod trusted_command;
 
 pub const WINDOWS_PLATFORM_ADAPTER_STATUS: &str = "managed-client-platform-active";
 pub const WINDOWS_CLI_ARTIFACT_GATE: &str = "windows-managed-client-active";
@@ -20,8 +14,6 @@ pub const WINDOWS_SYSTEM_MUTATION_POLICY: &str = "managed-apply-and-rollback";
 pub const WINDOWS_BLOCKED_STATUS: &str = "blocked";
 pub const WINDOWS_DEFERRED_STATUS: &str = "deferred";
 pub const WINDOWS_ACTIVE_STATUS: &str = "active";
-pub const WINDOWS_FOREGROUND_TUNNEL_MUTATION_POLICY: &str =
-    "explicit-confirm-external-easytier-only";
 pub const WINDOWS_MANAGED_MUTATION_POLICY: &str = "service-owned-managed-apply-and-rollback";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -65,7 +57,6 @@ pub struct WindowsPlatformSnapshot {
     pub package_windows: WindowsFeatureStatus,
     pub release_assets: WindowsFeatureStatus,
     pub subscription_compatibility: WindowsFeatureStatus,
-    pub foreground_tunnel: WindowsFeatureStatus,
     pub service: WindowsFeatureStatus,
     pub driver: WindowsFeatureStatus,
     pub installer: WindowsFeatureStatus,
@@ -87,11 +78,6 @@ impl WindowsPlatformSnapshot {
             subscription_compatibility: WindowsFeatureStatus::deferred(
                 "subscription-compatibility",
             ),
-            foreground_tunnel: WindowsFeatureStatus {
-                name: "foreground-tunnel",
-                status: WINDOWS_ACTIVE_STATUS,
-                mutation_policy: WINDOWS_FOREGROUND_TUNNEL_MUTATION_POLICY,
-            },
             service: WindowsFeatureStatus {
                 name: "windows-service",
                 status: WINDOWS_ACTIVE_STATUS,

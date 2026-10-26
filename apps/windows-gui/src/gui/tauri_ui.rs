@@ -18,8 +18,8 @@ use platform_windows::managed::{
     read_managed_state, windows_managed_config_path, windows_managed_data_directory,
     windows_managed_log_directory, windows_managed_state_path, write_managed_config,
     write_managed_state, write_managed_text_atomic, WindowsManagedConfig,
-    WindowsManagedEmbeddedConfig, WindowsManagedNativeMitmConfig, WindowsManagedTunnelConfig,
-    WindowsProxySettings, WindowsSystemProxyOwner,
+    WindowsManagedEmbeddedConfig, WindowsManagedNativeMitmConfig, WindowsProxySettings,
+    WindowsSystemProxyOwner,
 };
 use platform_windows::mitm_security::{
     protect_windows_managed_mitm_private_key, remove_windows_managed_mitm_private_key,
@@ -256,8 +256,6 @@ pub(super) fn run(debug: bool) -> Result<(), String> {
             start_service,
             stop_service,
             restore_network_settings,
-            configure_tunnel,
-            clear_tunnel,
             set_routing_mode,
             refresh_routing_rules,
             configure_script_runtime,
@@ -2066,40 +2064,6 @@ fn restore_network_settings_blocking(state: DesktopAppState) -> Result<Operation
     mark_gui_connection_stopped(&state);
     Ok(OperationResult {
         message: "Network settings restored from the GUI-owned proxy snapshot.".to_string(),
-    })
-}
-
-#[tauri::command]
-async fn configure_tunnel(config_json: String) -> Result<OperationResult, String> {
-    run_blocking(move || configure_tunnel_blocking(config_json)).await
-}
-
-fn configure_tunnel_blocking(config_json: String) -> Result<OperationResult, String> {
-    let tunnel: WindowsManagedTunnelConfig =
-        serde_json::from_str(&config_json).map_err(|error| error.to_string())?;
-    let mut managed = managed_config_or_default()?;
-    managed.tunnel = Some(tunnel);
-    write_managed_config(&windows_managed_config_path(), &managed)
-        .map_err(|error| error.to_string())?;
-    Ok(OperationResult {
-        message: "Managed TUN configuration saved. Start the Windows service to apply it."
-            .to_string(),
-    })
-}
-
-#[tauri::command]
-async fn clear_tunnel() -> Result<OperationResult, String> {
-    run_blocking(clear_tunnel_blocking).await
-}
-
-fn clear_tunnel_blocking() -> Result<OperationResult, String> {
-    let mut managed = managed_config_or_default()?;
-    managed.tunnel = None;
-    write_managed_config(&windows_managed_config_path(), &managed)
-        .map_err(|error| error.to_string())?;
-    Ok(OperationResult {
-        message: "Managed TUN configuration cleared. Stop the Windows service to tear down an active tunnel."
-            .to_string(),
     })
 }
 

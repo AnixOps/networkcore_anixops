@@ -19,5 +19,7 @@ requirements remain in the workspace and current architecture documentation.
 ## 2026-10 Removed Engines
 
 `2026-10-removed-engines/` keeps the source contracts of the third-party engine
-adapters removed on 2026-10-26. The embedded engine replaced them on every
-platform.
+adapters removed on 2026-10-26, and the manual acceptance plan of the Windows
+foreground tunnel removed the same day. The embedded engine replaced the
+adapters on every platform; SD-WAN networking will return on the ANX private
+protocol.
