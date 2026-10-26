@@ -1,9 +1,10 @@
 //! Rule-based outbound: picks a node per connection with the shared
 //! `config-core` routing model.
 //!
-//! The tunnel only sees destination addresses, so domain rules match only
-//! when a caller passes a [`TargetAddr::Domain`] (the desktop local proxy
-//! does); FakeIP and sniffing are not wired yet. A domain target that reaches
+//! The tunnel only sees destination addresses, so domain rules match a
+//! [`TargetAddr::Domain`] (the desktop local proxy passes one) or the host
+//! name the tunnel sniffed from the flow, given to
+//! [`RoutedOutbound::route_flow`]; FakeIP is not wired yet. A domain target that reaches
 //! an IP rule without `no-resolve` is resolved once with the
 //! [`DomainResolver`] (the system resolver by default), and that address is
 //! matched by every later IP rule; the connection itself still goes out by
@@ -28,6 +29,7 @@ use config_core::routing::{
 };
 use config_core::rule_set::RuleSet;
 use engine_outbound::{BoxFuture, BoxStream, TargetAddr, TcpOutbound, UdpFlow};
+use serde::Serialize;
 
 use crate::{RuntimeError, RuntimeErrorCode};
 
@@ -65,6 +67,16 @@ impl DomainResolver for SystemResolver {
                 .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "domain has no address"))
         })
     }
+}
+
+/// Why a flow went where it did: the matched rule (`FINAL` when none did),
+/// the policy groups passed through and the outbound picked, ending with it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct RouteInfo {
+    pub rule: String,
+    pub chain: Vec<String>,
+    /// A node id, `DIRECT` or `REJECT`.
+    pub outbound: String,
 }
 
 /// The configured rule sets, by name.
@@ -186,16 +198,65 @@ impl RoutedOutbound {
     /// Where a connection to `target` goes, resolving its domain only when an
     /// IP rule asks for an address before another rule matches.
     pub async fn route_resolving(&self, target: &TargetAddr) -> RouteOutcome {
-        let query = query(target);
-        let first = self.decide(&query, None);
-        let (TargetAddr::Domain(domain, _), RouteMatch::ResolveFailed(_)) = (target, first.matched)
+        self.resolve_query(&query(target)).await.outcome
+    }
+
+    /// Routes a flow to `target` and says why. For an address target,
+    /// `sniffed` (a TLS SNI or HTTP `Host`) is matched by the domain rules
+    /// while IP rules keep matching the address; the flow still connects to
+    /// the address. A rejected flow gets no outbound.
+    pub async fn route_flow(
+        &self,
+        target: &TargetAddr,
+        sniffed: Option<&str>,
+    ) -> (RouteInfo, Option<Arc<dyn TcpOutbound>>) {
+        let mut query = query(target);
+        if query.domain.is_none() {
+            query.domain = sniffed.map(str::to_string);
+        }
+        let resolution = self.resolve_query(&query).await;
+        let outbound = match &resolution.outcome {
+            RouteOutcome::Reject => None,
+            RouteOutcome::Direct => Some(self.direct.clone()),
+            RouteOutcome::Node(id) => self.nodes.get(id).cloned(),
+        };
+        (self.describe(&resolution), outbound)
+    }
+
+    async fn resolve_query(&self, query: &RouteQuery) -> RouteResolution {
+        let first = self.decide(query, None);
+        let (Some(domain), RouteMatch::ResolveFailed(_)) = (query.domain.as_deref(), first.matched)
         else {
-            return first.outcome;
+            return first;
         };
         let Ok(resolved) = self.resolver.resolve(domain).await else {
-            return first.outcome;
+            return first;
         };
-        self.decide(&query, Some(resolved)).outcome
+        self.decide(query, Some(resolved))
+    }
+
+    /// The rule, group path and outbound of a decision, as the connection
+    /// list shows them.
+    fn describe(&self, resolution: &RouteResolution) -> RouteInfo {
+        let rule = match resolution.matched {
+            RouteMatch::Rule(index) => self.model.rules[index].matcher.to_string(),
+            RouteMatch::ResolveFailed(index) => {
+                format!("{} (resolve failed)", self.model.rules[index].matcher)
+            }
+            RouteMatch::Final => "FINAL".to_string(),
+        };
+        let outbound = match &resolution.outcome {
+            RouteOutcome::Direct => "DIRECT".to_string(),
+            RouteOutcome::Reject => "REJECT".to_string(),
+            RouteOutcome::Node(id) => id.clone(),
+        };
+        let mut chain = resolution.group_path.clone();
+        chain.push(outbound.clone());
+        RouteInfo {
+            rule,
+            chain,
+            outbound,
+        }
     }
 
     /// Measures every member of the url-test and fallback groups through its

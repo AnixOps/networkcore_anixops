@@ -22,7 +22,6 @@
 //! [`SCRIPT_MAX_TIMEOUT_MS`]; `$httpClient` is disabled.
 
 mod http1;
-pub mod sni;
 
 use std::collections::HashMap;
 use std::io;
@@ -464,7 +463,7 @@ impl FlowInterceptor for MitmEngine {
         if target.port() != HTTPS_PORT {
             return None;
         }
-        let host = sni::client_hello_server_name(first)?;
+        let host = crate::sniff::client_hello_server_name(first)?;
         self.intercepts(&host).then_some(host)
     }
 

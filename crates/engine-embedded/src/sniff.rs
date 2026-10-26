@@ -1,4 +1,73 @@
-//! Server name from the first TLS record of a flow.
+//! Host names sniffed from the first bytes of a TCP flow: the SNI of a TLS
+//! ClientHello or the `Host` header of a plain HTTP/1.x request.
+//!
+//! The packet tunnel only sees destination addresses, so these names are what
+//! lets domain rules match there and the connection list show a site name.
+
+/// The host name `first` announces, TLS first, then HTTP.
+pub fn host(first: &[u8]) -> Option<String> {
+    client_hello_server_name(first).or_else(|| http_host(first))
+}
+
+/// The `Host` header of an HTTP/1.x request that starts in `first`, without
+/// its port and lowercased. A request whose headers are cut short by the
+/// first read still yields the host when its line was complete.
+pub fn http_host(first: &[u8]) -> Option<String> {
+    const METHODS: [&[u8]; 9] = [
+        b"GET ",
+        b"POST ",
+        b"HEAD ",
+        b"PUT ",
+        b"DELETE ",
+        b"OPTIONS ",
+        b"PATCH ",
+        b"TRACE ",
+        b"CONNECT ",
+    ];
+    if !METHODS.iter().any(|method| first.starts_with(method)) {
+        return None;
+    }
+    // Only the valid prefix matters; a binary body may follow the headers.
+    let text = match std::str::from_utf8(first) {
+        Ok(text) => text,
+        Err(error) => std::str::from_utf8(&first[..error.valid_up_to()]).ok()?,
+    };
+    let headers = text.split("\r\n\r\n").next()?;
+    let mut lines = headers.split("\r\n");
+    lines.next()?;
+    for line in lines {
+        let Some((name, value)) = line.split_once(':') else {
+            continue;
+        };
+        if !name.trim().eq_ignore_ascii_case("host") {
+            continue;
+        }
+        let value = value.trim();
+        let name = match value.strip_prefix('[') {
+            // An IPv6 literal is an address, not a name to route by.
+            Some(_) => return None,
+            None => value.rsplit_once(':').map_or(value, |(name, port)| {
+                if port.bytes().all(|b| b.is_ascii_digit()) {
+                    name
+                } else {
+                    value
+                }
+            }),
+        };
+        return valid_name(name);
+    }
+    None
+}
+
+fn valid_name(name: &str) -> Option<String> {
+    let valid = !name.is_empty()
+        && name.len() <= 253
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_'))
+        && name.parse::<std::net::IpAddr>().is_err();
+    valid.then(|| name.trim_end_matches('.').to_ascii_lowercase())
+}
 
 /// The SNI host name of a TLS ClientHello, lowercased, when `first` starts
 /// with one. A ClientHello cut short by the first read yields `None`.
@@ -37,13 +106,7 @@ pub fn client_hello_server_name(first: &[u8]) -> Option<String> {
             let name_len = usize::from(names.u16()?);
             let name = names.take(name_len)?;
             if name_type == 0 {
-                let name = std::str::from_utf8(name).ok()?;
-                let valid = !name.is_empty()
-                    && name.len() <= 253
-                    && name
-                        .bytes()
-                        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_'));
-                return valid.then(|| name.trim_end_matches('.').to_ascii_lowercase());
+                return valid_name(std::str::from_utf8(name).ok()?);
             }
         }
         return None;
@@ -79,7 +142,7 @@ impl<'a> Reader<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::client_hello_server_name;
+    use super::{client_hello_server_name, host, http_host};
 
     fn client_hello(server_name: &str) -> Vec<u8> {
         let name = server_name.as_bytes();
@@ -127,5 +190,44 @@ mod tests {
         assert_eq!(client_hello_server_name(&hello[..hello.len() - 4]), None);
         assert_eq!(client_hello_server_name(&client_hello("bad name")), None);
         assert_eq!(client_hello_server_name(&[]), None);
+    }
+
+    #[test]
+    fn reads_the_http_host_without_its_port() {
+        assert_eq!(
+            http_host(b"GET / HTTP/1.1\r\nUser-Agent: t\r\nHOST: Example.test:8080\r\n\r\n")
+                .as_deref(),
+            Some("example.test")
+        );
+        assert_eq!(
+            http_host(b"POST /x HTTP/1.1\r\nHost: api.example.test\r\n").as_deref(),
+            Some("api.example.test")
+        );
+        assert_eq!(
+            http_host(b"GET / HTTP/1.1\r\nHost: [2001:db8::1]:80\r\n\r\n"),
+            None
+        );
+        assert_eq!(
+            http_host(b"GET / HTTP/1.1\r\n\r\nHost: late.test\r\n"),
+            None
+        );
+        assert_eq!(
+            http_host(b"GET / HTTP/1.1\r\nHost: 192.0.2.1:80\r\n\r\n"),
+            None
+        );
+        assert_eq!(http_host(b"SSH-2.0-OpenSSH\r\n"), None);
+    }
+
+    #[test]
+    fn host_tries_tls_then_http() {
+        assert_eq!(
+            host(&client_hello("tls.example.test")).as_deref(),
+            Some("tls.example.test")
+        );
+        assert_eq!(
+            host(b"GET / HTTP/1.1\r\nHost: http.example.test\r\n\r\n").as_deref(),
+            Some("http.example.test")
+        );
+        assert_eq!(host(&[0x16, 0x03]), None);
     }
 }
