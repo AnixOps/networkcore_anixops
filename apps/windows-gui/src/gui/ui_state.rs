@@ -99,7 +99,6 @@ pub struct RuntimeFacts {
     pub core_configured: bool,
     pub core_configuration_validated: bool,
     pub core_listener_reachable: bool,
-    pub core_control_api_readable: bool,
     pub core_state_recorded_running: bool,
     pub core_liveness_confirmed: Option<bool>,
     pub system_proxy_matches_managed: bool,
@@ -137,9 +136,6 @@ pub fn connection_state(facts: &RuntimeFacts) -> ConnectionState {
     if !facts.core_listener_reachable {
         return ConnectionState::ConnectionFailed;
     }
-    if !facts.core_control_api_readable {
-        return ConnectionState::ConnectionFailed;
-    }
     if !facts.core_state_recorded_running {
         return ConnectionState::Connecting;
     }
@@ -158,9 +154,9 @@ pub fn user_facing_error(operation: OperationKind, error: &str) -> String {
         "Configuration needs attention"
     } else if compact.contains("service") || compact.contains("SCM") {
         "Windows service did not complete the request"
-    } else if compact.contains("listener") || compact.contains("selector controller") {
+    } else if compact.contains("listener") {
         "Proxy core did not become ready"
-    } else if compact.contains("sing-box") || compact.contains("core") {
+    } else if compact.contains("engine") || compact.contains("core") {
         "Proxy core did not complete the request"
     } else if compact.contains("proxy") {
         "System proxy settings were not changed"
@@ -192,7 +188,6 @@ mod tests {
             core_configured: true,
             core_configuration_validated: true,
             core_listener_reachable: true,
-            core_control_api_readable: true,
             core_state_recorded_running: true,
             core_liveness_confirmed: Some(true),
             system_proxy_matches_managed: true,
@@ -224,10 +219,6 @@ mod tests {
         value.core_configuration_validated = true;
         value.core_listener_reachable = false;
         assert_eq!(connection_state(&value), ConnectionState::ConnectionFailed);
-
-        value.core_listener_reachable = true;
-        value.core_control_api_readable = false;
-        assert_eq!(connection_state(&value), ConnectionState::ConnectionFailed);
     }
 
     #[test]
@@ -243,8 +234,7 @@ mod tests {
 
     #[test]
     fn user_errors_keep_detail_for_diagnostics() {
-        let message =
-            user_facing_error(OperationKind::NodeSwitch, "sing-box selector rejected node");
+        let message = user_facing_error(OperationKind::NodeSwitch, "embedded engine rejected node");
         assert!(message.contains("Proxy core"));
         assert!(message.contains("Diagnostics"));
     }

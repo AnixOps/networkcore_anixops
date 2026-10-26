@@ -7,20 +7,12 @@ use control_domain::{
     ProxyEngineService, RouteAction, RuleSet, SchemaVersion,
 };
 use engine_embedded::local_proxy::LocalProxy;
-use engine_mieru::{
-    apply_and_start_mieru_client, status_mieru_client, stop_mieru_client, wait_for_mieru_listener,
-    CommandMieruCommandRunner, MieruClientControlRequest,
-};
 use engine_native::{
     NativeHttpMitmPluginHook, NativeNodeScriptExecutor, NativeProxyEngineService,
     NativeTlsMitmCaMaterial, DEFAULT_NATIVE_ENGINE_ID,
 };
 #[cfg(not(windows))]
 use engine_native::{NativeNodeScriptRuntimeConfig, NativeNodeScriptSandbox};
-use engine_singbox::{
-    inspect_sing_box_local_selector_snapshot, read_sing_box_clash_api_selector_with_timeout,
-    SingBoxManagedProcessRequest, SingBoxManagedProcessState, SingBoxManagedProcessSupervisor,
-};
 use inbound_mixed::MixedSettings;
 use mitm_policy::{
     builtin_ad_block_plugin_package, builtin_bilibili_web_ad_block_plugin_package,
@@ -33,7 +25,7 @@ use networkcore_windows::{
 use platform_windows::managed::{
     read_managed_config, read_managed_state, write_managed_state, WindowsManagedConfig,
     WindowsManagedEmbeddedConfig, WindowsManagedNativeMitmConfig,
-    WindowsManagedNativeMitmScriptRuntimeConfig, WindowsManagedState, WindowsProxySettings,
+    WindowsManagedNativeMitmScriptRuntimeConfig, WindowsManagedState,
 };
 #[cfg(windows)]
 use platform_windows::mitm_security::validate_windows_managed_mitm_private_key;
@@ -42,17 +34,14 @@ use platform_windows::system_integration::WindowsSystemIntegration;
 use std::collections::BTreeMap;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
-use std::net::{SocketAddr, TcpStream};
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
 
 pub const WINDOWS_MANAGED_RUNTIME_FAILED_CODE: &str = "windows.managed.runtime_failed";
 
 pub struct WindowsManagedRuntime<I, T> {
     integration: I,
     tunnel: T,
-    sing_box: SingBoxManagedProcessSupervisor,
-    mieru: CommandMieruCommandRunner,
     native_mitm: Option<NativeProxyEngineService>,
     embedded: Option<LocalProxy>,
     config_path: PathBuf,
@@ -68,8 +57,6 @@ where
         Self {
             integration,
             tunnel,
-            sing_box: SingBoxManagedProcessSupervisor::default(),
-            mieru: CommandMieruCommandRunner::new(),
             native_mitm: None,
             embedded: None,
             config_path,
@@ -112,14 +99,6 @@ where
 
         self.stop_native_mitm(&mut state, config.native_mitm.as_ref())?;
         self.stop_embedded(&mut state)?;
-        self.stop_mieru(&mut state, config.mieru.as_ref())?;
-        self.stop_sing_box(
-            &mut state,
-            config
-                .sing_box
-                .as_ref()
-                .map(|sing_box| sing_box.log_path.clone()),
-        )?;
 
         if state.tunnel_running {
             if let Some(tunnel) = &config.tunnel {
@@ -147,61 +126,14 @@ where
 
     /// Polls the long-lived components that the Windows service owns.
     ///
-    /// sing-box has no SCM process relationship, so a child exit would otherwise
-    /// leave the service marked Running and a managed system proxy pointing at a
-    /// dead loopback listener. This method records a durable failure before the
-    /// host asks `stop_after_runtime_failure` to roll back runtime resources.
+    /// A stopped engine would otherwise leave the service marked Running and a
+    /// managed system proxy pointing at a dead loopback listener. This method
+    /// records a durable failure before the host asks
+    /// `stop_after_runtime_failure` to roll back runtime resources.
     pub fn poll_health(&mut self) -> DomainResult<()> {
         let config = read_managed_config(&self.config_path)?;
         let mut state = self.read_state_or_default()?;
         let previous = state.clone();
-
-        if let Some(sing_box) = config.sing_box.as_ref().filter(|sing_box| sing_box.enabled) {
-            let status = self.sing_box.status()?;
-            state.sing_box_running = status.state == SingBoxManagedProcessState::Running;
-            state.sing_box_process_id = status.process_id;
-            state.sing_box_exit_code = status.exit_code;
-
-            if status.state != SingBoxManagedProcessState::Running {
-                return self.record_runtime_failure(
-                    &mut state,
-                    format!(
-                        "managed sing-box process exited unexpectedly state={:?} exit_code={:?}",
-                        status.state, status.exit_code
-                    ),
-                );
-            }
-
-            if let Some(proxy) = config.system_proxy.as_ref().filter(|proxy| proxy.enabled) {
-                if let Err(error) = verify_managed_loopback_listener(proxy) {
-                    state.sing_box_listener_reachable = false;
-                    return self.record_runtime_failure(
-                        &mut state,
-                        format!(
-                            "managed sing-box loopback listener health check failed: {}",
-                            error.message
-                        ),
-                    );
-                }
-                state.sing_box_listener_reachable = true;
-            } else {
-                state.sing_box_listener_reachable = false;
-            }
-
-            match verify_generated_selector_readback(&sing_box.config_path) {
-                Ok(readable) => state.sing_box_control_api_readable = readable,
-                Err(error) => {
-                    state.sing_box_control_api_readable = false;
-                    return self.record_runtime_failure(
-                        &mut state,
-                        format!(
-                            "managed sing-box selector health check failed: {}",
-                            error.message
-                        ),
-                    );
-                }
-            }
-        }
 
         if config
             .embedded
@@ -216,36 +148,6 @@ where
                 &mut state,
                 "managed embedded engine stopped unexpectedly".to_string(),
             );
-        }
-
-        if let Some(mieru) = &config.mieru {
-            if mieru.enabled && state.mieru_running {
-                let request = MieruClientControlRequest {
-                    executable_path: mieru.executable_path.clone(),
-                    expected_sha256: mieru.expected_sha256.clone(),
-                    config_path: mieru.config_path.clone(),
-                };
-                if let Err(error) = status_mieru_client(&self.mieru, &request) {
-                    return self.record_runtime_failure(
-                        &mut state,
-                        format!("managed Mieru status check failed: {}", error.message),
-                    );
-                }
-                match wait_for_mieru_listener(
-                    &mieru.socks5_host,
-                    mieru.socks5_port,
-                    std::time::Duration::from_millis(250),
-                ) {
-                    Ok(report) => state.mieru_listener = Some(report.endpoint),
-                    Err(error) => {
-                        state.mieru_listener = None;
-                        return self.record_runtime_failure(
-                            &mut state,
-                            format!("managed Mieru listener check failed: {}", error.message),
-                        );
-                    }
-                }
-            }
         }
 
         if config
@@ -396,16 +298,6 @@ where
         }
 
         if config
-            .sing_box
-            .as_ref()
-            .map(|sing_box| !sing_box.enabled)
-            .unwrap_or(true)
-            && state.sing_box_running
-        {
-            self.stop_sing_box(state, None)?;
-        }
-
-        if config
             .native_mitm
             .as_ref()
             .map(|native_mitm| !native_mitm.enabled)
@@ -416,16 +308,6 @@ where
         }
 
         if config
-            .mieru
-            .as_ref()
-            .map(|mieru| !mieru.enabled)
-            .unwrap_or(true)
-            && state.mieru_running
-        {
-            self.stop_mieru(state, config.mieru.as_ref())?;
-        }
-
-        if config
             .embedded
             .as_ref()
             .map(|embedded| !embedded.enabled)
@@ -433,67 +315,6 @@ where
             && state.embedded_running
         {
             self.stop_embedded(state)?;
-        }
-
-        if let Some(sing_box) = &config.sing_box {
-            if sing_box.enabled {
-                let request = SingBoxManagedProcessRequest {
-                    executable_path: sing_box.executable_path.clone(),
-                    config_path: sing_box.config_path.clone(),
-                    working_directory: sing_box.working_directory.clone(),
-                    log_path: sing_box.log_path.clone(),
-                };
-                state.sing_box_config_validated = false;
-                self.persist(state)?;
-                SingBoxManagedProcessSupervisor::check_configuration(&request)?;
-                let current_status = self.sing_box.status()?;
-                let status = if current_status.state == SingBoxManagedProcessState::Running {
-                    current_status
-                } else {
-                    self.sing_box.start(&request)?
-                };
-                state.sing_box_running = status.state == SingBoxManagedProcessState::Running;
-                state.sing_box_config_validated = state.sing_box_running;
-                state.sing_box_listener_reachable = false;
-                state.sing_box_control_api_readable = false;
-                state.sing_box_process_id = status.process_id;
-                state.sing_box_exit_code = status.exit_code;
-                state.sing_box_log_path = Some(sing_box.log_path.clone());
-                if let Some(proxy) = config.system_proxy.as_ref().filter(|proxy| proxy.enabled) {
-                    verify_managed_loopback_listener(proxy)?;
-                    state.sing_box_listener_reachable = true;
-                }
-                state.sing_box_control_api_readable =
-                    verify_generated_selector_readback(&sing_box.config_path)?;
-                self.persist(state)?;
-            }
-        }
-
-        if let Some(mieru) = &config.mieru {
-            if mieru.enabled && !state.mieru_running {
-                let request = MieruClientControlRequest {
-                    executable_path: mieru.executable_path.clone(),
-                    expected_sha256: mieru.expected_sha256.clone(),
-                    config_path: mieru.config_path.clone(),
-                };
-                let report = apply_and_start_mieru_client(&self.mieru, &request)?;
-                // Mark the spawned core before the next health authority so a
-                // failed readback enters rollback with an explicit stop target.
-                state.mieru_running = report.started;
-                state.mieru_listener = None;
-                self.persist(state)?;
-                // Confirm Mieru's own control-plane status before a later
-                // listener check permits the managed proxy to be applied.
-                status_mieru_client(&self.mieru, &request)?;
-                let listener = wait_for_mieru_listener(
-                    &mieru.socks5_host,
-                    mieru.socks5_port,
-                    std::time::Duration::from_secs(5),
-                )?;
-                state.mieru_listener = Some(listener.endpoint);
-                state.mieru_last_error = None;
-                self.persist(state)?;
-            }
         }
 
         if let Some(embedded) = config.embedded.as_ref().filter(|embedded| embedded.enabled) {
@@ -544,55 +365,6 @@ where
         }
 
         Ok(())
-    }
-
-    fn stop_sing_box(
-        &mut self,
-        state: &mut WindowsManagedState,
-        configured_log_path: Option<PathBuf>,
-    ) -> DomainResult<()> {
-        if !state.sing_box_running {
-            return Ok(());
-        }
-        let log_path = configured_log_path
-            .or_else(|| state.sing_box_log_path.clone())
-            .ok_or_else(|| runtime_error("sing-box stop log path is unavailable"))?;
-        if self.sing_box.status()?.state == SingBoxManagedProcessState::Running {
-            self.sing_box.stop(&log_path)?;
-        }
-        state.sing_box_running = false;
-        state.sing_box_config_validated = false;
-        state.sing_box_listener_reachable = false;
-        state.sing_box_control_api_readable = false;
-        state.sing_box_process_id = None;
-        state.sing_box_exit_code = self.sing_box.status()?.exit_code;
-        state.sing_box_log_path = None;
-        self.persist(state)
-    }
-
-    fn stop_mieru(
-        &mut self,
-        state: &mut WindowsManagedState,
-        configured: Option<&platform_windows::managed::WindowsManagedMieruConfig>,
-    ) -> DomainResult<()> {
-        if !state.mieru_running {
-            return Ok(());
-        }
-        let config = configured.ok_or_else(|| {
-            runtime_error("Mieru is marked running but its managed configuration is unavailable")
-        })?;
-        let report = stop_mieru_client(
-            &self.mieru,
-            &MieruClientControlRequest {
-                executable_path: config.executable_path.clone(),
-                expected_sha256: config.expected_sha256.clone(),
-                config_path: config.config_path.clone(),
-            },
-        )?;
-        state.mieru_running = !report.stopped;
-        state.mieru_last_error = None;
-        state.mieru_listener = None;
-        self.persist(state)
     }
 
     /// Runs the profile's nodes in this process behind a local SOCKS5/HTTP
@@ -756,23 +528,6 @@ where
         }
         if state.embedded_running && !previous.embedded_running {
             let _ = self.stop_embedded(state);
-        }
-        if state.sing_box_running && !previous.sing_box_running {
-            let log_path = read_managed_config(&self.config_path)
-                .ok()
-                .and_then(|config| config.sing_box.map(|sing_box| sing_box.log_path));
-            if self.stop_sing_box(state, log_path).is_err() {
-                // Preserve the running state when rollback cannot stop the child.
-            }
-        }
-        if state.mieru_running && !previous.mieru_running {
-            if let Ok(config) = read_managed_config(&self.config_path) {
-                if self.stop_mieru(state, config.mieru.as_ref()).is_err() {
-                    state.mieru_last_error = Some(
-                        "Mieru rollback could not issue the official stop command".to_string(),
-                    );
-                }
-            }
         }
         if state.tunnel_running && !previous.tunnel_running {
             if let Ok(config) = read_managed_config(&self.config_path) {
@@ -990,7 +745,7 @@ fn native_mitm_proxy_engine_config(config: &WindowsManagedNativeMitmConfig) -> P
             }],
             nodes: vec![NodeDescriptor {
                 id: outbound_id,
-                name: "Windows managed sing-box SOCKS upstream".to_string(),
+                name: "Windows managed embedded engine SOCKS upstream".to_string(),
                 protocol: Protocol::Socks,
                 endpoint: Endpoint {
                     host: config.upstream_socks_host.clone(),
@@ -1038,104 +793,12 @@ fn runtime_error(message: &str) -> DomainError {
     DomainError::new(WINDOWS_MANAGED_RUNTIME_FAILED_CODE, message)
 }
 
-fn verify_managed_loopback_listener(proxy: &WindowsProxySettings) -> DomainResult<()> {
-    let endpoint = proxy.server.parse::<SocketAddr>().map_err(|_| {
-        runtime_error("managed system proxy endpoint must be an explicit loopback socket address")
-    })?;
-    if !endpoint.ip().is_loopback() {
-        return Err(runtime_error(
-            "managed system proxy endpoint must use a loopback address",
-        ));
-    }
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        if TcpStream::connect_timeout(&endpoint, Duration::from_millis(250)).is_ok() {
-            return Ok(());
-        }
-        if Instant::now() >= deadline {
-            return Err(runtime_error(
-                "managed sing-box loopback listener was not reachable after start",
-            ));
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    }
-}
-
-fn verify_generated_selector_readback(config_path: &Path) -> DomainResult<bool> {
-    let content = fs::read_to_string(config_path).map_err(|_| {
-        runtime_error("managed sing-box configuration could not be read for health")
-    })?;
-    let Some(selector) = inspect_sing_box_local_selector_snapshot(&content) else {
-        return Ok(false);
-    };
-    let deadline = Instant::now() + Duration::from_secs(5);
-    let status = loop {
-        match read_sing_box_clash_api_selector_with_timeout(
-            &selector.controller,
-            Duration::from_millis(250),
-        ) {
-            Ok(status) => break status,
-            Err(_error) if Instant::now() < deadline => {
-                std::thread::sleep(Duration::from_millis(50));
-            }
-            Err(error) => return Err(error),
-        }
-    };
-    if status.current_outbound_tag != selector.selected_outbound_tag {
-        return Err(runtime_error(
-            "managed sing-box selector readback did not match its generated profile",
-        ));
-    }
-    Ok(true)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use mitm_policy::{
         MITM_POLICY_AD_BLOCK_PLUGIN_ID, MITM_POLICY_BILIBILI_WEB_AD_BLOCK_PLUGIN_ID,
     };
-    use std::net::TcpListener;
-
-    #[test]
-    fn loopback_listener_verification_waits_for_delayed_readiness() {
-        let reserved = TcpListener::bind("127.0.0.1:0").expect("test port should bind");
-        let port = reserved
-            .local_addr()
-            .expect("test port address should resolve")
-            .port();
-        drop(reserved);
-        let server = std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(150));
-            let listener =
-                TcpListener::bind(("127.0.0.1", port)).expect("delayed listener should bind");
-            let _ = listener.accept();
-        });
-        let proxy = WindowsProxySettings {
-            enabled: true,
-            server: format!("127.0.0.1:{port}"),
-            bypass: "<local>".to_string(),
-        };
-
-        verify_managed_loopback_listener(&proxy)
-            .expect("listener verification should tolerate startup delay");
-        server.join().expect("delayed listener should complete");
-    }
-
-    #[test]
-    fn selector_readback_uses_a_bounded_startup_retry() {
-        let source = include_str!("lib.rs");
-        let function = source
-            .split("fn verify_generated_selector_readback")
-            .nth(1)
-            .expect("selector verification function should exist")
-            .split("#[cfg(test)]")
-            .next()
-            .expect("selector verification function should end before tests");
-
-        assert!(function.contains("Instant::now() + Duration::from_secs(5)"));
-        assert!(function.contains("std::thread::sleep(Duration::from_millis(50))"));
-    }
 
     #[test]
     fn native_mitm_policy_selection_is_first_party_and_opt_in() {

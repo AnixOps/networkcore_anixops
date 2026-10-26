@@ -119,6 +119,10 @@ current-main-cross-platform-run-plan=public-engine-run-plan-active
   prior configured core.
 ```
 
+### Removed
+
+- Windows 客户端移除第三方内核：服务、托管配置和图形界面不再启动、安装或校验兼容内核和 Mieru 外部内核，节点、策略组、分流模式和 DNS 只走内置引擎。HTTPS 解密改为把本机 MITM（`127.0.0.1:7890`，系统代理指向它）的上游接到内置引擎的本地代理（`127.0.0.1:7891`）。设置页去掉“兼容内核”和“附加协议内核”卡片，规则页去掉策略组 JSON 编辑和 DNS JSON（DNS 卡片固定说明系统 DNS 行为），旧的 Win32 窗口代码一并删除。托管配置和状态文件里的旧字段会被忽略；用兼容内核导入的旧配置需要重新导入订阅。Linux 图形客户端同步去掉对应的占位命令。
+
 ### Changed
 
 - 版本号统一为 `0.2.0`，为 v0.2.0 正式版做准备：工作区 `Cargo.toml`（及 `Cargo.lock` 中的工作区成员）、Windows/Linux 图形客户端的 `tauri.conf.json`、共用界面 `package.json`，以及 iOS/macOS 的 `MARKETING_VERSION`。命令行 `version` 输出和脚本环境字符串随之变为 `0.2.0`。

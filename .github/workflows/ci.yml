@@ -402,12 +402,8 @@ jobs:
             apps/windows-gui/src/gui/tauri_ui.rs
             apps/windows-gui/ui/package.json
             apps/windows-gui/ui/src/App.tsx
-            apps/windows-gui/src/gui/commands.rs
             apps/windows-gui/src/gui/runtime_status.rs
-            apps/windows-gui/src/gui/shell.rs
-            apps/windows-gui/src/gui/theme.rs
             apps/windows-gui/src/gui/ui_state.rs
-            apps/windows-gui/src/gui/widgets.rs
             apps/windows-service/Cargo.toml
             apps/windows-service/src/lib.rs
             apps/windows-service/src/main.rs
@@ -789,8 +785,6 @@ jobs:
           grep -q "PublicEngineKind::Mieru" apps/linux-cli/src/lib.rs
           grep -q "run_mieru_public_engine_plan" apps/linux-cli/src/lib.rs
           grep -q "run_url_mieru_plan_requires_explicit_binary" apps/linux-cli/tests/linux_cli_contracts.rs
-          grep -q "import_mieru_subscription_plan" apps/windows-gui/src/gui/tauri_ui.rs
-          grep -q "managed public engine run plan permits only one enabled core" crates/platform-windows/src/managed.rs
           grep -q "run_url_handler_runs_supported_direct_share_link_protocols" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "run_url_handler_runs_supported_catalog_payload_formats" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "hysteria2://.*tuic://" apps/linux-cli/README.md
@@ -800,13 +794,6 @@ jobs:
           grep -q "SingBoxProcessRunner" crates/engine-singbox/src/lib.rs
           grep -q "SingBoxManagedProcessSupervisor" crates/engine-singbox/src/lib.rs
           grep -q "pub fn check_configuration" crates/engine-singbox/src/lib.rs
-          grep -q "WindowsManagedSingBoxConfig" crates/platform-windows/src/managed.rs
-          grep -q "WindowsManagedMieruConfig" crates/platform-windows/src/managed.rs
-          grep -q "async fn install_mieru" apps/windows-gui/src/gui/tauri_ui.rs
-          grep -q "async fn verify_mieru" apps/windows-gui/src/gui/tauri_ui.rs
-          grep -q "apply_and_start_mieru_client" apps/windows-service/src/lib.rs
-          grep -q "stop_mieru_client" apps/windows-service/src/lib.rs
-          grep -q "status_mieru_client" apps/windows-service/src/lib.rs
           grep -q "official status command should succeed" crates/engine-mieru/tests/engine_mieru_contracts.rs
           grep -q "download_mieru_release" crates/engine-mieru/src/lib.rs
           grep -q "MIERU_RELEASE_MAX_BYTES" crates/engine-mieru/src/lib.rs
@@ -816,11 +803,8 @@ jobs:
           grep -q "listener_config_rejects_lan_binding" crates/engine-mieru/tests/engine_mieru_contracts.rs
           grep -q "pub fn poll_health" apps/windows-service/src/lib.rs
           grep -q "pub fn stop_after_runtime_failure" apps/windows-service/src/lib.rs
-          grep -q "managed_runtime_rolls_back_proxy_when_sing_box_exits_after_start" apps/windows-service/tests/managed_runtime_contracts.rs
           grep -q "runtime_error=" apps/windows-gui/src/main.rs
           grep -q "runtime.poll_health" apps/windows-service/src/main.rs
-          grep -q "sing_box" apps/windows-service/src/lib.rs
-          grep -q "ID_VALIDATE_CONFIGURATION" apps/windows-gui/src/main.rs
           grep -q 'windows-gui-view-runtime=tauri-react-active' docs/architecture/windows-gui-daily-usability.md
           grep -q 'windows-gui-command-execution=rust-command-bridge-background-workers-all-system-operations-subscription-catalog-refresh-fastest-node-tun-dns-script-runtime-native-groups-active' docs/architecture/windows-gui-daily-usability.md
           grep -q 'windows-gui-tauri-lifecycle=auto-connect-core-recovery-single-instance-tray-proxy-recovery-active' docs/architecture/windows-gui-daily-usability.md
@@ -862,37 +846,15 @@ jobs:
           grep -q 'start_fastest_node_monitor' apps/windows-gui/src/gui/tauri_ui.rs
           grep -q 'list_subscriptions' apps/windows-gui/src/gui/tauri_ui.rs
           grep -q 'configure_tunnel' apps/windows-gui/src/gui/tauri_ui.rs
-          grep -q 'configure_dns' apps/windows-gui/src/gui/tauri_ui.rs
-          grep -rq 'dnsConfigured' apps/windows-gui/ui/src
           grep -q 'configure_script_runtime' apps/windows-gui/src/gui/tauri_ui.rs
           grep -rq 'scriptRuntimeConfigured' apps/windows-gui/ui/src
           grep -q 'NativeNodeScriptRuntimeConfig' apps/windows-service/src/lib.rs
           grep -q 'select_native_group_outbound' apps/windows-gui/src/gui/tauri_ui.rs
           grep -rq 'selectNativeGroupOutbound' apps/windows-gui/ui/src
-          grep -q 'replace_native_group' apps/windows-gui/src/gui/tauri_ui.rs
-          grep -rq 'replaceNativeGroup' apps/windows-gui/ui/src
           grep -q 'runtime_snapshot' apps/windows-gui/src/gui/tauri_ui.rs
           grep -q 'desktop.snapshot' apps/windows-gui/ui/src/App.tsx
-          grep -q "read_runtime_status" apps/windows-gui/src/main.rs
-          grep -q "submit_background" apps/windows-gui/src/main.rs
           grep -q "connected_requires_scm_core_process_and_current_proxy" apps/windows-gui/src/gui/ui_state.rs
           grep -q "write_diagnostic_report" apps/windows-gui/src/main.rs
-          grep -q "SingBoxManagedProcessSupervisor::check_configuration" apps/windows-gui/src/main.rs
-          grep -q "is_remote_subscription_url" apps/windows-gui/src/main.rs
-          grep -q "download_remote_subscription" apps/windows-gui/src/main.rs
-          grep -q "reqwest::blocking::Client" apps/windows-gui/src/main.rs
-          grep -q "ID_UPDATE_PROFILE" apps/windows-gui/src/main.rs
-          grep -q "submit_profile_import" apps/windows-gui/src/main.rs
-          grep -q "ID_LOAD_PROFILE_NODES" apps/windows-gui/src/main.rs
-          grep -q "submit_profile_node_load" apps/windows-gui/src/main.rs
-          grep -q "pub unsafe fn selector" apps/windows-gui/src/gui/widgets.rs
-          grep -q "ID_SWITCH_PROFILE_NODE" apps/windows-gui/src/main.rs
-          grep -q "submit_profile_node_switch" apps/windows-gui/src/main.rs
-          grep -q "ID_TEST_PROFILE_NODE_DELAY" apps/windows-gui/src/main.rs
-          grep -q "submit_profile_node_delay_test" apps/windows-gui/src/main.rs
-          grep -q "ID_CHECK_PROFILE_RUNTIME" apps/windows-gui/src/main.rs
-          grep -q "submit_profile_runtime_check" apps/windows-gui/src/main.rs
-          grep -q "fn start_service" apps/windows-gui/src/main.rs
           grep -q "apply_proxy_after_readiness" apps/windows-gui/src/gui/actions/connection.rs
           ! grep -q "apply_user_proxy_from_config" apps/windows-gui/src/main.rs
           grep -q "render_sing_box_local_proxy_selector_config" crates/engine-singbox/src/lib.rs

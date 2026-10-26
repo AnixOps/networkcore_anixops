@@ -8,8 +8,8 @@ use networkcore_windows_service::WindowsManagedRuntime;
 use platform_windows::managed::WindowsManagedNativeMitmConfig;
 use platform_windows::managed::{
     read_managed_state, write_managed_config, WindowsDriverPackageConfig, WindowsManagedConfig,
-    WindowsManagedEmbeddedConfig, WindowsManagedSingBoxConfig, WindowsProxySettings,
-    WindowsProxySnapshot, WindowsSystemProxyOwner, WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION,
+    WindowsManagedEmbeddedConfig, WindowsProxySettings, WindowsProxySnapshot,
+    WindowsSystemProxyOwner, WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION,
 };
 use platform_windows::system_integration::{
     WindowsDriverInstallResult, WindowsServiceState, WindowsServiceStatus, WindowsSystemIntegration,
@@ -27,8 +27,6 @@ use std::fs;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::thread;
-use std::time::Duration;
 
 #[derive(Clone, Default)]
 struct FakeIntegration {
@@ -250,8 +248,6 @@ fn fixture_config(with_tunnel: bool) -> WindowsManagedConfig {
             network_secret_file: PathBuf::from("secret.txt"),
             state_path: PathBuf::from("tunnel-state.json"),
         }),
-        sing_box: None,
-        mieru: None,
         native_mitm: None,
         embedded: None,
     }
@@ -298,35 +294,6 @@ fn write_mitm_ca(root: &Path) -> (PathBuf, PathBuf) {
 fn unused_loopback_port() -> u16 {
     let listener = TcpListener::bind(("127.0.0.1", 0)).expect("test listener binds");
     listener.local_addr().expect("test listener address").port()
-}
-
-#[cfg(windows)]
-fn write_immediately_exiting_sing_box(root: &Path) -> PathBuf {
-    let executable = root.join("fake-sing-box.cmd");
-    fs::write(
-        &executable,
-        "@echo off\r\nif \"%1\"==\"check\" exit /b 0\r\nif \"%1\"==\"run\" exit /b 23\r\nexit /b 2\r\n",
-    )
-    .expect("fake sing-box command writes");
-    executable
-}
-
-#[cfg(not(windows))]
-fn write_immediately_exiting_sing_box(root: &Path) -> PathBuf {
-    use std::os::unix::fs::PermissionsExt;
-
-    let executable = root.join("fake-sing-box.sh");
-    fs::write(
-        &executable,
-        "#!/bin/sh\nif [ \"$1\" = \"check\" ]; then exit 0; fi\nif [ \"$1\" = \"run\" ]; then exit 23; fi\nexit 2\n",
-    )
-    .expect("fake sing-box script writes");
-    let mut permissions = fs::metadata(&executable)
-        .expect("fake sing-box script metadata reads")
-        .permissions();
-    permissions.set_mode(0o755);
-    fs::set_permissions(&executable, permissions).expect("fake sing-box script becomes executable");
-    executable
 }
 
 #[test]
@@ -542,7 +509,6 @@ fn managed_runtime_owns_native_https_mitm_lifecycle() {
         ca_certificate_path: certificate_path,
         ca_private_key_path: private_key_path,
         log_path: root.join("native-mitm.log"),
-        sing_box_config_snapshot_path: None,
         bilibili_web_ad_block_enabled: false,
         script_runtime: None,
     });
@@ -619,79 +585,4 @@ fn native_mitm_windows_acl_validation_precedes_trust_install_and_health_checks()
             && source.contains("#[cfg(windows)]\n    if config.script_runtime.is_some()"),
         "Windows builds must reject legacy script runtime configuration before CA material is read"
     );
-}
-
-#[test]
-fn managed_runtime_rolls_back_proxy_when_sing_box_exits_after_start() {
-    let (config_path, state_path, root) = fixture_paths("sing-box-health-failure");
-    let executable = write_immediately_exiting_sing_box(&root);
-    let sing_box_config = root.join("sing-box.json");
-    fs::write(&sing_box_config, "{}").expect("fake sing-box config writes");
-    let mut config = fixture_config(false);
-    let listener =
-        TcpListener::bind(("127.0.0.1", 0)).expect("managed proxy readiness listener should bind");
-    let listener_port = listener
-        .local_addr()
-        .expect("managed proxy readiness listener should expose a port")
-        .port();
-    config
-        .system_proxy
-        .as_mut()
-        .expect("fixture config should enable the managed system proxy")
-        .server = format!("127.0.0.1:{listener_port}");
-    config.sing_box = Some(WindowsManagedSingBoxConfig {
-        enabled: true,
-        executable_path: executable,
-        config_path: sing_box_config,
-        working_directory: Some(root.clone()),
-        log_path: root.join("sing-box.log"),
-    });
-    write_managed_config(&config_path, &config).expect("config writes");
-    let events = Rc::new(RefCell::new(Vec::new()));
-    let integration = FakeIntegration {
-        events: events.clone(),
-        fail_proxy: false,
-    };
-    let tunnel = FakeTunnel::default();
-    let mut runtime =
-        WindowsManagedRuntime::new(integration, tunnel, config_path, state_path.clone());
-
-    let running = runtime
-        .start()
-        .expect("managed runtime starts before child exits");
-    assert!(running.sing_box_running);
-    assert!(running.proxy_snapshot.is_some());
-
-    let failure = (0..100)
-        .find_map(|_| match runtime.poll_health() {
-            Ok(()) => {
-                thread::sleep(Duration::from_millis(10));
-                None
-            }
-            Err(error) => Some(error),
-        })
-        .expect("sing-box exit must become a managed runtime health failure");
-    drop(listener);
-    assert_eq!(failure.code, "windows.managed.runtime_failed");
-    assert!(failure
-        .message
-        .contains("sing-box process exited unexpectedly"));
-
-    let failed = runtime
-        .stop_after_runtime_failure(&failure)
-        .expect("health failure rollback completes");
-    assert_eq!(failed.last_transition, "failed");
-    assert!(failed
-        .last_error
-        .as_deref()
-        .is_some_and(|error| error.contains("sing-box process exited unexpectedly")));
-    assert!(!failed.sing_box_running);
-    assert!(failed.proxy_snapshot.is_none());
-    assert!(events.borrow().contains(&"restore-proxy".to_string()));
-
-    let persisted = read_managed_state(&state_path).expect("failed state remains readable");
-    assert_eq!(persisted.last_transition, "failed");
-    assert!(persisted.proxy_snapshot.is_none());
-    assert_eq!(persisted.sing_box_exit_code, Some(23));
-    let _ = fs::remove_dir_all(root);
 }

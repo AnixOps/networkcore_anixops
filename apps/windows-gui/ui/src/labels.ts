@@ -89,7 +89,8 @@ export function factLabel(label: string | undefined): string {
   if (!label) return t("读取中");
   if (exactFacts[label]) return t(exactFacts[label]);
   if (label.startsWith("Running (")) return t("运行中");
-  if (label.startsWith("Mieru running")) return t("运行中");
+  if (label.startsWith("Embedded engine running")) return t("运行中");
+  if (label.startsWith("Stopped: ")) return t("已停止");
   if (label.startsWith("Exited")) return t("已退出");
   if (label.startsWith("Status unavailable")) return t("状态不可用");
   return label;

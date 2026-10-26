@@ -33,16 +33,14 @@ export function RulesPage({ snapshot, busy, run }: { snapshot: RuntimeSnapshot |
         </div>
       </Card>
       <PolicyGroups busy={busy} run={run} />
-      <DnsCard snapshot={snapshot} busy={busy} run={run} />
+      <DnsCard />
     </div>
   );
 }
 
-/** The profile's native outbound groups: pick a selector's default, or edit one group's JSON. */
+/** The profile's policy groups: pick a selector's default. */
 function PolicyGroups({ busy, run }: { busy: string | null; run: Run }) {
   const [groups, setGroups] = useState<NativeGroupSummary[]>([]);
-  const [editing, setEditing] = useState<string | null>(null);
-  const [json, setJson] = useState("");
 
   useEffect(() => {
     void desktop.nativeGroups().then(setGroups).catch(() => setGroups([]));
@@ -51,7 +49,7 @@ function PolicyGroups({ busy, run }: { busy: string | null; run: Run }) {
   return (
     <Card
       title={t("策略组")}
-      description={t("为手动选择的策略组设定默认出口，或单独编辑某个策略组，不会替换整个配置。")}
+      description={t("为手动选择的策略组设定默认出口。")}
       actions={<StatusPill label={groups.length ? t("{count} 个策略组", { count: groups.length }) : t("没有策略组")} tone={groups.length ? "success" : "neutral"} />}
     >
       {groups.length === 0
@@ -77,54 +75,18 @@ function PolicyGroups({ busy, run }: { busy: string | null; run: Run }) {
                     {groupMemberLabel(group, outbound)}
                   </button>
                 ))}
-                {group.json && <button className="secondary compact" disabled={Boolean(busy)} onClick={() => { setEditing(group.tag); setJson(group.json); }}>{t("编辑 JSON")}</button>}
               </div>
             </li>
           ))}
         </ul>}
-      {editing && (
-        <div className="editor">
-          <label className="field"><span>{t("策略组 {name} 的 JSON", { name: editing })}</span>
-            <textarea spellCheck={false} value={json} onChange={(event) => setJson(event.target.value)} />
-          </label>
-          <div className="button-row">
-            <button className="primary" disabled={Boolean(busy) || !json.trim()} onClick={() => void run("native group", async () => {
-              const result = await desktop.replaceNativeGroup(editing, json);
-              const next = await desktop.nativeGroups();
-              setGroups(next);
-              setJson(next.find((group) => group.tag === editing)?.json ?? json);
-              return result;
-            })}>{t("保存")}</button>
-            <button className="secondary" disabled={Boolean(busy)} onClick={() => { setEditing(null); setJson(""); }}>{t("关闭")}</button>
-          </div>
-        </div>
-      )}
     </Card>
   );
 }
 
-function DnsCard({ snapshot, busy, run }: { snapshot: RuntimeSnapshot | null; busy: string | null; run: Run }) {
-  const [dns, setDns] = useState("");
-  if (snapshot?.embeddedEngine) {
-    return (
-      <Card title="DNS" actions={<StatusPill label={t("系统 DNS")} tone="success" />}>
-        <p className="muted">{t("内置引擎用系统 DNS 解析规则里需要 IP 的域名；经节点的连接由节点服务器解析域名。")}</p>
-      </Card>
-    );
-  }
+function DnsCard() {
   return (
-    <Card
-      title="DNS"
-      description={t("为已停止的当前配置写入自定义 DNS 段。")}
-      actions={<StatusPill label={snapshot?.dnsConfigured ? t("已配置") : t("未配置")} tone={snapshot?.dnsConfigured ? "success" : "neutral"} />}
-    >
-      <label className="field"><span>DNS JSON</span>
-        <textarea spellCheck={false} placeholder='{ "servers": [ ... ] }' value={dns} onChange={(event) => setDns(event.target.value)} />
-      </label>
-      <div className="button-row">
-        <button className="primary" disabled={Boolean(busy) || !dns.trim()} onClick={() => void run("dns", () => desktop.configureDns(dns))}>{t("保存 DNS")}</button>
-        <button className="secondary" disabled={Boolean(busy)} onClick={() => void run("dns", desktop.clearDns)}>{t("清除 DNS")}</button>
-      </div>
+    <Card title="DNS" actions={<StatusPill label={t("系统 DNS")} tone="success" />}>
+      <p className="muted">{t("内置引擎用系统 DNS 解析规则里需要 IP 的域名；经节点的连接由节点服务器解析域名。")}</p>
     </Card>
   );
 }

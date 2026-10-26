@@ -8,30 +8,16 @@ use platform_windows::system_integration::{
     WindowsSystemIntegration,
 };
 use std::path::Path;
-use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, STILL_ACTIVE};
-use windows_sys::Win32::System::Threading::{
-    GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
-};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ManagedCoreStatus {
     NotConfigured,
     Starting,
-    Running {
-        process_id: u32,
-    },
-    MieruRunning {
-        endpoint: String,
-    },
     EmbeddedRunning {
         endpoint: String,
     },
-    Exited {
-        process_id: u32,
-        exit_code: Option<i32>,
-    },
-    Unavailable {
-        process_id: Option<u32>,
+    /// The service recorded a failure after the engine was configured.
+    Failed {
         reason: String,
     },
 }
@@ -41,29 +27,16 @@ impl ManagedCoreStatus {
         match self {
             Self::NotConfigured => "Not configured".to_string(),
             Self::Starting => "Starting".to_string(),
-            Self::Running { process_id } => format!("Running (PID {process_id})"),
-            Self::MieruRunning { endpoint } => format!("Mieru running ({endpoint})"),
             Self::EmbeddedRunning { endpoint } => format!("Embedded engine running ({endpoint})"),
-            Self::Exited {
-                process_id,
-                exit_code,
-            } => format!(
-                "Exited (PID {process_id}{})",
-                exit_code
-                    .map(|code| format!(", exit {code}"))
-                    .unwrap_or_default()
-            ),
-            Self::Unavailable { reason, .. } => format!("Status unavailable: {reason}"),
+            Self::Failed { reason } => format!("Stopped: {reason}"),
         }
     }
 
     pub fn liveness_confirmed(&self) -> Option<bool> {
         match self {
-            Self::Running { .. } | Self::MieruRunning { .. } | Self::EmbeddedRunning { .. } => {
-                Some(true)
-            }
-            Self::Exited { .. } => Some(false),
-            Self::Unavailable { .. } | Self::NotConfigured | Self::Starting => None,
+            Self::EmbeddedRunning { .. } => Some(true),
+            Self::Failed { .. } => Some(false),
+            Self::NotConfigured | Self::Starting => None,
         }
     }
 }
@@ -135,22 +108,6 @@ where
 {
     let config = read_managed_config(config_path);
     let configuration_error = config.as_ref().err().map(ToString::to_string);
-    let sing_box_configured = config
-        .as_ref()
-        .ok()
-        .and_then(|config| config.sing_box.as_ref())
-        .is_some_and(|sing_box| sing_box.enabled);
-    let mieru_configured = config
-        .as_ref()
-        .ok()
-        .and_then(|config| config.mieru.as_ref())
-        .is_some_and(|mieru| mieru.enabled);
-    let mieru_expected_listener = config
-        .as_ref()
-        .ok()
-        .and_then(|config| config.mieru.as_ref())
-        .filter(|mieru| mieru.enabled)
-        .map(|mieru| format!("{}:{}", mieru.socks5_host, mieru.socks5_port));
     let embedded_listener = config
         .as_ref()
         .ok()
@@ -171,42 +128,22 @@ where
 
     let runtime = read_managed_state(state_path).ok();
     let core = match runtime.as_ref() {
-        Some(state) if sing_box_configured && state.sing_box_running => {
-            match state.sing_box_process_id {
-                Some(process_id) => match probe_process(process_id) {
-                    Ok(ProcessProbe::Running) => ManagedCoreStatus::Running { process_id },
-                    Ok(ProcessProbe::Exited(exit_code)) => ManagedCoreStatus::Exited {
-                        process_id,
-                        exit_code: Some(exit_code),
-                    },
-                    Err(reason) => ManagedCoreStatus::Unavailable {
-                        process_id: Some(process_id),
-                        reason,
-                    },
-                },
-                None => ManagedCoreStatus::Unavailable {
-                    process_id: None,
-                    reason: "managed state did not record a core process ID".to_string(),
-                },
-            }
-        }
-        Some(state) if mieru_configured && state.mieru_running => ManagedCoreStatus::MieruRunning {
-            endpoint: state.mieru_listener.clone().unwrap_or_default(),
-        },
-        Some(state) if sing_box_configured => match state.last_transition.as_str() {
-            "starting" => ManagedCoreStatus::Starting,
-            "purged" if state.sing_box_process_id.is_none() => ManagedCoreStatus::NotConfigured,
-            _ => recorded_core_exit(state.sing_box_process_id, state.sing_box_exit_code),
-        },
         Some(state) if embedded_configured && state.embedded_running => {
             ManagedCoreStatus::EmbeddedRunning {
                 endpoint: state.embedded_listener.clone().unwrap_or_default(),
             }
         }
-        Some(state)
-            if (mieru_configured || embedded_configured) && state.last_transition == "starting" =>
-        {
+        Some(state) if embedded_configured && state.last_transition == "starting" => {
             ManagedCoreStatus::Starting
+        }
+        Some(state) if embedded_configured && state.last_transition == "failed" => {
+            ManagedCoreStatus::Failed {
+                reason: state
+                    .embedded_last_error
+                    .clone()
+                    .or_else(|| state.last_error.clone())
+                    .unwrap_or_else(|| "the embedded engine stopped".to_string()),
+            }
         }
         _ => ManagedCoreStatus::NotConfigured,
     };
@@ -221,38 +158,15 @@ where
     });
     let facts = RuntimeFacts {
         service_state,
-        core_configured: sing_box_configured || mieru_configured || embedded_configured,
-        core_configuration_validated: runtime.as_ref().is_some_and(|state| {
-            if sing_box_configured {
-                state.sing_box_config_validated
-            } else if embedded_configured {
-                state.embedded_running
-            } else {
-                mieru_configured && state.mieru_running
-            }
-        }),
-        core_listener_reachable: runtime.as_ref().is_some_and(|state| {
-            if sing_box_configured {
-                state.sing_box_listener_reachable
-            } else if embedded_configured {
+        core_configured: embedded_configured,
+        core_configuration_validated: embedded_configured
+            && runtime.as_ref().is_some_and(|state| state.embedded_running),
+        core_listener_reachable: embedded_configured
+            && runtime.as_ref().is_some_and(|state| {
                 embedded_listener.as_deref() == state.embedded_listener.as_deref()
-            } else {
-                mieru_expected_listener.as_deref() == state.mieru_listener.as_deref()
-            }
-        }),
-        core_control_api_readable: !sing_box_configured
-            || runtime
-                .as_ref()
-                .is_some_and(|state| state.sing_box_control_api_readable),
-        core_state_recorded_running: runtime.as_ref().is_some_and(|state| {
-            if sing_box_configured {
-                state.sing_box_running
-            } else if embedded_configured {
-                state.embedded_running
-            } else {
-                mieru_configured && state.mieru_running
-            }
-        }),
+            }),
+        core_state_recorded_running: embedded_configured
+            && runtime.as_ref().is_some_and(|state| state.embedded_running),
         core_liveness_confirmed: core.liveness_confirmed(),
         system_proxy_matches_managed: system_proxy_matches_managed == Some(true),
         last_transition: runtime.as_ref().map(|state| state.last_transition.clone()),
@@ -275,71 +189,25 @@ where
     }
 }
 
-fn recorded_core_exit(process_id: Option<u32>, exit_code: Option<i32>) -> ManagedCoreStatus {
-    match process_id {
-        Some(process_id) => ManagedCoreStatus::Exited {
-            process_id,
-            exit_code,
-        },
-        None => ManagedCoreStatus::Unavailable {
-            process_id: None,
-            reason: "managed state recorded a core exit without a process ID".to_string(),
-        },
-    }
-}
-
-enum ProcessProbe {
-    Running,
-    Exited(i32),
-}
-
-fn probe_process(process_id: u32) -> Result<ProcessProbe, String> {
-    let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, process_id) };
-    if handle.is_null() {
-        return Err(format!("process query failed (win32={})", unsafe {
-            GetLastError()
-        }));
-    }
-    let mut exit_code = 0u32;
-    let queried = unsafe { GetExitCodeProcess(handle, &mut exit_code) };
-    unsafe {
-        CloseHandle(handle);
-    }
-    if queried == 0 {
-        return Err(format!("process exit query failed (win32={})", unsafe {
-            GetLastError()
-        }));
-    }
-    if exit_code == STILL_ACTIVE as u32 {
-        Ok(ProcessProbe::Running)
-    } else {
-        Ok(ProcessProbe::Exited(exit_code as i32))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn recorded_core_exit_without_pid_is_unavailable_not_pid_zero() {
-        assert!(matches!(
-            recorded_core_exit(None, Some(1)),
-            ManagedCoreStatus::Unavailable {
-                process_id: None,
-                ..
-            }
-        ));
-    }
-
-    #[test]
-    fn mieru_liveness_uses_service_verified_listener_status() {
-        let status = ManagedCoreStatus::MieruRunning {
-            endpoint: "127.0.0.1:1080".to_string(),
+    fn embedded_liveness_uses_service_verified_listener_status() {
+        let status = ManagedCoreStatus::EmbeddedRunning {
+            endpoint: "127.0.0.1:7890".to_string(),
         };
 
         assert_eq!(status.liveness_confirmed(), Some(true));
-        assert_eq!(status.label(), "Mieru running (127.0.0.1:1080)");
+        assert_eq!(status.label(), "Embedded engine running (127.0.0.1:7890)");
+        assert_eq!(
+            ManagedCoreStatus::Failed {
+                reason: "listener failed".to_string()
+            }
+            .liveness_confirmed(),
+            Some(false)
+        );
     }
 
     #[test]
@@ -349,9 +217,8 @@ mod tests {
             service_state: WindowsServiceState::Running,
             service_process_id: 42,
             service_detail: None,
-            core: ManagedCoreStatus::Exited {
-                process_id: 7,
-                exit_code: Some(1),
+            core: ManagedCoreStatus::Failed {
+                reason: "listener failed".to_string(),
             },
             system_proxy_enabled: Some(false),
             system_proxy_server: None,

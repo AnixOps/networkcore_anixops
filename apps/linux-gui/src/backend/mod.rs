@@ -71,7 +71,6 @@ pub struct RuntimeSnapshot {
     pub auto_subscription_refresh: bool,
     pub auto_select_fastest_node: bool,
     pub bilibili_web_ad_block_enabled: bool,
-    pub dns_configured: bool,
     pub script_runtime_configured: bool,
     pub dark_theme: bool,
     pub runtime_mode: &'static str,
@@ -100,8 +99,6 @@ pub struct GroupSummary {
     pub selected: Option<String>,
     pub outbounds: Vec<String>,
     pub outbound_labels: Vec<String>,
-    /// Groups cannot be edited as JSON here.
-    pub json: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -376,7 +373,6 @@ impl Backend {
             auto_subscription_refresh: false,
             auto_select_fastest_node: false,
             bilibili_web_ad_block_enabled: false,
-            dns_configured: false,
             script_runtime_configured: false,
             dark_theme: false,
             runtime_mode: "desktop",
@@ -420,7 +416,6 @@ impl Backend {
                     .map(|member| self.node_name(member).unwrap_or_else(|| member.clone()))
                     .collect(),
                 outbounds: group.members,
-                json: String::new(),
             })
             .collect()
     }

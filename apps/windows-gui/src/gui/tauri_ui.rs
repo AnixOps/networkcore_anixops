@@ -1,4 +1,4 @@
-use super::actions::{connection, nodes};
+use super::actions::connection;
 use super::runtime_status::{read_runtime_status, ManagedCoreStatus, WindowsRuntimeStatus};
 use super::startup::{
     load_desktop_state, owns_current_proxy, save_desktop_state, DesktopProfileNode,
@@ -6,37 +6,20 @@ use super::startup::{
 };
 use super::{
     append_managed_log, load_validated_managed_configuration, managed_config_or_default,
-    profile_node_options, profile_node_options_from_selector, write_diagnostic_report_at,
+    profile_node_options, write_diagnostic_report_at,
 };
 use config_core::routing_import::import_subscription_routing;
 use config_core::CoreSubscriptionService;
-use control_domain::{
-    NodeDescriptor, PublicEngineKind, PublicEngineRunPlan, SubscriptionService, SubscriptionSource,
-};
+use control_domain::{NodeDescriptor, SubscriptionService, SubscriptionSource};
 use engine_embedded::config::{RuntimeConfig, CONFIG_SCHEMA_VERSION};
 use engine_embedded::delay::measure_delay;
 use engine_embedded::nodes::{outbound_for_node, routing_envelope, single_node_envelope};
-use engine_mieru::{
-    download_latest_mieru_release, mieru_node_from_descriptor, render_mieru_client_config,
-    rollback_mieru_client_config, verify_local_mieru_binary, write_mieru_client_config,
-    MieruClientConfigRequest, MieruClientConfigWriteRequest, MieruReleaseDownloadRequest,
-};
-use engine_singbox::{
-    inspect_sing_box_native_config, measure_sing_box_clash_api_outbound_delay,
-    read_sing_box_clash_api_selector, render_sing_box_local_proxy_routing_config,
-    render_sing_box_local_proxy_selector_config, rewrite_sing_box_mixed_inbound_listener,
-    sing_box_config_sha256, GithubSingBoxReleaseInstaller, SingBoxInstallRequest,
-    SingBoxLocalControllerConfig, SingBoxLocalProxyConfigRequest, SingBoxReleaseInstaller,
-    SingBoxTarget, SingBoxTargetArch, SingBoxTargetOs,
-    DEFAULT_SING_BOX_CLASH_API_DELAY_TIMEOUT_MILLIS,
-};
 use platform_windows::managed::{
     read_managed_state, windows_managed_config_path, windows_managed_data_directory,
     windows_managed_log_directory, windows_managed_state_path, write_managed_config,
     write_managed_state, write_managed_text_atomic, WindowsManagedConfig,
-    WindowsManagedEmbeddedConfig, WindowsManagedMieruConfig, WindowsManagedNativeMitmConfig,
-    WindowsManagedSingBoxConfig, WindowsManagedTunnelConfig, WindowsProxySettings,
-    WindowsSystemProxyOwner,
+    WindowsManagedEmbeddedConfig, WindowsManagedNativeMitmConfig, WindowsManagedTunnelConfig,
+    WindowsProxySettings, WindowsSystemProxyOwner,
 };
 use platform_windows::mitm_security::{
     protect_windows_managed_mitm_private_key, remove_windows_managed_mitm_private_key,
@@ -62,8 +45,6 @@ use tauri::tray::{TrayIcon, TrayIconBuilder};
 use tauri::{Manager, Runtime, State, WindowEvent};
 
 const APP_LOG_SCOPE: &str = "tauri-gui";
-const SING_BOX_DIRECT_LISTEN_PORT: u16 = 7890;
-const SING_BOX_MITM_UPSTREAM_PORT: u16 = 7891;
 const MITM_CA_SUBJECT: &str = "AnixOps NetworkCore Windows HTTPS MITM CA";
 const SUBSCRIPTION_REFRESH_INTERVAL: Duration = Duration::from_secs(60 * 60);
 const NODE_SELECTION_INTERVAL: Duration = Duration::from_secs(30 * 60);
@@ -76,7 +57,11 @@ const CHINA_IP_URL: &str =
     "https://raw.githubusercontent.com/gaoyifan/china-operator-ip/ip-lists/china.txt";
 const ROUTING_RULE_DIRECTORY: &str = "routing-rules";
 const EMBEDDED_PROFILE_ID: &str = "windows-tauri-profile";
+/// The embedded engine's listener, which is the system proxy unless HTTPS
+/// MITM takes that port.
 const EMBEDDED_LISTEN_PORT: u16 = 7890;
+/// The embedded engine's listener behind HTTPS MITM, which relays to it.
+const EMBEDDED_MITM_UPSTREAM_PORT: u16 = 7891;
 /// Routed id of a single-outbound profile once a routing mode applies.
 const EMBEDDED_PROXY_OUTBOUND: &str = "proxy";
 const EMBEDDED_DELAY_TIMEOUT: Duration = Duration::from_secs(5);
@@ -140,7 +125,6 @@ struct RuntimeSnapshot {
     auto_subscription_refresh: bool,
     auto_select_fastest_node: bool,
     bilibili_web_ad_block_enabled: bool,
-    dns_configured: bool,
     script_runtime_configured: bool,
     dark_theme: bool,
     runtime_mode: String,
@@ -192,8 +176,6 @@ struct NativeGroupSummary {
     outbounds: Vec<String>,
     /// Display names for `outbounds`; empty when they are the names.
     outbound_labels: Vec<String>,
-    /// Editable JSON; empty when the group cannot be edited as JSON.
-    json: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -215,20 +197,7 @@ struct PreferenceValues {
     runtime_mode: String,
 }
 
-struct ImportedMitmProfile {
-    executable_path: PathBuf,
-    config_path: PathBuf,
-    config_parent: PathBuf,
-    sing_box_config_snapshot_path: Option<PathBuf>,
-    source_path: Option<PathBuf>,
-    source_url: Option<String>,
-    selected_node_id: Option<String>,
-    node_catalog: Vec<DesktopProfileNode>,
-    config_sha256: Option<String>,
-}
-
 pub(super) fn run(debug: bool) -> Result<(), String> {
-    migrate_legacy_routing_rule_set()?;
     let desktop = load_desktop_state()?;
     let _ = append_managed_log(APP_LOG_SCOPE, &format!("startup debug={debug}"));
 
@@ -274,7 +243,6 @@ pub(super) fn run(debug: bool) -> Result<(), String> {
             validate_configuration,
             switch_node,
             select_native_group_outbound,
-            replace_native_group,
             test_node_delay,
             select_fastest_node,
             save_preferences,
@@ -284,17 +252,12 @@ pub(super) fn run(debug: bool) -> Result<(), String> {
             select_subscription,
             remove_subscription,
             check_profile_runtime,
-            install_core,
-            install_mieru,
-            verify_mieru,
             install_service,
             start_service,
             stop_service,
             restore_network_settings,
             configure_tunnel,
             clear_tunnel,
-            configure_dns,
-            clear_dns,
             set_routing_mode,
             refresh_routing_rules,
             configure_script_runtime,
@@ -308,29 +271,6 @@ pub(super) fn run(debug: bool) -> Result<(), String> {
         ])
         .run(tauri::generate_context!())
         .map_err(|error| error.to_string())
-}
-
-fn migrate_legacy_routing_rule_set() -> Result<(), String> {
-    let managed = match managed_config_or_default()?.sing_box {
-        Some(sing_box) => sing_box,
-        None => return Ok(()),
-    };
-    let raw = fs::read_to_string(&managed.config_path).map_err(|error| error.to_string())?;
-    let mut config: Value = serde_json::from_str(&raw).map_err(|error| error.to_string())?;
-    let object = config
-        .as_object_mut()
-        .ok_or_else(|| "managed sing-box configuration must be a JSON object.".to_string())?;
-    let Some(rule_sets) = object.remove("rule_set") else {
-        return Ok(());
-    };
-    let route = object
-        .entry("route")
-        .or_insert_with(|| json!({}))
-        .as_object_mut()
-        .ok_or_else(|| "managed sing-box route must be a JSON object.".to_string())?;
-    route.insert("rule_set".to_string(), rule_sets);
-    let rendered = serde_json::to_string_pretty(&config).map_err(|error| error.to_string())?;
-    write_managed_text_atomic(&managed.config_path, &rendered).map_err(|error| error.to_string())
 }
 
 fn install_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
@@ -617,21 +557,17 @@ async fn list_native_groups(
 }
 
 fn list_native_groups_blocking(state: DesktopAppState) -> Result<Vec<NativeGroupSummary>, String> {
-    if active_embedded_config()?.is_some() {
-        let Ok(profile) = read_embedded_profile() else {
-            return Ok(Vec::new());
-        };
-        let desktop = state
-            .desktop
-            .lock()
-            .map_err(|_| "desktop state lock failed")?;
-        return Ok(embedded_groups(&profile, &desktop.profile_node_catalog));
+    if active_embedded_config()?.is_none() {
+        return Ok(Vec::new());
     }
-    let Some(sing_box) = managed_config_or_default()?.sing_box else {
+    let Ok(profile) = read_embedded_profile() else {
         return Ok(Vec::new());
     };
-    let content = fs::read_to_string(sing_box.config_path).map_err(|error| error.to_string())?;
-    native_groups(&content)
+    let desktop = state
+        .desktop
+        .lock()
+        .map_err(|_| "desktop state lock failed")?;
+    Ok(embedded_groups(&profile, &desktop.profile_node_catalog))
 }
 
 #[tauri::command]
@@ -650,208 +586,8 @@ fn select_native_group_outbound_blocking(
     outbound_tag: String,
     state: DesktopAppState,
 ) -> Result<OperationResult, String> {
-    if let Some(embedded) = active_embedded_config()? {
-        return select_embedded_group_member(&state, &embedded, &group_tag, &outbound_tag);
-    }
-    let service = NativeWindowsSystemIntegration::new()
-        .service_status()
-        .map_err(|error| error.to_string())?;
-    if !matches!(
-        service.state,
-        WindowsServiceState::NotInstalled | WindowsServiceState::Stopped
-    ) {
-        return Err("Disconnect before changing a native selector group.".to_string());
-    }
-    let managed = managed_config_or_default()?;
-    let sing_box = managed.sing_box.ok_or_else(|| {
-        "Import a native sing-box profile before editing selector groups.".to_string()
-    })?;
-    let raw = fs::read_to_string(&sing_box.config_path).map_err(|error| error.to_string())?;
-    let rendered = rewrite_native_selector_default(&raw, &group_tag, &outbound_tag)?;
-    write_managed_text_atomic(&sing_box.config_path, &rendered)
-        .map_err(|error| error.to_string())?;
-    let mut desktop = state
-        .desktop
-        .lock()
-        .map_err(|_| "desktop state lock failed")?;
-    if desktop.profile_config_sha256.is_some() {
-        desktop.profile_config_sha256 = Some(sing_box_config_sha256(&rendered));
-        save_desktop_state(&desktop)?;
-    }
-    Ok(OperationResult {
-        message: format!("Native selector {group_tag} now defaults to {outbound_tag}."),
-    })
-}
-
-#[tauri::command]
-async fn replace_native_group(
-    group_tag: String,
-    group_json: String,
-    state: State<'_, DesktopAppState>,
-) -> Result<OperationResult, String> {
-    let state = state.inner().clone();
-    run_blocking(move || replace_native_group_blocking(group_tag, group_json, state)).await
-}
-
-fn replace_native_group_blocking(
-    group_tag: String,
-    group_json: String,
-    state: DesktopAppState,
-) -> Result<OperationResult, String> {
-    let service = NativeWindowsSystemIntegration::new()
-        .service_status()
-        .map_err(|error| error.to_string())?;
-    if !matches!(
-        service.state,
-        WindowsServiceState::NotInstalled | WindowsServiceState::Stopped
-    ) {
-        return Err("Disconnect before editing a native outbound group.".to_string());
-    }
-    let managed = managed_config_or_default()?;
-    let sing_box = managed.sing_box.ok_or_else(|| {
-        "Import a native sing-box profile before editing outbound groups.".to_string()
-    })?;
-    let raw = fs::read_to_string(&sing_box.config_path).map_err(|error| error.to_string())?;
-    let rendered = replace_native_group_json(&raw, &group_tag, &group_json)?;
-    write_managed_text_atomic(&sing_box.config_path, &rendered)
-        .map_err(|error| error.to_string())?;
-    let mut desktop = state
-        .desktop
-        .lock()
-        .map_err(|_| "desktop state lock failed")?;
-    if desktop.profile_config_sha256.is_some() {
-        desktop.profile_config_sha256 = Some(sing_box_config_sha256(&rendered));
-        save_desktop_state(&desktop)?;
-    }
-    Ok(OperationResult {
-        message: format!("Native outbound group {group_tag} was updated."),
-    })
-}
-
-fn native_groups(content: &str) -> Result<Vec<NativeGroupSummary>, String> {
-    let config: Value = serde_json::from_str(content).map_err(|error| error.to_string())?;
-    let outbounds = config
-        .get("outbounds")
-        .and_then(Value::as_array)
-        .ok_or_else(|| "Managed sing-box configuration has no outbound list.".to_string())?;
-    Ok(outbounds
-        .iter()
-        .filter_map(|outbound| {
-            let tag = outbound.get("tag").and_then(Value::as_str)?.trim();
-            let group_type = outbound.get("type").and_then(Value::as_str)?.trim();
-            let members = outbound
-                .get("outbounds")
-                .and_then(Value::as_array)?
-                .iter()
-                .filter_map(Value::as_str)
-                .map(str::to_string)
-                .collect::<Vec<_>>();
-            if tag.is_empty() || group_type.is_empty() || members.is_empty() {
-                return None;
-            }
-            Some(NativeGroupSummary {
-                tag: tag.to_string(),
-                group_type: group_type.to_string(),
-                selected: outbound
-                    .get("default")
-                    .and_then(Value::as_str)
-                    .map(str::to_string),
-                outbounds: members,
-                outbound_labels: Vec::new(),
-                json: serde_json::to_string_pretty(outbound).ok()?,
-            })
-        })
-        .collect())
-}
-
-fn rewrite_native_selector_default(
-    content: &str,
-    group_tag: &str,
-    outbound_tag: &str,
-) -> Result<String, String> {
-    if group_tag.trim().is_empty() || outbound_tag.trim().is_empty() {
-        return Err("Native selector group and outbound tags must not be empty.".to_string());
-    }
-    let mut config: Value = serde_json::from_str(content).map_err(|error| error.to_string())?;
-    let outbounds = config
-        .get_mut("outbounds")
-        .and_then(Value::as_array_mut)
-        .ok_or_else(|| "Managed sing-box configuration has no outbound list.".to_string())?;
-    let selector = outbounds
-        .iter_mut()
-        .find(|outbound| {
-            outbound.get("type").and_then(Value::as_str) == Some("selector")
-                && outbound.get("tag").and_then(Value::as_str) == Some(group_tag)
-        })
-        .ok_or_else(|| "Native selector group was not found.".to_string())?;
-    let contains_outbound = selector
-        .get("outbounds")
-        .and_then(Value::as_array)
-        .is_some_and(|members| {
-            members
-                .iter()
-                .any(|member| member.as_str() == Some(outbound_tag))
-        });
-    if !contains_outbound {
-        return Err("Requested outbound is not part of the native selector group.".to_string());
-    }
-    selector["default"] = Value::String(outbound_tag.to_string());
-    serde_json::to_string_pretty(&config).map_err(|error| error.to_string())
-}
-
-fn replace_native_group_json(
-    content: &str,
-    group_tag: &str,
-    group_json: &str,
-) -> Result<String, String> {
-    if group_tag.trim().is_empty() {
-        return Err("Native outbound group tag must not be empty.".to_string());
-    }
-    let replacement: Value = serde_json::from_str(group_json).map_err(|error| error.to_string())?;
-    let replacement_tag = replacement
-        .get("tag")
-        .and_then(Value::as_str)
-        .filter(|tag| !tag.trim().is_empty())
-        .ok_or_else(|| "Native outbound group JSON requires a tag.".to_string())?;
-    if replacement
-        .get("type")
-        .and_then(Value::as_str)
-        .is_none_or(|kind| kind.trim().is_empty())
-    {
-        return Err("Native outbound group JSON requires a type.".to_string());
-    }
-    if replacement
-        .get("outbounds")
-        .and_then(Value::as_array)
-        .is_none_or(|members| {
-            members.is_empty()
-                || members
-                    .iter()
-                    .any(|member| member.as_str().is_none_or(|tag| tag.trim().is_empty()))
-        })
-    {
-        return Err("Native outbound group JSON requires non-empty outbound tags.".to_string());
-    }
-    if replacement_tag != group_tag {
-        return Err("Native outbound group JSON tag must match the selected group.".to_string());
-    }
-    let mut config: Value = serde_json::from_str(content).map_err(|error| error.to_string())?;
-    let outbounds = config
-        .get_mut("outbounds")
-        .and_then(Value::as_array_mut)
-        .ok_or_else(|| "Managed sing-box configuration has no outbound list.".to_string())?;
-    let group = outbounds
-        .iter_mut()
-        .find(|outbound| {
-            outbound.get("tag").and_then(Value::as_str) == Some(group_tag)
-                && outbound
-                    .get("outbounds")
-                    .and_then(Value::as_array)
-                    .is_some()
-        })
-        .ok_or_else(|| "Native outbound group was not found.".to_string())?;
-    *group = replacement;
-    serde_json::to_string_pretty(&config).map_err(|error| error.to_string())
+    let embedded = require_embedded_config()?;
+    select_embedded_group_member(&state, &embedded, &group_tag, &outbound_tag)
 }
 
 #[tauri::command]
@@ -1070,35 +806,11 @@ fn switch_node_blocking(
         .clone();
     let update_running_core = node_operations_runtime_running(&state, &desktop)?;
     let node = selected_catalog_node(&desktop, &node_id)?;
-    if let Some(embedded) = active_embedded_config()? {
-        switch_embedded_node(&state, &desktop, &embedded, &node.id, update_running_core)?;
-        return Ok(OperationResult {
-            message: if update_running_core {
-                "Active node switched and the embedded engine restarted with it.".to_string()
-            } else {
-                "Active node saved. It will be applied when the core next connects.".to_string()
-            },
-        });
-    }
-    let config_sha256 = desktop.profile_config_sha256.ok_or_else(|| {
-        "Import the current generated profile before switching its active node.".to_string()
-    })?;
-    let switched = nodes::switch_generated_node(
-        node_id.clone(),
-        node.outbound_tag,
-        config_sha256,
-        update_running_core,
-    )?;
-    let mut persisted = state
-        .desktop
-        .lock()
-        .map_err(|_| "desktop state lock failed")?;
-    persisted.profile_node_id = Some(switched.node_id);
-    persisted.profile_config_sha256 = Some(switched.config_sha256);
-    save_desktop_state(&persisted)?;
+    let embedded = require_embedded_config()?;
+    switch_embedded_node(&state, &desktop, &embedded, &node.id, update_running_core)?;
     Ok(OperationResult {
         message: if update_running_core {
-            "Active node switched and saved for the next connection.".to_string()
+            "Active node switched and the embedded engine restarted with it.".to_string()
         } else {
             "Active node saved. It will be applied when the core next connects.".to_string()
         },
@@ -1131,53 +843,8 @@ fn select_fastest_node_blocking(state: DesktopAppState) -> Result<OperationResul
         .delay_test_url
         .as_deref()
         .unwrap_or(DEFAULT_NODE_SELECTION_URL);
-    if let Some(embedded) = active_embedded_config()? {
-        return select_fastest_embedded_node(&state, &desktop, &embedded, test_url);
-    }
-    ensure_node_operations_runtime_ready(&state, &desktop)?;
-    let mut fastest: Option<(DesktopProfileNode, u64)> = None;
-    for node in &desktop.profile_node_catalog {
-        let report = match measure_sing_box_clash_api_outbound_delay(
-            &SingBoxLocalControllerConfig::loopback_selector(),
-            &node.outbound_tag,
-            test_url,
-            DEFAULT_SING_BOX_CLASH_API_DELAY_TIMEOUT_MILLIS,
-        ) {
-            Ok(report) => report,
-            Err(_) => continue,
-        };
-        if fastest
-            .as_ref()
-            .is_none_or(|(_, delay)| report.delay_millis < *delay)
-        {
-            fastest = Some((node.clone(), report.delay_millis));
-        }
-    }
-    let (node, delay_millis) =
-        fastest.ok_or_else(|| "No imported node returned a successful delay test.".to_string())?;
-    if desktop.profile_node_id.as_deref() == Some(node.id.as_str()) {
-        return Ok(OperationResult {
-            message: format!(
-                "{} is already the fastest responding node at {delay_millis} ms.",
-                node.label
-            ),
-        });
-    }
-    let config_sha256 = desktop.profile_config_sha256.ok_or_else(|| {
-        "Import a generated NodeCatalog profile before selecting the fastest node.".to_string()
-    })?;
-    let switched =
-        nodes::switch_generated_node(node.id.clone(), node.outbound_tag, config_sha256, true)?;
-    let mut persisted = state
-        .desktop
-        .lock()
-        .map_err(|_| "desktop state lock failed")?;
-    persisted.profile_node_id = Some(switched.node_id);
-    persisted.profile_config_sha256 = Some(switched.config_sha256);
-    save_desktop_state(&persisted)?;
-    Ok(OperationResult {
-        message: format!("Selected fastest node: {} ({delay_millis} ms).", node.label),
-    })
+    let embedded = require_embedded_config()?;
+    select_fastest_embedded_node(&state, &desktop, &embedded, test_url)
 }
 
 fn test_node_delay_blocking(
@@ -1191,22 +858,10 @@ fn test_node_delay_blocking(
         .map_err(|_| "desktop state lock failed")?
         .clone();
     let node = selected_catalog_node(&desktop, &node_id)?;
-    if active_embedded_config()?.is_some() {
-        let delay = measure_embedded_node_delay(&node.id, &url)?;
-        return Ok(OperationResult {
-            message: format!("{} ms via {url}", delay.as_millis()),
-        });
-    }
-    ensure_node_operations_runtime_ready(&state, &desktop)?;
-    let report = measure_sing_box_clash_api_outbound_delay(
-        &SingBoxLocalControllerConfig::loopback_selector(),
-        &node.outbound_tag,
-        &url,
-        DEFAULT_SING_BOX_CLASH_API_DELAY_TIMEOUT_MILLIS,
-    )
-    .map_err(|error| error.to_string())?;
+    require_embedded_config()?;
+    let delay = measure_embedded_node_delay(&node.id, &url)?;
     Ok(OperationResult {
-        message: format!("{} ms via {}", report.delay_millis, report.test_url),
+        message: format!("{} ms via {url}", delay.as_millis()),
     })
 }
 
@@ -1215,6 +870,10 @@ fn active_embedded_config() -> Result<Option<WindowsManagedEmbeddedConfig>, Stri
     Ok(managed_config_or_default()?
         .embedded
         .filter(|embedded| embedded.enabled))
+}
+
+fn require_embedded_config() -> Result<WindowsManagedEmbeddedConfig, String> {
+    active_embedded_config()?.ok_or_else(|| "Import a profile first.".to_string())
 }
 
 /// The imported embedded profile (`profile.json`).
@@ -1391,7 +1050,6 @@ fn embedded_groups(profile: &Value, nodes: &[DesktopProfileNode]) -> Vec<NativeG
                 selected: group_choice(group),
                 outbound_labels: members.iter().map(|member| label(member)).collect(),
                 outbounds: members,
-                json: String::new(),
             })
         })
         .collect()
@@ -1577,16 +1235,6 @@ fn node_operations_runtime_running(
             .is_running(),
         DesktopRuntimeMode::Service => Ok(read_runtime_status().connection.is_connected()),
     }
-}
-
-fn ensure_node_operations_runtime_ready(
-    state: &DesktopAppState,
-    desktop: &DesktopState,
-) -> Result<(), String> {
-    if node_operations_runtime_running(state, desktop)? {
-        return Ok(());
-    }
-    Err("Connect from Home before testing delay or selecting the fastest node.".to_string())
 }
 
 #[tauri::command]
@@ -1785,34 +1433,36 @@ async fn check_profile_runtime(
     run_blocking(move || check_profile_runtime_blocking(state)).await
 }
 
+/// Checks that the embedded engine accepts the profile it would run.
 fn check_profile_runtime_blocking(state: DesktopAppState) -> Result<OperationResult, String> {
+    let embedded = require_embedded_config()?;
+    let envelope = fs::read(&embedded.envelope_path)
+        .map_err(|error| format!("Import the profile again before checking it: {error}"))?;
+    RuntimeConfig::from_json(&envelope).map_err(|error| {
+        format!(
+            "The embedded engine rejects this profile: {}",
+            error.message
+        )
+    })?;
     let desktop = state
         .desktop
         .lock()
         .map_err(|_| "desktop state lock failed")?;
-    let status =
-        read_sing_box_clash_api_selector(&SingBoxLocalControllerConfig::loopback_selector())
-            .map_err(|error| error.to_string())?;
-    if !status
-        .outbound_tags
-        .iter()
-        .any(|outbound_tag| outbound_tag == &status.current_outbound_tag)
-    {
-        return Err(
-            "sing-box controller returned an active outbound outside the generated selector"
-                .to_string(),
-        );
-    }
     let active = desktop
-        .profile_node_catalog
-        .iter()
-        .find(|node| node.outbound_tag == status.current_outbound_tag)
+        .profile_node_id
+        .as_deref()
+        .and_then(|id| {
+            desktop
+                .profile_node_catalog
+                .iter()
+                .find(|node| node.id == id)
+        })
         .map(|node| node.label.clone())
-        .unwrap_or(status.current_outbound_tag);
+        .unwrap_or_else(|| "the profile's rules".to_string());
     Ok(OperationResult {
         message: format!(
-            "Selector ready: {active} ({} nodes)",
-            status.outbound_tags.len()
+            "Profile ready: {active} ({} nodes)",
+            desktop.profile_node_catalog.len()
         ),
     })
 }
@@ -1967,8 +1617,6 @@ fn redacted_subscription_error_code(error: &str) -> String {
         "windows.subscription.fetch_failed".to_string()
     } else if normalized.contains("disconnect") {
         "windows.subscription.runtime_active".to_string()
-    } else if normalized.contains("install sing-box") {
-        "windows.subscription.core_missing".to_string()
     } else if normalized.contains("supported proxy node") || normalized.contains("parse") {
         "windows.subscription.invalid_payload".to_string()
     } else {
@@ -2027,130 +1675,11 @@ fn import_subscription_at(location: &str, desktop: &mut DesktopState) -> Result<
         );
     }
     let (payload, source_path, source_url) = read_subscription(location)?;
-    // The embedded engine runs every subscription it can. An installed
-    // sing-box only takes native sing-box configs and subscriptions the
-    // embedded engine rejects.
-    if inspect_sing_box_native_config(&payload).is_none() {
-        let routing_mode = desktop.routing_mode;
-        match import_embedded_subscription(
-            &payload,
-            source_path.clone(),
-            source_url.clone(),
-            desktop,
-        ) {
-            Ok(()) => return Ok(()),
-            Err(error) if desktop.sing_box_executable_path.is_none() => return Err(error),
-            Err(_) => desktop.routing_mode = routing_mode,
-        }
-    }
-    let executable_path = desktop
-        .sing_box_executable_path
-        .clone()
-        .ok_or_else(|| "Install sing-box before importing a profile".to_string())?;
-    let config_path = windows_managed_data_directory()
-        .join("sing-box")
-        .join("config.json");
-    let config_parent = config_path
-        .parent()
-        .ok_or_else(|| "sing-box config path has no parent directory".to_string())?
-        .to_path_buf();
-    fs::create_dir_all(&config_parent).map_err(|error| error.to_string())?;
-    let previous_sing_box_config = read_managed_sing_box_config_before_import()?;
-    let (proxy, selected_node_id, node_catalog, config_sha256) = if let Some(native) =
-        inspect_sing_box_native_config(&payload)
-    {
-        write_managed_text_atomic(&config_path, &native.json).map_err(|error| error.to_string())?;
-        (
-            native.local_http_proxy.map(|proxy| proxy.endpoint()),
-            None,
-            Vec::new(),
-            None,
-        )
-    } else {
-        let service = CoreSubscriptionService::new();
-        let source = SubscriptionSource {
-            id: "windows-tauri-profile".to_string(),
-            location: format!("inline:{payload}"),
-        };
-        let raw = service.fetch(&source).map_err(|error| error.to_string())?;
-        let document = service.parse(&raw).map_err(|error| error.to_string())?;
-        let catalog = service
-            .normalize(&document)
-            .map_err(|error| error.to_string())?;
-        if catalog.nodes.is_empty() {
-            return Err("Profile did not contain a supported proxy node".to_string());
-        }
-        let selected_node_id = desktop
-            .profile_node_id
-            .as_deref()
-            .filter(|id| catalog.nodes.iter().any(|node| node.id == *id));
-        let run_plan = PublicEngineRunPlan::select(&catalog.nodes, selected_node_id)
-            .map_err(|error| error.message)?;
-        if run_plan.engine == PublicEngineKind::Mieru {
-            return import_mieru_subscription_plan(&run_plan, desktop);
-        }
-        let request = SingBoxLocalProxyConfigRequest {
-            nodes: catalog.nodes,
-            selected_node_id: desktop.profile_node_id.clone(),
-            listen_host: "127.0.0.1".to_string(),
-            listen_port: 7890,
-        };
-        // Subscription rules and policy groups produce a routed config whose
-        // selector groups are edited like a native profile's groups.
-        let routed = import_subscription_routing(&payload, &request.nodes)
-            .routing
-            .and_then(|model| render_sing_box_local_proxy_routing_config(&request, &model).ok());
-        if let Some(routed) = routed {
-            write_managed_text_atomic(&config_path, &routed.json)
-                .map_err(|error| error.to_string())?;
-            (Some("127.0.0.1:7890".to_string()), None, Vec::new(), None)
-        } else {
-            let source_options = profile_node_options(&request.nodes);
-            let rendered = render_sing_box_local_proxy_selector_config(
-                &request,
-                &SingBoxLocalControllerConfig::loopback_selector(),
-            )
-            .map_err(|error| error.to_string())?;
-            let node_catalog =
-                profile_node_options_from_selector(&rendered.selectable_nodes, &source_options)?;
-            write_managed_text_atomic(&config_path, &rendered.json)
-                .map_err(|error| error.to_string())?;
-            (
-                Some("127.0.0.1:7890".to_string()),
-                Some(rendered.selected_node_id),
-                node_catalog,
-                Some(sing_box_config_sha256(&rendered.json)),
-            )
-        }
-    };
-    let mut managed = managed_config_or_default()?;
-    managed.system_proxy = proxy.map(|server| WindowsProxySettings {
-        enabled: true,
-        server,
-        bypass: "<local>".to_string(),
-    });
-    managed.system_proxy_owner = WindowsSystemProxyOwner::Desktop;
-    activate_managed_sing_box_plan(
-        &mut managed,
-        executable_path,
-        config_path.clone(),
-        config_parent,
-    );
-    write_imported_profile_managed_config(
-        &managed,
-        &config_path,
-        previous_sing_box_config.as_deref(),
-    )?;
-    desktop.profile_source_path = source_path;
-    desktop.profile_source_url = source_url;
-    desktop.profile_node_id = selected_node_id;
-    desktop.profile_node_catalog = node_catalog;
-    desktop.profile_config_sha256 = config_sha256;
-    Ok(())
+    import_embedded_subscription(&payload, source_path, source_url, desktop)
 }
 
-/// Without sing-box installed, a subscription whose nodes the embedded engine
-/// supports runs in-process: the GUI in desktop mode, the service otherwise.
+/// Runs a subscription whose nodes the embedded engine supports in-process:
+/// the GUI in desktop mode, the service otherwise.
 fn import_embedded_subscription(
     payload: &str,
     source_path: Option<PathBuf>,
@@ -2209,9 +1738,7 @@ fn import_embedded_subscription(
                 .filter(|id| catalog.nodes.iter().any(|node| node.id == *id));
             let (envelope, node) =
                 single_node_envelope(EMBEDDED_PROFILE_ID, &catalog.nodes, selected).map_err(
-                    |reason| {
-                        format!("Install sing-box to run this profile; the embedded engine cannot run it: {reason}")
-                    },
+                    |reason| format!("The embedded engine cannot run this profile: {reason}"),
                 )?;
             let node_outbounds = catalog
                 .nodes
@@ -2236,14 +1763,7 @@ fn import_embedded_subscription(
     .map_err(|error| error.to_string())?;
     let supported_nodes: Vec<NodeDescriptor> =
         node_outbounds.into_iter().map(|(node, _)| node).collect();
-    // Nodes are addressed by id; there is no sing-box selector tag.
-    let node_catalog: Vec<DesktopProfileNode> = profile_node_options(&supported_nodes)
-        .into_iter()
-        .map(|node| DesktopProfileNode {
-            outbound_tag: node.id.clone(),
-            ..node
-        })
-        .collect();
+    let node_catalog = profile_node_options(&supported_nodes);
     // The imported envelope is kept so routing modes can be reapplied to it.
     write_managed_text_atomic(&embedded_profile_path(), &envelope)
         .map_err(|error| error.to_string())?;
@@ -2255,29 +1775,46 @@ fn import_embedded_subscription(
     let envelope_path = embedded_directory().join("envelope.json");
     write_managed_text_atomic(&envelope_path, &envelope).map_err(|error| error.to_string())?;
     let mut managed = managed_config_or_default()?;
-    managed.system_proxy = Some(WindowsProxySettings {
-        enabled: true,
-        server: format!("127.0.0.1:{EMBEDDED_LISTEN_PORT}"),
-        bypass: "<local>".to_string(),
-    });
-    managed.system_proxy_owner = WindowsSystemProxyOwner::Desktop;
-    // A public run plan selects one core.
-    managed.sing_box = None;
-    managed.mieru = None;
-    managed.embedded = Some(WindowsManagedEmbeddedConfig {
-        enabled: true,
-        envelope_path,
-        listen_host: "127.0.0.1".to_string(),
-        listen_port: EMBEDDED_LISTEN_PORT,
-    });
+    let mitm = managed
+        .native_mitm
+        .as_ref()
+        .is_some_and(|native_mitm| native_mitm.enabled);
+    set_embedded_listener(&mut managed, envelope_path, mitm);
     write_managed_config(&windows_managed_config_path(), &managed)
         .map_err(|error| format!("Managed configuration update failed: {error}"))?;
     desktop.profile_source_path = source_path;
     desktop.profile_source_url = source_url;
     desktop.profile_node_id = selected_node_id;
     desktop.profile_node_catalog = node_catalog;
-    desktop.profile_config_sha256 = None;
     Ok(())
+}
+
+/// Runs the embedded engine from `envelope_path`. On its own it is the system
+/// proxy and the desktop owns it; behind HTTPS MITM it moves to the MITM
+/// proxy's upstream port and the service owns the system proxy, which points
+/// at the MITM listener.
+fn set_embedded_listener(managed: &mut WindowsManagedConfig, envelope_path: PathBuf, mitm: bool) {
+    let listen_port = if mitm {
+        EMBEDDED_MITM_UPSTREAM_PORT
+    } else {
+        EMBEDDED_LISTEN_PORT
+    };
+    managed.system_proxy = Some(WindowsProxySettings {
+        enabled: true,
+        server: format!("127.0.0.1:{EMBEDDED_LISTEN_PORT}"),
+        bypass: "<local>".to_string(),
+    });
+    managed.system_proxy_owner = if mitm {
+        WindowsSystemProxyOwner::Service
+    } else {
+        WindowsSystemProxyOwner::Desktop
+    };
+    managed.embedded = Some(WindowsManagedEmbeddedConfig {
+        enabled: true,
+        envelope_path,
+        listen_host: "127.0.0.1".to_string(),
+        listen_port,
+    });
 }
 
 fn embedded_directory() -> PathBuf {
@@ -2308,9 +1845,9 @@ fn embedded_envelope_or_profile(profile: String, mode: DesktopRoutingMode) -> St
     }
 }
 
-/// The imported envelope with `mode`'s rules in place of its own, as the
-/// sing-box path replaces `route.rules`: the profile's FINAL target (or its
-/// single outbound) is the proxy, and the mode's lists become rule sets.
+/// The imported envelope with `mode`'s rules in place of its own: the
+/// profile's FINAL target (or its single outbound) is the proxy, and the
+/// mode's lists become rule sets.
 fn embedded_envelope_for_mode(
     profile: &str,
     mode: DesktopRoutingMode,
@@ -2424,56 +1961,6 @@ fn read_rule_set_asset(path: &Path) -> Result<(Vec<String>, Vec<String>), String
     Ok((domain_suffix, ip_cidr))
 }
 
-fn import_mieru_subscription_plan(
-    plan: &PublicEngineRunPlan,
-    desktop: &mut DesktopState,
-) -> Result<(), String> {
-    let mut managed = managed_config_or_default()?;
-    let mieru = managed.mieru.clone().filter(|config| config.enabled).ok_or_else(|| {
-        "Selected Mieru node requires an enabled managed Mieru executable, digest, and listener configuration."
-            .to_string()
-    })?;
-    mieru.validate().map_err(|error| error.message)?;
-    let node = mieru_node_from_descriptor(&plan.node).map_err(|error| error.message)?;
-    let rendered = render_mieru_client_config(&MieruClientConfigRequest {
-        node,
-        socks5_host: mieru.socks5_host.clone(),
-        socks5_port: mieru.socks5_port,
-    })
-    .map_err(|error| error.message)?;
-    let snapshot_path = mieru.config_path.with_extension("before-networkcore.json");
-    let write_report = write_mieru_client_config(&MieruClientConfigWriteRequest {
-        config_path: mieru.config_path.clone(),
-        snapshot_path,
-        content: rendered.content,
-    })
-    .map_err(|error| error.message)?;
-    managed.sing_box = None;
-    managed.embedded = None;
-    managed.mieru = Some(WindowsManagedMieruConfig {
-        enabled: true,
-        ..mieru.clone()
-    });
-    managed.system_proxy = Some(WindowsProxySettings {
-        enabled: true,
-        server: format!("{}:{}", mieru.socks5_host, mieru.socks5_port),
-        bypass: "<local>".to_string(),
-    });
-    managed.system_proxy_owner = WindowsSystemProxyOwner::Desktop;
-    if let Err(error) = write_managed_config(&windows_managed_config_path(), &managed) {
-        let _ = rollback_mieru_client_config(
-            &mieru.config_path,
-            &write_report.snapshot_path.unwrap_or_default(),
-            write_report.snapshot_written,
-        );
-        return Err(error.message);
-    }
-    desktop.profile_node_id = Some(plan.node.id.clone());
-    desktop.profile_node_catalog.clear();
-    desktop.profile_config_sha256 = None;
-    Ok(())
-}
-
 fn read_subscription(location: &str) -> Result<(String, Option<PathBuf>, Option<String>), String> {
     if location.starts_with("https://") || location.starts_with("http://") {
         let client = reqwest::blocking::Client::builder()
@@ -2492,72 +1979,6 @@ fn read_subscription(location: &str) -> Result<(String, Option<PathBuf>, Option<
     let path = PathBuf::from(location);
     let payload = fs::read_to_string(&path).map_err(|error| error.to_string())?;
     Ok((payload, Some(path), None))
-}
-
-#[tauri::command]
-async fn install_core(state: State<'_, DesktopAppState>) -> Result<OperationResult, String> {
-    let state = state.inner().clone();
-    run_blocking(move || install_core_blocking(state)).await
-}
-
-#[tauri::command]
-async fn install_mieru(
-    download_url: String,
-    destination_path: String,
-    expected_sha256: String,
-    confirm: bool,
-) -> Result<OperationResult, String> {
-    run_blocking(move || {
-        let report = download_latest_mieru_release(&MieruReleaseDownloadRequest {
-            download_url,
-            destination_path: PathBuf::from(destination_path),
-            expected_sha256,
-            confirmed: confirm,
-            force: false,
-        })
-        .map_err(|error| error.to_string())?;
-        Ok(OperationResult {
-            message: format!("Mieru verified at {}", report.destination_path.display()),
-        })
-    })
-    .await
-}
-
-#[tauri::command]
-async fn verify_mieru(
-    executable_path: String,
-    expected_sha256: String,
-) -> Result<OperationResult, String> {
-    run_blocking(move || {
-        let report = verify_local_mieru_binary(Path::new(&executable_path), Some(&expected_sha256))
-            .map_err(|error| error.to_string())?;
-        Ok(OperationResult {
-            message: format!("Mieru digest verified: {}", report.sha256),
-        })
-    })
-    .await
-}
-
-fn install_core_blocking(state: DesktopAppState) -> Result<OperationResult, String> {
-    let installer = GithubSingBoxReleaseInstaller::new().map_err(|error| error.to_string())?;
-    let report = installer
-        .install_latest(&SingBoxInstallRequest {
-            install_root: windows_managed_data_directory()
-                .join("sing-box")
-                .join("engine"),
-            target: SingBoxTarget::new(SingBoxTargetOs::Windows, SingBoxTargetArch::Amd64),
-            force: false,
-        })
-        .map_err(|error| error.to_string())?;
-    let mut desktop = state
-        .desktop
-        .lock()
-        .map_err(|_| "desktop state lock failed")?;
-    desktop.sing_box_executable_path = Some(report.executable_path.clone());
-    save_desktop_state(&desktop)?;
-    Ok(OperationResult {
-        message: format!("sing-box installed at {}", report.executable_path.display()),
-    })
 }
 
 #[tauri::command]
@@ -2683,44 +2104,6 @@ fn clear_tunnel_blocking() -> Result<OperationResult, String> {
 }
 
 #[tauri::command]
-async fn configure_dns(
-    dns_json: String,
-    state: State<'_, DesktopAppState>,
-) -> Result<OperationResult, String> {
-    let state = state.inner().clone();
-    run_blocking(move || configure_dns_blocking(dns_json, state)).await
-}
-
-fn configure_dns_blocking(
-    dns_json: String,
-    state: DesktopAppState,
-) -> Result<OperationResult, String> {
-    let dns: Value = serde_json::from_str(&dns_json).map_err(|error| error.to_string())?;
-    if !dns.is_object() {
-        return Err("sing-box DNS configuration must be a JSON object.".to_string());
-    }
-    update_managed_sing_box_dns(Some(dns), &state)?;
-    Ok(OperationResult {
-        message: "Managed DNS configuration saved. Restart the Windows service to apply it."
-            .to_string(),
-    })
-}
-
-#[tauri::command]
-async fn clear_dns(state: State<'_, DesktopAppState>) -> Result<OperationResult, String> {
-    let state = state.inner().clone();
-    run_blocking(move || clear_dns_blocking(state)).await
-}
-
-fn clear_dns_blocking(state: DesktopAppState) -> Result<OperationResult, String> {
-    update_managed_sing_box_dns(None, &state)?;
-    Ok(OperationResult {
-        message: "Managed DNS configuration cleared. Restart the Windows service to apply it."
-            .to_string(),
-    })
-}
-
-#[tauri::command]
 async fn set_routing_mode(
     mode: String,
     state: State<'_, DesktopAppState>,
@@ -2756,62 +2139,19 @@ fn set_routing_mode_blocking(
         .desktop
         .lock()
         .map_err(|_| "desktop state lock failed")?;
-    let managed = managed_config_or_default()?;
-    if let Some(embedded) = managed.embedded.filter(|embedded| embedded.enabled) {
-        let profile = fs::read_to_string(embedded_profile_path()).map_err(|error| {
-            format!("Import the profile again before applying a routing mode: {error}")
-        })?;
-        let envelope = embedded_envelope_for_mode(&profile, mode, force_refresh)?;
-        write_managed_text_atomic(&embedded.envelope_path, &envelope)
-            .map_err(|error| error.to_string())?;
-        desktop.routing_mode = mode;
-        save_desktop_state(&desktop)?;
-        return Ok(OperationResult {
-            message: format!(
-                "{} routing mode saved. Connect to apply the updated route.",
-                routing_mode_label(mode)
-            ),
-        });
-    }
-    if mode == DesktopRoutingMode::Rule {
-        return Err(
-            "Subscription rules mode runs on the embedded engine; sing-box profiles keep the four routing modes."
-                .to_string(),
-        );
-    }
-    let sing_box = managed
-        .sing_box
-        .ok_or_else(|| "Import a sing-box profile before applying a routing mode.".to_string())?;
-    let raw = fs::read_to_string(&sing_box.config_path).map_err(|error| error.to_string())?;
-    let mut config: Value = serde_json::from_str(&raw).map_err(|error| error.to_string())?;
-    let proxy_outbound = desktop
-        .routing_proxy_outbound
-        .clone()
-        .or_else(|| {
-            config
-                .pointer("/route/final")
-                .and_then(Value::as_str)
-                .map(str::to_string)
-        })
-        .ok_or_else(|| {
-            "sing-box route must declare a final outbound before routing can be configured."
-                .to_string()
-        })?;
-    let rule_directory = windows_managed_data_directory().join(ROUTING_RULE_DIRECTORY);
-    if mode != DesktopRoutingMode::Direct {
-        refresh_routing_rule_assets(&rule_directory, mode, force_refresh)?;
-    }
-    apply_routing_mode_to_config(&mut config, mode, &proxy_outbound, &rule_directory)?;
-    let rendered = serde_json::to_string_pretty(&config).map_err(|error| error.to_string())?;
-    write_managed_text_atomic(&sing_box.config_path, &rendered)
+    let embedded = active_embedded_config()?
+        .ok_or_else(|| "Import a profile before applying a routing mode.".to_string())?;
+    let profile = fs::read_to_string(embedded_profile_path()).map_err(|error| {
+        format!("Import the profile again before applying a routing mode: {error}")
+    })?;
+    let envelope = embedded_envelope_for_mode(&profile, mode, force_refresh)?;
+    write_managed_text_atomic(&embedded.envelope_path, &envelope)
         .map_err(|error| error.to_string())?;
     desktop.routing_mode = mode;
-    desktop.routing_proxy_outbound = Some(proxy_outbound);
-    desktop.profile_config_sha256 = Some(sing_box_config_sha256(&rendered));
     save_desktop_state(&desktop)?;
     Ok(OperationResult {
         message: format!(
-            "{} routing mode saved. Connect to apply the updated sing-box route.",
+            "{} routing mode saved. Connect to apply the updated route.",
             routing_mode_label(mode)
         ),
     })
@@ -2921,74 +2261,6 @@ fn write_rule_set_asset(
     write_managed_text_atomic(&path, &source).map_err(|error| error.to_string())
 }
 
-fn apply_routing_mode_to_config(
-    config: &mut Value,
-    mode: DesktopRoutingMode,
-    proxy_outbound: &str,
-    directory: &Path,
-) -> Result<(), String> {
-    let object = config
-        .as_object_mut()
-        .ok_or_else(|| "sing-box configuration must be a JSON object.".to_string())?;
-    let route = object
-        .entry("route")
-        .or_insert_with(|| json!({}))
-        .as_object_mut()
-        .ok_or_else(|| "sing-box route must be a JSON object.".to_string())?;
-    let (rules, rule_sets, final_outbound) = match mode {
-        DesktopRoutingMode::BypassChina => (
-            vec![
-                json!({ "rule_set": ["networkcore-china-domains", "networkcore-china-ips"], "outbound": "direct" }),
-            ],
-            vec![
-                local_rule_set(
-                    "networkcore-china-domains",
-                    directory.join("china-domains.json"),
-                ),
-                local_rule_set("networkcore-china-ips", directory.join("china-ips.json")),
-            ],
-            proxy_outbound.to_string(),
-        ),
-        DesktopRoutingMode::GfwList => (
-            vec![json!({ "rule_set": ["networkcore-gfw-domains"], "outbound": proxy_outbound })],
-            vec![local_rule_set(
-                "networkcore-gfw-domains",
-                directory.join("gfw-domains.json"),
-            )],
-            "direct".to_string(),
-        ),
-        DesktopRoutingMode::Direct => (Vec::new(), Vec::new(), "direct".to_string()),
-        DesktopRoutingMode::Rule => {
-            return Err("sing-box profiles do not support subscription rules mode.".to_string())
-        }
-        DesktopRoutingMode::ReturnChina => (
-            vec![
-                json!({ "rule_set": ["networkcore-china-domains", "networkcore-china-ips"], "outbound": proxy_outbound }),
-            ],
-            vec![
-                local_rule_set(
-                    "networkcore-china-domains",
-                    directory.join("china-domains.json"),
-                ),
-                local_rule_set("networkcore-china-ips", directory.join("china-ips.json")),
-            ],
-            "direct".to_string(),
-        ),
-    };
-    route.insert("rules".to_string(), Value::Array(rules));
-    route.insert("final".to_string(), Value::String(final_outbound));
-    if rule_sets.is_empty() {
-        route.remove("rule_set");
-    } else {
-        route.insert("rule_set".to_string(), Value::Array(rule_sets));
-    }
-    object.remove("rule_set");
-    Ok(())
-}
-
-fn local_rule_set(tag: &str, path: PathBuf) -> Value {
-    json!({ "type": "local", "tag": tag, "format": "source", "path": path })
-}
 fn parse_routing_mode(value: &str) -> Result<DesktopRoutingMode, String> {
     match value {
         "bypass_china" => Ok(DesktopRoutingMode::BypassChina),
@@ -3065,47 +2337,6 @@ fn clear_script_runtime_blocking() -> Result<OperationResult, String> {
     })
 }
 
-fn update_managed_sing_box_dns(dns: Option<Value>, state: &DesktopAppState) -> Result<(), String> {
-    let service = NativeWindowsSystemIntegration::new()
-        .service_status()
-        .map_err(|error| error.to_string())?;
-    if !matches!(
-        service.state,
-        WindowsServiceState::NotInstalled | WindowsServiceState::Stopped
-    ) {
-        return Err("Disconnect before changing the managed DNS configuration.".to_string());
-    }
-    let managed = managed_config_or_default()?;
-    let sing_box = managed
-        .sing_box
-        .ok_or_else(|| "Import a profile before configuring managed DNS.".to_string())?;
-    let raw = fs::read_to_string(&sing_box.config_path).map_err(|error| error.to_string())?;
-    let mut config: Value = serde_json::from_str(&raw).map_err(|error| error.to_string())?;
-    let object = config
-        .as_object_mut()
-        .ok_or_else(|| "Managed sing-box configuration must be a JSON object.".to_string())?;
-    match dns {
-        Some(value) => {
-            object.insert("dns".to_string(), value);
-        }
-        None => {
-            object.remove("dns");
-        }
-    }
-    let rendered = serde_json::to_string_pretty(&config).map_err(|error| error.to_string())?;
-    write_managed_text_atomic(&sing_box.config_path, &rendered)
-        .map_err(|error| error.to_string())?;
-    let mut desktop = state
-        .desktop
-        .lock()
-        .map_err(|_| "desktop state lock failed")?;
-    if desktop.profile_config_sha256.is_some() {
-        desktop.profile_config_sha256 = Some(sing_box_config_sha256(&rendered));
-        save_desktop_state(&desktop)?;
-    }
-    Ok(())
-}
-
 #[tauri::command]
 async fn enable_https_mitm(state: State<'_, DesktopAppState>) -> Result<OperationResult, String> {
     let state = state.inner().clone();
@@ -3118,15 +2349,7 @@ fn enable_https_mitm_blocking(state: DesktopAppState) -> Result<OperationResult,
         .lock()
         .map_err(|_| "desktop state lock failed")?
         .clone();
-    let location = desktop
-        .profile_source_url
-        .clone()
-        .or_else(|| {
-            desktop
-                .profile_source_path
-                .as_ref()
-                .map(|path| path.display().to_string())
-        })
+    let embedded = active_embedded_config()?
         .ok_or_else(|| "Import a profile before enabling HTTPS MITM.".to_string())?;
     if managed_config_or_default()?
         .native_mitm
@@ -3150,51 +2373,24 @@ fn enable_https_mitm_blocking(state: DesktopAppState) -> Result<OperationResult,
         let _ = remove_windows_managed_mitm_private_key(&private_key_path);
         return Err(error.message);
     }
-    let previous_sing_box_config = read_managed_sing_box_config_before_import()?;
-    let imported = prepare_mitm_profile(&location, &desktop)?;
     let mut managed = managed_config_or_default()?;
-    managed.system_proxy = Some(WindowsProxySettings {
-        enabled: true,
-        server: format!("127.0.0.1:{SING_BOX_DIRECT_LISTEN_PORT}"),
-        bypass: "<local>".to_string(),
-    });
-    managed.system_proxy_owner = WindowsSystemProxyOwner::Service;
-    managed.embedded = None;
-    managed.sing_box = Some(WindowsManagedSingBoxConfig {
-        enabled: true,
-        executable_path: imported.executable_path.clone(),
-        config_path: imported.config_path.clone(),
-        working_directory: Some(imported.config_parent.clone()),
-        log_path: windows_managed_log_directory().join("sing-box.log"),
-    });
+    // The MITM proxy takes the system proxy port and relays every session to
+    // the embedded engine behind it; the service runs both.
     managed.native_mitm = Some(WindowsManagedNativeMitmConfig {
         enabled: true,
         listen_host: "127.0.0.1".to_string(),
-        listen_port: SING_BOX_DIRECT_LISTEN_PORT,
+        listen_port: EMBEDDED_LISTEN_PORT,
         upstream_socks_host: "127.0.0.1".to_string(),
-        upstream_socks_port: SING_BOX_MITM_UPSTREAM_PORT,
+        upstream_socks_port: EMBEDDED_MITM_UPSTREAM_PORT,
         ca_certificate_path: certificate_path.clone(),
         ca_private_key_path: private_key_path,
         log_path: windows_managed_log_directory().join("native-mitm.log"),
-        sing_box_config_snapshot_path: imported.sing_box_config_snapshot_path.clone(),
         bilibili_web_ad_block_enabled: desktop.bilibili_web_ad_block_enabled,
         script_runtime: None,
     });
-    write_imported_profile_managed_config(
-        &managed,
-        &imported.config_path,
-        previous_sing_box_config.as_deref(),
-    )?;
-    let mut persisted = state
-        .desktop
-        .lock()
-        .map_err(|_| "desktop state lock failed")?;
-    persisted.profile_source_path = imported.source_path;
-    persisted.profile_source_url = imported.source_url;
-    persisted.profile_node_id = imported.selected_node_id;
-    persisted.profile_node_catalog = imported.node_catalog;
-    persisted.profile_config_sha256 = imported.config_sha256;
-    save_desktop_state(&persisted)?;
+    set_embedded_listener(&mut managed, embedded.envelope_path, true);
+    write_managed_config(&windows_managed_config_path(), &managed)
+        .map_err(|error| format!("Managed configuration update failed: {error}"))?;
     if restart {
         NativeWindowsSystemIntegration::new()
             .start_service()
@@ -3219,51 +2415,15 @@ fn disable_https_mitm_blocking() -> Result<OperationResult, String> {
         .native_mitm
         .take()
         .ok_or_else(|| "HTTPS MITM is not configured.".to_string())?;
-    let sing_box = managed.sing_box.as_mut().ok_or_else(|| {
-        "Managed sing-box configuration is required to disable HTTPS MITM.".to_string()
-    })?;
-    let native_snapshot = native_mitm
-        .sing_box_config_snapshot_path
-        .as_ref()
-        .map(|path| {
-            let content = fs::read_to_string(path).map_err(|error| {
-                format!("Native sing-box MITM rollback snapshot could not be read: {error}")
-            })?;
-            let local_http_proxy = inspect_sing_box_native_config(&content)
-                .and_then(|config| config.local_http_proxy)
-                .map(|proxy| proxy.endpoint());
-            Ok::<_, String>((path.clone(), content, local_http_proxy))
-        })
-        .transpose()?;
     let restart = stop_running_service_for_mitm_reconfigure()?;
-    let direct_proxy_server = if let Some((_, content, local_http_proxy)) = &native_snapshot {
-        write_managed_text_atomic(&sing_box.config_path, content).map_err(|error| {
-            format!("Native sing-box configuration could not be restored after HTTPS MITM: {error}")
-        })?;
-        local_http_proxy.clone()
+    // The embedded engine takes the system proxy port back.
+    if let Some(embedded) = managed.embedded.clone().filter(|embedded| embedded.enabled) {
+        set_embedded_listener(&mut managed, embedded.envelope_path, false);
     } else {
-        rewrite_managed_sing_box_listen_port(sing_box, SING_BOX_DIRECT_LISTEN_PORT)?;
-        Some(format!("127.0.0.1:{SING_BOX_DIRECT_LISTEN_PORT}"))
-    };
-    managed.system_proxy = direct_proxy_server.map(|server| WindowsProxySettings {
-        enabled: true,
-        server,
-        bypass: "<local>".to_string(),
-    });
-    managed.system_proxy_owner = WindowsSystemProxyOwner::Service;
+        managed.system_proxy = None;
+    }
     write_managed_config(&windows_managed_config_path(), &managed)
         .map_err(|error| error.to_string())?;
-    if let Some((path, _, _)) = native_snapshot {
-        if let Err(error) = fs::remove_file(&path) {
-            let _ = append_managed_log(
-                APP_LOG_SCOPE,
-                &format!(
-                    "native sing-box MITM rollback snapshot retained at {}: {error}",
-                    path.display()
-                ),
-            );
-        }
-    }
     let certificate_cleanup_error =
         if let Ok(mut runtime_state) = read_managed_state(&windows_managed_state_path()) {
             if let Some(thumbprint) = runtime_state.native_mitm_certificate_sha1.take() {
@@ -3295,8 +2455,7 @@ fn disable_https_mitm_blocking() -> Result<OperationResult, String> {
         return Err(error);
     }
     Ok(OperationResult {
-        message: "HTTPS MITM disabled and the previous sing-box configuration was restored."
-            .to_string(),
+        message: "HTTPS MITM disabled; the embedded engine is the system proxy again.".to_string(),
     })
 }
 
@@ -3312,193 +2471,6 @@ fn stop_running_service_for_mitm_reconfigure() -> Result<bool, String> {
         return Ok(true);
     }
     Ok(false)
-}
-
-fn rewrite_managed_sing_box_listen_port(
-    sing_box: &mut WindowsManagedSingBoxConfig,
-    listen_port: u16,
-) -> Result<(), String> {
-    let raw = fs::read_to_string(&sing_box.config_path).map_err(|error| {
-        format!("Managed sing-box config could not be read for HTTPS MITM reconfiguration: {error}")
-    })?;
-    let rewritten = rewrite_sing_box_mixed_inbound_listener(&raw, "127.0.0.1", listen_port)
-        .map_err(|error| error.to_string())?;
-    write_managed_text_atomic(&sing_box.config_path, &rewritten).map_err(|error| {
-        format!(
-            "Managed sing-box config could not be written for HTTPS MITM reconfiguration: {error}"
-        )
-    })?;
-    sing_box.enabled = true;
-    Ok(())
-}
-
-fn prepare_mitm_profile(
-    location: &str,
-    desktop: &DesktopState,
-) -> Result<ImportedMitmProfile, String> {
-    let (payload, source_path, source_url) = read_subscription(location)?;
-    let executable_path = desktop
-        .sing_box_executable_path
-        .clone()
-        .ok_or_else(|| "Install sing-box before enabling HTTPS MITM.".to_string())?;
-    let config_path = windows_managed_data_directory()
-        .join("sing-box")
-        .join("config.json");
-    let config_parent = config_path
-        .parent()
-        .ok_or_else(|| "sing-box config path has no parent directory".to_string())?
-        .to_path_buf();
-    fs::create_dir_all(&config_parent).map_err(|error| error.to_string())?;
-    if let Some(native) = inspect_sing_box_native_config(&payload) {
-        let snapshot = stage_native_sing_box_mitm_config(
-            &config_path,
-            &native.json,
-            SING_BOX_MITM_UPSTREAM_PORT,
-        )?;
-        return Ok(ImportedMitmProfile {
-            executable_path,
-            config_path,
-            config_parent,
-            sing_box_config_snapshot_path: Some(snapshot),
-            source_path,
-            source_url,
-            selected_node_id: None,
-            node_catalog: Vec::new(),
-            config_sha256: None,
-        });
-    }
-    let service = CoreSubscriptionService::new();
-    let source = SubscriptionSource {
-        id: "windows-tauri-mitm-profile".to_string(),
-        location: format!("inline:{payload}"),
-    };
-    let raw = service.fetch(&source).map_err(|error| error.to_string())?;
-    let document = service.parse(&raw).map_err(|error| error.to_string())?;
-    let catalog = service
-        .normalize(&document)
-        .map_err(|error| error.to_string())?;
-    if catalog.nodes.is_empty() {
-        return Err("Profile did not contain a supported proxy node".to_string());
-    }
-    let source_options = profile_node_options(&catalog.nodes);
-    let rendered = render_sing_box_local_proxy_selector_config(
-        &SingBoxLocalProxyConfigRequest {
-            nodes: catalog.nodes,
-            selected_node_id: desktop.profile_node_id.clone(),
-            listen_host: "127.0.0.1".to_string(),
-            listen_port: SING_BOX_MITM_UPSTREAM_PORT,
-        },
-        &SingBoxLocalControllerConfig::loopback_selector(),
-    )
-    .map_err(|error| error.to_string())?;
-    let node_catalog =
-        profile_node_options_from_selector(&rendered.selectable_nodes, &source_options)?;
-    write_managed_text_atomic(&config_path, &rendered.json).map_err(|error| error.to_string())?;
-    Ok(ImportedMitmProfile {
-        executable_path,
-        config_path,
-        config_parent,
-        sing_box_config_snapshot_path: None,
-        source_path,
-        source_url,
-        selected_node_id: Some(rendered.selected_node_id),
-        node_catalog,
-        config_sha256: Some(sing_box_config_sha256(&rendered.json)),
-    })
-}
-
-fn stage_native_sing_box_mitm_config(
-    config_path: &Path,
-    original_json: &str,
-    listen_port: u16,
-) -> Result<PathBuf, String> {
-    let rewritten =
-        rewrite_sing_box_mixed_inbound_listener(original_json, "127.0.0.1", listen_port)
-            .map_err(|error| error.to_string())?;
-    let snapshot_path = windows_managed_data_directory()
-        .join("mitm")
-        .join("sing-box-config.before-mitm.json");
-    write_managed_text_atomic(&snapshot_path, original_json).map_err(|error| {
-        format!("Native sing-box MITM rollback snapshot could not be written: {error}")
-    })?;
-    write_managed_text_atomic(config_path, &rewritten).map_err(|error| {
-        format!("Native sing-box configuration could not be prepared for HTTPS MITM: {error}")
-    })?;
-    Ok(snapshot_path)
-}
-
-fn read_managed_sing_box_config_before_import() -> Result<Option<String>, String> {
-    let config_path = windows_managed_data_directory()
-        .join("sing-box")
-        .join("config.json");
-    match fs::read_to_string(&config_path) {
-        Ok(content) => Ok(Some(content)),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(format!(
-            "Existing managed sing-box configuration could not be read from {}: {error}",
-            config_path.display()
-        )),
-    }
-}
-
-fn write_imported_profile_managed_config(
-    managed: &WindowsManagedConfig,
-    config_path: &Path,
-    previous_config: Option<&str>,
-) -> Result<(), String> {
-    if let Err(error) = write_managed_config(&windows_managed_config_path(), managed) {
-        let original_error = error.to_string();
-        if let Err(rollback) = restore_imported_sing_box_config(config_path, previous_config) {
-            return Err(format!(
-                "Managed configuration update failed: {original_error}; the imported sing-box configuration could not be rolled back: {rollback}"
-            ));
-        }
-        return Err(format!(
-            "Managed configuration update failed: {original_error}"
-        ));
-    }
-    Ok(())
-}
-
-fn activate_managed_sing_box_plan(
-    managed: &mut WindowsManagedConfig,
-    executable_path: PathBuf,
-    config_path: PathBuf,
-    config_parent: PathBuf,
-) {
-    // A public run plan selects one core. Clear an enabled Mieru plan before
-    // committing the staged sing-box configuration.
-    managed.mieru = None;
-    managed.embedded = None;
-    managed.sing_box = Some(WindowsManagedSingBoxConfig {
-        enabled: true,
-        executable_path,
-        config_path,
-        working_directory: Some(config_parent),
-        log_path: windows_managed_log_directory().join("sing-box.log"),
-    });
-}
-
-fn restore_imported_sing_box_config(
-    config_path: &Path,
-    previous_config: Option<&str>,
-) -> Result<(), String> {
-    match previous_config {
-        Some(content) => write_managed_text_atomic(config_path, content).map_err(|error| {
-            format!(
-                "prior sing-box configuration could not be written to {}: {error}",
-                config_path.display()
-            )
-        }),
-        None => match fs::remove_file(config_path) {
-            Ok(()) => Ok(()),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(error) => Err(format!(
-                "new sing-box configuration could not be removed from {}: {error}",
-                config_path.display()
-            )),
-        },
-    }
 }
 
 fn ensure_mitm_ca_material() -> Result<(PathBuf, PathBuf), String> {
@@ -3663,12 +2635,12 @@ fn snapshot(
         },
         connection_label: if desktop.runtime_mode == DesktopRuntimeMode::Desktop {
             if desktop_connected {
-                "Desktop mode is managing the local sing-box process and current-user proxy."
+                "Desktop mode is running the embedded engine and managing the current-user proxy."
                     .to_string()
             } else if direct_running {
-                "Desktop sing-box is running; the current-user proxy is not applied.".to_string()
+                "The embedded engine is running; the current-user proxy is not applied.".to_string()
             } else {
-                "Desktop mode is selected. Connect to start sing-box without the Windows service."
+                "Desktop mode is selected. Connect to start the embedded engine without the Windows service."
                     .to_string()
             }
         } else {
@@ -3694,7 +2666,7 @@ fn snapshot(
         core: if desktop.runtime_mode == DesktopRuntimeMode::Desktop {
             StatusFact {
                 label: if direct_running { "Running" } else { "Stopped" }.to_string(),
-                detail: Some("Desktop-owned sing-box process".to_string()),
+                detail: Some("Embedded engine in this app".to_string()),
                 tone: if direct_running { "success" } else { "neutral" },
             }
         } else {
@@ -3736,7 +2708,6 @@ fn snapshot(
         auto_subscription_refresh: desktop.auto_subscription_refresh,
         auto_select_fastest_node: desktop.auto_select_fastest_node,
         bilibili_web_ad_block_enabled: desktop.bilibili_web_ad_block_enabled,
-        dns_configured: managed_dns_configured(),
         script_runtime_configured: managed_script_runtime_configured(),
         dark_theme: desktop.dark_theme,
         runtime_mode: match desktop.runtime_mode {
@@ -3746,16 +2717,6 @@ fn snapshot(
         routing_mode: routing_mode_name(desktop.routing_mode).to_string(),
         embedded_engine: active_embedded_config().ok().flatten().is_some(),
     }
-}
-
-fn managed_dns_configured() -> bool {
-    managed_config_or_default()
-        .ok()
-        .and_then(|managed| managed.sing_box)
-        .and_then(|sing_box| fs::read_to_string(sing_box.config_path).ok())
-        .and_then(|config| serde_json::from_str::<Value>(&config).ok())
-        .and_then(|config| config.get("dns").cloned())
-        .is_some()
 }
 
 fn managed_script_runtime_configured() -> bool {
@@ -3771,10 +2732,8 @@ fn core_status(status: &ManagedCoreStatus) -> StatusFact {
         label: status.label(),
         detail: None,
         tone: match status {
-            ManagedCoreStatus::Running { .. }
-            | ManagedCoreStatus::MieruRunning { .. }
-            | ManagedCoreStatus::EmbeddedRunning { .. } => "success",
-            ManagedCoreStatus::Exited { .. } | ManagedCoreStatus::Unavailable { .. } => "danger",
+            ManagedCoreStatus::EmbeddedRunning { .. } => "success",
+            ManagedCoreStatus::Failed { .. } => "danger",
             ManagedCoreStatus::Starting => "warning",
             ManagedCoreStatus::NotConfigured => "neutral",
         },
@@ -3879,87 +2838,6 @@ mod tests {
     fn rule_mode_round_trips() {
         assert_eq!(parse_routing_mode("rule"), Ok(DesktopRoutingMode::Rule));
         assert_eq!(routing_mode_name(DesktopRoutingMode::Rule), "rule");
-    }
-
-    fn managed_config_with_mieru() -> WindowsManagedConfig {
-        WindowsManagedConfig {
-            schema_version: platform_windows::managed::WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION,
-            system_proxy: None,
-            system_proxy_owner: WindowsSystemProxyOwner::Desktop,
-            root_certificate_path: None,
-            driver_package: None,
-            tunnel: None,
-            sing_box: None,
-            mieru: Some(WindowsManagedMieruConfig {
-                enabled: true,
-                executable_path: PathBuf::from("mieru.exe"),
-                expected_sha256: "a".repeat(64),
-                config_path: PathBuf::from("mieru.json"),
-                socks5_host: "127.0.0.1".to_string(),
-                socks5_port: 1080,
-            }),
-            native_mitm: None,
-            embedded: None,
-        }
-    }
-
-    #[test]
-    fn routed_profile_groups_are_listed_as_native_groups() {
-        let payload = concat!(
-            "[Proxy]\n",
-            "HK = ss, 82.47.34.99, 11111, encrypt-method=aes-256-gcm, password=f43c0eee-13b9-4f07-bec9-d4b744141503\n",
-            "[Proxy Group]\n",
-            "Proxy = select, HK, DIRECT\n",
-            "[Rule]\n",
-            "DOMAIN-SUFFIX,google.com,Proxy\n",
-            "FINAL,DIRECT\n",
-        );
-        let service = CoreSubscriptionService::new();
-        let raw = service
-            .fetch(&SubscriptionSource {
-                id: "windows-tauri-profile".to_string(),
-                location: format!("inline:{payload}"),
-            })
-            .unwrap();
-        let nodes = service
-            .normalize(&service.parse(&raw).unwrap())
-            .unwrap()
-            .nodes;
-        let model = import_subscription_routing(payload, &nodes)
-            .routing
-            .expect("profile routing should import");
-        let routed = render_sing_box_local_proxy_routing_config(
-            &SingBoxLocalProxyConfigRequest {
-                nodes,
-                selected_node_id: None,
-                listen_host: "127.0.0.1".to_string(),
-                listen_port: 7890,
-            },
-            &model,
-        )
-        .unwrap();
-
-        let groups = native_groups(&routed.json).unwrap();
-        assert_eq!(groups.len(), 1);
-        assert_eq!(groups[0].tag, "Proxy");
-        assert_eq!(groups[0].group_type, "selector");
-        assert_eq!(groups[0].outbounds.len(), 2);
-        assert_eq!(groups[0].outbounds[1], "direct");
-    }
-
-    #[test]
-    fn sing_box_profile_activation_clears_the_mieru_plan() {
-        let mut managed = managed_config_with_mieru();
-
-        activate_managed_sing_box_plan(
-            &mut managed,
-            PathBuf::from("sing-box.exe"),
-            PathBuf::from("sing-box.json"),
-            PathBuf::from("."),
-        );
-
-        assert!(managed.mieru.is_none());
-        assert!(managed.sing_box.is_some_and(|sing_box| sing_box.enabled));
     }
 
     fn node(id: &str, label: &str) -> DesktopProfileNode {

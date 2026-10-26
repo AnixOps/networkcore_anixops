@@ -35,7 +35,6 @@ export interface RuntimeSnapshot {
   autoSubscriptionRefresh: boolean;
   autoSelectFastestNode: boolean;
   bilibiliWebAdBlockEnabled: boolean;
-  dnsConfigured: boolean;
   scriptRuntimeConfigured: boolean;
   darkTheme: boolean;
   runtimeMode: "desktop" | "service";
@@ -58,8 +57,6 @@ export interface NativeGroupSummary {
   outbounds: string[];
   /** Display names for `outbounds`; empty when they are the names. */
   outboundLabels?: string[];
-  /** Editable JSON; empty when the group cannot be edited as JSON. */
-  json: string;
 }
 
 export interface OperationResult {
@@ -110,8 +107,6 @@ export const desktop = {
   switchNode: (nodeId: string) => invoke<OperationResult>("switch_node", { nodeId }),
   selectNativeGroupOutbound: (groupTag: string, outboundTag: string) =>
     invoke<OperationResult>("select_native_group_outbound", { groupTag, outboundTag }),
-  replaceNativeGroup: (groupTag: string, groupJson: string) =>
-    invoke<OperationResult>("replace_native_group", { groupTag, groupJson }),
   testDelay: (nodeId: string, url: string) =>
     invoke<OperationResult>("test_node_delay", { nodeId, url }),
   selectFastestNode: () => invoke<OperationResult>("select_fastest_node"),
@@ -126,24 +121,12 @@ export const desktop = {
   selectSubscription: (id: string) => invoke<OperationResult>("select_subscription", { id }),
   removeSubscription: (id: string) => invoke<OperationResult>("remove_subscription", { id }),
   checkProfileRuntime: () => invoke<OperationResult>("check_profile_runtime"),
-  installCore: () => invoke<OperationResult>("install_core"),
-  installMieru: (downloadUrl: string, destinationPath: string, expectedSha256: string) =>
-    invoke<OperationResult>("install_mieru", {
-      downloadUrl,
-      destinationPath,
-      expectedSha256,
-      confirm: true,
-    }),
-  verifyMieru: (executablePath: string, expectedSha256: string) =>
-    invoke<OperationResult>("verify_mieru", { executablePath, expectedSha256 }),
   installService: () => invoke<OperationResult>("install_service"),
   startService: () => invoke<OperationResult>("start_service"),
   stopService: () => invoke<OperationResult>("stop_service"),
   restoreNetworkSettings: () => invoke<OperationResult>("restore_network_settings"),
   configureTunnel: (configJson: string) => invoke<OperationResult>("configure_tunnel", { configJson }),
   clearTunnel: () => invoke<OperationResult>("clear_tunnel"),
-  configureDns: (dnsJson: string) => invoke<OperationResult>("configure_dns", { dnsJson }),
-  clearDns: () => invoke<OperationResult>("clear_dns"),
   setRoutingMode: (mode: RuntimeSnapshot["routingMode"]) => invoke<OperationResult>("set_routing_mode", { mode }),
   refreshRoutingRules: () => invoke<OperationResult>("refresh_routing_rules"),
   configureScriptRuntime: (scriptRuntimeJson: string) =>

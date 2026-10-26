@@ -1,4 +1,4 @@
-import { BadgeCheck, CheckCircle2, CloudDownload, Cpu, RotateCcw } from "lucide-react";
+import { BadgeCheck, RotateCcw } from "lucide-react";
 import { useState } from "react";
 import { desktop, Preferences, preferencesFrom, RuntimeSnapshot } from "../bridge";
 import { Appearance, appearances } from "../theme";
@@ -26,7 +26,7 @@ export function SettingsPage({ snapshot, busy, run, appearance, setAppearance, l
 }) {
   if (!snapshot) return <Loading />;
   const save = (changes: Partial<Preferences>) => void run("preferences", () => desktop.savePreferences(preferencesFrom(snapshot, changes)));
-  // The Linux client runs the engine in-process and has no service, external cores, driver or TUN yet.
+  // The Linux client runs the engine in-process and has no service, driver or TUN yet.
   const linux = snapshot.platform === "linux";
   const startup = linux
     ? startupOptions.filter((option) => option.key === "startAfterLogin" || option.key === "autoConnect")
@@ -40,7 +40,7 @@ export function SettingsPage({ snapshot, busy, run, appearance, setAppearance, l
           <div className="setting-label">{t("语言")}</div>
           <Segmented label={t("语言")} options={languages.map((option) => ({ ...option, label: t(option.label) }))} value={language} onChange={setLanguage} />
         </Card>
-        {linux ? <LinuxProxyCard busy={busy} run={run} /> : <Card title={t("运行方式")} description={t("桌面模式只为当前用户运行内核；TUN、附加协议内核和 HTTPS 解密需要 Windows 服务模式。")}>
+        {linux ? <LinuxProxyCard busy={busy} run={run} /> : <Card title={t("运行方式")} description={t("桌面模式只为当前用户运行内核；TUN 和 HTTPS 解密需要 Windows 服务模式。")}>
           <Segmented
             label={t("运行方式")}
             options={[{ value: "desktop", label: t("桌面模式") }, { value: "service", label: t("Windows 服务") }]}
@@ -74,8 +74,6 @@ export function SettingsPage({ snapshot, busy, run, appearance, setAppearance, l
         {!linux && <ServiceCard busy={busy} run={run} />}
       </div>
 
-      {!linux && <CompatibilityCoreCard busy={busy} run={run} />}
-      {!linux && <ExternalCoreCard busy={busy} run={run} />}
       {!linux && <SystemCard busy={busy} run={run} />}
     </div>
   );
@@ -100,37 +98,6 @@ function ServiceCard({ busy, run }: { busy: string | null; run: Run }) {
         <button className="secondary" disabled={Boolean(busy)} onClick={() => void run("service", desktop.installService)}>{t("安装")}</button>
         <button className="secondary" disabled={Boolean(busy)} onClick={() => void run("service", desktop.startService)}>{t("启动")}</button>
         <button className="secondary" disabled={Boolean(busy)} onClick={() => void run("service", desktop.stopService)}>{t("停止")}</button>
-      </div>
-    </Card>
-  );
-}
-
-/** The optional external Mieru core, installed from an official release asset and pinned by digest. */
-/** The optional compatibility core: only HTTPS decryption on Windows still needs it. */
-function CompatibilityCoreCard({ busy, run }: { busy: string | null; run: Run }) {
-  return (
-    <Card title={t("兼容内核（可选）")} description={t("导入和连接都用内置引擎，不需要它。目前只有 HTTPS 解密依赖兼容内核，用到时再安装。")}>
-      <div className="button-row">
-        <button className="secondary" disabled={Boolean(busy)} onClick={() => void run("core", desktop.installCore)}><Cpu size={16} />{t("安装兼容内核")}</button>
-      </div>
-    </Card>
-  );
-}
-
-function ExternalCoreCard({ busy, run }: { busy: string | null; run: Run }) {
-  const [url, setUrl] = useState("");
-  const [path, setPath] = useState("");
-  const [sha256, setSha256] = useState("");
-  return (
-    <Card title={t("附加协议内核")} description={t("Mieru 节点需要单独的内核。填写官方发布页的下载地址和 SHA-256，校验通过才会安装。")}>
-      <div className="field-grid">
-        <Field label={t("官方下载地址")}><input value={url} onChange={(event) => setUrl(event.target.value)} /></Field>
-        <Field label={t("安装位置")}><input value={path} onChange={(event) => setPath(event.target.value)} /></Field>
-        <Field label="SHA-256"><input spellCheck={false} value={sha256} onChange={(event) => setSha256(event.target.value)} /></Field>
-      </div>
-      <div className="button-row">
-        <button className="primary" disabled={Boolean(busy) || !url || !path || !sha256} onClick={() => void run("mieru install", () => desktop.installMieru(url, path, sha256))}><CloudDownload size={16} />{t("下载并安装")}</button>
-        <button className="secondary" disabled={Boolean(busy) || !path || !sha256} onClick={() => void run("mieru verify", () => desktop.verifyMieru(path, sha256))}><CheckCircle2 size={16} />{t("校验已安装的文件")}</button>
       </div>
     </Card>
   );
