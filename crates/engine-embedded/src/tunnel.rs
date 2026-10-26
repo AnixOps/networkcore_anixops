@@ -521,29 +521,46 @@ async fn run_udp_flow(
         return;
     };
     bump(&stats.udp_flows);
-    let idle = tokio::time::sleep(UDP_IDLE_TIMEOUT);
-    tokio::pin!(idle);
+    // Replies are read on a task of their own, so a receiver never has to
+    // survive being cancelled halfway through a datagram.
+    let activity = Arc::new(AtomicU64::new(0));
+    let mut reader = {
+        let activity = activity.clone();
+        let stats = stats.clone();
+        tokio::spawn(async move {
+            while let Ok(reply) = recv.recv().await {
+                activity.fetch_add(1, Ordering::Relaxed);
+                stats
+                    .bytes_down
+                    .fetch_add(reply.len() as u64, Ordering::Relaxed);
+                if replies.send((reply, destination, app)).await.is_err() {
+                    break;
+                }
+            }
+        })
+    };
+    let mut last_seen = 0;
     loop {
         tokio::select! {
             packet = packets.recv() => {
-                let Some(packet) = packet else { return };
+                let Some(packet) = packet else { break };
                 if send.send(&packet).await.is_err() {
-                    return;
+                    break;
                 }
                 stats.bytes_up.fetch_add(packet.len() as u64, Ordering::Relaxed);
+                activity.fetch_add(1, Ordering::Relaxed);
             }
-            reply = recv.recv() => {
-                let Ok(reply) = reply else { return };
-                stats.bytes_down.fetch_add(reply.len() as u64, Ordering::Relaxed);
-                if replies.send((reply, destination, app)).await.is_err() {
-                    return;
+            _ = &mut reader => break,
+            _ = tokio::time::sleep(UDP_IDLE_TIMEOUT) => {
+                let seen = activity.load(Ordering::Relaxed);
+                if seen == last_seen {
+                    break;
                 }
+                last_seen = seen;
             }
-            _ = &mut idle => return,
         }
-        idle.as_mut()
-            .reset(tokio::time::Instant::now() + UDP_IDLE_TIMEOUT);
     }
+    reader.abort();
 }
 
 async fn handle_tcp(
