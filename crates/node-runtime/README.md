@@ -16,7 +16,7 @@ accounting.
   targets unless `allow_private_targets` is set; each inbound's `fallback` and
   REALITY `handshake` addresses stay reachable.
 - Protocols are cargo features (`shadowsocks`, `trojan`, `vless`, `vmess`,
-  `hysteria2`, `tuic`), all on by default.
+  `hysteria2`, `tuic`, `snell`), all on by default.
 
 `tests/management_api.rs` drives a node through the API with the engine's
 Shadowsocks-2022 client.
