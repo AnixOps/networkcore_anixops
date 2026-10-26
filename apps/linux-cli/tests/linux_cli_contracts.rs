@@ -68,11 +68,11 @@ use networkcore_linux::{
     RemoteSubscriptionFetcher, SubscriptionCatalogAddRequest, SubscriptionCatalogListRequest,
     SubscriptionCatalogRemoveRequest, SubscriptionCatalogRollbackRequest,
     SubscriptionCatalogSelectRequest, SubscriptionCatalogUpdateRequest,
-    UnavailableForegroundLifecycleHost, UnavailableProxyEngineService,
-    CLI_ARGUMENT_VALUE_MISSING_CODE, CLI_CONFIG_EMPTY_CODE, CLI_CONFIG_PATH_MISSING_CODE,
-    CLI_CONFIG_READ_FAILED_CODE, CLI_INSTALL_SERVICE_CONFIRMATION_REQUIRED_CODE,
-    CLI_MANAGED_FOREGROUND_LOG_LIMIT_EXCEEDED_CODE, CLI_MANAGED_FOREGROUND_LOG_QUERY_INVALID_CODE,
-    CLI_MANAGED_FOREGROUND_LOG_READ_FAILED_CODE, CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE,
+    UnavailableForegroundLifecycleHost, UnavailableProxyEngineService, CLI_CONFIG_EMPTY_CODE,
+    CLI_CONFIG_PATH_MISSING_CODE, CLI_CONFIG_READ_FAILED_CODE,
+    CLI_INSTALL_SERVICE_CONFIRMATION_REQUIRED_CODE, CLI_MANAGED_FOREGROUND_LOG_LIMIT_EXCEEDED_CODE,
+    CLI_MANAGED_FOREGROUND_LOG_QUERY_INVALID_CODE, CLI_MANAGED_FOREGROUND_LOG_READ_FAILED_CODE,
+    CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE,
     CLI_MITM_BROWSER_CAPTURE_APPLY_CONFIG_MISSING_CODE, CLI_MITM_BROWSER_CAPTURE_APPLY_READY_CODE,
     CLI_MITM_BROWSER_CAPTURE_AUTHORIZATION_REQUIRED_CODE,
     CLI_MITM_BROWSER_CAPTURE_LAUNCH_AUTHORIZATION_REQUIRED_CODE,
@@ -9327,7 +9327,7 @@ fn managed_control_socket_accepts_confirmed_stop_and_cleans_up() {
     .expect_err("managed control rollback should require an expected configuration version");
     assert_eq!(
         missing_rollback_version.diagnostic().code,
-        CLI_ARGUMENT_VALUE_MISSING_CODE
+        networkcore_linux::CLI_ARGUMENT_VALUE_MISSING_CODE
     );
     let status = parse_args([
         "status",
@@ -9343,7 +9343,7 @@ fn managed_control_socket_accepts_confirmed_stop_and_cleans_up() {
         .expect_err("managed control stop should require a socket path value");
     assert_eq!(
         missing_socket_path.diagnostic().code,
-        CLI_ARGUMENT_VALUE_MISSING_CODE
+        networkcore_linux::CLI_ARGUMENT_VALUE_MISSING_CODE
     );
 
     let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
