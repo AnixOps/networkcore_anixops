@@ -3269,6 +3269,7 @@ dependencies = [
  "outbound-shadowsocks",
  "serde",
  "serde_json",
+ "socket2",
  "tokio",
 ]
 

@@ -12,7 +12,7 @@ engine-outbound = { path = "../engine-outbound" }
 # Frame codec, request format and obfs shared with the client outbound.
 outbound-snell = { path = "../outbound-snell" }
 serde = { version = "1", features = ["derive"] }
-tokio = { version = "1", default-features = false, features = ["io-util"] }
+tokio = { version = "1", default-features = false, features = ["io-util", "macros", "time"] }
 
 [dev-dependencies]
 serde_json = "1"
