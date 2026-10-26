@@ -24,7 +24,7 @@ use std::sync::Arc;
 
 use engine_inbound::addr::{read_port_addr, VMESS};
 use engine_inbound::stream::PrefixedStream;
-use engine_inbound::udp::{DatagramCodec, DatagramReader};
+use engine_inbound::udp::{Datagram, DatagramCodec, DatagramReader};
 use engine_inbound::users::{UserIndex, Validator};
 use engine_inbound::{
     fallback_or_hold, Accepted, Rejected, StreamInbound, User, UserEntry, UserStore,
@@ -196,7 +196,7 @@ impl DatagramCodec for VlessDatagrams {
     fn read<'a>(
         &'a self,
         reader: &'a mut DatagramReader,
-    ) -> BoxFuture<'a, io::Result<Option<(TargetAddr, Vec<u8>)>>> {
+    ) -> BoxFuture<'a, io::Result<Option<Datagram>>> {
         Box::pin(async move {
             let len = match reader.read_u16().await {
                 Ok(len) => usize::from(len),

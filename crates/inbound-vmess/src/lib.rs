@@ -25,7 +25,7 @@ use aes::cipher::{BlockCipherDecrypt, KeyInit};
 use aes::{Aes128, Block};
 use engine_inbound::addr::{read_port_addr, VMESS};
 use engine_inbound::replay::ReplayCache;
-use engine_inbound::udp::{DatagramCodec, DatagramReader, MAX_DATAGRAM};
+use engine_inbound::udp::{Datagram, DatagramCodec, DatagramReader, MAX_DATAGRAM};
 use engine_inbound::users::Validator;
 use engine_inbound::{Accepted, Rejected, StreamInbound, User, UserEntry, UserStore};
 use engine_outbound::{BoxFuture, BoxStream, TargetAddr};
@@ -242,7 +242,7 @@ impl DatagramCodec for VmessDatagrams {
     fn read<'a>(
         &'a self,
         reader: &'a mut DatagramReader,
-    ) -> BoxFuture<'a, io::Result<Option<(TargetAddr, Vec<u8>)>>> {
+    ) -> BoxFuture<'a, io::Result<Option<Datagram>>> {
         Box::pin(async move {
             let mut payload = vec![0u8; MAX_DATAGRAM];
             let n = reader.read(&mut payload).await?;

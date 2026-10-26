@@ -38,6 +38,9 @@ pub const UDP_IDLE_TIMEOUT: Duration = Duration::from_secs(120);
 /// Largest datagram relayed.
 pub const MAX_DATAGRAM: usize = 65_535;
 
+/// One client datagram: its target and payload.
+pub type Datagram = (TargetAddr, Vec<u8>);
+
 /// Reader half of a client stream, as handed to [`DatagramCodec::read`].
 pub type DatagramReader = dyn AsyncRead + Unpin + Send;
 
@@ -47,7 +50,7 @@ pub trait DatagramCodec: Send + Sync {
     fn read<'a>(
         &'a self,
         reader: &'a mut DatagramReader,
-    ) -> BoxFuture<'a, io::Result<Option<(TargetAddr, Vec<u8>)>>>;
+    ) -> BoxFuture<'a, io::Result<Option<Datagram>>>;
 
     /// Appends a reply datagram from `source` in the protocol's framing.
     fn encode(&self, source: SocketAddr, payload: &[u8], out: &mut Vec<u8>) -> io::Result<()>;
