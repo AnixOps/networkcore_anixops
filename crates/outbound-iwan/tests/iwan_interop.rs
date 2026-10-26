@@ -244,7 +244,8 @@ impl Harness {
 }
 
 fn connect() -> UdpSocket {
-    let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+    // A loopback-bound socket cannot reach an external server (EINVAL).
+    let socket = UdpSocket::bind("0.0.0.0:0").unwrap();
     socket.connect(server()).unwrap();
     socket
         .set_read_timeout(Some(Duration::from_millis(100)))
