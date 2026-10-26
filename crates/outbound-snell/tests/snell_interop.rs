@@ -277,15 +277,24 @@ async fn large_first_udp_datagram() {
         let payload: Vec<u8> = (0..8000).map(|i| (i % 256) as u8).collect();
         assert!(sender.send_to(&echo, &payload).await.unwrap());
         let mut received = Vec::new();
-        while let Ok(Ok((source, echoed))) =
+        while let Ok(result) =
             tokio::time::timeout(Duration::from_secs(2), receiver.recv_from()).await
         {
-            received.push((source, echoed));
+            match result {
+                Ok(datagram) => received.push(datagram),
+                Err(err) => {
+                    println!("observed: {}   receive error: {err}", server.name);
+                    break;
+                }
+            }
         }
         let lengths: Vec<usize> = received.iter().map(|(_, data)| data.len()).collect();
         let intact = received.len() == 1 && received[0].1 == payload;
+        let is_prefix = received
+            .first()
+            .is_some_and(|(_, data)| payload.starts_with(data));
         println!(
-            "observed: {} first udp 8000: {} datagram(s) with lengths {lengths:?}, intact={intact}",
+            "observed: {} first udp 8000: {} datagram(s) with lengths {lengths:?}, intact={intact}, prefix={is_prefix}",
             server.name,
             received.len()
         );
@@ -296,7 +305,8 @@ async fn large_first_udp_datagram() {
                 &data[..data.len().min(8)]
             );
         }
-        if !intact && server.version != 5 {
+        // snell-server v5 speaks protocol version 4, so match it by name.
+        if !intact && !server.name.starts_with("snell-v5") {
             failures.push(format!(
                 "{} first udp 8000: lengths {lengths:?}",
                 server.name
