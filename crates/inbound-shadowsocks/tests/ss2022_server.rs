@@ -368,6 +368,7 @@ mod reference_client {
     use shadowsocks::config::{ServerConfig, ServerType};
     use shadowsocks::context::Context;
     use shadowsocks::crypto::CipherKind;
+    use shadowsocks::relay::udprelay::options::UdpSocketControlData;
     use shadowsocks::relay::Address;
     use shadowsocks::{ProxyClientStream, ProxySocket};
     use tokio::net::UdpSocket;
@@ -410,13 +411,20 @@ mod reference_client {
             .await
             .expect("reference udp socket");
         let mut buf = vec![0u8; 65_536];
+        // Like sslocal, give the association a session id and count packets;
+        // `ProxySocket::send` alone repeats packet 0, which is a replay.
+        let mut control = UdpSocketControlData {
+            client_session_id: 0x5eed_0000_0000_0000 | u64::from(server.port()),
+            ..UdpSocketControlData::default()
+        };
         for data in [b"hello".to_vec(), payload(1200)] {
             // Datagrams may be lost; retry a few times and skip late replies
             // to an earlier attempt.
             let mut echoed = false;
             'attempts: for _ in 0..5 {
+                control.packet_id += 1;
                 socket
-                    .send(&Address::SocketAddress(target), &data)
+                    .send_with_ctrl(&Address::SocketAddress(target), &control, &data)
                     .await
                     .unwrap();
                 let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
