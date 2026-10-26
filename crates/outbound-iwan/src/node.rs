@@ -438,7 +438,7 @@ impl Node {
         }
         let key = host.trim_end_matches('.').to_ascii_lowercase();
         let servers = {
-            let mut core = self.lock();
+            let core = self.lock();
             let now = Instant::now();
             if let Some((address, expires)) = core.dns_cache.get(&key) {
                 if *expires > now {
