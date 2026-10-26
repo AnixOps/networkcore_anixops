@@ -15,7 +15,8 @@ use shadowsocks::config::{ServerConfig, ServerType};
 use shadowsocks::context::Context;
 use shadowsocks::crypto::CipherKind;
 use shadowsocks::relay::socks5::Address;
-use shadowsocks::ProxyListener;
+use shadowsocks::relay::udprelay::options::UdpSocketControlData;
+use shadowsocks::{ProxyListener, ProxySocket};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
@@ -60,6 +61,39 @@ async fn start_reference_server(method: AeadMethod) -> SocketAddr {
                 };
                 let _ = tokio::io::copy_bidirectional(&mut session, &mut upstream).await;
             });
+        }
+    });
+    addr
+}
+
+/// A reference UDP server that answers each packet with its own payload, as
+/// if the target had echoed it.
+async fn start_reference_udp_echo(method: AeadMethod) -> SocketAddr {
+    let bind: SocketAddr = "127.0.0.1:0".parse().unwrap();
+    let config =
+        ServerConfig::new(bind, PASSWORD.to_string(), kind_for(method)).expect("server config");
+    let socket = ProxySocket::bind(Context::new_shared(ServerType::Server), &config)
+        .await
+        .expect("bind reference udp server");
+    let addr = socket.local_addr().unwrap();
+    tokio::spawn(async move {
+        let mut buf = vec![0u8; 65_536];
+        let mut reply = UdpSocketControlData::default();
+        loop {
+            reply.server_session_id = 0x5e4e_0000_0000_0001;
+            let Ok((n, peer, target, _, control)) = socket.recv_from_with_ctrl(&mut buf).await
+            else {
+                continue;
+            };
+            if let Some(control) = control {
+                reply.client_session_id = control.client_session_id;
+                reply.user = control.user;
+            }
+            reply.packet_id += 1;
+            let payload = buf[..n].to_vec();
+            let _ = socket
+                .send_to_with_ctrl(peer, &target, &reply, &payload)
+                .await;
         }
     });
     addr
@@ -220,5 +254,35 @@ fn factory_picks_the_protocol_from_the_method() {
                 Arc::new(TcpDialer)
             )
             .is_err());
+    }
+}
+
+/// Sends two datagrams through a fresh flow and expects each echoed back.
+async fn udp_round_trip(outbound: &dyn TcpOutbound, target: TargetAddr) {
+    let mut flow = outbound.open_udp(&target).await.expect("udp flow opens");
+    for payload in [b"hello".to_vec(), vec![5u8; 1200]] {
+        flow.send.send(&payload).await.unwrap();
+        let reply = tokio::time::timeout(TIMEOUT, flow.recv.recv())
+            .await
+            .expect("udp reply timed out")
+            .unwrap();
+        assert_eq!(reply, payload);
+    }
+}
+
+fn udp_targets() -> [TargetAddr; 2] {
+    [
+        TargetAddr::Ip("127.0.0.1:9".parse().unwrap()),
+        TargetAddr::Domain("echo.test".into(), 53),
+    ]
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn every_method_relays_udp() {
+    for method in METHODS {
+        let server = start_reference_udp_echo(method).await;
+        for target in udp_targets() {
+            udp_round_trip(&outbound(method, server, PASSWORD), target).await;
+        }
     }
 }

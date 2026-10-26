@@ -8,13 +8,16 @@
 //! a little-endian nonce counter. The target address is the start of the
 //! first chunk, sent with the first payload write (or alone when the
 //! application reads first).
+//!
+//! UDP sends `salt || seal(address || payload)` per datagram, nonce zero
+//! ([`TcpOutbound::open_udp`], one socket per flow).
 
 use std::io;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{ready, Context, Poll};
 
-use engine_outbound::{BoxFuture, BoxStream, Dialer, TargetAddr, TcpOutbound};
+use engine_outbound::{BoxFuture, BoxStream, Dialer, TargetAddr, TcpOutbound, UdpFlow};
 use md5::{Digest as _, Md5};
 use ring::aead::{self, LessSafeKey, UnboundKey};
 use ring::hkdf;
@@ -72,7 +75,7 @@ impl AeadMethod {
     }
 
     /// The session cipher for one direction: HKDF-SHA1(key, salt, "ss-subkey").
-    fn session_cipher(self, key: &[u8], salt: &[u8]) -> io::Result<Cipher> {
+    pub(crate) fn session_cipher(self, key: &[u8], salt: &[u8]) -> io::Result<Cipher> {
         let prk = hkdf::Salt::new(hkdf::HKDF_SHA1_FOR_LEGACY_USE_ONLY, salt).extract(key);
         let okm = prk
             .expand(SUBKEY_INFO, self.algorithm())
@@ -148,6 +151,19 @@ impl TcpOutbound for AeadOutbound {
             let inner = self.dialer.dial(&self.server, self.port).await?;
             let stream = AeadStream::new(inner, self.method, self.key.clone(), address)?;
             Ok(Box::new(stream) as BoxStream)
+        })
+    }
+
+    fn open_udp<'a>(&'a self, target: &'a TargetAddr) -> BoxFuture<'a, io::Result<UdpFlow>> {
+        Box::pin(async move {
+            let address = encode_address(target)?;
+            let socket = crate::udp::connect(&self.server, self.port).await?;
+            Ok(crate::udp::aead_flow(
+                socket,
+                self.method,
+                self.key.clone(),
+                address,
+            ))
         })
     }
 }

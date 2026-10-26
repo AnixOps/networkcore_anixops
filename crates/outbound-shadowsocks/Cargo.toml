@@ -11,12 +11,15 @@ description = "Shadowsocks-2022 (SIP022) and Shadowsocks AEAD (SIP004) TCP outbo
 aes = "0.9"
 base64 = "0.22"
 blake3 = "1.8"
+# XChaCha20-Poly1305 for 2022-blake3-chacha20-poly1305 UDP packets (ring has
+# no extended-nonce ChaCha).
+chacha20poly1305 = { version = "0.10", default-features = false }
 engine-outbound = { path = "../engine-outbound" }
 # EVP_BytesToKey for SIP004 passwords.
 md-5 = "0.10"
 ring = "0.17"
 serde = { version = "1", features = ["derive"] }
-tokio = { version = "1", default-features = false, features = ["io-util"] }
+tokio = { version = "1", default-features = false, features = ["io-util", "net"] }
 
 [dev-dependencies]
 serde_json = "1"

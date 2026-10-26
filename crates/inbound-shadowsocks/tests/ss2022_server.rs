@@ -11,12 +11,13 @@ use std::time::Duration;
 
 use base64::Engine as _;
 use engine_inbound::server::{serve, InboundStats, ServeSettings};
+use engine_inbound::udp::BoundUdpOutbound;
 use engine_inbound::{StreamInbound, User};
 use engine_outbound::{BoxFuture, BoxStream, Dialer, TargetAddr, TcpDialer, TcpOutbound};
 use inbound_shadowsocks::{Method, Ss2022Inbound};
 use outbound_shadowsocks::Ss2022Outbound;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::{TcpListener, TcpStream, UdpSocket};
 
 const TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -361,42 +362,97 @@ async fn replayed_requests_are_refused() {
     assert_eq!(server.stats.handshake_failed.load(Ordering::Relaxed), 1);
 }
 
+async fn udp_echo_server() -> SocketAddr {
+    let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let addr = socket.local_addr().unwrap();
+    tokio::spawn(async move {
+        let mut buf = vec![0u8; 65_536];
+        while let Ok((n, from)) = socket.recv_from(&mut buf).await {
+            let _ = socket.send_to(&buf[..n], from).await;
+        }
+    });
+    addr
+}
+
+/// Serves the inbound's UDP side on a port of its own and returns it.
+fn start_udp(server: &Server) -> SocketAddr {
+    let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+    let addr = socket.local_addr().unwrap();
+    let served = server.inbound.datagram().expect("udp side").serve(
+        socket,
+        Arc::new(BoundUdpOutbound::new("127.0.0.1:0".parse().unwrap())),
+        server.stats.clone(),
+    );
+    tokio::spawn(served);
+    addr
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn engine_client_relays_udp() {
+    let echo_addr = udp_echo_server().await;
+    for method in [
+        Method::Aes128Gcm,
+        Method::Aes256Gcm,
+        Method::ChaCha20Poly1305,
+    ] {
+        let password = key(method, 61);
+        let server = start_server(method, &password, Vec::new()).await;
+        let udp = start_udp(&server);
+        let client = ss_client(method, udp, &password, Arc::new(TcpDialer));
+        let mut flow = client.open_udp(&TargetAddr::Ip(echo_addr)).await.unwrap();
+        for payload in [b"hello".to_vec(), payload(1200)] {
+            flow.send.send(&payload).await.unwrap();
+            let reply = tokio::time::timeout(TIMEOUT, flow.recv.recv())
+                .await
+                .expect("udp reply timed out")
+                .unwrap();
+            assert_eq!(reply, payload);
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn engine_client_udp_multi_user_is_charged() {
+    let echo_addr = udp_echo_server().await;
+    let method = Method::Aes256Gcm;
+    let identity = key(method, 71);
+    let user = key(method, 72);
+    let server = start_server(
+        method,
+        &identity,
+        vec![User::with_password("udp", user.clone())],
+    )
+    .await;
+    let udp = start_udp(&server);
+    let client = ss_client(
+        method,
+        udp,
+        &format!("{identity}:{user}"),
+        Arc::new(TcpDialer),
+    );
+    let mut flow = client.open_udp(&TargetAddr::Ip(echo_addr)).await.unwrap();
+    flow.send.send(b"counted").await.unwrap();
+    let reply = tokio::time::timeout(TIMEOUT, flow.recv.recv())
+        .await
+        .expect("udp reply timed out")
+        .unwrap();
+    assert_eq!(reply, b"counted");
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let traffic = server.inbound.users().traffic(false);
+    assert_eq!(traffic.len(), 1);
+    assert_eq!(traffic[0].name, "udp");
+    assert!(traffic[0].up >= 7 && traffic[0].down >= 7);
+}
+
 #[cfg(unix)]
 mod reference_client {
     use super::*;
-    use engine_inbound::udp::BoundUdpOutbound;
     use shadowsocks::config::{ServerConfig, ServerType};
     use shadowsocks::context::Context;
     use shadowsocks::crypto::CipherKind;
     use shadowsocks::relay::udprelay::options::UdpSocketControlData;
     use shadowsocks::relay::Address;
     use shadowsocks::{ProxyClientStream, ProxySocket};
-    use tokio::net::UdpSocket;
-
-    async fn udp_echo_server() -> SocketAddr {
-        let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
-        let addr = socket.local_addr().unwrap();
-        tokio::spawn(async move {
-            let mut buf = vec![0u8; 65_536];
-            while let Ok((n, from)) = socket.recv_from(&mut buf).await {
-                let _ = socket.send_to(&buf[..n], from).await;
-            }
-        });
-        addr
-    }
-
-    /// Serves the inbound's UDP side on a port of its own and returns it.
-    fn start_udp(server: &Server) -> SocketAddr {
-        let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
-        let addr = socket.local_addr().unwrap();
-        let served = server.inbound.datagram().expect("udp side").serve(
-            socket,
-            Arc::new(BoundUdpOutbound::new("127.0.0.1:0".parse().unwrap())),
-            server.stats.clone(),
-        );
-        tokio::spawn(served);
-        addr
-    }
 
     async fn reference_udp_echo(
         method: Method,

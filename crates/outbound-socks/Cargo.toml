@@ -9,7 +9,7 @@ description = "SOCKS5 TCP outbound (RFC 1928, username/password per RFC 1929) fo
 [dependencies]
 engine-outbound = { path = "../engine-outbound" }
 serde = { version = "1", features = ["derive"] }
-tokio = { version = "1", default-features = false, features = ["io-util"] }
+tokio = { version = "1", default-features = false, features = ["io-util", "macros", "net"] }
 
 [dev-dependencies]
 inbound-mixed = { path = "../inbound-mixed" }

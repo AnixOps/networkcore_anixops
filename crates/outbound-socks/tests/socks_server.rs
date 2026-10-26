@@ -180,3 +180,81 @@ fn factory_builds_from_settings_and_rejects_bad_ones() {
             .is_err());
     }
 }
+
+/// A minimal SOCKS5 server for `UDP ASSOCIATE` only. It replies with an
+/// unspecified relay address and echoes each datagram back with the same
+/// header. With `close_control` it closes the TCP connection after the reply.
+async fn udp_socks_server(close_control: bool) -> SocketAddr {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        while let Ok((mut control, _)) = listener.accept().await {
+            tokio::spawn(async move {
+                let mut greeting = [0u8; 3];
+                control.read_exact(&mut greeting).await.unwrap();
+                assert_eq!(greeting, [5, 1, 0]);
+                control.write_all(&[5, 0]).await.unwrap();
+                let mut request = [0u8; 10];
+                control.read_exact(&mut request).await.unwrap();
+                assert_eq!(request[..4], [5, 3, 0, 1]);
+                let relay = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+                let port = relay.local_addr().unwrap().port().to_be_bytes();
+                control
+                    .write_all(&[5, 0, 0, 1, 0, 0, 0, 0, port[0], port[1]])
+                    .await
+                    .unwrap();
+                if close_control {
+                    return;
+                }
+                let mut buf = vec![0u8; 65_536];
+                let mut probe = [0u8; 1];
+                loop {
+                    tokio::select! {
+                        received = relay.recv_from(&mut buf) => {
+                            let (n, from) = received.unwrap();
+                            let _ = relay.send_to(&buf[..n], from).await;
+                        }
+                        _ = control.read(&mut probe) => return,
+                    }
+                }
+            });
+        }
+    });
+    addr
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn udp_associate_relays_datagrams_to_ip_and_domain_targets() {
+    let server = udp_socks_server(false).await;
+    let client = outbound(server, None);
+    for target in [
+        TargetAddr::Ip("127.0.0.1:53".parse().unwrap()),
+        TargetAddr::Domain("echo.test".into(), 53),
+    ] {
+        let mut flow = client.open_udp(&target).await.unwrap();
+        for payload in [b"hello".to_vec(), vec![3u8; 1200]] {
+            flow.send.send(&payload).await.unwrap();
+            let reply = tokio::time::timeout(std::time::Duration::from_secs(10), flow.recv.recv())
+                .await
+                .expect("udp reply timed out")
+                .unwrap();
+            assert_eq!(reply, payload);
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn udp_flow_ends_with_the_tcp_association() {
+    let server = udp_socks_server(true).await;
+    let mut flow = outbound(server, None)
+        .open_udp(&TargetAddr::Ip("127.0.0.1:53".parse().unwrap()))
+        .await
+        .unwrap();
+    let ended = tokio::time::timeout(std::time::Duration::from_secs(10), flow.recv.recv())
+        .await
+        .expect("flow should end when the server closes the association");
+    assert_eq!(
+        ended.err().map(|error| error.kind()),
+        Some(io::ErrorKind::UnexpectedEof)
+    );
+}

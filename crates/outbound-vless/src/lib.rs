@@ -8,6 +8,9 @@
 //! (`transport-tls`), optionally inside a WebSocket (`transport-ws`), without
 //! Vision.
 //!
+//! Both relay UDP with the VLESS UDP command ([`TcpOutbound::open_udp`]),
+//! one connection per flow and without Vision.
+//!
 //! Both implement [`engine_outbound::TcpOutbound`]; [`VlessFactory`] registers
 //! them under `"type": "vless"`.
 
@@ -16,13 +19,14 @@ mod plain;
 pub mod protocol;
 pub mod reality;
 mod stream;
+mod udp;
 pub mod vision;
 
 use std::fmt;
 use std::io;
 use std::sync::Arc;
 
-use engine_outbound::{BoxFuture, BoxStream, Dialer, TargetAddr, TcpOutbound};
+use engine_outbound::{BoxFuture, BoxStream, Dialer, TargetAddr, TcpOutbound, UdpFlow};
 use tls_mimic::ClientConfig;
 
 pub use factory::{VlessFactory, TYPE_NAME};
@@ -73,6 +77,16 @@ impl VlessRealityOutbound {
     pub async fn connect_stream(&self, target: &TargetAddr) -> io::Result<VlessStream<BoxStream>> {
         let config = &self.config;
         let header = protocol::encode_request_header(&config.uuid, config.flow, target)?;
+        let vision_uuid = (config.flow == Flow::Vision).then_some(config.uuid);
+        self.open(header, vision_uuid).await
+    }
+
+    async fn open(
+        &self,
+        header: Vec<u8>,
+        vision_uuid: Option<[u8; 16]>,
+    ) -> io::Result<VlessStream<BoxStream>> {
+        let config = &self.config;
         let transport = self.dialer.dial(&config.server, config.port).await?;
         let tls_config = ClientConfig::new(
             config.reality.server_name.clone(),
@@ -82,7 +96,6 @@ impl VlessRealityOutbound {
         let tls = tls_mimic::connect(transport, &tls_config, &mut hooks)
             .await
             .map_err(|error| io::Error::new(error.kind(), format!("REALITY handshake: {error}")))?;
-        let vision_uuid = (config.flow == Flow::Vision).then_some(config.uuid);
         Ok(VlessStream::new(tls, header, vision_uuid))
     }
 }
@@ -96,6 +109,14 @@ impl TcpOutbound for VlessRealityOutbound {
         Box::pin(async move {
             let stream = self.connect_stream(target).await?;
             Ok(Box::new(stream) as BoxStream)
+        })
+    }
+
+    fn open_udp<'a>(&'a self, target: &'a TargetAddr) -> BoxFuture<'a, io::Result<UdpFlow>> {
+        Box::pin(async move {
+            let header = protocol::encode_udp_request_header(&self.config.uuid, target)?;
+            let stream = self.open(header, None).await?;
+            Ok(udp::flow(Box::new(stream)))
         })
     }
 }

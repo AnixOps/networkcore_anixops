@@ -10,11 +10,15 @@
 //! application reads before writing (server-speaks-first protocols), the header
 //! is sent with random padding instead, as the specification requires.
 //!
+//! Both relay UDP ([`TcpOutbound::open_udp`]) with one UDP socket per flow,
+//! connected to the server; see the `udp` module for the packet formats.
+//!
 //! [`ShadowsocksFactory`] registers both under `"type": "shadowsocks"`; the
 //! `method` picks the protocol.
 
 mod factory;
 mod sip004;
+mod udp;
 
 use std::io;
 use std::net::SocketAddr;
@@ -26,7 +30,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use aes::cipher::{BlockCipherEncrypt, KeyInit};
 use aes::{Aes128, Aes256, Block};
 use base64::Engine as _;
-use engine_outbound::{BoxFuture, BoxStream, Dialer, TargetAddr, TcpOutbound};
+use engine_outbound::{BoxFuture, BoxStream, Dialer, TargetAddr, TcpOutbound, UdpFlow};
 use ring::aead::{self, Aad, LessSafeKey, Nonce, UnboundKey};
 use ring::rand::{SecureRandom, SystemRandom};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
@@ -158,6 +162,20 @@ impl TcpOutbound for Ss2022Outbound {
                 address,
             )?;
             Ok(Box::new(stream) as BoxStream)
+        })
+    }
+
+    fn open_udp<'a>(&'a self, target: &'a TargetAddr) -> BoxFuture<'a, io::Result<UdpFlow>> {
+        Box::pin(async move {
+            let address = encode_address(target)?;
+            let socket = udp::connect(&self.server, self.port).await?;
+            udp::ss2022_flow(
+                socket,
+                self.method,
+                self.psk.clone(),
+                self.identity_keys.clone(),
+                address,
+            )
         })
     }
 }
