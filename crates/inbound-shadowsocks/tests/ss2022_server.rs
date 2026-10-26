@@ -413,10 +413,8 @@ mod reference_client {
         let mut buf = vec![0u8; 65_536];
         // Like sslocal, give the association a session id and count packets;
         // `ProxySocket::send` alone repeats packet 0, which is a replay.
-        let mut control = UdpSocketControlData {
-            client_session_id: 0x5eed_0000_0000_0000 | u64::from(server.port()),
-            ..UdpSocketControlData::default()
-        };
+        let mut control = UdpSocketControlData::default();
+        control.client_session_id = 0x5eed_0000_0000_0000 | u64::from(server.port());
         for data in [b"hello".to_vec(), payload(1200)] {
             // Datagrams may be lost; retry a few times and skip late replies
             // to an earlier attempt.
