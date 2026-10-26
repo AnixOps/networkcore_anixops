@@ -107,7 +107,7 @@ TCP 目标地址 = 主机字符串长度（1 字节）· 主机字符串 · 端�
 ### 4.1 UDP over TCP（v3+）
 
 1. 客户端发送命令 `0x06`（带 clientID，无地址）。**请求必须单独成帧**，同一帧内不能跟随数据报，否则服务端直接断开。
-2. 服务端回复 `0x00`。客户端收到回复后才开始发送数据报。
+2. 服务端回复 `0x00`，单独成帧，后面没有其他字节。客户端收到回复后才开始发送数据报。若回复帧中 `0x00` 之后还有字节，客户端把剩余部分当作第一个下行数据报处理（与官方客户端一致）。
 3. 之后每一帧承载**恰好一个**数据报。
    - 上行帧：`0x01` · 地址 · 端口 u16be · 载荷。地址为域名时 = 长度（1–255）· 域名；为 IP 时 = `0x00` · 族字节（`0x04` 表示 IPv4 4 字节，`0x06` 表示 IPv6 16 字节）· IP。
    - 下行帧：族字节（`0x04`/`0x06`）· IP · 端口 u16be · 载荷。下行源地址总是 IP。客户端遇到其他族字节时静默丢弃该帧。
@@ -363,7 +363,7 @@ PRF 标签（label）及其所属命名空间 `ns(label)`：
 - 置换 PRF：`SP(d, i) = fold(mix64((i·0x589965cc75374cc3 + 0x33a213ec50ffe2e9) ^ (nsSalt ^ 0xdaa66d2c7ddf743f) ^ (d·0xe7037ed1a0b428db + 0x8f3907f7b2b80c35)))`，其中 nsSalt 是 salt 命名空间。
 - 置换 perm（长度 L = saltBlockLen）：从恒等排列开始，做 hsMixRounds 轮（至少 1 轮）。第 r 轮（r 从 0 开始）令 d = MIXHS + r，对 i = 0..L−1 依次取 `j = i + SP(d, i) mod (L − i)`，交换 perm[i] 与 perm[j]。
 - 掩码：`mask(i) = (i·hsMixStride mod 256) XOR (PRF32(nsSalt, 2, MIXHS, i) 的低 8 位)`。
-- 写入：先用 `fill(seq = 0xFFFFFFFF)`（§7.4.6）填满整个 salt 块，再对 i = 0..15 写 `block[perm[i]] = mask(i) XOR salt[i]`。
+- 写入：先用 `fill(seq = 0xFFFFFFFF)`（§7.4.6；seq 在所有 PRF 中都是 32 位值，代入 64 位运算时零扩展，即 0x00000000FFFFFFFF）填满整个 salt 块，再对 i = 0..15 写 `block[perm[i]] = mask(i) XOR salt[i]`。
 - 读取：`salt[i] = mask(i) XOR block[perm[i]]`。
 
 #### 7.4.5 default 帧
