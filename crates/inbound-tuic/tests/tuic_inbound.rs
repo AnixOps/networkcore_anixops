@@ -206,6 +206,8 @@ async fn users_added_and_removed_at_runtime() {
             password: Some("carol-secret".into()),
             uuid: Some(CAROL.into()),
             flow: None,
+            username: None,
+            address: None,
         })
         .unwrap();
     let carol = client(server.addr, CAROL, "carol-secret", Congestion::Cubic);

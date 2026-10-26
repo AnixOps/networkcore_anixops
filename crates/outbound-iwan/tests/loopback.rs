@@ -59,7 +59,7 @@ fn serve(socket: UdpSocket) {
                         .map(|user| (user, open.flags != 0 || open.encrypt.unwrap_or(0) != 0))
                 });
                 let Some(((name, password, address), wants_mask)) = user else {
-                    let _ = socket.send_to(&packet::encode_open_rej(), from);
+                    let _ = socket.send_to(&packet::encode_open_rej_with(b"INVPASS"), from);
                     continue;
                 };
                 // Only the "xor" user may mask, like allow_encrypt.
@@ -252,6 +252,7 @@ async fn rejected_login_fails_the_connection() {
     let target = TargetAddr::Ip(SocketAddr::new(MASKED.2.into(), 80));
     let err = node.connect(&target).await.err().unwrap();
     assert_eq!(err.kind(), io::ErrorKind::PermissionDenied);
+    assert!(err.to_string().contains("INVPASS"), "{err}");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

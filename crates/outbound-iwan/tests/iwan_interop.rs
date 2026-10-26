@@ -223,7 +223,7 @@ impl Harness {
 
     fn established(&mut self) -> outbound_iwan::Network {
         match self.wait_for(WAIT, |event| {
-            matches!(event, Output::Established(_) | Output::Rejected)
+            matches!(event, Output::Established(_) | Output::Rejected { .. })
         }) {
             Some(Output::Established(network)) => network,
             other => panic!("no session: {other:?}"),
@@ -293,9 +293,9 @@ fn wrong_password_is_rejected() {
     let plain = user("PLAIN");
     let mut harness = Harness::new(&plain, "not-the-password", false);
     let event = harness.wait_for(WAIT, |event| {
-        matches!(event, Output::Established(_) | Output::Rejected)
+        matches!(event, Output::Established(_) | Output::Rejected { .. })
     });
-    assert_eq!(event, Some(Output::Rejected));
+    assert!(matches!(event, Some(Output::Rejected { .. })), "{event:?}");
 }
 
 fn assert_echo(harness: &mut Harness, source: Ipv4Addr) {

@@ -1,0 +1,26 @@
+[package]
+name = "inbound-iwan"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Panabit iWAN server inbound: sessions, an address pool and a userspace TCP/IP stack that turns tunnelled packets into routed connections, written from docs/protocols/iwan.md."
+
+[dependencies]
+engine-inbound = { path = "../engine-inbound" }
+engine-outbound = { path = "../engine-outbound" }
+futures = "0.3"
+# Terminates the tunnelled TCP and UDP for any destination address.
+netstack-smoltcp = "0.2"
+# Packet codec, password block and XOR mask shared with the client outbound.
+outbound-iwan = { path = "../outbound-iwan" }
+ring = "0.17"
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", default-features = false, features = ["net", "rt", "sync", "time", "macros"] }
+
+[dev-dependencies]
+serde_json = "1"
+tokio = { version = "1", default-features = false, features = ["io-util", "net", "rt", "rt-multi-thread", "macros", "sync", "time"] }
+
+[lib]
+path = "src/lib.rs"

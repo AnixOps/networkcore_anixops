@@ -62,6 +62,8 @@ pub fn default_registry() -> InboundRegistry {
     registry.register_packet(Arc::new(inbound_hysteria2::Hysteria2InboundFactory));
     #[cfg(feature = "tuic")]
     registry.register_packet(Arc::new(inbound_tuic::TuicInboundFactory));
+    #[cfg(feature = "iwan")]
+    registry.register_packet(Arc::new(inbound_iwan::IwanInboundFactory));
     registry
 }
 
