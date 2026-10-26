@@ -2555,6 +2555,51 @@ dependencies = [
 ]
 
 [[package]]
+name = "inbound-transport"
+version = "0.2.0"
+dependencies = [
+ "engine-inbound",
+ "engine-outbound",
+ "rcgen",
+ "rustls",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-rustls",
+ "transport-tls",
+]
+
+[[package]]
+name = "inbound-trojan"
+version = "0.2.0"
+dependencies = [
+ "engine-inbound",
+ "engine-outbound",
+ "inbound-transport",
+ "outbound-trojan",
+ "rcgen",
+ "serde",
+ "serde_json",
+ "tokio",
+ "transport-tls",
+]
+
+[[package]]
+name = "inbound-vless"
+version = "0.2.0"
+dependencies = [
+ "engine-inbound",
+ "engine-outbound",
+ "inbound-transport",
+ "outbound-vless",
+ "rcgen",
+ "serde",
+ "serde_json",
+ "tokio",
+ "transport-tls",
+]
+
+[[package]]
 name = "indexmap"
 version = "1.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

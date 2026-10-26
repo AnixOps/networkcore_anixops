@@ -18,8 +18,10 @@
 //! Errors are plain [`std::io::Error`] values or fixed `&'static str`
 //! reasons. Implementations must keep credentials out of both.
 
+pub mod addr;
 pub mod registry;
 pub mod server;
+pub mod stream;
 pub mod users;
 
 use std::io;
@@ -27,6 +29,9 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use engine_outbound::{BoxFuture, BoxStream, TargetAddr};
+use tokio::io::AsyncReadExt;
+
+use crate::stream::PrefixedStream;
 
 pub use users::{OnlineUser, User, UserEntry, UserStore, UserTraffic};
 
@@ -88,4 +93,55 @@ pub trait StreamInbound: Send + Sync {
         stream: BoxStream,
         peer: SocketAddr,
     ) -> BoxFuture<'a, Result<Accepted, Rejected>>;
+}
+
+/// Largest first read a protocol inspects before deciding between its own
+/// handshake and the fallback; one TLS record.
+pub const FIRST_READ_BYTES: usize = 16 * 1024;
+
+/// Reads whatever the client sends first, up to [`FIRST_READ_BYTES`]. An
+/// empty result means the client closed the connection.
+pub async fn read_first(stream: &mut BoxStream) -> io::Result<Vec<u8>> {
+    let mut buf = vec![0u8; FIRST_READ_BYTES];
+    let n = stream.read(&mut buf).await?;
+    buf.truncate(n);
+    Ok(buf)
+}
+
+/// Answers a client that failed authentication: with a fallback (usually a
+/// local web server) the connection is relayed there unchanged, starting
+/// with the bytes already read, and charged to no user; without one it is
+/// held open and drained.
+pub fn fallback_or_hold(
+    fallback: Option<&TargetAddr>,
+    consumed: Vec<u8>,
+    stream: BoxStream,
+    reason: &'static str,
+) -> Result<Accepted, Rejected> {
+    match fallback {
+        Some(target) => Ok(Accepted {
+            user: None,
+            target: target.clone(),
+            stream: Box::new(PrefixedStream::new(stream).with_read_prefix(consumed)),
+        }),
+        None => Err(Rejected::hold(reason, stream)),
+    }
+}
+
+/// `"fallback": {"server": "127.0.0.1", "server_port": 8080}` in inbound
+/// settings.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FallbackSettings {
+    pub server: String,
+    pub server_port: u16,
+}
+
+impl FallbackSettings {
+    pub fn target(&self) -> TargetAddr {
+        match self.server.parse::<std::net::IpAddr>() {
+            Ok(ip) => TargetAddr::Ip(SocketAddr::new(ip, self.server_port)),
+            Err(_) => TargetAddr::Domain(self.server.clone(), self.server_port),
+        }
+    }
 }
