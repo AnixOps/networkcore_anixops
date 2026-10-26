@@ -48,6 +48,11 @@ impl OutboundFactory for Hysteria2Factory {
         TYPE_NAME
     }
 
+    /// QUIC runs over its own UDP socket, which a `via` cannot carry yet.
+    fn supports_via(&self) -> bool {
+        false
+    }
+
     /// The dialer is unused: Hysteria2 runs over its own UDP socket.
     fn build(
         &self,

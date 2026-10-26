@@ -157,7 +157,7 @@ impl TcpOutbound for AeadOutbound {
     fn open_udp<'a>(&'a self, target: &'a TargetAddr) -> BoxFuture<'a, io::Result<UdpFlow>> {
         Box::pin(async move {
             let address = encode_address(target)?;
-            let socket = crate::udp::connect(&self.server, self.port).await?;
+            let socket = self.dialer.open_datagram(&self.server, self.port).await?;
             Ok(crate::udp::aead_flow(
                 socket,
                 self.method,

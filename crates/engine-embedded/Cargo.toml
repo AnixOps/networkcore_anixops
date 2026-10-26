@@ -80,8 +80,12 @@ windows-sys = { version = "0.61.2", features = [
 [dev-dependencies]
 base64 = "0.22"
 boringtun = { version = "0.7", default-features = false }
+engine-inbound = { path = "../engine-inbound" }
 etherparse = "0.16"
+# tests/via_chain.rs: an iWAN line and a Shadowsocks-2022 land node in process.
+inbound-iwan = { path = "../inbound-iwan" }
 inbound-mixed = { path = "../inbound-mixed" }
+inbound-shadowsocks = { path = "../inbound-shadowsocks" }
 tokio = { version = "1", default-features = false, features = ["rt", "rt-multi-thread", "net", "io-util", "time", "sync", "macros"] }
 
 [lib]

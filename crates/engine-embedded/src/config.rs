@@ -16,7 +16,7 @@ use std::sync::Arc;
 use config_core::routing::{PolicyGroupSpec, RoutingSpec};
 use config_core::rule_set::{BareDomain, RuleSet, RuleSetEntries, MAX_RULE_SET_ENTRIES};
 use engine_outbound::registry::{OutboundRegistry, Settings};
-use engine_outbound::{Dialer, TcpOutbound};
+use engine_outbound::{Dialer, OutboundDialer, TcpOutbound};
 use serde::Deserialize;
 
 use crate::connections::{Dispatcher, Mode};
@@ -37,6 +37,8 @@ const MAX_PROFILE_ID_LEN: usize = 128;
 // Shared with the importer, which only offers routing that fits.
 use node_import::{MAX_POLICY_GROUPS, MAX_ROUTED_OUTBOUNDS, MAX_ROUTING_RULES};
 const MAX_RULE_SETS: usize = 32;
+/// Longest `via` chain, the outbound itself included.
+const MAX_VIA_CHAIN: usize = 4;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -101,8 +103,23 @@ pub struct MitmConfig {
 pub struct OutboundConfig {
     #[serde(rename = "type")]
     pub kind: String,
+    /// The outbound this one connects through (a proxy chain); see
+    /// `docs/architecture/outbound-via.md`. Never part of `settings`.
+    #[serde(default)]
+    pub via: Option<Via>,
     #[serde(flatten)]
     pub settings: Settings,
+}
+
+/// The `via` of an outbound.
+#[derive(Deserialize)]
+#[serde(untagged)]
+pub enum Via {
+    /// Another node of `routing.outbounds`; nodes that name the same one
+    /// share it (one iWAN session, one login).
+    Node(String),
+    /// An outbound of its own, built for this one only.
+    Inline(Box<OutboundConfig>),
 }
 
 /// What the runtime runs for a config.
@@ -489,6 +506,11 @@ impl RuntimeConfig {
             .as_ref()
             .filter(|outbound| outbound.kind == wireguard::TYPE_NAME)
         {
+            if outbound.via.is_some() {
+                return Err(rejected(
+                    "wireguard is a packet tunnel and cannot use a via",
+                ));
+            }
             return wireguard::settings_from(&outbound.settings)
                 .map(TunnelMode::WireGuard)
                 .map_err(rejected);
@@ -502,7 +524,9 @@ impl RuntimeConfig {
         dialer: Arc<dyn Dialer>,
     ) -> Result<Arc<dyn TcpOutbound>, RuntimeError> {
         match (&self.outbound, self.build_routed(registry, dialer.clone())?) {
-            (Some(outbound), _) => build_single_outbound(registry, outbound, dialer),
+            (Some(outbound), _) => {
+                build_chained(registry, outbound, dialer).map(|(built, _)| built)
+            }
             (None, Some(routed)) => Ok(routed as Arc<dyn TcpOutbound>),
             (None, None) => Err(rejected("exactly one of outbound and routing must be set")),
         }
@@ -536,13 +560,21 @@ impl RuntimeConfig {
         let Some(routing) = self.routing.as_ref().filter(|_| self.outbound.is_none()) else {
             return Ok(None);
         };
-        let mut nodes = BTreeMap::new();
-        for (id, outbound) in &routing.outbounds {
-            nodes.insert(
-                id.clone(),
-                build_single_outbound(registry, outbound, dialer.clone())?,
-            );
+        let mut built = BTreeMap::new();
+        for id in routing.outbounds.keys() {
+            build_routed_node(
+                registry,
+                &routing.outbounds,
+                id,
+                &dialer,
+                &mut built,
+                &mut Vec::new(),
+            )?;
         }
+        let nodes = built
+            .into_iter()
+            .map(|(id, (outbound, _))| (id, outbound))
+            .collect();
         let spec = RoutingSpec {
             rules: routing.rules.clone(),
             groups: routing
@@ -586,8 +618,88 @@ impl RuntimeConfig {
     }
 }
 
+/// A built outbound and the length of its `via` chain, itself included.
+type Chained = (Arc<dyn TcpOutbound>, usize);
+
+/// Builds routing node `id` after the node its `via` names, sharing nodes
+/// already in `built`. `path` holds the nodes that wait on this one.
+fn build_routed_node(
+    registry: &OutboundRegistry,
+    configs: &BTreeMap<String, OutboundConfig>,
+    id: &str,
+    dialer: &Arc<dyn Dialer>,
+    built: &mut BTreeMap<String, Chained>,
+    path: &mut Vec<String>,
+) -> Result<Chained, RuntimeError> {
+    if let Some(node) = built.get(id) {
+        return Ok(node.clone());
+    }
+    if path.iter().any(|waiting| waiting == id) {
+        return Err(rejected(
+            "routing outbounds run through each other in a loop",
+        ));
+    }
+    let outbound = configs
+        .get(id)
+        .ok_or_else(|| rejected("a via names a routing outbound that does not exist"))?;
+    let (node_dialer, below) = match &outbound.via {
+        None => (dialer.clone(), 0),
+        Some(Via::Node(via)) => {
+            path.push(id.to_string());
+            let result = build_routed_node(registry, configs, via, dialer, built, path);
+            path.pop();
+            let (via, length) = result?;
+            (Arc::new(OutboundDialer(via)) as Arc<dyn Dialer>, length)
+        }
+        Some(Via::Inline(via)) => {
+            let (via, length) = build_chained(registry, via, dialer.clone())?;
+            (Arc::new(OutboundDialer(via)) as Arc<dyn Dialer>, length)
+        }
+    };
+    let node = (
+        build_single_outbound(registry, outbound, node_dialer)?,
+        checked_chain(below)?,
+    );
+    built.insert(id.to_string(), node.clone());
+    Ok(node)
+}
+
+/// Builds `outbound` after its inline `via`, if any. Only routing has nodes
+/// for a `via` to name.
+fn build_chained(
+    registry: &OutboundRegistry,
+    outbound: &OutboundConfig,
+    dialer: Arc<dyn Dialer>,
+) -> Result<Chained, RuntimeError> {
+    let (dialer, below) = match &outbound.via {
+        None => (dialer, 0),
+        Some(Via::Node(_)) => {
+            return Err(rejected(
+                "a via can name another outbound only in routing.outbounds",
+            ))
+        }
+        Some(Via::Inline(via)) => {
+            let (via, length) = build_chained(registry, via, dialer)?;
+            (Arc::new(OutboundDialer(via)) as Arc<dyn Dialer>, length)
+        }
+    };
+    Ok((
+        build_single_outbound(registry, outbound, dialer)?,
+        checked_chain(below)?,
+    ))
+}
+
+/// The chain length of an outbound over a `via` chain of `below`.
+fn checked_chain(below: usize) -> Result<usize, RuntimeError> {
+    if below >= MAX_VIA_CHAIN {
+        return Err(rejected("a via chain is longer than 4 outbounds"));
+    }
+    Ok(below + 1)
+}
+
 /// Builds one TCP outbound. WireGuard runs as a packet tunnel, so it cannot be
-/// used here or as a routed node.
+/// used here or as a routed node. With a `via`, the protocol must send all
+/// its traffic through the dialer.
 fn build_single_outbound(
     registry: &OutboundRegistry,
     outbound: &OutboundConfig,
@@ -596,6 +708,14 @@ fn build_single_outbound(
     #[cfg(feature = "wireguard")]
     if outbound.kind == wireguard::TYPE_NAME {
         return Err(rejected("wireguard is a packet tunnel, not a TCP outbound"));
+    }
+    if outbound.via.is_some()
+        && registry.contains(&outbound.kind)
+        && !registry.supports_via(&outbound.kind)
+    {
+        return Err(rejected(
+            "this protocol opens its own sockets and cannot run through a via",
+        ));
     }
     registry
         .build(&outbound.kind, &outbound.settings, dialer)

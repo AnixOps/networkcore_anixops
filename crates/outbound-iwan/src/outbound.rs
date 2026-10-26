@@ -30,6 +30,11 @@ impl OutboundFactory for IwanFactory {
         TYPE_NAME
     }
 
+    /// The tunnel runs over its own UDP socket, which a `via` cannot carry.
+    fn supports_via(&self) -> bool {
+        false
+    }
+
     /// The tunnel runs over its own UDP socket, so the dialer is unused.
     fn build(
         &self,

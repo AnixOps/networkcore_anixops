@@ -25,7 +25,7 @@ use std::net::{IpAddr, SocketAddr};
 use std::pin::Pin;
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadHalf, WriteHalf};
-use tokio::net::TcpStream;
+use tokio::net::{TcpStream, UdpSocket};
 
 /// Boxed `Send` future used by the object-safe traits in this crate.
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
@@ -50,6 +50,18 @@ impl TargetAddr {
         match self {
             TargetAddr::Ip(addr) => addr.port(),
             TargetAddr::Domain(_, port) => *port,
+        }
+    }
+
+    /// An address target when `host` is an IP address, else a name.
+    pub fn from_host(host: &str, port: u16) -> Self {
+        match host
+            .trim_start_matches('[')
+            .trim_end_matches(']')
+            .parse::<IpAddr>()
+        {
+            Ok(ip) => TargetAddr::Ip(SocketAddr::new(ip, port)),
+            Err(_) => TargetAddr::Domain(host.to_string(), port),
         }
     }
 
@@ -86,6 +98,13 @@ impl fmt::Display for TargetAddr {
 /// Opens the underlying transport connection to a proxy server.
 pub trait Dialer: Send + Sync {
     fn dial<'a>(&'a self, host: &'a str, port: u16) -> BoxFuture<'a, io::Result<BoxStream>>;
+
+    /// Opens a datagram path to a proxy server, for protocols whose UDP
+    /// goes to the server as datagrams (Shadowsocks, SOCKS5 UDP ASSOCIATE).
+    /// The default is a system UDP socket connected to the server.
+    fn open_datagram<'a>(&'a self, host: &'a str, port: u16) -> BoxFuture<'a, io::Result<UdpFlow>> {
+        Box::pin(socket_flow(host, port))
+    }
 }
 
 /// Default dialer: a plain tokio TCP connection with `TCP_NODELAY`.
@@ -98,6 +117,66 @@ impl Dialer for TcpDialer {
             let stream = TcpStream::connect((host, port)).await?;
             stream.set_nodelay(true)?;
             Ok(Box::new(stream) as BoxStream)
+        })
+    }
+}
+
+/// Dials through another outbound: the `via` of a node (a proxy chain). TCP
+/// connections to the server are the outbound's connections and datagrams
+/// its UDP flows; host names are left to the outbound to resolve.
+pub struct OutboundDialer(pub std::sync::Arc<dyn TcpOutbound>);
+
+impl Dialer for OutboundDialer {
+    fn dial<'a>(&'a self, host: &'a str, port: u16) -> BoxFuture<'a, io::Result<BoxStream>> {
+        Box::pin(async move { self.0.connect(&TargetAddr::from_host(host, port)).await })
+    }
+
+    fn open_datagram<'a>(&'a self, host: &'a str, port: u16) -> BoxFuture<'a, io::Result<UdpFlow>> {
+        Box::pin(async move { self.0.open_udp(&TargetAddr::from_host(host, port)).await })
+    }
+}
+
+/// A system UDP socket connected to `host:port`, as a flow.
+async fn socket_flow(host: &str, port: u16) -> io::Result<UdpFlow> {
+    let addr = tokio::net::lookup_host((host, port))
+        .await?
+        .next()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "proxy server not found"))?;
+    let bind: SocketAddr = if addr.is_ipv4() {
+        (std::net::Ipv4Addr::UNSPECIFIED, 0).into()
+    } else {
+        (std::net::Ipv6Addr::UNSPECIFIED, 0).into()
+    };
+    let socket = UdpSocket::bind(bind).await?;
+    socket.connect(addr).await?;
+    let socket = std::sync::Arc::new(socket);
+    Ok(UdpFlow::new(
+        Box::new(SocketSend(socket.clone())),
+        Box::new(SocketRecv {
+            socket,
+            buf: vec![0u8; MAX_DATAGRAM],
+        }),
+    ))
+}
+
+struct SocketSend(std::sync::Arc<UdpSocket>);
+
+impl DatagramSend for SocketSend {
+    fn send<'a>(&'a mut self, payload: &'a [u8]) -> BoxFuture<'a, io::Result<()>> {
+        Box::pin(async move { self.0.send(payload).await.map(|_| ()) })
+    }
+}
+
+struct SocketRecv {
+    socket: std::sync::Arc<UdpSocket>,
+    buf: Vec<u8>,
+}
+
+impl DatagramRecv for SocketRecv {
+    fn recv(&mut self) -> BoxFuture<'_, io::Result<Vec<u8>>> {
+        Box::pin(async move {
+            let n = self.socket.recv(&mut self.buf).await?;
+            Ok(self.buf[..n].to_vec())
         })
     }
 }
@@ -193,5 +272,30 @@ impl DatagramRecv for MessageRecv {
             }
             Ok(self.buf[..n].to_vec())
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn from_host_tells_addresses_from_names() {
+        assert_eq!(
+            TargetAddr::from_host("198.51.100.20", 8388),
+            TargetAddr::Ip("198.51.100.20:8388".parse().unwrap())
+        );
+        assert_eq!(
+            TargetAddr::from_host("[2001:db8::1]", 443),
+            TargetAddr::Ip("[2001:db8::1]:443".parse().unwrap())
+        );
+        assert_eq!(
+            TargetAddr::from_host("2001:db8::1", 443),
+            TargetAddr::Ip("[2001:db8::1]:443".parse().unwrap())
+        );
+        assert_eq!(
+            TargetAddr::from_host("land.example", 443),
+            TargetAddr::Domain("land.example".to_string(), 443)
+        );
     }
 }
