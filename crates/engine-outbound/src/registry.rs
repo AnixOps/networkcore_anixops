@@ -30,6 +30,14 @@ pub trait OutboundFactory: Send + Sync {
         settings: &Settings,
         dialer: Arc<dyn Dialer>,
     ) -> Result<Arc<dyn TcpOutbound>, BuildError>;
+
+    /// Whether every byte the protocol sends goes through its [`Dialer`], so
+    /// that it can run through another outbound (a node's `via`). Protocols
+    /// that open their own sockets (QUIC, layer-3 tunnels) return `false`:
+    /// with a `via` their traffic would leave beside it.
+    fn supports_via(&self) -> bool {
+        true
+    }
 }
 
 /// Deserializes `settings` into a protocol's own settings struct.
@@ -71,6 +79,14 @@ impl OutboundRegistry {
     /// Registered type names in sorted order.
     pub fn type_names(&self) -> impl Iterator<Item = &'static str> + '_ {
         self.factories.keys().copied()
+    }
+
+    /// Whether `type_name` can run through another outbound; see
+    /// [`OutboundFactory::supports_via`]. `false` for unknown types.
+    pub fn supports_via(&self, type_name: &str) -> bool {
+        self.factories
+            .get(type_name)
+            .is_some_and(|factory| factory.supports_via())
     }
 
     pub fn build(

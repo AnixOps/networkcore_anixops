@@ -1,4 +1,6 @@
-//! Shadowsocks UDP clients: one socket per flow, connected to the server.
+//! Shadowsocks UDP clients: one datagram path to the server per flow, from
+//! [`engine_outbound::Dialer::open_datagram`] (a connected UDP socket unless
+//! the node runs through a `via`).
 //!
 //! SIP004: each packet is `salt | AEAD(HKDF-SHA1(key, salt), nonce 0,
 //! address | payload)` in both directions.
@@ -17,7 +19,6 @@
 //! skipped rather than ending the flow.
 
 use std::io;
-use std::net::SocketAddr;
 use std::sync::Arc;
 
 use aes::cipher::{BlockCipherDecrypt, BlockCipherEncrypt, KeyInit};
@@ -25,9 +26,8 @@ use aes::{Aes128, Aes256, Block};
 use chacha20poly1305::aead::AeadInPlace;
 use chacha20poly1305::KeyInit as _;
 use chacha20poly1305::{Tag, XChaCha20Poly1305, XNonce};
-use engine_outbound::{BoxFuture, DatagramRecv, DatagramSend, UdpFlow, MAX_DATAGRAM};
+use engine_outbound::{BoxFuture, DatagramRecv, DatagramSend, UdpFlow};
 use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey};
-use tokio::net::UdpSocket;
 
 use crate::sip004::AeadMethod;
 use crate::{
@@ -37,47 +37,30 @@ use crate::{
 
 const XNONCE_LEN: usize = 24;
 
-/// A UDP socket connected to the proxy server.
-pub(crate) async fn connect(server: &str, port: u16) -> io::Result<Arc<UdpSocket>> {
-    let addr = tokio::net::lookup_host((server, port))
-        .await?
-        .next()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "shadowsocks server not found"))?;
-    let bind: SocketAddr = if addr.is_ipv4() {
-        (std::net::Ipv4Addr::UNSPECIFIED, 0).into()
-    } else {
-        (std::net::Ipv6Addr::UNSPECIFIED, 0).into()
-    };
-    let socket = UdpSocket::bind(bind).await?;
-    socket.connect(addr).await?;
-    Ok(Arc::new(socket))
-}
-
 /// A SIP004 flow to the target encoded in `address`.
 pub(crate) fn aead_flow(
-    socket: Arc<UdpSocket>,
+    server: UdpFlow,
     method: AeadMethod,
     key: Arc<[u8]>,
     address: Vec<u8>,
 ) -> UdpFlow {
     UdpFlow::new(
         Box::new(AeadSend {
-            socket: socket.clone(),
+            server: server.send,
             method,
             key: key.clone(),
             address,
         }),
         Box::new(AeadRecv {
-            socket,
+            server: server.recv,
             method,
             key,
-            buf: vec![0u8; MAX_DATAGRAM],
         }),
     )
 }
 
 struct AeadSend {
-    socket: Arc<UdpSocket>,
+    server: Box<dyn DatagramSend>,
     method: AeadMethod,
     key: Arc<[u8]>,
     address: Vec<u8>,
@@ -93,25 +76,24 @@ impl DatagramSend for AeadSend {
             plaintext.extend_from_slice(&self.address);
             plaintext.extend_from_slice(payload);
             cipher.seal_into(&mut packet, &plaintext)?;
-            self.socket.send(&packet).await.map(|_| ())
+            self.server.send(&packet).await
         })
     }
 }
 
 struct AeadRecv {
-    socket: Arc<UdpSocket>,
+    server: Box<dyn DatagramRecv>,
     method: AeadMethod,
     key: Arc<[u8]>,
-    buf: Vec<u8>,
 }
 
 impl AeadRecv {
-    fn open(&mut self, n: usize) -> Option<Vec<u8>> {
+    fn open(&self, packet: &mut [u8]) -> Option<Vec<u8>> {
         let salt_len = self.method.key_len();
-        if n < salt_len + TAG_LEN {
+        if packet.len() < salt_len + TAG_LEN {
             return None;
         }
-        let (salt, body) = self.buf[..n].split_at_mut(salt_len);
+        let (salt, body) = packet.split_at_mut(salt_len);
         let mut cipher = self.method.session_cipher(&self.key, salt).ok()?;
         let len = cipher.open_in_place(body).ok()?;
         let offset = address_len(&body[..len])?;
@@ -123,8 +105,8 @@ impl DatagramRecv for AeadRecv {
     fn recv(&mut self) -> BoxFuture<'_, io::Result<Vec<u8>>> {
         Box::pin(async move {
             loop {
-                let n = self.socket.recv(&mut self.buf).await?;
-                if let Some(payload) = self.open(n) {
+                let mut packet = self.server.recv().await?;
+                if let Some(payload) = self.open(&mut packet) {
                     return Ok(payload);
                 }
             }
@@ -134,7 +116,7 @@ impl DatagramRecv for AeadRecv {
 
 /// A SIP022 flow to the target encoded in `address`.
 pub(crate) fn ss2022_flow(
-    socket: Arc<UdpSocket>,
+    server: UdpFlow,
     method: Method,
     psk: Arc<[u8]>,
     identity_keys: Arc<[Box<[u8]>]>,
@@ -149,7 +131,7 @@ pub(crate) fn ss2022_flow(
     };
     Ok(UdpFlow::new(
         Box::new(Ss2022Send {
-            socket: socket.clone(),
+            server: server.send,
             method,
             psk: psk.clone(),
             identity_keys,
@@ -159,18 +141,17 @@ pub(crate) fn ss2022_flow(
             address,
         }),
         Box::new(Ss2022Recv {
-            socket,
+            server: server.recv,
             method,
             psk,
             session_id,
             downlink: None,
-            buf: vec![0u8; MAX_DATAGRAM],
         }),
     ))
 }
 
 struct Ss2022Send {
-    socket: Arc<UdpSocket>,
+    server: Box<dyn DatagramSend>,
     method: Method,
     psk: Arc<[u8]>,
     identity_keys: Arc<[Box<[u8]>]>,
@@ -249,29 +230,29 @@ impl DatagramSend for Ss2022Send {
     fn send<'a>(&'a mut self, payload: &'a [u8]) -> BoxFuture<'a, io::Result<()>> {
         Box::pin(async move {
             let packet = self.seal(payload)?;
-            self.socket.send(&packet).await.map(|_| ())
+            self.server.send(&packet).await
         })
     }
 }
 
 struct Ss2022Recv {
-    socket: Arc<UdpSocket>,
+    server: Box<dyn DatagramRecv>,
     method: Method,
     psk: Arc<[u8]>,
     session_id: u64,
     /// The server session id and its cipher, kept while it stays the same.
     downlink: Option<(u64, LessSafeKey)>,
-    buf: Vec<u8>,
 }
 
 impl Ss2022Recv {
     /// The payload of one server packet, or `None` to skip it.
-    fn open(&mut self, n: usize) -> Option<Vec<u8>> {
+    fn open(&mut self, packet: &mut [u8]) -> Option<Vec<u8>> {
+        let n = packet.len();
         let body = if self.method == Method::ChaCha20Poly1305 {
             if n < XNONCE_LEN + 16 + TAG_LEN {
                 return None;
             }
-            let (nonce, rest) = self.buf[..n].split_at_mut(XNONCE_LEN);
+            let (nonce, rest) = packet.split_at_mut(XNONCE_LEN);
             let (data, tag) = rest.split_at_mut(rest.len() - TAG_LEN);
             XChaCha20Poly1305::new_from_slice(&self.psk)
                 .ok()?
@@ -287,7 +268,7 @@ impl Ss2022Recv {
             if n < 16 + TAG_LEN {
                 return None;
             }
-            let (header, rest) = self.buf[..n].split_at_mut(16);
+            let (header, rest) = packet.split_at_mut(16);
             aes_block(self.method, &self.psk, header, false).ok()?;
             let server_session = u64::from_be_bytes(header[..8].try_into().ok()?);
             if self.downlink.as_ref().map(|(id, _)| *id) != Some(server_session) {
@@ -323,8 +304,8 @@ impl DatagramRecv for Ss2022Recv {
     fn recv(&mut self) -> BoxFuture<'_, io::Result<Vec<u8>>> {
         Box::pin(async move {
             loop {
-                let n = self.socket.recv(&mut self.buf).await?;
-                if let Some(payload) = self.open(n) {
+                let mut packet = self.server.recv().await?;
+                if let Some(payload) = self.open(&mut packet) {
                     return Ok(payload);
                 }
             }

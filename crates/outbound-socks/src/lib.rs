@@ -15,15 +15,13 @@
 mod factory;
 
 use std::io;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 
 use engine_outbound::{
     BoxFuture, BoxStream, DatagramRecv, DatagramSend, Dialer, TargetAddr, TcpOutbound, UdpFlow,
-    MAX_DATAGRAM,
 };
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
-use tokio::net::UdpSocket;
 
 pub use factory::{SocksFactory, TYPE_NAME};
 
@@ -108,46 +106,31 @@ impl TcpOutbound for SocksOutbound {
             let mut control = self.dialer.dial(&self.server, self.port).await?;
             negotiate(&mut control, self.credentials.as_ref()).await?;
             control.write_all(&request).await?;
-            let relay = match read_reply(&mut control).await? {
+            let (host, port) = match read_reply(&mut control).await? {
                 TargetAddr::Ip(addr) if addr.ip().is_unspecified() => {
-                    SocketAddr::new(resolve(&self.server, self.port).await?.ip(), addr.port())
+                    (self.server.clone(), addr.port())
                 }
-                TargetAddr::Ip(addr) => addr,
-                TargetAddr::Domain(host, port) => resolve(&host, port).await?,
+                relay => (relay.host(), relay.port()),
             };
-            let bind: SocketAddr = if relay.is_ipv4() {
-                (Ipv4Addr::UNSPECIFIED, 0).into()
-            } else {
-                (Ipv6Addr::UNSPECIFIED, 0).into()
-            };
-            let socket = Arc::new(UdpSocket::bind(bind).await?);
-            socket.connect(relay).await?;
+            let relay = self.dialer.open_datagram(&host, port).await?;
             Ok(UdpFlow::new(
                 Box::new(UdpSend {
-                    socket: socket.clone(),
+                    send: relay.send,
                     header,
                     packet: Vec::new(),
                 }),
                 Box::new(UdpRecv {
-                    socket,
+                    recv: relay.recv,
                     control,
-                    buf: vec![0u8; MAX_DATAGRAM],
                 }),
             ))
         })
     }
 }
 
-async fn resolve(host: &str, port: u16) -> io::Result<SocketAddr> {
-    tokio::net::lookup_host((host, port))
-        .await?
-        .next()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "socks relay not found"))
-}
-
 /// Sends each datagram to the relay with the target's SOCKS UDP header.
 struct UdpSend {
-    socket: Arc<UdpSocket>,
+    send: Box<dyn DatagramSend>,
     /// `RSV RSV FRAG ATYP ADDR PORT` for the flow's target.
     header: Vec<u8>,
     packet: Vec<u8>,
@@ -159,7 +142,7 @@ impl DatagramSend for UdpSend {
             self.packet.clear();
             self.packet.extend_from_slice(&self.header);
             self.packet.extend_from_slice(payload);
-            self.socket.send(&self.packet).await.map(|_| ())
+            self.send.send(&self.packet).await
         })
     }
 }
@@ -167,9 +150,8 @@ impl DatagramSend for UdpSend {
 /// Receives relay datagrams; ends when the server closes the association's
 /// TCP connection.
 struct UdpRecv {
-    socket: Arc<UdpSocket>,
+    recv: Box<dyn DatagramRecv>,
     control: BoxStream,
-    buf: Vec<u8>,
 }
 
 impl DatagramRecv for UdpRecv {
@@ -178,8 +160,8 @@ impl DatagramRecv for UdpRecv {
             let mut probe = [0u8; 1];
             loop {
                 tokio::select! {
-                    received = self.socket.recv(&mut self.buf) => {
-                        if let Some(payload) = udp_payload(&self.buf[..received?]) {
+                    received = self.recv.recv() => {
+                        if let Some(payload) = udp_payload(&received?) {
                             return Ok(payload.to_vec());
                         }
                     }
