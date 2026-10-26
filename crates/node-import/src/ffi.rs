@@ -53,7 +53,7 @@ pub extern "C" fn networkcore_import_abi_version() -> u32 {
 
 /// Parses `text` (UTF-8) and writes the report as JSON:
 /// `{"nodes":[{"id","name","protocol","server","port","outbound"}],
-///   "unsupported":[{"name","protocol","reason"}], "routing"?:{"rules","groups"}}`;
+///   "unsupported":[{"name","protocol","reason"}], "routing"?:{"rules","groups","rule_sets"?}}`;
 /// `routing` appears only when the subscription's rules can run (see
 /// [`crate::ImportReport::routing`]).
 ///

@@ -2,8 +2,9 @@ use config_core::routing::{
     PolicyGroupKind, PolicyTarget, RouteOutcome, RouteQuery, RuleMatcher, StaticRoutingEnvironment,
 };
 use config_core::routing_import::{
-    import_subscription_routing, ImportedRouting, ROUTING_IMPORT_GROUP_SKIPPED_CODE,
-    ROUTING_IMPORT_INVALID_CODE, ROUTING_IMPORT_MEMBER_SKIPPED_CODE, ROUTING_IMPORT_READY_CODE,
+    import_subscription_routing, ImportedRouting, ImportedRuleSet,
+    ROUTING_IMPORT_GROUP_SKIPPED_CODE, ROUTING_IMPORT_INVALID_CODE,
+    ROUTING_IMPORT_MEMBER_SKIPPED_CODE, ROUTING_IMPORT_READY_CODE,
     ROUTING_IMPORT_RULE_SKIPPED_CODE,
 };
 use config_core::CoreSubscriptionService;
@@ -135,6 +136,11 @@ fn surge_profile_imports_supported_rules_and_groups() {
                 false
             ),
             (
+                RuleMatcher::ProcessName("curl".to_string()),
+                PolicyTarget::Direct,
+                false
+            ),
+            (
                 RuleMatcher::DomainSuffix("balance.example".to_string()),
                 PolicyTarget::Group("Balance".to_string()),
                 false
@@ -213,7 +219,6 @@ fn surge_profile_imports_supported_rules_and_groups() {
         .join("\n");
     assert!(messages.contains("Blocked"));
     assert!(messages.contains("Backup member Auto was skipped"));
-    assert!(messages.contains("PROCESS-NAME x1"));
     assert!(messages.contains("URL-REGEX x1"));
     assert!(!messages.contains("f43c0eee"));
 }
@@ -253,7 +258,8 @@ fn clash_yaml_imports_rules_groups_and_match() {
     assert!(imported
         .diagnostics
         .iter()
-        .any(|diagnostic| diagnostic.message.contains("RULE-SET x1")));
+        .any(|diagnostic| diagnostic.message.contains("rule set private is not a URL")));
+    assert!(imported.rule_sets.is_empty());
 }
 
 #[test]
@@ -388,4 +394,153 @@ rules:
         .diagnostics
         .iter()
         .any(|diagnostic| diagnostic.message.contains("options were ignored")));
+}
+
+#[test]
+fn clash_rule_providers_and_logical_rules_import() {
+    let profile = r#"
+proxies:
+  - { name: HK 01, type: ss, server: 82.47.34.99, port: 11111, cipher: aes-256-gcm, password: f43c0eee-13b9-4f07-bec9-d4b744141503 }
+proxy-groups:
+  - { name: Proxy, type: select, proxies: [HK 01, DIRECT] }
+rule-providers:
+  reject:
+    type: http
+    behavior: domain
+    url: https://rules.example/reject.txt?token=secret-token
+    path: ./ruleset/reject.yaml
+    interval: 86400
+  cncidr:
+    type: http
+    behavior: ipcidr
+    format: text
+    url: https://rules.example/cncidr.txt
+    interval: 60
+    proxy: Proxy
+  binary:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://rules.example/binary.mrs
+  local:
+    type: file
+    behavior: classical
+    path: ./local.yaml
+rules:
+  - RULE-SET,reject,REJECT
+  - RULE-SET,cncidr,DIRECT,no-resolve
+  - RULE-SET,binary,Proxy
+  - RULE-SET,local,Proxy
+  - GEOSITE,cn,DIRECT
+  - PROCESS-NAME,Telegram,Proxy
+  - AND,((RULE-SET,reject),(DST-PORT,443)),Proxy
+  - OR,((DOMAIN,a.example),(IP-CIDR,10.0.0.0/8,no-resolve)),DIRECT,no-resolve
+  - NOT,((DOMAIN-SUFFIX,example.org)),Proxy
+  - MATCH,Proxy
+"#;
+    let nodes = parse_nodes(profile);
+    let imported = import_subscription_routing(profile, &nodes);
+    let spec = imported.spec.clone().expect("clash routing should import");
+    assert_eq!(
+        spec.rules,
+        vec![
+            "RULE-SET,reject,REJECT".to_string(),
+            "RULE-SET,cncidr,DIRECT".to_string(),
+            "GEOSITE,cn,DIRECT".to_string(),
+            "PROCESS-NAME,Telegram,Proxy".to_string(),
+            "AND,((RULE-SET,reject),(DST-PORT,443)),Proxy".to_string(),
+            "OR,((DOMAIN,a.example),(IP-CIDR,10.0.0.0/8,no-resolve)),DIRECT,no-resolve".to_string(),
+            "NOT,((DOMAIN-SUFFIX,example.org)),Proxy".to_string(),
+            "FINAL,Proxy".to_string(),
+        ]
+    );
+    assert_eq!(
+        imported.rule_sets,
+        vec![
+            ImportedRuleSet {
+                id: "reject".to_string(),
+                url: "https://rules.example/reject.txt?token=secret-token".to_string(),
+                format: Some("domain"),
+                interval_secs: Some(86400),
+                via: None,
+            },
+            ImportedRuleSet {
+                id: "cncidr".to_string(),
+                url: "https://rules.example/cncidr.txt".to_string(),
+                format: None,
+                interval_secs: Some(600),
+                via: Some("Proxy".to_string()),
+            },
+        ]
+    );
+    let model = imported.routing.clone().unwrap();
+    assert_eq!(model.rules.len(), 7);
+    assert_eq!(
+        model.rules[3].target,
+        PolicyTarget::Group("Proxy".to_string())
+    );
+    let messages = imported
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.message.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(messages.contains("format mrs is unsupported"));
+    assert!(messages.contains("type file is unsupported"));
+    assert!(!messages.contains("secret-token"));
+}
+
+#[test]
+fn surge_and_loon_rule_set_urls_import() {
+    let profile = r#"
+[Proxy]
+HK = ss, 82.47.34.99, 11111, encrypt-method=aes-256-gcm, password=f43c0eee-13b9-4f07-bec9-d4b744141503
+
+[Proxy Group]
+Proxy = select, HK, DIRECT
+
+[Rule]
+RULE-SET,https://rules.example/surge/Apple.list,DIRECT,update-interval=7200
+DOMAIN-SET,https://rules.example/surge/reject.txt,REJECT
+RULE-SET,https://rules.example/surge/Apple.list,Proxy
+RULE-SET,SYSTEM,DIRECT
+RULE-SET,https://other.example/lists/Apple.list,Proxy
+FINAL,Proxy
+
+[Remote Rule]
+https://rules.example/loon/Netflix.list, policy=Proxy, tag=Netflix, enabled=true
+https://rules.example/loon/Off.list, policy=Proxy, tag=Off, enabled=false
+"#;
+    let nodes = parse_nodes(profile);
+    let imported = import_subscription_routing(profile, &nodes);
+    let spec = imported.spec.clone().expect("surge routing should import");
+    assert_eq!(
+        spec.rules,
+        vec![
+            "RULE-SET,Apple,DIRECT".to_string(),
+            "RULE-SET,reject,REJECT".to_string(),
+            "RULE-SET,Apple,Proxy".to_string(),
+            "RULE-SET,Apple-2,Proxy".to_string(),
+            "RULE-SET,Netflix,Proxy".to_string(),
+            "FINAL,Proxy".to_string(),
+        ]
+    );
+    let summary = imported
+        .rule_sets
+        .iter()
+        .map(|set| (set.id.as_str(), set.format, set.interval_secs))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        summary,
+        vec![
+            ("Apple", None, Some(7200)),
+            ("reject", Some("domain"), None),
+            ("Apple-2", None, None),
+            ("Netflix", None, None),
+        ]
+    );
+    assert!(imported
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.message.contains("rule set SYSTEM is not a URL")));
 }

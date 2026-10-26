@@ -17,7 +17,7 @@ pub mod share_link;
 pub use share_link::share_link;
 
 use config_core::routing::RoutingSpec;
-use config_core::routing_import::import_subscription_routing;
+use config_core::routing_import::{import_subscription_routing, ImportedRuleSet};
 use control_domain::{
     NodeCatalog, NodeDescriptor, Protocol, SubscriptionService, SubscriptionSource,
     NODE_METADATA_HYSTERIA2_OBFS_PASSWORD, NODE_METADATA_HYSTERIA2_OBFS_TYPE,
@@ -71,8 +71,9 @@ pub const MAX_POLICY_GROUPS: usize = 64;
 pub struct ImportReport {
     pub nodes: Vec<ImportedNode>,
     pub unsupported: Vec<UnsupportedNode>,
-    /// The subscription's rules and policy groups as the engine's `routing`
-    /// section without `outbounds` (see [`routing_json`]). Present only when
+    /// The subscription's rules, policy groups and remote rule sets as the
+    /// engine's `routing` section without `outbounds` (see [`routing_json`]
+    /// and [`rule_sets_json`]). Present only when
     /// every node can run, every node id is a valid outbound id and the result
     /// fits the limits above; rules and groups name nodes by
     /// [`ImportedNode::id`].
@@ -174,11 +175,37 @@ fn subscription_routing(
     {
         return None;
     }
-    let spec = import_subscription_routing(text, nodes).spec?;
+    let imported = import_subscription_routing(text, nodes);
+    let spec = imported.spec?;
     if spec.rules.len() > MAX_ROUTING_RULES || spec.groups.len() > MAX_POLICY_GROUPS {
         return None;
     }
-    Some(routing_json(&spec))
+    let mut routing = routing_json(&spec);
+    if !imported.rule_sets.is_empty() {
+        routing["rule_sets"] = rule_sets_json(&imported.rule_sets);
+    }
+    Some(routing)
+}
+
+/// The engine's `routing.rule_sets` object for imported remote sets, keyed by
+/// id; unset fields are left out so the engine defaults apply.
+pub fn rule_sets_json(rule_sets: &[ImportedRuleSet]) -> Value {
+    let mut object = serde_json::Map::new();
+    for set in rule_sets {
+        let mut entry = serde_json::Map::new();
+        entry.insert("url".to_string(), json!(set.url));
+        if let Some(format) = set.format {
+            entry.insert("format".to_string(), json!(format));
+        }
+        if let Some(interval_secs) = set.interval_secs {
+            entry.insert("interval_secs".to_string(), json!(interval_secs));
+        }
+        if let Some(via) = &set.via {
+            entry.insert("via".to_string(), json!(via));
+        }
+        object.insert(set.id.clone(), Value::Object(entry));
+    }
+    Value::Object(object)
 }
 
 /// Same rule as the engine's routing outbound ids: 1-128 of `[A-Za-z0-9._-]`.
