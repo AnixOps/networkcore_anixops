@@ -20,7 +20,7 @@ const HELLO_RETRY_REQUEST_RANDOM: [u8; 32] = [
     0xc2, 0xa2, 0x11, 0x16, 0x7a, 0xbb, 0x8c, 0x5e, 0x07, 0x9e, 0x09, 0xe2, 0xc8, 0xa8, 0x33, 0x9c,
 ];
 const MLKEM768_CIPHERTEXT_LEN: usize = 1088;
-const MAX_HANDSHAKE_MESSAGE: usize = 64 * 1024;
+pub(crate) const MAX_HANDSHAKE_MESSAGE: usize = 64 * 1024;
 
 /// Client handshake parameters.
 #[derive(Clone, Debug)]
@@ -249,20 +249,20 @@ enum Expect {
 }
 
 #[derive(Default)]
-struct HandshakeBuffer {
+pub(crate) struct HandshakeBuffer {
     data: Vec<u8>,
 }
 
 impl HandshakeBuffer {
-    fn push(&mut self, bytes: &[u8]) {
+    pub(crate) fn push(&mut self, bytes: &[u8]) {
         self.data.extend_from_slice(bytes);
     }
 
-    fn is_empty(&self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         self.data.is_empty()
     }
 
-    fn next_message(&mut self) -> io::Result<Option<Vec<u8>>> {
+    pub(crate) fn next_message(&mut self) -> io::Result<Option<Vec<u8>>> {
         if self.data.len() < 4 {
             return Ok(None);
         }
@@ -279,7 +279,9 @@ impl HandshakeBuffer {
     }
 }
 
-async fn read_record<S: AsyncRead + Unpin>(io: &mut S) -> io::Result<([u8; 5], Vec<u8>)> {
+pub(crate) async fn read_record<S: AsyncRead + Unpin>(
+    io: &mut S,
+) -> io::Result<([u8; 5], Vec<u8>)> {
     let mut header = [0u8; 5];
     io.read_exact(&mut header).await?;
     let len = u16::from_be_bytes([header[3], header[4]]) as usize;
@@ -463,7 +465,7 @@ fn parse_certificate_verify(body: &[u8]) -> io::Result<(u16, &[u8])> {
     Ok((scheme, reader.take(len)?))
 }
 
-fn alert_from_payload(payload: &[u8]) -> io::Error {
+pub(crate) fn alert_from_payload(payload: &[u8]) -> io::Error {
     match payload {
         [_, description] => crate::alert_error(*description),
         _ => invalid_data("malformed TLS alert"),

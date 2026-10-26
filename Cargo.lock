@@ -106,6 +106,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "anixcore"
+version = "0.2.0"
+dependencies = [
+ "node-runtime",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "annotate-snippets"
 version = "0.12.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2626,10 +2635,13 @@ dependencies = [
  "inbound-transport",
  "outbound-vless",
  "rcgen",
+ "ring",
  "serde",
  "serde_json",
+ "tls-mimic",
  "tokio",
  "transport-tls",
+ "x25519-dalek",
 ]
 
 [[package]]
@@ -3265,6 +3277,24 @@ dependencies = [
  "control-domain",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "node-runtime"
+version = "0.2.0"
+dependencies = [
+ "engine-inbound",
+ "engine-outbound",
+ "inbound-hysteria2",
+ "inbound-shadowsocks",
+ "inbound-trojan",
+ "inbound-tuic",
+ "inbound-vless",
+ "inbound-vmess",
+ "outbound-shadowsocks",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

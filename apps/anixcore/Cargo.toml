@@ -1,0 +1,16 @@
+[package]
+name = "anixcore"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "AnixOps node kernel: protocol server inbounds driven by a local management API."
+
+[dependencies]
+node-runtime = { path = "../../crates/node-runtime" }
+serde_json = "1"
+tokio = { version = "1", default-features = false, features = ["net", "rt", "rt-multi-thread", "signal", "macros"] }
+
+[[bin]]
+name = "anixcore"
+path = "src/main.rs"

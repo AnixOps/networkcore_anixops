@@ -5,11 +5,13 @@
 //! payload back to the client. Users are matched by `uuid`. A client that is
 //! not a known VLESS user goes to the fallback, or is held open and drained.
 //!
-//! TLS is terminated by `inbound-transport` when the settings carry `tls`.
-//! Not yet: the `xtls-rprx-vision` flow, REALITY, UDP and mux commands; a
-//! client asking for any of them is refused.
+//! TLS is terminated by `inbound-transport` when the settings carry `tls`,
+//! or by the [`reality`] server when they carry `reality`.
+//! Not yet: the `xtls-rprx-vision` flow, UDP and mux commands; a client
+//! asking for any of them is refused.
 
 mod factory;
+pub mod reality;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -25,6 +27,7 @@ use outbound_vless::{parse_uuid, Flow};
 use tokio::io::AsyncReadExt;
 
 pub use factory::{VlessInboundFactory, TYPE_NAME};
+pub use reality::{RealityInbound, RealitySettings};
 
 pub const PROTOCOL: &str = "vless";
 

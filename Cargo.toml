@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "apps/anixcore",
     "apps/linux-cli",
     "apps/linux-gui",
     "apps/windows-cli",
@@ -25,6 +26,7 @@ members = [
     "crates/mitm-anixops-sys",
     "crates/mitm-policy",
     "crates/node-import",
+    "crates/node-runtime",
     "crates/outbound-http",
     "crates/outbound-hysteria2",
     "crates/outbound-shadowsocks",

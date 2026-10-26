@@ -7,7 +7,7 @@ use engine_inbound::{FallbackSettings, StreamInbound, User};
 use inbound_transport::TlsServerSettings;
 use serde::Deserialize;
 
-use crate::VlessInbound;
+use crate::{RealityInbound, RealitySettings, VlessInbound};
 
 pub const TYPE_NAME: &str = "vless";
 
@@ -19,6 +19,8 @@ struct VlessInboundSettings {
     users: Vec<User>,
     #[serde(default)]
     tls: Option<TlsServerSettings>,
+    #[serde(default)]
+    reality: Option<RealitySettings>,
     #[serde(default)]
     fallback: Option<FallbackSettings>,
 }
@@ -35,6 +37,10 @@ impl InboundFactory for VlessInboundFactory {
             parse_settings(settings, "vless inbound settings are missing or invalid")?;
         let inbound = VlessInbound::new(settings.fallback.as_ref().map(FallbackSettings::target));
         inbound.users().add_all(settings.users)?;
-        inbound_transport::wrap(Arc::new(inbound), settings.tls.as_ref())
+        match (&settings.tls, &settings.reality) {
+            (Some(_), Some(_)) => Err("vless inbound takes tls or reality, not both"),
+            (None, Some(reality)) => Ok(Arc::new(RealityInbound::new(Arc::new(inbound), reality)?)),
+            (tls, None) => inbound_transport::wrap(Arc::new(inbound), tls.as_ref()),
+        }
     }
 }

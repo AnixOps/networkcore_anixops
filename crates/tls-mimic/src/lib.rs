@@ -6,12 +6,14 @@
 //! TLS libraries it lets the caller edit the ClientHello and decide trust
 //! through [`HandshakeHooks`], which is what REALITY and similar protocols
 //! need. It deliberately supports only TLS 1.3 full handshakes: no TLS 1.2,
-//! no resumption, no 0-RTT and no client certificates.
+//! no resumption, no 0-RTT and no client certificates. [`server`] has the
+//! matching minimal server for REALITY-style inbounds.
 
 pub mod cert;
 pub mod crypto;
 pub mod fingerprint;
 mod handshake;
+pub mod server;
 mod stream;
 
 use std::io;

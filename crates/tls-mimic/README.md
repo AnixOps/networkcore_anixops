@@ -32,3 +32,9 @@ Known fingerprint limits: the hybrid and standalone key shares reuse one X25519
 key (so REALITY servers derive the same auth key from either), and no TLS
 padding extension is sent. Validation is the contract test suite plus the
 `REALITY interop (Linux)` CI job against OpenSSL, Xray-core and sing-box.
+
+`tls_mimic::server` is the matching minimal TLS 1.3 server for REALITY-style
+inbounds: the caller reads and inspects the ClientHello first
+(`read_client_hello` keeps every consumed byte so the connection can be
+replayed elsewhere), then `accept` finishes the handshake with an X25519 key
+exchange and an Ed25519 certificate.
