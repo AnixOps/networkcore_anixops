@@ -3028,6 +3028,7 @@ jobs:
           cargo test --locked -p outbound-tuic --test tuic_interop --no-run
           cargo test --locked -p outbound-snell --test snell_interop --no-run
           cargo test --locked -p outbound-mieru --test mieru_interop --no-run
+          cargo test --locked -p node-runtime --test client_interop --no-run
 
       - name: Download Xray-core, sing-box, Hysteria, snell-server and mita
         shell: bash
@@ -3052,6 +3053,7 @@ jobs:
           cargo test --locked -p outbound-tuic --test tuic_interop -- --ignored --test-threads=1 --nocapture
           cargo test --locked -p outbound-snell --test snell_interop -- --ignored --test-threads=1 --nocapture
           cargo test --locked -p outbound-mieru --test mieru_interop -- --ignored --test-threads=1 --nocapture
+          cargo test --locked -p node-runtime --test client_interop -- --ignored --test-threads=1 --nocapture
 
       - name: Server logs
         if: ${{ always() }}

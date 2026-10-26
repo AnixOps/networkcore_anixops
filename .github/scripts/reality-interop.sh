@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # REALITY (outbound-vless), VMess (outbound-vmess), Hysteria2
 # (outbound-hysteria2), TUIC (outbound-tuic), Snell (outbound-snell) and
-# Mieru (outbound-mieru) interop harness (Linux runners only).
+# Mieru (outbound-mieru) interop harness, plus the reverse direction: Xray-core,
+# sing-box and Hysteria clients against our server inbounds
+# (node-runtime client_interop). Linux runners only.
 #
 #   reality-interop.sh download   fetch Xray-core, sing-box and Hysteria
 #                                 release binaries, official snell-server
@@ -133,6 +135,10 @@ open(sys.argv[1], 'wb').write(data)
   openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes \
     -keyout "${work}/target.key" -out "${work}/target.crt" -days 2 \
     -subj /CN=target.interop.test 2>/dev/null
+  # Certificate for our own server inbounds, which Go clients verify by name.
+  openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes \
+    -keyout "${work}/server.key" -out "${work}/server.crt" -days 2 \
+    -subj /CN=server.interop.test -addext subjectAltName=DNS:server.interop.test 2>/dev/null
 
   # Inner TLS 1.3 target serving files, and the REALITY camouflage target.
   (cd "${www}" && exec openssl s_server -accept 127.0.0.1:18443 -tls1_3 -WWW -quiet \
@@ -367,6 +373,12 @@ NC_TUIC_UUID=${uuid}
 NC_TUIC_PASSWORD=${tuic_password}
 NC_TUIC_SERVER_NAME=target.interop.test
 NC_REALITY_PUBLIC_KEY=${public_key}
+NC_REALITY_PRIVATE_KEY=${private_key}
+NC_REALITY_DEST=127.0.0.1:18444
+NC_INTEROP_BIN=${bin}
+NC_SERVER_CERT=${work}/server.crt
+NC_SERVER_KEY=${work}/server.key
+NC_SERVER_NAME=server.interop.test
 NC_REALITY_SHORT_ID=${short_id}
 NC_REALITY_SERVER_NAME=${server_name}
 NC_HTTP_TARGET=127.0.0.1:18080
