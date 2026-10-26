@@ -345,10 +345,11 @@ mod platform {
             )
         };
         entries.truncate(size.max(0) as usize / 4);
+        let (entries, _) = entries.as_chunks::<2>();
         entries
-            .chunks_exact(2)
-            .filter(|entry| entry[1] == libc::PROX_FDTYPE_SOCKET)
-            .map(|entry| entry[0])
+            .iter()
+            .filter(|[_, kind]| *kind == libc::PROX_FDTYPE_SOCKET)
+            .map(|[fd, _]| *fd)
             .collect()
     }
 
