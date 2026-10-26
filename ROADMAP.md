@@ -9,17 +9,17 @@
 P0–P3 已完成，当前仓库不再处于 P3。当前迭代、发布说明和 source contract 的 source of truth 是下方 P4 backlog buckets；P3 只在已完成章节、历史 TODO 或 CHANGELOG 中保留审计语境。
 
 ```text
-current-main-release-state=pending_manual_acceptance
-current-main-source-candidate=v0.2.0-rc.2
-current-main-latest-published-tag=v0.2.0-rc.1
-current-main-latest-stable-tag=v0.1.0
+current-main-release-state=released
+current-main-source-candidate=v0.2.0
+current-main-latest-published-tag=v0.2.0
+current-main-latest-stable-tag=v0.2.0
 current-main-subscription-foreground=public-engine-run-plan-mieru-and-sing-box-active
 current-main-subscription-background=linux-systemd-oneshot-timer-and-windows-opt-in-single-source-active
 ```
 
 当前 main 概况：
 
-- **发布**：最新 stable `v0.1.0`（Linux-only），当前候选 `v0.2.0-rc.2`（Linux CLI tarball + Linux 图形客户端 tarball/.deb + Windows MSI + Windows portable ZIP，各四件套；`v0.2.0-rc.1` 已发布），全部须通过同 commit CI、checksum、manifest、attestation、release notes、rollback 和 publish eligibility。Linux artifact marker：`linux-artifact-release-state=confirmed-release-path`。
+- **发布**：最新 stable `v0.2.0`（2026-10-26，Linux CLI tarball + Linux 图形客户端 tarball/.deb + Windows MSI + Windows portable ZIP，各四件套；rc.1/rc.2 为候选，rc.2 通过真机验收），全部须通过同 commit CI、checksum、manifest、attestation、release notes、rollback 和 publish eligibility。Linux artifact marker：`linux-artifact-release-state=confirmed-release-path`。
 - **订阅与运行**：平台无关 `PublicEngineRunPlan` 把 SS/Trojan/VLESS/VMess/Hysteria2/TUIC 路由到 sing-box，`mierus://` 路由到 engine-mieru（显式 binary/digest、原子 config、loopback readiness，失败保留现有核心）。解析层包含 Hysteria2/TUIC share-link parser gate、Clash YAML parser gate、sing-box JSON parser gate、Surge proxy line parser gate、Loon proxy line parser gate 和 Quantumult X proxy/server line parser gate；Hysteria2/TUIC 前台路径不启用 HTTP/3 MITM。
 - **持久订阅与刷新**：`v0.1.2-alpha.1` 起的显式本地 catalog（add/list/remove/select/update/rollback，见 [Persistent Subscription Catalog Source Contract](docs/architecture/subscription-catalog-persistence-source-contract.md)）；`subscription update` 先验证候选再写 snapshot，失败保留旧 catalog。Linux `subscription refresh schedule` 生成 systemd oneshot/timer；Windows GUI 提供 opt-in 单 HTTP(S) source 小时级刷新。默认路径扫描仍未启用。
 - **managed 记录**：`managed-status`、`managed-event`（含 `networkcore-linux managed-event list` 有界分页）和 `managed-log` 只读写显式 schema v1 记录，固定 `liveness_verified=false`。
@@ -38,7 +38,7 @@ P4 backlog buckets：
 
 | 里程碑 | 内容 |
 |---|---|
-| M0 | `v0.2.0-rc.1` 已发布；在 `v0.2.0-rc.2` 上完成 Windows/Linux 真机验收后发布 `v0.2.0` 正式版 |
+| M0 | ✅ `v0.2.0` 正式版已发布（2026-10-26，`a636b89`，`v0.2.0-rc.2` 真机验收通过） |
 | M1 | iOS 内部 TestFlight：自研 Rust 嵌入式引擎 `engine-embedded`（M1a Shadowsocks-2022，M1b VLESS + REALITY/Vision） |
 | M2 | 统一内核 v0.3：FFI C ABI、Process/Embedded 引擎抽象、规则与策略组模型、桌面 TUN、WireGuard |
 | M3 | MITM 与插件 v0.4：HTTP/2 MITM、QUIC reject、Loon 插件高频子集、脚本运行时 |

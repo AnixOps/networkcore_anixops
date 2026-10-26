@@ -30,6 +30,7 @@ members = [
     "crates/outbound-http",
     "crates/outbound-hysteria2",
     "crates/outbound-shadowsocks",
+    "crates/outbound-snell",
     "crates/outbound-socks",
     "crates/outbound-trojan",
     "crates/outbound-tuic",

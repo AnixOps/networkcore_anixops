@@ -15,7 +15,7 @@ Snell 是 Surge 团队的闭源代理协议。本仓库是 Apache-2.0 内核，�
 
 - [S1] Surge 官方：[Snell 发布说明](https://kb.nssurge.com/surge-knowledge-base/release-notes/snell)、[Snell v6 技术介绍](https://nssurge.com/blog/snell-v6/)
 - [S2] 公开实现中可观察到的协议事实：open-snell（v1–v3）、sing-snell（v4–v6，其作者称来自对 Surge 6.7.0 / snell-server 的逆向）
-- [S3] 官方 snell-server 的黑盒互通（CI，待补充观测记录）
+- [S3] 官方 snell-server 的黑盒互通（CI）：首轮结果见 PR #84（run 40257502640）。v4、v4+obfs http、v5（version=4）、v6 三种 mode 的 TCP 在复用和不复用两种情况下都已互通，v6 default 画像按 §7.4 实现后直接互通。
 
 凡标注 **[待实测]** 的条目必须在互通 CI 中确认后才能去掉标注。
 
@@ -79,7 +79,7 @@ TCP 目标地址 = 主机字符串长度（1 字节）· 主机字符串 · 端�
 - v1 客户端用 `0x01`；v2/v3 开启复用时用 `0x05`。
 - 0-RTT：请求与应用层首段数据放在**同一明文缓冲区**里一次加密发送。v6 首帧载荷超过 0xFFFF 时切成多帧。
 
-服务端读取请求时：命令为 PING 时**不再读取** clientID 字节，直接回 PONG 并关闭连接。
+服务端读取请求时：先读满 3 字节前缀（版本、命令、clientID 长度），命令为 PING 时**不再读取** clientID 字节，直接回 PONG 并关闭连接。实测：只发 `01 00` 两字节时，官方服务端报 "Invalid request" 并关闭，所以客户端 PING 必须发 `01 00 00` **[待实测：三字节形式的回复]**。
 
 ### 3.2 回复（服务端发回的第一段明文）
 
@@ -91,7 +91,7 @@ TCP 目标地址 = 主机字符串长度（1 字节）· 主机字符串 · 端�
 
 - TCP 回复是"惰性"的：服务端在收到目标的第一段数据时才发 `0x00`，并把这段数据拼在同一帧里。
 - 客户端收到 ERROR 帧时，该帧必须正好是"码 + 长度 + 消息"，不得有尾随字节，否则视为协议错误。
-- 已知错误码 [S2]：`0x65` + `"Remote EOF"`：可复用请求中，目标在发出任何数据前就关闭；服务端发送后中止并关闭 TCP。v4/v5 的一次性 CONNECT 用 `0xFF` + `"end of file"`。连接目标失败时，错误码为系统 errno，消息为错误文本，最长 250 字节 **[待实测]**。
+- 已知错误码 [S2]：`0x65` + `"Remote EOF"`：可复用请求中，目标在发出任何数据前就关闭；服务端发送后中止并关闭 TCP。v4/v5 的一次性 CONNECT 用 `0xFF` + `"end of file"`。连接目标失败时，官方 v4.1.1 / v5.0.1 / v6.0.0 回 ERROR，例如 connection refused 的错误码为 `6`（不是 Linux errno 111），消息为错误文本。客户端应把 ERROR 帧当作“目标不可达”，不依赖具体错误码。
 - 这种结构化错误让客户端能区分"节点不可用（认证/解密失败、TCP 断开）"与"目标不可达（ERROR 回复）"，健康检查必须利用这一区别。
 
 ## 4. 连接复用（CONNECTv2，v2+）
@@ -110,7 +110,7 @@ TCP 目标地址 = 主机字符串长度（1 字节）· 主机字符串 · 端�
 2. 服务端回复 `0x00`，单独成帧，后面没有其他字节。客户端收到回复后才开始发送数据报。若回复帧中 `0x00` 之后还有字节，客户端把剩余部分当作第一个下行数据报处理（与官方客户端一致）。
 3. 之后每一帧承载**恰好一个**数据报。
    - 上行帧：`0x01` · 地址 · 端口 u16be · 载荷。地址为域名时 = 长度（1–255）· 域名；为 IP 时 = `0x00` · 族字节（`0x04` 表示 IPv4 4 字节，`0x06` 表示 IPv6 16 字节）· IP。
-   - 下行帧：族字节（`0x04`/`0x06`）· IP · 端口 u16be · 载荷。下行源地址总是 IP。客户端遇到其他族字节时静默丢弃该帧。
+   - 下行帧：族字节（`0x04`/`0x06`）· IP · 端口 u16be · 载荷。下行源地址总是 IP。客户端遇到其他族字节时静默丢弃该帧。实测：官方 v4 服务端把 IPv4 源地址写成 IPv4 映射的 IPv6（`0x06` + `::ffff:a.b.c.d`），客户端应规范化为 IPv4。
 4. 数据报大于单帧最大载荷时直接丢弃，不分片。
 
 ## 5. v1–v3 帧格式
@@ -483,7 +483,7 @@ Surge 节点行示例：`name = snell, host, port, psk=xxx, version=6, mode=defa
 
 ### 10.1 官方服务端的获取与配置（互通 CI 用）
 
-- 下载地址模式：`https://dl.nssurge.com/snell/snell-server-<版本>-linux-amd64.zip`，zip 内可执行文件名为 `snell-server`。v6.0.0rc2 的地址已由第三方安装脚本的 CI 持续验证；`v3.0.1`、`v4.1.1`、`v5.0.1` 按同一模式推断 **[待实测]**。
+- 下载地址模式：`https://dl.nssurge.com/snell/snell-server-<版本>-linux-amd64.zip`，zip 内可执行文件名为 `snell-server`。`v4.1.1`、`v5.0.1`、`v6.0.0rc2` 已在本仓库互通 CI 中验证（v6.0.0rc2 包自报版本 v6.0.0）。`v3.0.1` 在 dl.nssurge.com 上返回 404；v3 早期发布在 `https://github.com/surge-networks/snell/releases/download/v3.0.1/snell-server-v3.0.1-linux-amd64.zip` **[待实测]**。
 - 启动：`snell-server -l info -c <配置文件>`；`-v` 打印版本。
 - 配置为 INI，节名 `[snell-server]`。v6 示例：
 
@@ -496,7 +496,7 @@ Surge 节点行示例：`name = snell, host, port, psk=xxx, version=6, mode=defa
   ```
 
   `mode` 取值 `default` / `unshaped` / `unsafe-raw`；`listen` 可写多个地址，逗号分隔；`dns-ip-preference` 有 `default`、`prefer-ipv4`、`prefer-ipv6`、`ipv4-only`、`ipv6-only`，别名 `ipv-preference`。v1–v4 的 obfs 用 `obfs = http|tls`。v4.1+ 有 `dns`，v5 有 `egress-interface`。v3–v5 是否有 UDP / 复用开关、旧版 `ipv6 = true|false` 的语义 **[待实测]**。
-- 回环目标：官方 v6.0.0rc2 服务端可以中转到 `127.0.0.1` 和 `::1` 上的 TCP / UDP 目标（第三方安装脚本的 CI 正是这样测的）。旧版本 **[待实测]**。
+- 回环目标：官方 v4.1.1 / v5.0.1 / v6.0.0 服务端都可以中转到 `127.0.0.1` 上的目标（本仓库互通 CI 已验证）。
 
 ## 附录 A：generator 0 的 TABLE（128 字节，按行 16 字节）
 

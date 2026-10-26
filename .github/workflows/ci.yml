@@ -543,7 +543,7 @@ jobs:
           grep -q "P4 backlog buckets" docs/ci-cd-policy.md
           grep -q "当前 main 源码状态" README.md
           grep -q "当前最新用户可下载 Linux artifact" TODO.md
-          grep -Fq '当前最新已发布 Linux artifact 是 `v0.1.0`' docs/release-strategy.md
+          grep -Fq '当前最新已发布 Linux artifact 是 `v0.2.0`' docs/release-strategy.md
           grep -Fq "Alpha Release Feature Matrix" docs/ci-cd-policy.md
           grep -Fq "# Alpha Release Feature Matrix" docs/alpha-release-feature-matrix.md
           grep -Fq "v0.1.0-alpha.1" docs/alpha-release-feature-matrix.md
@@ -636,10 +636,10 @@ jobs:
           grep -Fq "v0.2.0-beta.5" docs/release-strategy.md
           grep -Fq "v0.2.0-beta.5" README.md
           for governance_document in README.md ROADMAP.md TODO.md CHANGELOG.md docs/alpha-release-feature-matrix.md; do
-            grep -qx 'current-main-release-state=pending_manual_acceptance' "${governance_document}"
-            grep -qx 'current-main-source-candidate=v0.2.0-rc.2' "${governance_document}"
-            grep -qx 'current-main-latest-published-tag=v0.2.0-rc.1' "${governance_document}"
-            grep -qx 'current-main-latest-stable-tag=v0.1.0' "${governance_document}"
+            grep -qx 'current-main-release-state=released' "${governance_document}"
+            grep -qx 'current-main-source-candidate=v0.2.0' "${governance_document}"
+            grep -qx 'current-main-latest-published-tag=v0.2.0' "${governance_document}"
+            grep -qx 'current-main-latest-stable-tag=v0.2.0' "${governance_document}"
             grep -qx 'current-main-subscription-foreground=public-engine-run-plan-mieru-and-sing-box-active' "${governance_document}"
             grep -qx 'current-main-subscription-background=linux-systemd-oneshot-timer-and-windows-opt-in-single-source-active' "${governance_document}"
           done
@@ -2677,7 +2677,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for features in "" http hysteria2 shadowsocks socks trojan tuic vless vmess wireguard local-proxy mitm; do
+          for features in "" http hysteria2 shadowsocks snell socks trojan tuic vless vmess wireguard local-proxy mitm; do
             echo "::group::engine-embedded features=[${features}]"
             cargo clippy --locked -p engine-embedded --no-default-features --features "${features}" --all-targets -- -D warnings
             cargo test --locked -p engine-embedded --no-default-features --features "${features}" --tests
@@ -3189,8 +3189,9 @@ jobs:
           cargo test --locked -p outbound-vmess --test vmess_interop --no-run
           cargo test --locked -p outbound-hysteria2 --test hysteria2_interop --no-run
           cargo test --locked -p outbound-tuic --test tuic_interop --no-run
+          cargo test --locked -p outbound-snell --test snell_interop --no-run
 
-      - name: Download Xray-core, sing-box and Hysteria
+      - name: Download Xray-core, sing-box, Hysteria and snell-server
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -3211,6 +3212,7 @@ jobs:
           cargo test --locked -p outbound-vmess --test vmess_interop -- --ignored --test-threads=1 --nocapture
           cargo test --locked -p outbound-hysteria2 --test hysteria2_interop -- --ignored --test-threads=1 --nocapture
           cargo test --locked -p outbound-tuic --test tuic_interop -- --ignored --test-threads=1 --nocapture
+          cargo test --locked -p outbound-snell --test snell_interop -- --ignored --test-threads=1 --nocapture
 
       - name: Server logs
         if: ${{ always() }}

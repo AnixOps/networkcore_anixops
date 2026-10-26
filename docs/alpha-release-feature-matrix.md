@@ -18,10 +18,10 @@ GitHub Release asset 为准；`main` 中 tag 之后的源码增量不等于用�
 ## Current Main Override
 
 ```text
-current-main-release-state=pending_manual_acceptance
-current-main-source-candidate=v0.2.0-rc.2
-current-main-latest-published-tag=v0.2.0-rc.1
-current-main-latest-stable-tag=v0.1.0
+current-main-release-state=released
+current-main-source-candidate=v0.2.0
+current-main-latest-published-tag=v0.2.0
+current-main-latest-stable-tag=v0.2.0
 current-main-subscription-foreground=public-engine-run-plan-mieru-and-sing-box-active
 current-main-subscription-background=linux-systemd-oneshot-timer-and-windows-opt-in-single-source-active
 ```
@@ -354,9 +354,14 @@ trust artifact 为核心，固定 `MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-life
 
 ## 当前 Windows 发布切片
 
+### `v0.2.0`
+
+状态：正式版，2026-10-26 发布，tag 在 `a636b89`，与 `v0.2.0-rc.2` 同一提交；维护者在 rc.2 上完成
+Windows/Linux 真机验收。内容见下方 rc.2 与 rc.1 切片。
+
 ### `v0.2.0-rc.2`
 
-状态：v0.2.0 正式版的 release candidate，pending_manual_acceptance，取代 rc.1 做验收。
+状态：已作为 prerelease 发布并通过真机验收，`v0.2.0` 在同一提交发布。
 
 相对 `v0.2.0-rc.1` 修复：
 
@@ -1013,7 +1018,7 @@ GitHub Actions release workflow 结果为准。
 
 ## 当前 main source 状态
 
-当前 Windows source release 候选切片是 `v0.2.0-rc.2`（`v0.2.0-rc.1` 已发布），Linux source slice 是 `v0.1.2-alpha.3`，最新 stable artifact 仍是 `v0.1.0`。它保留
+最新 stable 是 `v0.2.0`（Windows 与 Linux 桌面/CLI 产物），Linux source slice 是 `v0.1.2-alpha.3`。它保留
 `v0.1.1-alpha.2` 的 Linux/Windows package、checksum、manifest、attestation 和 publish gate，并把
 受控 TLS HTTP/1.1 rewrite 与 explicit-local Node script runtime 加入 Linux CLI；Windows path 已切换到
 managed-client MSI，service、driver、installer、system proxy mutation、system trust store mutation 和 managed lifecycle

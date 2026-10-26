@@ -110,6 +110,7 @@ fn supported_types_follow_cargo_features() {
     );
     assert_eq!(types.contains(&"http"), cfg!(feature = "http"));
     assert_eq!(types.contains(&"hysteria2"), cfg!(feature = "hysteria2"));
+    assert_eq!(types.contains(&"snell"), cfg!(feature = "snell"));
     assert_eq!(types.contains(&"socks"), cfg!(feature = "socks"));
     assert_eq!(types.contains(&"trojan"), cfg!(feature = "trojan"));
     assert_eq!(types.contains(&"tuic"), cfg!(feature = "tuic"));

@@ -4,6 +4,14 @@
 
 ## Unreleased
 
+### Added
+
+- 节点服务端入站（第一步）：新增 `engine-inbound`（服务端入站接口 `StreamInbound`、按名称管理的用户表 `UserStore`、`server::serve` 服务循环和入站 `registry`）和 `inbound-shadowsocks`（Shadowsocks-2022 TCP 服务端）。用户可在运行中增删，删除或替换用户会断开其现有连接；`traffic(reset)` 按用户报告上下行字节（已删除用户未取走的流量保留到下次读取），`online()` 按用户和来源 IP 报告在线连接数，供 anix-agent 这类节点代理驱动。SS-2022 支持三种 2022 方法、单密钥和多用户（iPSK:uPSK 身份头，仅 AES），30 秒时间戳窗口、60 秒盐值防重放，握手失败的连接保持打开并丢弃输入而不是立即关闭。测试用自研客户端和 shadowsocks-rust 客户端连接服务端。同时新增 `inbound-transport`（服务端 TLS，证书文件变化时自动重新加载，坏证书保留旧的）、`inbound-trojan` 和 `inbound-vless`（按用户密码哈希 / UUID 认证，认证失败转给 `fallback` 网站或保持丢弃），以及 `inbound-vmess`（VMess AEAD，aes-128-gcm / chacha20-poly1305 / none，支持 ChunkMasking 和 GlobalPadding，AuthID 120 秒窗口与防重放）。防重放缓存移到 `engine_inbound::replay`。新增 QUIC 类入站接口 `PacketInbound`（registry 按 `Inbound::Stream` / `Inbound::Packet` 区分）、`server::relay_accepted` 和 `transport_quic::server_endpoint`，并新增 `inbound-hysteria2`（自带最小 HTTP/3 与 QPACK 静态表实现处理 `/auth`，认证失败返回 404 伪装成网站，可选 Salamander 混淆）与 `inbound-tuic`（TUIC v5，按 UUID 和 TLS 导出密钥令牌认证，cubic / new_reno / bbr 拥塞控制），删除用户会关闭其 QUIC 连接。`inbound-vless` 新增 REALITY 服务端（`tls-mimic` 新增最小 TLS 1.3 服务端 `tls_mimic::server`）：校验 ClientHello 会话 ID 中的 REALITY 标记（私钥、short id、SNI、时间窗口），通过的客户端拿到绑定认证密钥的临时 Ed25519 证书，其余连接（包括非 TLS 探测）原样转发到伪装站点。新增 `node-runtime` 与节点内核程序 `apps/anixcore`（`anixcore run|check -c config.json`）：按 tag 运行和增删入站，提供带 Bearer 令牌的本地 HTTP/JSON 管理接口（增删入站、增删用户、按用户流量含清零、在线 IP），供 anix-agent 驱动；直连出站默认拒绝回环、内网、CGNAT 和链路本地目标（入站自己的 fallback / REALITY 伪装站点除外），可用 `allow_private_targets` 放开。UDP 转发、VLESS Vision 后续提供。
+
+## v0.2.0 - 2026-10-26
+
+正式版，tag 在 `a636b89`，与通过 Windows/Linux 真机验收的 `v0.2.0-rc.2` 同一提交（`v0.2.0-rc.1` 在 `54adc04`）。以下为自 `v0.2.0-alpha.21` 以来的全部变更。
+
 ### Security
 
 - 修复 Actions 依赖审计发现的 RUSTSEC-2026-0385（`ctutils` 掩码生成与 `u128` 比较非常数时间）：将 `ctutils` lock 提升到 `0.4.4`。未添加漏洞忽略规则。
@@ -12,7 +20,7 @@
 
 ### Added
 
-- 节点服务端入站（第一步）：新增 `engine-inbound`（服务端入站接口 `StreamInbound`、按名称管理的用户表 `UserStore`、`server::serve` 服务循环和入站 `registry`）和 `inbound-shadowsocks`（Shadowsocks-2022 TCP 服务端）。用户可在运行中增删，删除或替换用户会断开其现有连接；`traffic(reset)` 按用户报告上下行字节（已删除用户未取走的流量保留到下次读取），`online()` 按用户和来源 IP 报告在线连接数，供 anix-agent 这类节点代理驱动。SS-2022 支持三种 2022 方法、单密钥和多用户（iPSK:uPSK 身份头，仅 AES），30 秒时间戳窗口、60 秒盐值防重放，握手失败的连接保持打开并丢弃输入而不是立即关闭。测试用自研客户端和 shadowsocks-rust 客户端连接服务端。同时新增 `inbound-transport`（服务端 TLS，证书文件变化时自动重新加载，坏证书保留旧的）、`inbound-trojan` 和 `inbound-vless`（按用户密码哈希 / UUID 认证，认证失败转给 `fallback` 网站或保持丢弃），以及 `inbound-vmess`（VMess AEAD，aes-128-gcm / chacha20-poly1305 / none，支持 ChunkMasking 和 GlobalPadding，AuthID 120 秒窗口与防重放）。防重放缓存移到 `engine_inbound::replay`。新增 QUIC 类入站接口 `PacketInbound`（registry 按 `Inbound::Stream` / `Inbound::Packet` 区分）、`server::relay_accepted` 和 `transport_quic::server_endpoint`，并新增 `inbound-hysteria2`（自带最小 HTTP/3 与 QPACK 静态表实现处理 `/auth`，认证失败返回 404 伪装成网站，可选 Salamander 混淆）与 `inbound-tuic`（TUIC v5，按 UUID 和 TLS 导出密钥令牌认证，cubic / new_reno / bbr 拥塞控制），删除用户会关闭其 QUIC 连接。`inbound-vless` 新增 REALITY 服务端（`tls-mimic` 新增最小 TLS 1.3 服务端 `tls_mimic::server`）：校验 ClientHello 会话 ID 中的 REALITY 标记（私钥、short id、SNI、时间窗口），通过的客户端拿到绑定认证密钥的临时 Ed25519 证书，其余连接（包括非 TLS 探测）原样转发到伪装站点。新增 `node-runtime` 与节点内核程序 `apps/anixcore`（`anixcore run|check -c config.json`）：按 tag 运行和增删入站，提供带 Bearer 令牌的本地 HTTP/JSON 管理接口（增删入站、增删用户、按用户流量含清零、在线 IP），供 anix-agent 驱动；直连出站默认拒绝回环、内网、CGNAT 和链路本地目标（入站自己的 fallback / REALITY 伪装站点除外），可用 `allow_private_targets` 放开。UDP 转发、VLESS Vision 后续提供。
+- 新增 Snell 出站 `outbound-snell`（cargo feature `snell`，配置 `"type": "snell"`），只依据 `docs/protocols/snell.md` 净室实现：支持 v1–v4 与 v6（v5 按 v4 运行，不实现 QUIC 代理模式），v6 的 `default`（PSK 派生画像整形、salt 块、填充混排）、`unshaped`、`unsafe-raw` 三种模式，v4 首包整形与比特配平，v1–v4 的 `obfs = http`，CONNECTv2 连接复用（最多 10 条空闲、180 秒），以及 crate API 里的 UDP over TCP（v3+）和 PING。帧编解码与请求解析与方向无关，供后续 `inbound-snell` 复用。导入支持 Surge `snell` 节点行和 Clash `type: snell`（`psk`、`version`、`obfs-opts`；缺省 version 为 1），`obfs = tls` 暂报不支持。互通 CI 下载官方 snell-server v3.0.1、v4.1.1、v5.0.1、v6.0.0rc2（只在 CI 中运行，不随产物分发）做 TCP、复用、UDP、错误回复和 PING 黑盒测试。
 - iOS/macOS 包隧道也运行 url-test 和 fallback 策略组的健康检查：`EmbeddedRuntime` 对 `routing` 配置保留规则出站，`Tunnel::start_with_background` 在隧道的运行时里跑 `run_health_checks`，测速和本地代理相同（逐成员经各自出站请求组的 URL，最短间隔 30 秒），隧道停止时一起结束。之前隧道里的这类组没有测速结果，一直用第一个成员。
 - iOS 隧道支持订阅规则和策略组：`node-import` 的导入结果新增 `routing`（订阅的规则和 select/url-test/fallback 策略组，节点按 id 引用）。只有全部节点都能运行、节点 id 合法、数量不超过引擎上限时才提供；上限常量移到 `node-import`，由引擎共用，`engine_embedded::nodes::routing_envelope` 也改用 `node_import::routing_json`。App 把规则和策略组跟节点列表一起存在钥匙串里，隧道配置里只有一个“按规则分流”的标记。扩展启动时从钥匙串读取节点列表，生成带全部节点的 `routing` 配置；读不到节点列表或运行时拒绝这份配置时，退回只用所选节点，原因记入诊断。新的“规则”页可以开关按订阅规则分流，也可以切换 select 策略组的成员（连接中会自动重连）。按规则分流时，代理页的节点不可点选。刷新订阅时保留规则开关和仍然有效的策略组选择。
 - 发布流程加入 Linux 图形客户端：tag 发布新增 `package-linux-gui` 与 `attest-linux-gui` 任务，在 Ubuntu 上构建共用界面和 `anixops-net`，产出 tarball（`bin/`、桌面入口、图标、LICENSE、CHANGELOG、INSTALL.md）和 Debian 包（`/usr/bin/anixops-net`、菜单项与图标，依赖 `libwebkit2gtk-4.1-0`），各带 manifest 与 sha256，统一做 GitHub artifact attestation 后随 Release 发布。`gui` feature 现在包含 `tauri/custom-protocol`，直接 `cargo build --release` 得到的窗口也内嵌界面而不是去连开发服务器。
@@ -87,10 +95,10 @@ described as production-ready. A maintainer may explicitly authorize a beta tag
 to generate candidate artifacts for that acceptance.
 
 ```text
-current-main-release-state=pending_manual_acceptance
-current-main-source-candidate=v0.2.0-rc.2
-current-main-latest-published-tag=v0.2.0-rc.1
-current-main-latest-stable-tag=v0.1.0
+current-main-release-state=released
+current-main-source-candidate=v0.2.0
+current-main-latest-published-tag=v0.2.0
+current-main-latest-stable-tag=v0.2.0
 current-main-subscription-foreground=public-engine-run-plan-mieru-and-sing-box-active
 current-main-subscription-refresh=explicit-http-single-source-status-stop-active
 current-main-subscription-background=linux-systemd-oneshot-timer-and-windows-opt-in-single-source-active
