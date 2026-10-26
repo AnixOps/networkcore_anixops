@@ -356,7 +356,7 @@ async fn shadowsocks_node_runs_through_an_iwan_line() {
     assert_eq!(&echoed, payload);
     assert_eq!(
         tcp_targets.lock().unwrap().as_slice(),
-        [land.clone()],
+        std::slice::from_ref(&land),
         "the line's exit dialed the land node and nothing else"
     );
 
