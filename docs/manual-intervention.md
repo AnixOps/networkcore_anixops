@@ -41,7 +41,7 @@ The `v0.2.0-beta.5` tag is maintainer-authorized to generate candidate artifacts
 
 beta.5 只用真实主机验收“候选工件能安全安装、跑通主路径、出错时不破坏主机、能干净卸载”。下面按编号引用本节下方的 Windows（W1–W14）和 Linux（L1–L14）步骤，以及本文件其他章节。必须项全部 passed 后才能把 `manual-acceptance-overall` 记为 passed；可推迟项不阻塞 beta.5，但必须在受保护证据中写明“未验收”，不得因省略而视为通过，也不得在发布说明中描述为已验收。
 
-划分原则：会改动主机状态（系统代理、信任库、CA 私钥、服务、systemd unit、安装与卸载）的路径，以及主路径（安装、导入订阅、连接）属于必须项，因为出错会伤害主机或泄露凭据；覆盖面矩阵（DPI/主题、睡眠/重启等环境组合）、依赖外部材料的项目（签名驱动包、Authenticode、Mieru、EasyTier POP）和可选试用功能属于可推迟项。
+划分原则：会改动主机状态（系统代理、信任库、CA 私钥、服务、systemd unit、安装与卸载）的路径，以及主路径（安装、导入订阅、连接）属于必须项，因为出错会伤害主机或泄露凭据；覆盖面矩阵（DPI/主题、睡眠/重启等环境组合）、依赖外部材料的项目（签名驱动包、Authenticode）和可选试用功能属于可推迟项。
 
 必须项（阻塞 beta.5 验收）：
 
@@ -78,7 +78,6 @@ beta.5 只用真实主机验收“候选工件能安全安装、跑通主路径�
 | Windows GUI Daily Usability Acceptance 第 13 条 | Bilibili 推广请求拦截试用（默认关闭的可选功能） | 不设期限 |
 | Windows managed client | Authenticode 签名（未签名警告是 beta 已知限制） | 维护者提供签名材料后 |
 | Mieru External Core Acceptance | Mieru 外部 core 互通 | Mieru 宣称可用前 |
-| Windows Foreground Tunnel Manual Acceptance 与 Stage 4 POP | EasyTier 前台隧道与 POP 对端 | 隧道宣称可用前 |
 | 当前待处理中的运维上线环境与诊断运行时接线 | 告警渠道、独立监控、跨地域设备 | 运维上线前 |
 | iOS 各章节 | iOS 不产生 beta.5 工件，按自己的门禁推进 | 不属于 beta.5 |
 
@@ -500,7 +499,7 @@ CI 只验证托管配置、服务进程内启停和健康检查（`managed_runti
   但 FINAL 的策略组选择仍然生效。自动测速组连接后按实测延迟选节点（url-test 取最快，fallback
   取第一个能用的，按组的间隔重测，最短 30 秒）；界面上显示的是组里第一个成员。
 - 内置引擎没有自定义 DNS 段：规则匹配用系统 DNS，经节点的连接由节点服务器解析域名。
-  HTTPS 解密暂时只支持 sing-box 配置，这是已知限制。
+  HTTPS 解密由本机 MITM 把上游接到内置引擎的本地代理。
 
 ## 当前待处理
 
@@ -512,12 +511,6 @@ CI 只验证托管配置、服务进程内启停和健康检查（`managed_runti
 - iOS TestFlight/App Store Connect upload workflow 仍为 pending；完成前不得执行 archive/export、
   TestFlight upload、App Store upload、App Review submission 或 iOS release asset。当前 release workflow 仅允许
   `ios-upload-readiness` blocked placeholder 读取这些 marker，输出 source tree preflight 和 safe summary。
-- Windows Stage 4 signed POP peer identity and structured readiness remains pending. The required
-  Linux POP, POP-routed Linux target, Windows endpoint, and protected evidence boundary are defined
-  in [Windows Stage 4 POP Peer Manual Acceptance](architecture/windows-stage-4-pop-peer-manual-acceptance.md).
-  Do not mark the foreground tunnel production-ready until its positive, negative, and cleanup
-  proofs are all recorded.
-
 ## Windows 去除第三方内核后真机验收（Phase 4A）
 
 在 Windows 真机上安装包含 Phase 4A 的构建后：
@@ -527,55 +520,17 @@ CI 只验证托管配置、服务进程内启停和健康检查（`managed_runti
 - 设置页不再出现兼容内核和附加协议内核卡片，规则页不再出现 JSON 编辑和 DNS JSON。
 - 诊断报告里只有内置引擎和 MITM 的状态字段。
 
-## Windows Foreground Tunnel Manual Acceptance
+## Windows 去除 SD-WAN 隧道后真机验收
 
-The following elevated-Windows record is required before the foreground EasyTier tunnel can be
-considered operational. GitHub-hosted CI cannot supply this host, adapter, ACL, TUN, or data-plane
-evidence; it verifies source and injected contracts only.
+在 Windows 真机上安装去除前台隧道的构建后：
 
-1. Secure ProgramData root evidence: owner and exact SYSTEM/Administrators-only ACL for
-   `AnixOps\WindowsTunnel`, `state`, `secrets`, and `easytier`, with no reparse point. Stage the
-   approved EasyTier core, CLI, and every loader sidecar (including DLL/Wintun) as existing
-   non-reparse direct regular children of `easytier`, with no nested directories. Record the
-   exact SYSTEM/Administrators-only, non-inheriting ACL for every direct file and the independently
-   verified lower-case core/CLI SHA-256 values. The elevated start path must normalize and recheck
-   that complete direct-file inventory before it launches the core; record the resulting ACL
-   evidence. NetworkCore never copies or downloads executable content.
-2. Delivery-ledger floor values for the verified client and POP identities before and after the
-   accepted start reservation.
-3. `Find-NetRoute` and `Get-NetAdapter -Physical` evidence that the selected endpoint underlay is
-   the same up physical interface, not a virtual or VPN adapter.
-4. Before/after `ActiveStore` tuples for every endpoint bypass and planned destination route,
-   including destination prefix, next hop, interface index, and route metric. Record only in the
-   protected operator evidence, not a CLI report or repository fixture. For a controlled
-   endpoint-bypass proof failure, or reconciliation of earlier successful adds after an add
-   failure, record bounded per-tuple reconciliation: either a proven absence, or exact removal
-   followed by a proven absence. An ambiguous inspection, inspection or removal failure, or a
-   still-present tuple must remain a `rollback_failed` manual-recovery outcome. Before every add,
-   record a bounded exact absence proof; a pre-existing or ambiguous exact tuple is not
-   session-owned, must not be deleted, and may only cause reconciliation of earlier tuples that
-   already had that pre-add absence proof. An add error does not establish ownership despite that
-   preflight: reconcile only earlier successful adds, then inspect the current exact tuple without
-   deleting it. Only a proven absent current tuple retains the normal endpoint error; a present or
-   ambiguous tuple remains in place and returns `rollback_failed`. Record that a failed add did
-   not trigger an outer restore; later start failures may restore only a bypass whose add
-   succeeded for that start.
-5. Successful EasyTier peer and route readiness plus `ping` to the overlay address and `ping` and
-   `curl` to the POP test subnet.
-6. Stop evidence that both exact virtual destination routes and endpoint-bypass routes were removed
-   before the owned EasyTier process ended.
-7. A controlled missing and ambiguous tuple proof that leaves the owned process, state/config, and
-   unrelated routes unchanged while `tunnel stop` fails closed; restore the fixture before normal
-   cleanup.
-8. State-write denial, disk-full, and native state move failure evidence for each durable cleanup
-   transition. A failed `Stopping` write leaves routes, process, and config untouched; a failure
-   after mutation retains retryable cleanup intent. After storage is restored, record fresh cleanup
-   convergence: it removes only exact still-present tuples and accepts proven-absent resources only
-   for persisted `Stopping` or `Failed` cleanup. Confirm that this cleanup can reprove and stop the
-   protected running core without requiring the CLI artifact; `Running` requires all ownership
-   proofs and the full direct-file artifact set. Leave unrelated resources unchanged and keep this
-   evidence in protected operator records, without raw tuple, PID, or config details in CLI or
-   repository output.
+- 用带 `"tunnel"` 字段的旧托管配置启动服务，服务正常启动，不再尝试拉起外部隧道进程；
+  旧版本留下的隧道进程和路由需要先用旧版本停止，或手动结束进程并删除其路由。
+- 设置页的“系统与网络”卡片不再出现 TUN 配置输入框；`networkcore-windows tunnel ...` 返回未知命令。
+
+前台隧道原有的人工验收要求随功能一并移除（历史见
+`docs/archive/2026-10-removed-engines/windows-stage-4-pop-peer-manual-acceptance.md`）。SD-WAN 组网将在
+ANX 私有协议中重新提供。
 
 ## 已完成的人工/外部事项
 

@@ -756,7 +756,7 @@ jobs:
           grep -q "runtime_error=" apps/windows-gui/src/main.rs
           grep -q "runtime.poll_health" apps/windows-service/src/main.rs
           grep -q 'windows-gui-view-runtime=tauri-react-active' docs/architecture/windows-gui-daily-usability.md
-          grep -q 'windows-gui-command-execution=rust-command-bridge-background-workers-all-system-operations-subscription-catalog-refresh-fastest-node-tun-dns-script-runtime-native-groups-active' docs/architecture/windows-gui-daily-usability.md
+          grep -q 'windows-gui-command-execution=rust-command-bridge-background-workers-all-system-operations-subscription-catalog-refresh-fastest-node-script-runtime-native-groups-active' docs/architecture/windows-gui-daily-usability.md
           grep -q 'windows-gui-tauri-lifecycle=auto-connect-core-recovery-single-instance-tray-proxy-recovery-active' docs/architecture/windows-gui-daily-usability.md
           grep -q 'windows-gui-tauri-mitm=enable-disable-legacy-native-mitm-active' docs/architecture/windows-gui-daily-usability.md
           grep -q 'read_chunked_http_body' crates/engine-native/src/lib.rs
@@ -795,7 +795,7 @@ jobs:
           grep -q 'start_subscription_refresh_monitor' apps/windows-gui/src/gui/tauri_ui.rs
           grep -q 'start_fastest_node_monitor' apps/windows-gui/src/gui/tauri_ui.rs
           grep -q 'list_subscriptions' apps/windows-gui/src/gui/tauri_ui.rs
-          grep -q 'configure_tunnel' apps/windows-gui/src/gui/tauri_ui.rs
+          ! grep -q 'configure_tunnel' apps/windows-gui/src/gui/tauri_ui.rs
           grep -q 'configure_script_runtime' apps/windows-gui/src/gui/tauri_ui.rs
           grep -rq 'scriptRuntimeConfigured' apps/windows-gui/ui/src
           grep -q 'NativeNodeScriptRuntimeConfig' apps/windows-service/src/lib.rs

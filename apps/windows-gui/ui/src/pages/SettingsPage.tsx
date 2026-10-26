@@ -26,7 +26,7 @@ export function SettingsPage({ snapshot, busy, run, appearance, setAppearance, l
 }) {
   if (!snapshot) return <Loading />;
   const save = (changes: Partial<Preferences>) => void run("preferences", () => desktop.savePreferences(preferencesFrom(snapshot, changes)));
-  // The Linux client runs the engine in-process and has no service, driver or TUN yet.
+  // The Linux client runs the engine in-process and has no service or driver.
   const linux = snapshot.platform === "linux";
   const startup = linux
     ? startupOptions.filter((option) => option.key === "startAfterLogin" || option.key === "autoConnect")
@@ -40,7 +40,7 @@ export function SettingsPage({ snapshot, busy, run, appearance, setAppearance, l
           <div className="setting-label">{t("语言")}</div>
           <Segmented label={t("语言")} options={languages.map((option) => ({ ...option, label: t(option.label) }))} value={language} onChange={setLanguage} />
         </Card>
-        {linux ? <LinuxProxyCard busy={busy} run={run} /> : <Card title={t("运行方式")} description={t("桌面模式只为当前用户运行内核；TUN 和 HTTPS 解密需要 Windows 服务模式。")}>
+        {linux ? <LinuxProxyCard busy={busy} run={run} /> : <Card title={t("运行方式")} description={t("桌面模式只为当前用户运行内核；HTTPS 解密需要 Windows 服务模式。")}>
           <Segmented
             label={t("运行方式")}
             options={[{ value: "desktop", label: t("桌面模式") }, { value: "service", label: t("Windows 服务") }]}
@@ -105,20 +105,12 @@ function ServiceCard({ busy, run }: { busy: string | null; run: Run }) {
 
 function SystemCard({ busy, run }: { busy: string | null; run: Run }) {
   const [driverPath, setDriverPath] = useState("");
-  const [tunnel, setTunnel] = useState("");
   return (
     <Card className="caution" title={t("系统与网络")} description={t("这些操作会改动系统设置，只填写你确认过的本地文件。")}>
       <Field label={t("驱动 INF 路径")}><input value={driverPath} onChange={(event) => setDriverPath(event.target.value)} /></Field>
       <div className="button-row">
         <button className="secondary" disabled={Boolean(busy) || !driverPath.trim()} onClick={() => void run("driver", () => desktop.installDriver(driverPath.trim()))}>{t("安装驱动")}</button>
         <button className="secondary" disabled={Boolean(busy)} onClick={() => void run("driver", desktop.removeDriver)}>{t("移除驱动")}</button>
-      </div>
-      <Field label={t("TUN 配置 JSON")}>
-        <textarea spellCheck={false} value={tunnel} onChange={(event) => setTunnel(event.target.value)} />
-      </Field>
-      <div className="button-row">
-        <button className="primary" disabled={Boolean(busy) || !tunnel.trim()} onClick={() => void run("tunnel", () => desktop.configureTunnel(tunnel))}>{t("保存 TUN 配置")}</button>
-        <button className="secondary" disabled={Boolean(busy)} onClick={() => void run("tunnel", desktop.clearTunnel)}>{t("清除")}</button>
       </div>
       <div className="divider" />
       <div className="inline-action">

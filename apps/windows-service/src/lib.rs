@@ -18,10 +18,6 @@ use mitm_policy::{
     builtin_ad_block_plugin_package, builtin_bilibili_web_ad_block_plugin_package,
     AnixOpsMitmPluginService,
 };
-use networkcore_windows::{
-    parse_args, OutputFormat, WindowsCliCommand, WindowsTunnelCommandService,
-    WindowsTunnelPrepareStorageArgs, WindowsTunnelStatusArgs,
-};
 use platform_windows::managed::{
     read_managed_config, read_managed_state, write_managed_state, WindowsManagedConfig,
     WindowsManagedEmbeddedConfig, WindowsManagedNativeMitmConfig,
@@ -39,24 +35,21 @@ use std::path::{Path, PathBuf};
 
 pub const WINDOWS_MANAGED_RUNTIME_FAILED_CODE: &str = "windows.managed.runtime_failed";
 
-pub struct WindowsManagedRuntime<I, T> {
+pub struct WindowsManagedRuntime<I> {
     integration: I,
-    tunnel: T,
     native_mitm: Option<NativeProxyEngineService>,
     embedded: Option<LocalProxy>,
     config_path: PathBuf,
     state_path: PathBuf,
 }
 
-impl<I, T> WindowsManagedRuntime<I, T>
+impl<I> WindowsManagedRuntime<I>
 where
     I: WindowsSystemIntegration,
-    T: WindowsTunnelCommandService,
 {
-    pub fn new(integration: I, tunnel: T, config_path: PathBuf, state_path: PathBuf) -> Self {
+    pub fn new(integration: I, config_path: PathBuf, state_path: PathBuf) -> Self {
         Self {
             integration,
-            tunnel,
             native_mitm: None,
             embedded: None,
             config_path,
@@ -99,20 +92,6 @@ where
 
         self.stop_native_mitm(&mut state, config.native_mitm.as_ref())?;
         self.stop_embedded(&mut state)?;
-
-        if state.tunnel_running {
-            if let Some(tunnel) = &config.tunnel {
-                let command = parse_managed_command(tunnel.stop_arguments())?;
-                match command {
-                    WindowsCliCommand::TunnelStop(args) => {
-                        self.tunnel.stop(&args)?;
-                    }
-                    _ => return Err(runtime_error("managed stop command is invalid")),
-                }
-            }
-            state.tunnel_running = false;
-            self.persist(&state)?;
-        }
 
         if let Some(snapshot) = state.proxy_snapshot.take() {
             self.integration.restore_system_proxy(&snapshot)?;
@@ -334,36 +313,6 @@ where
             }
         }
 
-        if let Some(tunnel) = &config.tunnel {
-            if state.tunnel_running {
-                let status = WindowsTunnelStatusArgs {
-                    state_path: tunnel.state_path.clone(),
-                    format: OutputFormat::Json,
-                };
-                if self.tunnel.status(&status).is_err() {
-                    state.tunnel_running = false;
-                    self.persist(state)?;
-                }
-            }
-
-            if !state.tunnel_running {
-                self.tunnel
-                    .prepare_storage(&WindowsTunnelPrepareStorageArgs {
-                        confirm: true,
-                        format: OutputFormat::Json,
-                    })?;
-                let command = parse_managed_command(tunnel.start_arguments())?;
-                match command {
-                    WindowsCliCommand::TunnelStart(args) => {
-                        self.tunnel.start(&args)?;
-                    }
-                    _ => return Err(runtime_error("managed start command is invalid")),
-                }
-                state.tunnel_running = true;
-                self.persist(state)?;
-            }
-        }
-
         Ok(())
     }
 
@@ -528,19 +477,6 @@ where
         }
         if state.embedded_running && !previous.embedded_running {
             let _ = self.stop_embedded(state);
-        }
-        if state.tunnel_running && !previous.tunnel_running {
-            if let Ok(config) = read_managed_config(&self.config_path) {
-                if let Some(tunnel) = config.tunnel {
-                    if let Ok(WindowsCliCommand::TunnelStop(args)) =
-                        parse_managed_command(tunnel.stop_arguments())
-                    {
-                        if self.tunnel.stop(&args).is_ok() {
-                            state.tunnel_running = false;
-                        }
-                    }
-                }
-            }
         }
         if previous.proxy_snapshot.is_none() {
             let snapshot = state.proxy_snapshot.take();
@@ -783,10 +719,6 @@ fn append_native_mitm_log(path: &Path, message: &str) {
 pub fn copy_managed_configuration(source: &Path, destination: &Path) -> DomainResult<()> {
     let config = read_managed_config(source)?;
     platform_windows::managed::write_managed_config(destination, &config)
-}
-
-fn parse_managed_command(arguments: Vec<String>) -> DomainResult<WindowsCliCommand> {
-    parse_args(arguments).map_err(|_| runtime_error("managed tunnel command could not be parsed"))
 }
 
 fn runtime_error(message: &str) -> DomainError {

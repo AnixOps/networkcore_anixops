@@ -12,7 +12,7 @@ system integration layer, MSI, and portable package.
 windows-gui-daily-usability=active
 windows-gui-information-architecture=home-nodes-subscriptions-settings-diagnostics-advanced
 windows-gui-runtime-status=scm-embedded-listener-current-user-proxy-active
-windows-gui-command-execution=rust-command-bridge-background-workers-all-system-operations-subscription-catalog-refresh-fastest-node-tun-dns-script-runtime-native-groups-active
+windows-gui-command-execution=rust-command-bridge-background-workers-all-system-operations-subscription-catalog-refresh-fastest-node-script-runtime-native-groups-active
 windows-gui-high-risk-features=advanced-explicit-only
 windows-gui-view-runtime=tauri-react-active
 windows-gui-command-bridge=rust-owned-system-mutations-only
@@ -37,8 +37,8 @@ windows-gui-tauri-mitm=enable-disable-legacy-native-mitm-active
 
 | Status | Scope | Current boundary |
 | --- | --- | --- |
-| Completed | Tauri/React shell, runtime dashboard, connect/disconnect/restart, node list/switch/delay, manual and opt-in 30-minute fastest-node selection, five routing modes, subscription rules and policy-group switching, persisted subscription catalog add/select/remove, explicit profile import/update, opt-in hourly refresh for the active saved HTTP(S) subscription, preferences, auto-connect, one core recovery, single-instance focus, tray hide/restore, GUI-owned proxy recovery, diagnostics, explicit service/certificate/driver commands, TUN configuration, native HTTPS MITM enable/disable, and an opt-in first-party Bilibili web request-blocking trial. | The Rust command bridge remains the only system-mutation boundary. No third-party proxy core is installed or started. |
-| Completed | Commands that can wait on network, SCM, registry, certificate, driver, filesystem, or managed-config I/O run on Tauri blocking workers, including runtime snapshots, connection lifecycle, service/certificate/driver operations, TUN/script configuration, and HTTPS MITM enable/disable. | The WebView remains responsive while each operation runs; the frontend still permits one mutation at a time. |
+| Completed | Tauri/React shell, runtime dashboard, connect/disconnect/restart, node list/switch/delay, manual and opt-in 30-minute fastest-node selection, five routing modes, subscription rules and policy-group switching, persisted subscription catalog add/select/remove, explicit profile import/update, opt-in hourly refresh for the active saved HTTP(S) subscription, preferences, auto-connect, one core recovery, single-instance focus, tray hide/restore, GUI-owned proxy recovery, diagnostics, explicit service/certificate/driver commands, native HTTPS MITM enable/disable, and an opt-in first-party Bilibili web request-blocking trial. | The Rust command bridge remains the only system-mutation boundary. No third-party proxy core is installed or started. |
+| Completed | Commands that can wait on network, SCM, registry, certificate, driver, filesystem, or managed-config I/O run on Tauri blocking workers, including runtime snapshots, connection lifecycle, service/certificate/driver operations, script configuration, and HTTPS MITM enable/disable. | The WebView remains responsive while each operation runs; the frontend still permits one mutation at a time. |
 | Not completed | HTTP/2/HTTP/3 MITM data plane. | HTTP/2 and HTTP/3 interception remain outside the native proxy. |
 | Not completed | Native MITM JavaScript execution. | The GUI rejects new script-runtime configuration and the Windows service rejects configured scripts until an equivalent no-network, least-privilege sandbox exists. |
 
@@ -92,7 +92,7 @@ its current-user snapshot.
 | Validate | Active | Managed schema validation and envelope check. |
 | Diagnostics report | Active | Existing bounded report path. |
 | Manual proxy recovery | Active | Restores only a GUI-owned snapshot whose current proxy still exactly matches the GUI-applied settings; otherwise it clears stale ownership without changing the user proxy. |
-| Managed TUN | Active but advanced | Accepts the existing validated `WindowsManagedTunnelConfig` JSON. |
+| Managed TUN / SD-WAN | Removed | The external-core managed tunnel was removed on 2026-10-26; SD-WAN networking returns on the ANX private protocol. |
 | Script dispatch | Active but advanced | Shows whether a runtime is configured and accepts a local MITM policy source, Node runner, URL-to-local-script mapping, and optional store. The stopped service loads the policy and executor together on its next start; it never downloads remote scripts. |
 | MITM enable / disable | Active | Enabling moves the embedded engine to the loopback SOCKS upstream `127.0.0.1:7891` and configures the service-owned native HTTPS proxy on `127.0.0.1:7890`. Disabling returns the engine to port 7890, removes the service-recorded MITM CA, then restores the prior service state. |
 | Certificate and driver | Active but advanced | Existing explicit mutation and rollback operations; not part of the connect path. |

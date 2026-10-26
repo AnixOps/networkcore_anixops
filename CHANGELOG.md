@@ -18,6 +18,7 @@
 - Linux 命令行移除第三方内核：删除 `install-sing-box`/`sing-box install`、`core install|start|stop|status mieru`，以及依赖兼容内核控制接口的 `node switch` 和 `node health`。`run-url` 和 `run-catalog` 只用内置引擎（去掉 `--engine`、`--install-dir`、`--force`、`--binary`、`--sha256`），内置引擎不支持的节点直接报错，不再退回外部内核；`core list` 只列出原生适配器。`mitm browser-capture session-plan` 直接从订阅取第一个节点，不再生成兼容内核配置。
 - 删除 `engine-singbox` 和 `engine-mieru` crate、控制域的 `PublicEngineKind`/`PublicEngineRunPlan` 以及 `ProxyEngineKind` 里的第三方内核名称，CI 去掉“Routing equivalence (sing-box)”任务和针对这两个 crate 的守卫；路由行为仍由 `testdata/routing-snapshot/decisions.json` 快照固定。订阅里的 sing-box JSON 和 `mierus://` 链接仍可作为格式导入。
 - 文档不再把第三方内核写成当前能力：README、ROADMAP、TODO、功能矩阵、Windows 安装与发布合约、Windows GUI 日常可用性合约和各 crate README 改为描述内置引擎；两份第三方内核 adapter 合约移到 `docs/archive/2026-10-removed-engines/`，对应 CI 文档检查改为新的内置引擎标记。
+- Windows 删除前台隧道和外部组网程序适配：`networkcore-windows tunnel prepare-storage|start|status|stop` 命令、托管配置的 `tunnel` 字段和状态的 `tunnel_running`、服务里的隧道启动/停止/回滚、GUI 设置页的 TUN 配置，以及 `platform-windows` 的隧道运行时、安全存储和 `config-core::windows_tunnel` 规划器都已移除；SD-WAN 下发校验只接受 `ikev2` 传输。旧配置里的 `tunnel` 字段会被忽略，旧版本拉起的隧道进程需先用旧版本停止。SD-WAN 组网等 ANX 私有协议重新提供；对应的人工验收计划移到 `docs/archive/2026-10-removed-engines/`。
 
 ## v0.2.0 - 2026-10-26
 

@@ -198,15 +198,13 @@ fn desktop_connection_plan(managed: WindowsManagedConfig) -> Result<DesktopConne
                 .to_string(),
         );
     }
-    if managed.tunnel.is_some()
-        || managed
-            .native_mitm
-            .as_ref()
-            .is_some_and(|mitm| mitm.enabled)
+    if managed
+        .native_mitm
+        .as_ref()
+        .is_some_and(|mitm| mitm.enabled)
     {
         return Err(
-            "This profile enables a tunnel or HTTPS MITM and must run in Windows service mode."
-                .to_string(),
+            "This profile enables HTTPS MITM and must run in Windows service mode.".to_string(),
         );
     }
     let proxy = managed
@@ -407,7 +405,6 @@ mod tests {
             system_proxy_owner: owner,
             root_certificate_path: None,
             driver_package: None,
-            tunnel: None,
             native_mitm: None,
             embedded: None,
         }

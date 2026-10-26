@@ -315,7 +315,6 @@ mod gui {
             system_proxy_owner: WindowsSystemProxyOwner::Service,
             root_certificate_path: None,
             driver_package: None,
-            tunnel: None,
             native_mitm: None,
             embedded: None,
         })
