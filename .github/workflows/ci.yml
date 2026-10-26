@@ -2511,7 +2511,11 @@ jobs:
       # the C headers below; the kernel only guarantees that they build for the iPhone.
       - name: Build the embedded runtime and node import static libraries
         shell: bash
-        run: cargo build --locked --release -p engine-embedded -p node-import --lib --target aarch64-apple-ios
+        # rquickjs (MITM scripts) ships no iOS bindings; bindgen generates them against the iPhone SDK.
+        run: |
+          set -euo pipefail
+          BINDGEN_EXTRA_CLANG_ARGS_aarch64_apple_ios="-isysroot $(xcrun --sdk iphoneos --show-sdk-path)" \
+            cargo build --locked --release -p engine-embedded -p node-import --lib --target aarch64-apple-ios
 
       - name: Check the static libraries and their C headers
         shell: bash
