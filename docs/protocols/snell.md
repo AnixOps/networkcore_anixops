@@ -484,7 +484,7 @@ Surge 节点行示例：`name = snell, host, port, psk=xxx, version=6, mode=defa
 
 ### 10.1 官方服务端的获取与配置（互通 CI 用）
 
-- 下载地址模式：`https://dl.nssurge.com/snell/snell-server-<版本>-linux-amd64.zip`，zip 内可执行文件名为 `snell-server`。`v4.1.1`、`v5.0.1`、`v6.0.0rc2` 已在本仓库互通 CI 中验证（v6.0.0rc2 包自报版本 v6.0.0）。`v3.0.1` 在 dl.nssurge.com 上返回 404；互通 CI 回退到 GitHub release 地址 `https://github.com/surge-networks/snell/releases/download/v3.0.1/snell-server-v3.0.1-linux-amd64.zip`（PR #86）。
+- 下载地址模式：`https://dl.nssurge.com/snell/snell-server-<版本>-linux-amd64.zip`，zip 内可执行文件名为 `snell-server`。`v4.1.1`、`v5.0.1`、`v6.0.0rc2` 已在本仓库互通 CI 中验证（v6.0.0rc2 包自报版本 v6.0.0）。`v3.0.1` 在 dl.nssurge.com 上返回 404；GitHub release 地址 `https://github.com/surge-networks/snell/releases/download/v3.0.1/snell-server-v3.0.1-linux-amd64.zip` 同样返回 404。目前没有可下载的官方 v3 服务端，互通 CI 对 v3 给出警告并跳过（PR #86）；v1–v3 帧格式只由单元测试覆盖，**未与官方服务端实测**。
 - 启动：`snell-server -l info -c <配置文件>`；`-v` 打印版本。
 - 配置为 INI，节名 `[snell-server]`。v6 示例：
 
