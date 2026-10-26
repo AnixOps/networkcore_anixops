@@ -177,8 +177,38 @@ fn transport_query(transport: &Value) -> Vec<(&'static str, Option<String>)> {
                 text(transport, "service_name").map(str::to_string),
             ),
         ],
+        Some("xhttp" | "splithttp") => vec![
+            ("type", Some("xhttp".to_string())),
+            ("path", text(transport, "path").map(str::to_string)),
+            ("host", text(transport, "host").map(str::to_string)),
+            ("mode", text(transport, "mode").map(str::to_string)),
+            ("extra", xhttp_extra(transport)),
+        ],
         _ => vec![("type", Some("tcp".to_string()))],
     }
+}
+
+/// The XHTTP settings beyond path, host and mode, as the `extra` JSON of
+/// Xray share links, or `None` when all are defaults.
+fn xhttp_extra(transport: &Value) -> Option<String> {
+    let mut extra = serde_json::Map::new();
+    for (field, key) in [
+        ("headers", "headers"),
+        ("x_padding_bytes", "xPaddingBytes"),
+        ("sc_max_each_post_bytes", "scMaxEachPostBytes"),
+        ("sc_min_posts_interval_ms", "scMinPostsIntervalMs"),
+        ("no_grpc_header", "noGRPCHeader"),
+    ] {
+        let value = transport.get(field).or_else(|| transport.get(key));
+        match value {
+            None | Some(Value::Null) | Some(Value::Bool(false)) => {}
+            Some(Value::Object(map)) if map.is_empty() => {}
+            Some(value) => {
+                extra.insert(key.to_string(), value.clone());
+            }
+        }
+    }
+    (!extra.is_empty()).then(|| Value::Object(extra).to_string())
 }
 
 fn vless(name: &str, endpoint: &Endpoint, outbound: &Value) -> Result<String, Unsupported> {
