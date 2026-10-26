@@ -7,6 +7,7 @@
 //! | (always)      | `direct`       | this crate             |
 //! | `http`        | `http`         | `outbound-http`        |
 //! | `hysteria2`   | `hysteria2`    | `outbound-hysteria2`   |
+//! | `iwan`        | `iwan`         | `outbound-iwan`        |
 //! | `mieru`       | `mieru`        | `outbound-mieru`       |
 //! | `shadowsocks` | `shadowsocks`  | `outbound-shadowsocks` |
 //! | `snell`       | `snell`        | `outbound-snell`       |
@@ -35,6 +36,8 @@ pub fn default_registry() -> OutboundRegistry {
     registry.register(Arc::new(outbound_http::HttpFactory));
     #[cfg(feature = "hysteria2")]
     registry.register(Arc::new(outbound_hysteria2::Hysteria2Factory));
+    #[cfg(feature = "iwan")]
+    registry.register(Arc::new(outbound_iwan::IwanFactory));
     #[cfg(feature = "mieru")]
     registry.register(Arc::new(outbound_mieru::MieruFactory));
     #[cfg(feature = "shadowsocks")]

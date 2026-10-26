@@ -26,3 +26,8 @@ The config format is documented in `crates/node-runtime/src/config.rs` and
 the API in `crates/node-runtime/src/api.rs`. Users relay through a direct
 outbound that refuses loopback and private targets unless
 `"allow_private_targets": true`.
+
+Domain egress routes from the panel (anix-control 「转发 → 分流」) are applied
+with `PUT /v1/egress` (or the config member `egress`): the route's domains
+leave through the exit node's Shadowsocks-2022 relay, for every inbound, and
+an exit node serves the relays. See `crates/node-runtime/src/egress.rs`.

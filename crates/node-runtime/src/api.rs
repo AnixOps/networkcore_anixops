@@ -12,6 +12,14 @@
 //! | `GET /v1/inbounds/{tag}/users` | | `{"names": [..]}` |
 //! | `GET /v1/inbounds/{tag}/traffic[?reset=true]` | | `{"traffic": [UserTraffic]}` |
 //! | `GET /v1/inbounds/{tag}/online` | | `{"online": [OnlineUser]}` |
+//! | `GET /v1/egress` | | `EgressStatus` |
+//! | `PUT /v1/egress` | `EgressConfig` | `EgressStatus` |
+//!
+//! `PUT /v1/egress` replaces the domain egress routes and relays (the panel's
+//! `egress` member, see [`crate::egress`]); `{}` removes them all. An
+//! invalid entry refuses the whole body with 400; a relay port that cannot
+//! be bound answers 500 after the rest was applied. Neither answer carries a
+//! relay key.
 //!
 //! Adding a user that exists replaces it (and closes its connections when the
 //! credentials changed). Errors answer `{"error": "..."}` with 400, 401, 404,
@@ -27,7 +35,7 @@ use serde_json::{json, Value};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
-use crate::{InboundConfig, Node, NodeError};
+use crate::{EgressConfig, InboundConfig, Node, NodeError};
 
 const MAX_HEAD_BYTES: usize = 16 * 1024;
 const MAX_BODY_BYTES: usize = 4 * 1024 * 1024;
@@ -84,7 +92,7 @@ impl From<NodeError> for Response {
         let status = match &error {
             NodeError::NotFound => 404,
             NodeError::Exists => 409,
-            NodeError::Invalid(_) => 400,
+            NodeError::Invalid(_) | NodeError::Egress(_) => 400,
             NodeError::Io(_) => 500,
         };
         Response::error(status, error.to_string())
@@ -218,6 +226,14 @@ async fn route(node: &Node, request: Request) -> Response {
             "inbounds": node.list().len(),
         }))),
         ("GET", ["v1", "inbounds"]) => Ok(Response::ok(json!({ "inbounds": node.list() }))),
+        ("GET", ["v1", "egress"]) => Ok(Response::ok(json!(node.egress_state().await))),
+        ("PUT", ["v1", "egress"]) => match parse::<EgressConfig>(&request.body) {
+            Ok(config) => node
+                .apply_egress(&config)
+                .await
+                .map(|status| Response::ok(json!(status))),
+            Err(response) => return response,
+        },
         ("POST", ["v1", "inbounds"]) => match parse::<InboundConfig>(&request.body) {
             Ok(config) => {
                 let tag = config.tag.clone();

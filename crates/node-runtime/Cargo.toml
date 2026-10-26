@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Node server runtime: inbounds by tag, direct outbound and a local management API for node agents."
+description = "Node server runtime: inbounds by tag, domain egress routes, a direct outbound and a local management API for node agents."
 
 [features]
 default = ["shadowsocks", "trojan", "vless", "vmess", "hysteria2", "tuic", "snell"]
@@ -26,6 +26,10 @@ inbound-trojan = { path = "../inbound-trojan", optional = true }
 inbound-tuic = { path = "../inbound-tuic", optional = true }
 inbound-vless = { path = "../inbound-vless", optional = true }
 inbound-vmess = { path = "../inbound-vmess", optional = true }
+# Egress routes reach the exit node's relay with Shadowsocks-2022.
+outbound-shadowsocks = { path = "../outbound-shadowsocks" }
+# `regexp:` matchers of egress routes.
+regex = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Dual-stack UDP egress (clears IPV6_V6ONLY).
@@ -33,7 +37,6 @@ socket2 = "0.6"
 tokio = { version = "1", default-features = false, features = ["io-util", "net", "rt", "sync", "time", "macros"] }
 
 [dev-dependencies]
-outbound-shadowsocks = { path = "../outbound-shadowsocks" }
 tokio = { version = "1", default-features = false, features = ["io-util", "net", "rt", "rt-multi-thread", "sync", "time", "macros"] }
 
 [lib]

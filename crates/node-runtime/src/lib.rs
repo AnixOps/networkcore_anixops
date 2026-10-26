@@ -10,19 +10,26 @@
 //! unless `allow_private_targets` is set, so users cannot reach services on
 //! the node or its network; an inbound's own `fallback` and REALITY
 //! `handshake` addresses are always allowed.
+//!
+//! Every inbound relays through the node's [`egress::Router`]: the domain
+//! egress routes of the panel ([`Node::apply_egress`]) send chosen domains
+//! out through another node's Shadowsocks-2022 relay, and the relays this
+//! node serves as an exit node run beside the inbounds.
 
 pub mod api;
 pub mod config;
 mod direct;
+pub mod domains;
+pub mod egress;
 
 use std::collections::BTreeMap;
 use std::fmt;
 use std::io;
-use std::net::SocketAddr;
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
-use engine_inbound::registry::{BuildError, Inbound, InboundRegistry};
+use engine_inbound::registry::{BuildError, Inbound, InboundRegistry, Settings};
 use engine_inbound::server::{serve_with_udp, InboundStats, ServeSettings};
 use engine_inbound::udp::UdpOutbound;
 use engine_inbound::UserStore;
@@ -33,6 +40,9 @@ use tokio::task::JoinHandle;
 
 pub use config::{InboundConfig, ManagementSettings, NodeConfig};
 pub use direct::DirectOutbound;
+pub use egress::{Egress, EgressConfig};
+
+use egress::{EgressRelay, Router};
 
 /// The inbound protocols this build was compiled with.
 pub fn default_registry() -> InboundRegistry {
@@ -60,6 +70,8 @@ pub enum NodeError {
     NotFound,
     Exists,
     Invalid(BuildError),
+    /// An egress configuration was refused; nothing of it was applied.
+    Egress(String),
     Io(io::Error),
 }
 
@@ -69,6 +81,7 @@ impl fmt::Display for NodeError {
             NodeError::NotFound => f.write_str("inbound not found"),
             NodeError::Exists => f.write_str("inbound tag already exists"),
             NodeError::Invalid(reason) => f.write_str(reason),
+            NodeError::Egress(reason) => f.write_str(reason),
             NodeError::Io(error) => write!(f, "{error}"),
         }
     }
@@ -97,6 +110,28 @@ pub struct InboundInfo {
     pub bytes_down: u64,
 }
 
+/// What an egress configuration runs on this node.
+#[derive(Clone, Debug, Serialize)]
+pub struct EgressStatus {
+    /// Route ids, in the order they are tried.
+    pub routes: Vec<u64>,
+    pub relays: Vec<RelayInfo>,
+    /// Addresses currently mapped to names from DNS answers.
+    pub mapped_addresses: usize,
+}
+
+/// Counters of one egress relay; never its key.
+#[derive(Clone, Debug, Serialize)]
+pub struct RelayInfo {
+    pub id: u64,
+    pub listen: SocketAddr,
+    pub accepted: u64,
+    pub active: u64,
+    pub handshake_failed: u64,
+    pub bytes_up: u64,
+    pub bytes_down: u64,
+}
+
 struct Running {
     kind: String,
     listen: SocketAddr,
@@ -105,11 +140,19 @@ struct Running {
     task: JoinHandle<()>,
 }
 
+struct RunningRelay {
+    config: EgressRelay,
+    running: Running,
+}
+
 pub struct Node {
     registry: InboundRegistry,
     serve_settings: ServeSettings,
     allow_private_targets: bool,
     inbounds: Mutex<BTreeMap<String, Running>>,
+    egress: Arc<Egress>,
+    /// Relays by id; also serializes [`Node::apply_egress`].
+    relays: tokio::sync::Mutex<BTreeMap<u64, RunningRelay>>,
 }
 
 impl Node {
@@ -119,6 +162,8 @@ impl Node {
             serve_settings: ServeSettings::default(),
             allow_private_targets,
             inbounds: Mutex::new(BTreeMap::new()),
+            egress: Arc::new(Egress::new()),
+            relays: tokio::sync::Mutex::new(BTreeMap::new()),
         }
     }
 
@@ -141,23 +186,48 @@ impl Node {
             .registry
             .build(&config.kind, &config.settings)
             .map_err(NodeError::Invalid)?;
-        let direct = Arc::new(DirectOutbound::new(
-            self.allow_private_targets,
-            config.allowed_targets(),
+        let router = Arc::new(Router::new(
+            DirectOutbound::new(self.allow_private_targets, config.allowed_targets()),
+            self.egress.clone(),
         ));
-        let outbound: Arc<dyn TcpOutbound> = direct.clone();
-        let udp: Arc<dyn UdpOutbound> = direct;
+        let address = SocketAddr::new(config.listen, config.listen_port);
+        let (listen, stats, task) = self.spawn(&inbound, address, router.clone(), router)?;
+        let mut inbounds = self.lock();
+        if inbounds.contains_key(&config.tag) {
+            task.abort();
+            return Err(NodeError::Exists);
+        }
+        inbounds.insert(
+            config.tag,
+            Running {
+                kind: config.kind,
+                listen,
+                inbound,
+                stats,
+                task,
+            },
+        );
+        Ok(listen)
+    }
+
+    /// Binds `inbound` on `address` and starts serving it.
+    fn spawn(
+        &self,
+        inbound: &Inbound,
+        address: SocketAddr,
+        outbound: Arc<dyn TcpOutbound>,
+        udp: Arc<dyn UdpOutbound>,
+    ) -> io::Result<(SocketAddr, Arc<InboundStats>, JoinHandle<()>)> {
         let stats = Arc::new(InboundStats::default());
         let settings = self.serve_settings.clone();
-        let address = SocketAddr::new(config.listen, config.listen_port);
-        let (listen, task) = match &inbound {
+        let (listen, task) = match inbound {
             Inbound::Stream(stream) => {
-                let listener = TcpListener::bind(address).await?;
+                let listener = bind_tcp(address)?;
                 let listen = listener.local_addr()?;
                 // UDP on the same port, for inbounds that take it.
                 let datagrams = match stream.datagram() {
                     Some(datagram) => {
-                        let socket = std::net::UdpSocket::bind(listen)?;
+                        let socket = bind_udp(listen)?;
                         Some(datagram.serve(socket, udp.clone(), stats.clone()))
                     }
                     None => None,
@@ -180,7 +250,7 @@ impl Node {
                 (listen, task)
             }
             Inbound::Packet(packet) => {
-                let socket = std::net::UdpSocket::bind(address)?;
+                let socket = bind_udp(address)?;
                 let listen = socket.local_addr()?;
                 let served =
                     packet
@@ -192,22 +262,113 @@ impl Node {
                 (listen, task)
             }
         };
-        let mut inbounds = self.lock();
-        if inbounds.contains_key(&config.tag) {
-            task.abort();
-            return Err(NodeError::Exists);
+        Ok((listen, stats, task))
+    }
+
+    /// The node's egress routes and address-to-name map.
+    pub fn egress(&self) -> &Arc<Egress> {
+        &self.egress
+    }
+
+    /// Replaces the egress routes and relays with `config`. Nothing changes
+    /// when an entry is invalid. Relays that are unchanged keep running and
+    /// keep their connections; a relay whose port cannot be bound fails
+    /// alone, after everything else was applied. Connections already open
+    /// keep the path they took.
+    pub async fn apply_egress(&self, config: &EgressConfig) -> Result<EgressStatus, NodeError> {
+        let table = egress::compile(config).map_err(NodeError::Egress)?;
+        let mut built = Vec::new();
+        for relay in &config.relays {
+            let mut settings = Settings::new();
+            settings.insert("method".into(), relay.method.clone().into());
+            settings.insert("password".into(), relay.password.clone().into());
+            let inbound = self
+                .registry
+                .build(egress::RELAY_PROTOCOL, &settings)
+                .map_err(|reason| {
+                    NodeError::Egress(format!("egress relay {}: {reason}", relay.id))
+                })?;
+            built.push((relay.clone(), inbound));
         }
-        inbounds.insert(
-            config.tag,
-            Running {
-                kind: config.kind,
-                listen,
-                inbound,
-                stats,
-                task,
-            },
-        );
-        Ok(listen)
+        let mut relays = self.relays.lock().await;
+        self.egress.set_table(table);
+        let stale: Vec<u64> = relays
+            .iter()
+            .filter(|(id, running)| {
+                !config
+                    .relays
+                    .iter()
+                    .any(|relay| relay.id == **id && *relay == running.config)
+            })
+            .map(|(id, _)| *id)
+            .collect();
+        for id in stale {
+            if let Some(relay) = relays.remove(&id) {
+                // Wait for the listener to close: a changed relay binds the
+                // same port again right after.
+                relay.running.task.abort();
+                let _ = relay.running.task.await;
+            }
+        }
+        let mut failed = Vec::new();
+        for (relay, inbound) in built {
+            if relays.contains_key(&relay.id) {
+                continue;
+            }
+            // A relay's traffic leaves here: direct, never another route.
+            let direct = Arc::new(DirectOutbound::new(self.allow_private_targets, Vec::new()));
+            let address = SocketAddr::new(Ipv6Addr::UNSPECIFIED.into(), relay.port);
+            match self.spawn(&inbound, address, direct.clone(), direct) {
+                Ok((listen, stats, task)) => {
+                    relays.insert(
+                        relay.id,
+                        RunningRelay {
+                            running: Running {
+                                kind: egress::RELAY_PROTOCOL.to_owned(),
+                                listen,
+                                inbound,
+                                stats,
+                                task,
+                            },
+                            config: relay,
+                        },
+                    );
+                }
+                Err(error) => failed.push(format!("egress relay {}: {error}", relay.id)),
+            }
+        }
+        if !failed.is_empty() {
+            return Err(NodeError::Io(io::Error::other(failed.join("; "))));
+        }
+        Ok(self.egress_status(&relays))
+    }
+
+    /// What the egress configuration runs now.
+    pub async fn egress_state(&self) -> EgressStatus {
+        let relays = self.relays.lock().await;
+        self.egress_status(&relays)
+    }
+
+    fn egress_status(&self, relays: &BTreeMap<u64, RunningRelay>) -> EgressStatus {
+        EgressStatus {
+            routes: self.egress.route_ids(),
+            relays: relays
+                .iter()
+                .map(|(id, relay)| {
+                    let stats = &relay.running.stats;
+                    RelayInfo {
+                        id: *id,
+                        listen: relay.running.listen,
+                        accepted: stats.accepted.load(Ordering::Relaxed),
+                        active: stats.active.load(Ordering::Relaxed),
+                        handshake_failed: stats.handshake_failed.load(Ordering::Relaxed),
+                        bytes_up: stats.bytes_up.load(Ordering::Relaxed),
+                        bytes_down: stats.bytes_down.load(Ordering::Relaxed),
+                    }
+                })
+                .collect(),
+            mapped_addresses: self.egress.domains().len(),
+        }
     }
 
     /// Stops an inbound and closes its users' connections.
@@ -266,7 +427,56 @@ impl Drop for Node {
         for running in self.lock().values() {
             running.task.abort();
         }
+        for relay in self.relays.get_mut().values() {
+            relay.running.task.abort();
+        }
     }
+}
+
+/// Binds a TCP listener; `[::]` listens on IPv4 too (on every OS) and
+/// falls back to `0.0.0.0` on a host without IPv6.
+fn bind_tcp(address: SocketAddr) -> io::Result<TcpListener> {
+    let socket = match bind(address, socket2::Type::STREAM) {
+        Err(error) if is_any_v6(address) && error.kind() != io::ErrorKind::AddrInUse => {
+            bind(any_v4(address), socket2::Type::STREAM)?
+        }
+        bound => bound?,
+    };
+    socket.listen(1024)?;
+    TcpListener::from_std(socket.into())
+}
+
+/// Binds a UDP socket like [`bind_tcp`].
+fn bind_udp(address: SocketAddr) -> io::Result<std::net::UdpSocket> {
+    let socket = match bind(address, socket2::Type::DGRAM) {
+        Err(error) if is_any_v6(address) && error.kind() != io::ErrorKind::AddrInUse => {
+            bind(any_v4(address), socket2::Type::DGRAM)?
+        }
+        bound => bound?,
+    };
+    Ok(socket.into())
+}
+
+fn bind(address: SocketAddr, kind: socket2::Type) -> io::Result<socket2::Socket> {
+    let socket = socket2::Socket::new(socket2::Domain::for_address(address), kind, None)?;
+    if is_any_v6(address) {
+        socket.set_only_v6(false)?;
+    }
+    // As tokio does; Windows' SO_REUSEADDR would let others share the port.
+    if cfg!(unix) && kind == socket2::Type::STREAM {
+        socket.set_reuse_address(true)?;
+    }
+    socket.set_nonblocking(true)?;
+    socket.bind(&address.into())?;
+    Ok(socket)
+}
+
+fn is_any_v6(address: SocketAddr) -> bool {
+    address.is_ipv6() && address.ip().is_unspecified()
+}
+
+fn any_v4(address: SocketAddr) -> SocketAddr {
+    SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), address.port())
 }
 
 fn valid_tag(tag: &str) -> bool {

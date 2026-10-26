@@ -796,6 +796,7 @@ dependencies = [
  "node-import",
  "outbound-http",
  "outbound-hysteria2",
+ "outbound-iwan",
  "outbound-mieru",
  "outbound-shadowsocks",
  "outbound-snell",
@@ -1885,6 +1886,7 @@ dependencies = [
  "inbound-vless",
  "inbound-vmess",
  "outbound-shadowsocks",
+ "regex",
  "serde",
  "serde_json",
  "socket2",
@@ -1993,6 +1995,19 @@ dependencies = [
  "tokio",
  "transport-quic",
  "transport-tls",
+]
+
+[[package]]
+name = "outbound-iwan"
+version = "0.2.0"
+dependencies = [
+ "aes",
+ "engine-outbound",
+ "md-5 0.10.6",
+ "serde",
+ "serde_json",
+ "smoltcp",
+ "tokio",
 ]
 
 [[package]]
