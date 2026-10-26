@@ -4,10 +4,11 @@
 
 ## 范围
 
-- 规则：`DOMAIN`、`DOMAIN-SUFFIX`、`DOMAIN-KEYWORD`、`IP-CIDR`/`IP-CIDR6`（可带 `no-resolve`）、`GEOIP`、`FINAL`。
+- 规则：`DOMAIN`、`DOMAIN-SUFFIX`、`DOMAIN-KEYWORD`、`IP-CIDR`/`IP-CIDR6`（可带 `no-resolve`）、`GEOIP`、`GEOSITE`、`DST-PORT`（别名 `DEST-PORT`，单个端口或 `起-止`）、`PROCESS-NAME`、`RULE-SET`、逻辑规则 `AND`/`OR`/`NOT`、`FINAL`。
+- 逻辑规则采用 Surge 写法：`AND,((DOMAIN-SUFFIX,example.com),(DST-PORT,443)),Proxy`、`NOT,((DOMAIN-KEYWORD,ads)),DIRECT`；子规则不带目标，可以嵌套（最多 8 层），`NOT` 只能有一个子规则。含 IP 子规则的逻辑规则按 IP 规则处理，可带 `no-resolve`。
 - 策略组：`select`、`url-test`、`fallback`。
 - 目标：`DIRECT`、`REJECT`、策略组 id、节点 id（保留名大小写不敏感）。
-- 非目标：`USER-AGENT`、`URL-REGEX`、`PROCESS-NAME`、远程规则集、`load-balance` 组。
+- 非目标：`USER-AGENT`、`URL-REGEX`、`load-balance` 组。
 
 ## 配置形状
 
@@ -50,8 +51,10 @@ tolerance_ms = 50                              # 默认值，仅 url-test
 
 `RoutingModel::decide(&RouteQuery, &dyn RoutingEnvironment) -> RouteResolution`
 
-- `RouteQuery { domain, ip }`：FakeIP/嗅探得到的域名与目的地址。
-- `RoutingEnvironment` 提供 GeoIP 查询、DNS 解析、select 当前选择、成员测速结果；全部方法有保守默认值，`StaticRoutingEnvironment` 即无运行时状态。
+- `RouteQuery { domain, ip, port, process }`：FakeIP/嗅探得到的域名、目的地址、目的端口（`DST-PORT`）与发起连接的本地进程名（`PROCESS-NAME`，大小写不敏感，平台无法得知时为空，规则不命中）。
+- `RoutingEnvironment` 提供 GeoIP 查询（`geoip_matches`）、GeoSite 查询（`geosite_matches`）、DNS 解析、select 当前选择、成员测速结果；全部方法有保守默认值，`StaticRoutingEnvironment` 即无运行时状态。
+- `RoutingModel::route_to` 跳过规则直接解析一个目标（全局模式），`group_member` 给出组当前选择，`target_named` 按规则目标的方式解析名称。
+- `RuleMatcher` 的 `Display` 输出不带目标的规则行，供连接列表显示命中规则。
 - 第一条不带 `no-resolve` 的 IP 规则触发一次解析，之后所有 IP 规则使用解析结果，与 sing-box `resolve` 动作一致。解析失败时连接被拒绝（`RouteMatch::ResolveFailed`），与 sing-box 一致，不会落到 `FINAL`；需要远端解析的域名应放在 IP 规则之前用域名规则分流，或给 IP 规则加 `no-resolve`。
 - 组选择：`select` 用环境选择 → `default` → 第一个成员；`url-test` 取延迟最低的成员（无结果时取第一个）；`fallback` 取第一个有测速结果的成员（都没有时取第一个）。
 - `RouteResolution` 返回命中规则序号或 `FINAL`、规则目标、经过的组路径、最终 `Direct/Reject/Node(id)` 与解析出的地址，可直接用于诊断页。
@@ -101,6 +104,7 @@ CI job `Routing equivalence (sing-box)` 下载最新 sing-box 正式版和 `geoi
 - Surge/Loon：`[Proxy Group]` 行 `名称 = 类型, 成员, 成员, url=..., interval=..., tolerance=...`，`[Rule]` 段规则行。
 - Clash YAML：`proxy-groups`（`name`/`type`/`proxies`/`url`/`interval`/`tolerance`）与 `rules`，`MATCH` 视为 `FINAL`。
 - 成员和规则目标按代理名称映射到节点 id，策略组 id 保留原名称；`REJECT-TINYGIF` 等 `REJECT-*` 视为 `REJECT`；规则只保留 `no-resolve` 选项。
+- 导入的规则类型：`DOMAIN`、`DOMAIN-SUFFIX`、`DOMAIN-KEYWORD`、`IP-CIDR`/`IP-CIDR6`、`GEOIP`、`DST-PORT`/`DEST-PORT`；`PROCESS-NAME`、`GEOSITE`（需要客户端提供列表）与逻辑规则暂不从订阅导入。
 - 不支持的规则类型、目标未导入的规则、`load-balance`/`relay` 等组、组内 `REJECT`、url-test/fallback 内的组成员都会跳过并给出警告；成员全部被跳过的组也会跳过，引用它的规则随之跳过。`FINAL` 之后的规则忽略。
 - 跳过后剩余内容仍无法通过 `RoutingModel::from_spec`（如没有 `FINAL`、组成环）时整体不导入，返回 `None` 和 `config.core.routing_import.invalid` 警告。诊断只包含规则类型、组名和节点名，不包含节点凭据。
 
@@ -113,8 +117,11 @@ CI job `Routing equivalence (sing-box)` 下载最新 sing-box 正式版和 `geoi
 ## engine-embedded 接入
 
 - 运行时配置新增 `routing` 段（与 `outbound` 二选一）：`outbounds` 以节点 id 为键，`rules` 与 `groups` 字段同 `RoutingSpec`/`PolicyGroupSpec`。路由节点必须是 TCP 出站（Shadowsocks-2022、direct）；WireGuard 是包级隧道，只能作为单一 `outbound` 使用。
-- `engine_embedded::routing::RoutedOutbound` 对每个连接调用 `decide`，`DIRECT` 走直连出站，`REJECT` 直接失败，节点走对应出站。策略组使用无运行时状态的选择（select 的 `default` 或第一个成员）。
-- 隧道目前只拿到目的 IP：域名规则只在调用方传入域名目标时生效（FakeIP/嗅探尚未接入）；域名目标遇到不带 `no-resolve` 的 IP 规则时运行时不解析，按解析失败拒绝；运行时不带 GeoIP 数据库，`GEOIP` 规则不会命中。
-- Swift 侧尚未生成 `routing` 段，现有单出站配置行为不变。
+- `engine_embedded::routing::RoutedOutbound` 对每个连接调用 `decide`，`DIRECT` 走直连出站，`REJECT` 直接失败，节点走对应出站。select 组先用运行时 `select` 控制命令的选择，再用 `default` 或第一个成员；url-test/fallback 使用 `run_health_checks` 的测速结果。
+- 隧道从 TCP 首包嗅探 TLS SNI 或 HTTP `Host`：域名规则按嗅探到的名字匹配，IP 规则仍匹配目的地址，连接仍发往原地址。UDP（含 QUIC）尚不嗅探，FakeIP 未接入。
+- 每个连接都带目的端口，`DST-PORT` 规则在隧道和本地代理里都生效。`PROCESS-NAME` 规则已可解析和匹配，但运行时尚未提供进程名（桌面进程查询是后续工作），目前不会命中。
+- 规则集（`routing.rule_sets`，最多 32 个，合计 50 万条）：每个集可含 `domain`、`domain_suffix`、`domain_keyword`、`ip_cidr`。`RULE-SET,<name>` 匹配同名集；`GEOSITE,<category>` 匹配名为 `geosite-<category>` 的集（未配置时整个配置被拒绝）；`GEOIP,<CC>` 匹配 `geoip-<cc>`（小写，未配置时与以前一样不命中）。客户端以普通列表提供 GeoSite/GeoIP 数据，例如 MetaCubeX `meta-rules-dat` 的文本规则集。
+- 远程规则集：规则集带 `url` 时由内核自己下载（需要 `local-proxy` feature，iOS 与桌面构建都包含），可选 `format`（`suffix`：裸域名匹配自身与子域名，默认；`domain`：裸域名只匹配自身，即 Clash `behavior: domain`）、`interval_secs`（至少 600，默认 86400）和 `via`（经哪个策略组、节点或 `DIRECT` 下载，默认 `DIRECT`）。内联条目作为初始内容（客户端缓存的副本）；初始为空时启动即下载，之后按间隔刷新，失败保留旧内容并在 5 分钟内重试。下载为 HTTP/1.1 GET（不跟随跳转、不压缩，最大 32 MiB，60 秒超时），列表可以是 Surge/Loon/Clash classical 行、Clash `payload:` YAML 或每行一个域名/网段。运行时控制 `rule_sets` 返回每个集的来源、条目数、最近成功时间和最近错误（不含 URL），`update_rule_sets` 立即刷新全部远程集。
+- 运行时控制（见 FFI 边界文档 “Runtime Control”）提供连接列表、模式切换（`rule`/`global`/`direct`，全局目标为 `routing.global`）、策略组列表与 select 切换。
 
-后续工作：Windows MITM 导入路径与运行中切换（Clash API）接入路由；engine-embedded 的 FakeIP/嗅探、GeoIP 数据、select 运行时选择与测速；Swift 侧生成 `routing` 段。
+后续工作：Windows MITM 导入路径接入路由；engine-embedded 的 FakeIP、UDP/QUIC 嗅探与桌面进程名查询。

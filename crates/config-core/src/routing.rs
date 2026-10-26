@@ -1,7 +1,9 @@
 //! First-class routing rules and policy groups.
 //!
 //! This module owns the platform-neutral routing model: ordered
-//! DOMAIN/DOMAIN-SUFFIX/DOMAIN-KEYWORD/IP-CIDR/GEOIP/RULE-SET rules, a mandatory FINAL target, and
+//! DOMAIN/DOMAIN-SUFFIX/DOMAIN-KEYWORD/IP-CIDR/GEOIP/GEOSITE/DST-PORT/
+//! PROCESS-NAME/RULE-SET rules and AND/OR/NOT combinations of them, a
+//! mandatory FINAL target, and
 //! select/url-test/fallback policy groups. In-process engines call
 //! [`RoutingModel::decide`] directly, and snapshot tests pin its results. The module performs no DNS, GeoIP database, health check,
 //! or network work; those inputs come from a [`RoutingEnvironment`].
@@ -149,11 +151,35 @@ pub enum RuleMatcher {
     GeoIp(String),
     /// Name of a [`crate::rule_set::RuleSet`] the environment supplies.
     RuleSet(String),
+    /// Lower-case GeoSite category (such as `cn` or `google`) whose domains
+    /// the environment supplies.
+    GeoSite(String),
+    /// Destination port within an inclusive range.
+    DstPort(u16, u16),
+    /// Lower-case name of the local process that opened the connection,
+    /// when the platform can tell.
+    ProcessName(String),
+    /// Every rule matches.
+    And(Vec<RuleMatcher>),
+    /// Any rule matches.
+    Or(Vec<RuleMatcher>),
+    /// The rule does not match.
+    Not(Box<RuleMatcher>),
 }
 
+/// Deepest nesting of AND/OR/NOT accepted.
+const MAX_LOGICAL_DEPTH: usize = 8;
+
 impl RuleMatcher {
+    /// Whether matching needs a destination address: an IP rule, or a
+    /// logical rule containing one.
     pub fn matches_ip(&self) -> bool {
-        matches!(self, Self::IpCidr(_) | Self::GeoIp(_))
+        match self {
+            Self::IpCidr(_) | Self::GeoIp(_) => true,
+            Self::And(rules) | Self::Or(rules) => rules.iter().any(Self::matches_ip),
+            Self::Not(rule) => rule.matches_ip(),
+            _ => false,
+        }
     }
 }
 
@@ -169,8 +195,30 @@ impl fmt::Display for RuleMatcher {
             Self::IpCidr(cidr) => write!(formatter, "IP-CIDR,{cidr}"),
             Self::GeoIp(country) => write!(formatter, "GEOIP,{country}"),
             Self::RuleSet(name) => write!(formatter, "RULE-SET,{name}"),
+            Self::GeoSite(category) => write!(formatter, "GEOSITE,{category}"),
+            Self::DstPort(start, end) if start == end => write!(formatter, "DST-PORT,{start}"),
+            Self::DstPort(start, end) => write!(formatter, "DST-PORT,{start}-{end}"),
+            Self::ProcessName(name) => write!(formatter, "PROCESS-NAME,{name}"),
+            Self::And(rules) => write_logical(formatter, "AND", rules),
+            Self::Or(rules) => write_logical(formatter, "OR", rules),
+            Self::Not(rule) => write_logical(formatter, "NOT", std::slice::from_ref(rule)),
         }
     }
+}
+
+fn write_logical(
+    formatter: &mut fmt::Formatter<'_>,
+    kind: &str,
+    rules: &[RuleMatcher],
+) -> fmt::Result {
+    write!(formatter, "{kind},(")?;
+    for (index, rule) in rules.iter().enumerate() {
+        if index > 0 {
+            formatter.write_str(",")?;
+        }
+        write!(formatter, "({rule})")?;
+    }
+    formatter.write_str(")")
 }
 
 /// One ordered routing rule.
@@ -243,8 +291,38 @@ pub enum RuleLine {
     },
 }
 
-/// Parses one Loon-style rule line such as `DOMAIN-SUFFIX,example.com,Proxy`.
+/// Parses one Loon-style rule line such as `DOMAIN-SUFFIX,example.com,Proxy`
+/// or a Surge-style logical rule such as
+/// `AND,((DOMAIN-SUFFIX,example.com),(DST-PORT,443)),Proxy`.
 pub fn parse_rule_line(line: &str) -> DomainResult<RuleLine> {
+    let line = line.trim();
+    let (head, rest) = line.split_once(',').unwrap_or((line, ""));
+    let head = head.trim().to_ascii_uppercase();
+    if is_logical(&head) {
+        let (inner, after) = split_parenthesized(rest)?;
+        let matcher = parse_logical(&head, inner, 1)?;
+        let after = after.trim_start();
+        let tail = after.strip_prefix(',').ok_or_else(|| {
+            routing_error(
+                ROUTING_RULE_LINE_INVALID_CODE,
+                "logical rule must be followed by a target",
+            )
+        })?;
+        let parts = tail.split(',').map(str::trim).collect::<Vec<_>>();
+        if parts[0].is_empty() {
+            return Err(routing_error(
+                ROUTING_RULE_LINE_INVALID_CODE,
+                "logical rule must be followed by a target",
+            ));
+        }
+        let no_resolve = parse_options(&parts[1..], &matcher)?;
+        return Ok(RuleLine::Rule {
+            matcher,
+            target: parts[0].to_string(),
+            no_resolve,
+        });
+    }
+
     let parts = line.split(',').map(str::trim).collect::<Vec<_>>();
     let kind = parts[0].to_ascii_uppercase();
     if kind == "FINAL" {
@@ -265,8 +343,138 @@ pub fn parse_rule_line(line: &str) -> DomainResult<RuleLine> {
             "routing rule must have a type, a value, and a target",
         ));
     }
-    let value = parts[1];
-    let matcher = match kind.as_str() {
+    let matcher = parse_matcher(&kind, parts[1])?;
+    let no_resolve = parse_options(&parts[3..], &matcher)?;
+    Ok(RuleLine::Rule {
+        matcher,
+        target: parts[2].to_string(),
+        no_resolve,
+    })
+}
+
+fn parse_options(options: &[&str], matcher: &RuleMatcher) -> DomainResult<bool> {
+    let mut no_resolve = false;
+    for option in options {
+        if option.eq_ignore_ascii_case("no-resolve") && matcher.matches_ip() {
+            no_resolve = true;
+        } else {
+            return Err(routing_error(
+                ROUTING_RULE_OPTION_UNSUPPORTED_CODE,
+                "routing rule option is unsupported; only IP rules accept no-resolve",
+            ));
+        }
+    }
+    Ok(no_resolve)
+}
+
+fn is_logical(kind: &str) -> bool {
+    matches!(kind, "AND" | "OR" | "NOT")
+}
+
+/// Splits `(inner)rest` at the parenthesis matching the first one.
+fn split_parenthesized(text: &str) -> DomainResult<(&str, &str)> {
+    let invalid = || {
+        routing_error(
+            ROUTING_RULE_LINE_INVALID_CODE,
+            "logical rule needs balanced parentheses, as in AND,((DOMAIN,a.com),(DST-PORT,443))",
+        )
+    };
+    let text = text.trim_start();
+    if !text.starts_with('(') {
+        return Err(invalid());
+    }
+    let mut depth = 0usize;
+    for (index, character) in text.char_indices() {
+        match character {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Ok((&text[1..index], &text[index + 1..]));
+                }
+            }
+            _ => {}
+        }
+    }
+    Err(invalid())
+}
+
+/// Parses the parenthesized rules inside a logical rule, `(A,a),(B,b)`.
+fn parse_logical(kind: &str, inner: &str, depth: usize) -> DomainResult<RuleMatcher> {
+    if depth > MAX_LOGICAL_DEPTH {
+        return Err(routing_error(
+            ROUTING_RULE_LINE_INVALID_CODE,
+            "logical rules are nested too deeply",
+        ));
+    }
+    let mut rules = Vec::new();
+    let mut rest = inner.trim();
+    while !rest.is_empty() {
+        let (item, after) = split_parenthesized(rest)?;
+        rules.push(parse_sub_rule(item, depth)?);
+        let after = after.trim_start();
+        rest = match after.strip_prefix(',') {
+            Some(next) => next.trim_start(),
+            None if after.is_empty() => after,
+            None => {
+                return Err(routing_error(
+                    ROUTING_RULE_LINE_INVALID_CODE,
+                    "rules inside a logical rule must be separated by commas",
+                ))
+            }
+        };
+    }
+    match (kind, rules.len()) {
+        (_, 0) => Err(routing_error(
+            ROUTING_RULE_LINE_INVALID_CODE,
+            "logical rule must contain at least one rule",
+        )),
+        ("NOT", 1) => Ok(RuleMatcher::Not(Box::new(rules.remove(0)))),
+        ("NOT", _) => Err(routing_error(
+            ROUTING_RULE_LINE_INVALID_CODE,
+            "NOT rule must contain exactly one rule",
+        )),
+        ("AND", _) => Ok(RuleMatcher::And(rules)),
+        _ => Ok(RuleMatcher::Or(rules)),
+    }
+}
+
+/// One rule inside a logical rule: a type and a value, or another logical
+/// rule, without a target.
+fn parse_sub_rule(text: &str, depth: usize) -> DomainResult<RuleMatcher> {
+    let (kind, value) = text.split_once(',').ok_or_else(|| {
+        routing_error(
+            ROUTING_RULE_LINE_INVALID_CODE,
+            "rule inside a logical rule must have a type and a value",
+        )
+    })?;
+    let kind = kind.trim().to_ascii_uppercase();
+    if is_logical(&kind) {
+        let (inner, after) = split_parenthesized(value)?;
+        if !after.trim().is_empty() {
+            return Err(routing_error(
+                ROUTING_RULE_LINE_INVALID_CODE,
+                "rule inside a logical rule has no target",
+            ));
+        }
+        return parse_logical(&kind, inner, depth + 1);
+    }
+    let mut parts = value.split(',').map(str::trim);
+    let value = parts.next().unwrap_or_default();
+    // `no-resolve` is accepted for compatibility; a logical rule resolves as
+    // its own options say.
+    if parts.any(|option| !option.eq_ignore_ascii_case("no-resolve")) || value.is_empty() {
+        return Err(routing_error(
+            ROUTING_RULE_LINE_INVALID_CODE,
+            "rule inside a logical rule must have a type and a value",
+        ));
+    }
+    parse_matcher(&kind, value)
+}
+
+/// The matcher of a rule type and its value.
+fn parse_matcher(kind: &str, value: &str) -> DomainResult<RuleMatcher> {
+    Ok(match kind {
         "DOMAIN" => RuleMatcher::Domain(normalize_rule_domain(value)?),
         "DOMAIN-SUFFIX" => {
             RuleMatcher::DomainSuffix(normalize_rule_domain(value.trim_start_matches('.'))?)
@@ -280,29 +488,56 @@ pub fn parse_rule_line(line: &str) -> DomainResult<RuleLine> {
         })?),
         "GEOIP" => RuleMatcher::GeoIp(normalize_country_code(value)?),
         "RULE-SET" => RuleMatcher::RuleSet(value.to_string()),
+        "GEOSITE" => RuleMatcher::GeoSite(normalize_category(value)?),
+        "DST-PORT" | "DEST-PORT" => {
+            let (start, end) = parse_port_range(value)?;
+            RuleMatcher::DstPort(start, end)
+        }
+        "PROCESS-NAME" => RuleMatcher::ProcessName(value.trim().to_lowercase()),
         _ => return Err(routing_error(
             ROUTING_RULE_TYPE_UNSUPPORTED_CODE,
-            "routing rule type must be DOMAIN, DOMAIN-SUFFIX, DOMAIN-KEYWORD, IP-CIDR, IP-CIDR6, GEOIP, RULE-SET, or FINAL",
+            "routing rule type must be DOMAIN, DOMAIN-SUFFIX, DOMAIN-KEYWORD, IP-CIDR, IP-CIDR6, GEOIP, GEOSITE, DST-PORT, PROCESS-NAME, RULE-SET, AND, OR, NOT, or FINAL",
         )),
-    };
-
-    let mut no_resolve = false;
-    for option in &parts[3..] {
-        if option.eq_ignore_ascii_case("no-resolve") && matcher.matches_ip() {
-            no_resolve = true;
-        } else {
-            return Err(routing_error(
-                ROUTING_RULE_OPTION_UNSUPPORTED_CODE,
-                "routing rule option is unsupported; only IP rules accept no-resolve",
-            ));
-        }
-    }
-
-    Ok(RuleLine::Rule {
-        matcher,
-        target: parts[2].to_string(),
-        no_resolve,
     })
+}
+
+/// A port or an inclusive `start-end` range.
+fn parse_port_range(value: &str) -> DomainResult<(u16, u16)> {
+    let invalid = || {
+        routing_error(
+            ROUTING_RULE_VALUE_INVALID_CODE,
+            "DST-PORT rule value must be a port or a start-end range",
+        )
+    };
+    let port = |text: &str| text.trim().parse::<u16>().map_err(|_| invalid());
+    let (start, end) = match value.split_once('-') {
+        Some((start, end)) => (port(start)?, port(end)?),
+        None => {
+            let port = port(value)?;
+            (port, port)
+        }
+    };
+    if start > end {
+        return Err(invalid());
+    }
+    Ok((start, end))
+}
+
+fn normalize_category(value: &str) -> DomainResult<String> {
+    let category = value.trim().to_ascii_lowercase();
+    let valid = !category.is_empty()
+        && category.len() <= 64
+        && category
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'!' | b'@' | b'.'));
+    if valid {
+        Ok(category)
+    } else {
+        Err(routing_error(
+            ROUTING_RULE_VALUE_INVALID_CODE,
+            "GEOSITE rule value must be a category name such as cn or google",
+        ))
+    }
 }
 
 impl RoutingModel {
@@ -377,6 +612,7 @@ impl RoutingModel {
         environment: &dyn RoutingEnvironment,
     ) -> RouteResolution {
         let domain = query.domain.as_deref().map(normalize_query_domain);
+        let process = query.process.as_deref().map(str::to_lowercase);
         let mut ip = query.ip;
         let mut resolved_ip = None;
         let mut resolve_attempted = false;
@@ -398,7 +634,13 @@ impl RoutingModel {
                     ip = resolved_ip;
                 }
             }
-            if rule_matches(&rule.matcher, domain.as_deref(), ip, environment) {
+            let input = MatchInput {
+                domain: domain.as_deref(),
+                ip,
+                port: query.port,
+                process: process.as_deref(),
+            };
+            if rule_matches(&rule.matcher, &input, environment) {
                 return self.resolution(
                     RouteMatch::Rule(index),
                     &rule.target,
@@ -495,21 +737,31 @@ pub struct RouteQuery {
     pub domain: Option<String>,
     /// Destination address, when the connection targets an IP.
     pub ip: Option<IpAddr>,
+    /// Destination port, for DST-PORT rules.
+    pub port: Option<u16>,
+    /// Name of the local process that opened the connection, for
+    /// PROCESS-NAME rules, when the platform can tell.
+    pub process: Option<String>,
 }
 
 impl RouteQuery {
     pub fn domain(domain: impl Into<String>) -> Self {
         Self {
             domain: Some(domain.into()),
-            ip: None,
+            ..Self::default()
         }
     }
 
     pub fn ip(ip: IpAddr) -> Self {
         Self {
-            domain: None,
             ip: Some(ip),
+            ..Self::default()
         }
+    }
+
+    pub fn with_port(mut self, port: u16) -> Self {
+        self.port = Some(port);
+        self
     }
 }
 
@@ -521,6 +773,19 @@ pub trait RoutingEnvironment {
     /// Country code for an address, compared case-insensitively.
     fn geoip_country(&self, _ip: IpAddr) -> Option<String> {
         None
+    }
+
+    /// Whether `ip` is in the upper-case `country`; by default it compares
+    /// [`RoutingEnvironment::geoip_country`].
+    fn geoip_matches(&self, country: &str, ip: IpAddr) -> bool {
+        self.geoip_country(ip)
+            .is_some_and(|found| found.eq_ignore_ascii_case(country))
+    }
+
+    /// Whether the lower-case GeoSite `category` holds `domain` (lower case,
+    /// no trailing dot); an unknown category matches nothing.
+    fn geosite_matches(&self, _category: &str, _domain: &str) -> bool {
+        false
     }
 
     /// Resolves a domain for IP rules that allow resolution; `None` means the
@@ -582,12 +847,20 @@ pub struct RouteResolution {
     pub resolved_ip: Option<IpAddr>,
 }
 
+/// What one connection offers the rules, normalized.
+struct MatchInput<'a> {
+    domain: Option<&'a str>,
+    ip: Option<IpAddr>,
+    port: Option<u16>,
+    process: Option<&'a str>,
+}
+
 fn rule_matches(
     matcher: &RuleMatcher,
-    domain: Option<&str>,
-    ip: Option<IpAddr>,
+    input: &MatchInput<'_>,
     environment: &dyn RoutingEnvironment,
 ) -> bool {
+    let (domain, ip) = (input.domain, input.ip);
     match matcher {
         RuleMatcher::Domain(expected) => domain == Some(expected.as_str()),
         RuleMatcher::DomainKeyword(keyword) => {
@@ -600,10 +873,22 @@ fn rule_matches(
                     .is_some_and(|prefix| prefix.ends_with('.'))
         }),
         RuleMatcher::IpCidr(cidr) => ip.is_some_and(|ip| cidr.contains(ip)),
-        RuleMatcher::GeoIp(country) => ip
-            .and_then(|ip| environment.geoip_country(ip))
-            .is_some_and(|found| found.eq_ignore_ascii_case(country)),
+        RuleMatcher::GeoIp(country) => ip.is_some_and(|ip| environment.geoip_matches(country, ip)),
         RuleMatcher::RuleSet(name) => environment.rule_set_matches(name, domain, ip),
+        RuleMatcher::GeoSite(category) => {
+            domain.is_some_and(|domain| environment.geosite_matches(category, domain))
+        }
+        RuleMatcher::DstPort(start, end) => input
+            .port
+            .is_some_and(|port| (*start..=*end).contains(&port)),
+        RuleMatcher::ProcessName(name) => input.process == Some(name.as_str()),
+        RuleMatcher::And(rules) => rules
+            .iter()
+            .all(|rule| rule_matches(rule, input, environment)),
+        RuleMatcher::Or(rules) => rules
+            .iter()
+            .any(|rule| rule_matches(rule, input, environment)),
+        RuleMatcher::Not(rule) => !rule_matches(rule, input, environment),
     }
 }
 

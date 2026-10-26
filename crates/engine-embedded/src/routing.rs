@@ -33,13 +33,14 @@ use config_core::rule_set::RuleSet;
 use engine_outbound::{BoxFuture, BoxStream, TargetAddr, TcpOutbound, UdpFlow};
 use serde::Serialize;
 
+use crate::rule_sets::RuleSetStore;
 use crate::{RuntimeError, RuntimeErrorCode};
 
 pub const PROTOCOL: &str = "routed";
 
 pub struct RoutedOutbound {
     model: RoutingModel,
-    rule_sets: RuleSets,
+    rule_sets: Arc<RuleSetStore>,
     direct: Arc<dyn TcpOutbound>,
     nodes: BTreeMap<String, Arc<dyn TcpOutbound>>,
     resolver: Arc<dyn DomainResolver>,
@@ -85,13 +86,10 @@ pub struct RouteInfo {
     pub outbound: String,
 }
 
-/// The configured rule sets, by name.
-struct RuleSets(BTreeMap<String, RuleSet>);
-
 /// What the model sees while routing one connection: the rule sets, the
 /// group latencies, and the address looked up for it, if any.
 struct QueryEnvironment<'a> {
-    rule_sets: &'a RuleSets,
+    rule_sets: &'a BTreeMap<String, Arc<RuleSet>>,
     latencies: &'a Latencies,
     selected: &'a BTreeMap<String, String>,
     resolved: Option<IpAddr>,
@@ -100,9 +98,17 @@ struct QueryEnvironment<'a> {
 impl RoutingEnvironment for QueryEnvironment<'_> {
     fn rule_set_matches(&self, name: &str, domain: Option<&str>, ip: Option<IpAddr>) -> bool {
         self.rule_sets
-            .0
             .get(name)
             .is_some_and(|set| set.matches(domain, ip))
+    }
+
+    fn geosite_matches(&self, category: &str, domain: &str) -> bool {
+        self.rule_set_matches(&format!("geosite-{category}"), Some(domain), None)
+    }
+
+    fn geoip_matches(&self, country: &str, ip: IpAddr) -> bool {
+        let name = format!("geoip-{}", country.to_ascii_lowercase());
+        self.rule_set_matches(&name, None, Some(ip))
     }
 
     fn resolve(&self, _domain: &str) -> Option<IpAddr> {
@@ -148,13 +154,29 @@ impl RoutedOutbound {
         Self::with_rule_sets(spec, direct, nodes, BTreeMap::new())
     }
 
-    /// As [`RoutedOutbound::new`], with the sets `RULE-SET` rules name; a rule
-    /// naming a missing set is rejected.
+    /// As [`RoutedOutbound::new`], with the sets `RULE-SET` and `GEOSITE`
+    /// rules name; a rule naming a missing set is rejected.
     pub fn with_rule_sets(
         spec: &RoutingSpec,
         direct: Arc<dyn TcpOutbound>,
         nodes: BTreeMap<String, Arc<dyn TcpOutbound>>,
         rule_sets: BTreeMap<String, RuleSet>,
+    ) -> Result<Self, RuntimeError> {
+        Self::with_rule_set_store(
+            spec,
+            direct,
+            nodes,
+            RuleSetStore::new(rule_sets, Vec::new()),
+        )
+    }
+
+    /// As [`RoutedOutbound::with_rule_sets`], with remote sets the engine
+    /// downloads itself; each one's `via` must name a group, a node or DIRECT.
+    pub fn with_rule_set_store(
+        spec: &RoutingSpec,
+        direct: Arc<dyn TcpOutbound>,
+        nodes: BTreeMap<String, Arc<dyn TcpOutbound>>,
+        rule_sets: RuleSetStore,
     ) -> Result<Self, RuntimeError> {
         let node_ids = nodes.keys().cloned().collect();
         let model = RoutingModel::from_spec(spec, &node_ids).map_err(|_| {
@@ -163,9 +185,11 @@ impl RoutedOutbound {
                 "routing rules or policy groups are invalid",
             )
         })?;
-        let unknown_set = model.rules.iter().any(|rule| {
-            matches!(&rule.matcher, RuleMatcher::RuleSet(name) if !rule_sets.contains_key(name))
-        });
+        let mut named = Vec::new();
+        for rule in &model.rules {
+            named_sets(&rule.matcher, &mut named);
+        }
+        let unknown_set = named.iter().any(|name| !rule_sets.contains(name));
         if unknown_set {
             return Err(RuntimeError::new(
                 RuntimeErrorCode::ConfigRejected,
@@ -179,9 +203,21 @@ impl RoutedOutbound {
                 .next()
                 .map_or(PolicyTarget::Direct, |id| PolicyTarget::Node(id.clone())),
         };
+        let invalid_via = rule_sets.remotes().iter().any(|remote| {
+            !matches!(
+                model.target_named(&remote.via, &node_ids),
+                Some(PolicyTarget::Direct | PolicyTarget::Node(_) | PolicyTarget::Group(_))
+            )
+        });
+        if invalid_via {
+            return Err(RuntimeError::new(
+                RuntimeErrorCode::ConfigRejected,
+                "a remote rule set downloads through a target that is not a group, a node or DIRECT",
+            ));
+        }
         Ok(Self {
             model,
-            rule_sets: RuleSets(rule_sets),
+            rule_sets: Arc::new(rule_sets),
             direct,
             nodes,
             resolver: Arc::new(SystemResolver),
@@ -205,6 +241,100 @@ impl RoutedOutbound {
             Some(target) => target,
         };
         Ok(self)
+    }
+
+    /// The rule sets, for their status and manual refreshes.
+    pub fn rule_sets(&self) -> &Arc<RuleSetStore> {
+        &self.rule_sets
+    }
+
+    /// Downloads every remote rule set when it is due, forever: right away
+    /// when it starts empty, then every interval, sooner after a failure or
+    /// when [`RuleSetStore::refresh_now`] asks. Never returns when there are
+    /// no remote sets.
+    #[cfg(feature = "local-proxy")]
+    pub async fn run_rule_set_updates(self: Arc<Self>) {
+        use crate::rule_sets::RETRY_INTERVAL_SECS;
+        use std::time::Duration;
+        use tokio::time::Instant;
+
+        let remotes = self.rule_sets.remotes().to_vec();
+        if remotes.is_empty() {
+            return std::future::pending().await;
+        }
+        let now = Instant::now();
+        let mut due: Vec<Instant> = remotes
+            .iter()
+            .map(|remote| {
+                if self.rule_sets.is_empty_set(&remote.name) {
+                    now
+                } else {
+                    now + Duration::from_secs(u64::from(remote.interval_secs))
+                }
+            })
+            .collect();
+        loop {
+            for (remote, due) in remotes.iter().zip(due.iter_mut()) {
+                if *due > Instant::now() {
+                    continue;
+                }
+                let interval = match self.update_rule_set(remote).await {
+                    Ok(()) => remote.interval_secs,
+                    Err(error) => {
+                        self.rule_sets.record_failure(&remote.name, error);
+                        remote.interval_secs.min(RETRY_INTERVAL_SECS)
+                    }
+                };
+                *due = Instant::now() + Duration::from_secs(u64::from(interval));
+            }
+            let next = due.iter().copied().min().unwrap_or_else(Instant::now);
+            tokio::select! {
+                _ = tokio::time::sleep_until(next) => {}
+                _ = self.rule_sets.refresh_requested() => {
+                    let now = Instant::now();
+                    due.iter_mut().for_each(|due| *due = now);
+                }
+            }
+        }
+    }
+
+    /// Downloads one remote set through its `via` target and installs it.
+    #[cfg(feature = "local-proxy")]
+    async fn update_rule_set(
+        &self,
+        remote: &crate::rule_sets::RemoteRuleSet,
+    ) -> Result<(), &'static str> {
+        use config_core::rule_set::{RuleSetEntries, MAX_RULE_SET_ENTRIES};
+        use std::time::Duration;
+
+        const FETCH_TIMEOUT: Duration = Duration::from_secs(60);
+        const MAX_LIST_BYTES: usize = 32 * 1024 * 1024;
+
+        let node_ids = self.nodes.keys().cloned().collect();
+        let target = self
+            .model
+            .target_named(&remote.via, &node_ids)
+            .ok_or("via_unknown")?;
+        let resolution = self.with_environment(None, |environment| {
+            self.model.route_to(&target, environment)
+        });
+        let outbound = self
+            .outbound_of(&resolution.outcome)
+            .ok_or("via_rejected")?;
+        let body = crate::fetch::fetch(&*outbound, &remote.url, FETCH_TIMEOUT, MAX_LIST_BYTES)
+            .await
+            .map_err(crate::fetch::FetchError::as_str)?;
+        let text = String::from_utf8_lossy(&body);
+        let (entries, _skipped) = RuleSetEntries::parse_list(&text, remote.bare);
+        if entries.is_empty() {
+            return Err("empty_list");
+        }
+        if entries.len() > MAX_RULE_SET_ENTRIES {
+            return Err("too_many_entries");
+        }
+        let set = RuleSet::from_entries(&entries).map_err(|_| "invalid_entries")?;
+        self.rule_sets.replace(&remote.name, set);
+        Ok(())
     }
 
     /// The outbound for connections that skip the rules (the direct mode).
@@ -243,12 +373,13 @@ impl RoutedOutbound {
             .latencies
             .read()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let rule_sets = self.rule_sets.read();
         let selected = self
             .selected
             .read()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         body(&QueryEnvironment {
-            rule_sets: &self.rule_sets,
+            rule_sets: &rule_sets,
             latencies: &latencies,
             selected: &selected,
             resolved,
@@ -460,6 +591,22 @@ fn query(target: &TargetAddr) -> RouteQuery {
     match target {
         TargetAddr::Ip(addr) => RouteQuery::ip(addr.ip()),
         TargetAddr::Domain(domain, _) => RouteQuery::domain(domain.clone()),
+    }
+    .with_port(target.port())
+}
+
+/// The rule sets a rule needs: `RULE-SET` names and `geosite-<category>`.
+fn named_sets(matcher: &RuleMatcher, names: &mut Vec<String>) {
+    match matcher {
+        RuleMatcher::RuleSet(name) => names.push(name.clone()),
+        RuleMatcher::GeoSite(category) => names.push(format!("geosite-{category}")),
+        RuleMatcher::And(rules) | RuleMatcher::Or(rules) => {
+            for rule in rules {
+                named_sets(rule, names);
+            }
+        }
+        RuleMatcher::Not(rule) => named_sets(rule, names),
+        _ => {}
     }
 }
 

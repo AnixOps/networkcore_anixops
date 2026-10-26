@@ -86,7 +86,12 @@ impl LocalProxy {
                 runtime.block_on(async move {
                     let health_checks = async move {
                         match routed {
-                            Some(routed) => routed.run_health_checks().await,
+                            Some(routed) => {
+                                tokio::join!(
+                                    routed.clone().run_health_checks(),
+                                    routed.run_rule_set_updates()
+                                );
+                            }
                             None => std::future::pending().await,
                         }
                     };
