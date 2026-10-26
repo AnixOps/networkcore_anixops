@@ -538,6 +538,89 @@ async fn sessions_follow_the_server_rules() {
     assert!(!alice.echo(&alice_login).await);
 }
 
+/// A TCP segment without options or payload.
+fn tcp(src: Ipv4Addr, dst: Ipv4Addr, ports: (u16, u16), seq: u32, ack: u32, flags: u8) -> Vec<u8> {
+    let mut segment = Vec::with_capacity(20);
+    segment.extend_from_slice(&ports.0.to_be_bytes());
+    segment.extend_from_slice(&ports.1.to_be_bytes());
+    segment.extend_from_slice(&seq.to_be_bytes());
+    segment.extend_from_slice(&ack.to_be_bytes());
+    segment.extend_from_slice(&[5 << 4, flags, 0xff, 0xff, 0, 0, 0, 0]);
+    let mut pseudo = Vec::with_capacity(32);
+    pseudo.extend_from_slice(&src.octets());
+    pseudo.extend_from_slice(&dst.octets());
+    pseudo.extend_from_slice(&[0, 6, 0, segment.len() as u8]);
+    pseudo.extend_from_slice(&segment);
+    let sum = checksum(&pseudo);
+    segment[16..18].copy_from_slice(&sum.to_be_bytes());
+    ipv4(6, src, dst, &segment)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn close_ends_the_sessions_connections() {
+    const SYN: u8 = 0x02;
+    const ACK: u8 = 0x10;
+    let fixture = start(false).await;
+    let alice = Raw::new(fixture.port).await;
+    let login = alice.login("alice", "pw-alice", 1400, false).await;
+
+    // A TCP connection through the stack, relayed to the echo server.
+    let target = Ipv4Addr::new(203, 0, 113, 9);
+    let ports = (40000, 443);
+    alice
+        .send_ip(&login, &tcp(login.address, target, ports, 1000, 0, SYN))
+        .await;
+    let syn_ack = alice.recv_ip(&login).await.unwrap();
+    assert_eq!(syn_ack[33] & (SYN | ACK), SYN | ACK);
+    let server_seq = u32::from_be_bytes(syn_ack[24..28].try_into().unwrap());
+    alice
+        .send_ip(
+            &login,
+            &tcp(
+                login.address,
+                target,
+                ports,
+                1001,
+                server_seq.wrapping_add(1),
+                ACK,
+            ),
+        )
+        .await;
+    let relayed = TargetAddr::Ip(SocketAddr::new(target.into(), 443));
+    let online = |users: &Arc<dyn PacketInbound>| {
+        users
+            .users()
+            .online()
+            .iter()
+            .any(|online| online.name == "1001")
+    };
+    for _ in 0..50 {
+        if fixture.tcp_targets.lock().unwrap().contains(&relayed) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert!(fixture.tcp_targets.lock().unwrap().contains(&relayed));
+    assert!(online(&fixture.inbound));
+
+    // CLOSE ends the open connection too, so the user goes offline.
+    alice
+        .send(&packet::signed(
+            Header::new(kind::CLOSE, 0, login.session),
+            &[],
+        ))
+        .await;
+    let mut gone = false;
+    for _ in 0..30 {
+        if !online(&fixture.inbound) {
+            gone = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert!(gone, "user 1001 stayed online after CLOSE");
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn client_to_client_when_allowed() {
     let fixture = start(true).await;
