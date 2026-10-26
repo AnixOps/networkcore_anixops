@@ -1,5 +1,6 @@
 //! Packet-level tunnel tests: raw IP packets in, raw IP packets out.
 
+use std::collections::BTreeMap;
 use std::io::{self, Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, UdpSocket};
 use std::sync::mpsc::{self, Receiver};
@@ -7,6 +8,8 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use engine_embedded::config::{DnsConfig, DnsRuleConfig, DnsServerConfig, DnsVia};
+use engine_embedded::dns_policy::DnsPolicy;
 use engine_embedded::tunnel::{PacketSink, Tunnel, TunnelSettings};
 use engine_outbound::{
     BoxFuture, BoxStream, DatagramRecv, DatagramSend, TargetAddr, TcpOutbound, UdpFlow,
@@ -102,8 +105,10 @@ fn settings() -> TunnelSettings {
         max_dns_in_flight: 4,
         idle_timeout: Duration::from_secs(30),
         connect_timeout: Duration::from_secs(5),
-        dns_upstream: SocketAddr::from((Ipv4Addr::new(1, 1, 1, 1), 53)),
-        dns_timeout: Duration::from_secs(5),
+        dns: Arc::new(DnsPolicy::tcp(
+            SocketAddr::from((Ipv4Addr::new(1, 1, 1, 1), 53)),
+            Duration::from_secs(5),
+        )),
     }
 }
 
@@ -249,6 +254,92 @@ fn dns_failure_reports_its_stage() {
         thread::sleep(Duration::from_millis(20));
     }
     assert_eq!(tunnel.stats().dns_last_failure, Some("reply_closed"));
+    tunnel.stop();
+}
+
+/// Sends `query` from the app to the tunnel's DNS address and returns the
+/// reply it emits.
+fn ask(tunnel: &Tunnel, rx: &Receiver<Vec<u8>>, query: &[u8]) -> Vec<u8> {
+    let mut packet = Vec::new();
+    PacketBuilder::ipv4(APP, DNS, 64)
+        .udp(5353, 53)
+        .write(&mut packet, query)
+        .unwrap();
+    assert!(tunnel.input_packet(&packet));
+    wait_for(rx, |sliced| match &sliced.transport {
+        Some(TransportSlice::Udp(udp)) if udp.destination_port() == 5353 => {
+            Some(udp.payload().to_vec())
+        }
+        _ => None,
+    })
+}
+
+#[test]
+fn dns_hosts_are_answered_without_the_outbound() {
+    let config = DnsConfig {
+        hosts: BTreeMap::from([(
+            "example.com".to_string(),
+            vec!["192.0.2.7".parse().unwrap()],
+        )]),
+        ..DnsConfig::default()
+    };
+    let settings = TunnelSettings {
+        dns: Arc::new(DnsPolicy::from_config(&config).unwrap()),
+        ..settings()
+    };
+    let (sink, rx) = capture();
+    let mut tunnel =
+        Tunnel::start(settings, Arc::new(Redirect(start_closing_server())), sink).unwrap();
+
+    let response = ask(&tunnel, &rx, &dns_query());
+    assert_eq!(&response[..2], &[0x12, 0x34]);
+    assert_eq!(&response[6..8], &[0, 1], "one answer");
+    assert!(response.ends_with(&[192, 0, 2, 7]));
+    let stats = tunnel.stats();
+    assert_eq!(stats.dns_queries, 1);
+    assert_eq!(stats.dns_failed, 0);
+    tunnel.stop();
+}
+
+#[test]
+fn dns_rules_send_names_to_a_direct_server() {
+    let local = start_dns_server();
+    let config = DnsConfig {
+        servers: vec![
+            DnsServerConfig {
+                name: "remote".into(),
+                url: "tcp://8.8.8.8".into(),
+                server_name: None,
+                via: DnsVia::Proxy,
+            },
+            DnsServerConfig {
+                name: "local".into(),
+                url: format!("tcp://{local}"),
+                server_name: None,
+                via: DnsVia::Direct,
+            },
+        ],
+        rules: vec![DnsRuleConfig {
+            domain_suffix: vec!["com".into()],
+            server: "local".into(),
+            ..DnsRuleConfig::default()
+        }],
+        ..DnsConfig::default()
+    };
+    let settings = TunnelSettings {
+        dns: Arc::new(DnsPolicy::from_config(&config).unwrap()),
+        ..settings()
+    };
+    let (sink, rx) = capture();
+    // The proxy drops everything; only the direct server can answer.
+    let mut tunnel =
+        Tunnel::start(settings, Arc::new(Redirect(start_closing_server())), sink).unwrap();
+
+    let query = dns_query();
+    let response = ask(&tunnel, &rx, &query);
+    assert_eq!(&response[..2], &query[..2]);
+    assert_eq!(response[2] & 0x80, 0x80);
+    assert_eq!(tunnel.stats().dns_failed, 0);
     tunnel.stop();
 }
 

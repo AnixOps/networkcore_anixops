@@ -10,7 +10,7 @@
 //! no status field).
 
 use std::collections::BTreeMap;
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 
 use config_core::routing::{PolicyGroupSpec, RoutingSpec};
@@ -234,14 +234,29 @@ pub struct PolicyGroupConfig {
     pub tolerance_ms: Option<u16>,
 }
 
+/// The `dns` section; see [`crate::dns_policy`].
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DnsConfig {
-    /// DNS server reached over TCP through the outbound.
+    /// DNS server reached over TCP through the outbound when `servers` is
+    /// empty.
     #[serde(default = "default_dns_upstream")]
     pub upstream: SocketAddr,
     #[serde(default = "default_dns_timeout_ms")]
     pub timeout_ms: u64,
+    /// Upstreams by name; `upstream` is ignored when there are any.
+    #[serde(default)]
+    pub servers: Vec<DnsServerConfig>,
+    /// The server for names no rule picks; the first server by default.
+    #[serde(default)]
+    pub default: Option<String>,
+    /// Names answered locally: `example.lan`, or `*.example.lan` for its
+    /// subdomains, to 1-8 addresses.
+    #[serde(default)]
+    pub hosts: BTreeMap<String, Vec<IpAddr>>,
+    /// Per-domain servers, first match wins.
+    #[serde(default)]
+    pub rules: Vec<DnsRuleConfig>,
 }
 
 impl Default for DnsConfig {
@@ -249,7 +264,71 @@ impl Default for DnsConfig {
         Self {
             upstream: default_dns_upstream(),
             timeout_ms: default_dns_timeout_ms(),
+            servers: Vec::new(),
+            default: None,
+            hosts: BTreeMap::new(),
+            rules: Vec::new(),
         }
+    }
+}
+
+/// One DNS upstream.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DnsServerConfig {
+    pub name: String,
+    /// `1.1.1.1`, `tcp://host[:53]`, `tls://host[:853]` (DNS over TLS) or
+    /// `https://host[:443][/dns-query]` (DNS over HTTPS).
+    pub url: String,
+    /// TLS name when the host is an address, e.g. `cloudflare-dns.com` for
+    /// `tls://1.1.1.1`.
+    #[serde(default)]
+    pub server_name: Option<String>,
+    #[serde(default)]
+    pub via: DnsVia,
+}
+
+/// How a DNS server is reached.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DnsVia {
+    /// Like the app's traffic: through the config's outbound or rules (and
+    /// directly in the direct mode).
+    #[default]
+    Proxy,
+    /// Always through the direct outbound, e.g. for a domestic resolver.
+    Direct,
+}
+
+impl DnsVia {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Proxy => "proxy",
+            Self::Direct => "direct",
+        }
+    }
+}
+
+/// Names a server answers: the listed domains, their subdomains for
+/// `domain_suffix`, names containing a `domain_keyword`, or names in a rule
+/// set of the routing section (e.g. `geosite-cn`).
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DnsRuleConfig {
+    #[serde(default)]
+    pub domain: Vec<String>,
+    #[serde(default)]
+    pub domain_suffix: Vec<String>,
+    #[serde(default)]
+    pub domain_keyword: Vec<String>,
+    #[serde(default)]
+    pub rule_set: Option<String>,
+    pub server: String,
+}
+
+impl DnsRuleConfig {
+    pub fn entry_count(&self) -> usize {
+        self.domain.len() + self.domain_suffix.len() + self.domain_keyword.len()
     }
 }
 
@@ -395,6 +474,7 @@ impl RuntimeConfig {
         {
             return Err(rejected("resource limits are out of range"));
         }
+        crate::dns_policy::DnsPolicy::from_config(&self.dns).map_err(rejected)?;
         Ok(())
     }
 
@@ -522,7 +602,7 @@ fn build_single_outbound(
         .map_err(rejected)
 }
 
-fn is_identifier(value: &str) -> bool {
+pub(crate) fn is_identifier(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= MAX_PROFILE_ID_LEN
         && value

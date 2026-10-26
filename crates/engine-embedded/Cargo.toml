@@ -8,7 +8,9 @@ description = "In-process engine for the iOS Network Extension: userspace TCP/IP
 
 # One feature per protocol; see src/protocols.rs. `direct` is always built in.
 [features]
-default = ["http", "hysteria2", "iwan", "local-proxy", "mieru", "mitm", "scripts", "shadowsocks", "snell", "socks", "trojan", "tuic", "vless", "vmess", "wireguard"]
+default = ["dns-tls", "http", "hysteria2", "iwan", "local-proxy", "mieru", "mitm", "scripts", "shadowsocks", "snell", "socks", "trojan", "tuic", "vless", "vmess", "wireguard"]
+# DNS over TLS and DNS over HTTPS upstreams (`tls://`, `https://`).
+dns-tls = ["dep:transport-tls"]
 http = ["dep:outbound-http"]
 hysteria2 = ["dep:outbound-hysteria2"]
 # Panabit iWAN: a layer-3 tunnel used as a routable outbound with its own stack.
