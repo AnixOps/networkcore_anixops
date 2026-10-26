@@ -236,9 +236,18 @@ impl Hysteria2Inbound {
                 h3::response_frame(404, &[])
             }
         };
-        if stream.write_all(&frame).await.is_ok() {
-            let _ = stream.shutdown().await;
+        if stream.write_all(&frame).await.is_err() {
+            return;
         }
+        let _ = stream.shutdown().await;
+        // Keep reading until the client finishes its request: dropping the
+        // receive side first sends STOP_SENDING, which can fail the client's
+        // own finish before it reads the response.
+        let _ = tokio::time::timeout(
+            settings.handshake_timeout,
+            tokio::io::copy(&mut (&mut stream).take(64 * 1024), &mut tokio::io::sink()),
+        )
+        .await;
     }
 }
 
