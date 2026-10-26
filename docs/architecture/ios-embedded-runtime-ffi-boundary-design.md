@@ -86,9 +86,32 @@ XCFramework 只能由 GitHub Actions `macos-26` runner 从同一 commit 的受�
 | `networkcore_ios_runtime_free_buffer` | Swift -> Rust | 释放 Rust-owned output buffer |
 | `networkcore_ios_runtime_free_handle` | Swift -> Rust | 释放 opaque runtime handle |
 | `networkcore_ios_measure_delay` | Swift -> Rust | 节点 HTTP 真连接延迟：经节点出站请求测试 URL，返回到首个响应行的毫秒数；不需要 handle，主 App 在隧道未启动时也可调用 |
+| `networkcore_ios_runtime_control` | Swift -> Rust | 运行时控制（feature set 2）：一个 JSON 请求 `{"cmd": ...}`，JSON 应答写入 Rust-owned buffer；见下节 |
 
 所有 exported symbol 必须使用明确前缀 `networkcore_ios_`，避免和 Apple SDK、系统库或第三方内核冲突。所有 ABI
 struct 必须采用 C-compatible layout，字段必须固定大小、对齐和 ownership；Swift-only object layout 不得作为 ABI。
+
+### Runtime Control
+
+`networkcore_ios_runtime_control(handle, request, request_len, out)` 是隧道运行期间客户端读取和调整 runtime 的唯一入口，
+之后新增的命令只扩展 JSON，不再新增 symbol。请求最长 4096 字节；不是 JSON、缺少 `cmd` 或命令未知时返回
+`NETWORKCORE_IOS_ERR_INVALID_ARGUMENT`，`out` 保持为空 buffer。handle 创建后、隧道启动前和停止后都可调用。
+桌面 local proxy 通过 `LocalProxy::control_json` 接受同样的请求。命令表以 `crates/engine-embedded/src/control.rs` 为准：
+
+| `cmd` | 请求字段 | 应答 |
+| --- | --- | --- |
+| `traffic` | | `upload_total`、`download_total`（字节）、`upload_rate`、`download_rate`（字节/秒，按两次调用间隔采样，间隔不足 500 ms 时沿用上次速率）、`active` |
+| `connections` | | `traffic`，`active`（最早的在前）与 `closed`（最新的在前，最多 128 条）连接列表 |
+| `close_connection` | `id` | `{"closed": bool}`，连接不在活动列表时为 `false` |
+| `close_all` | | `{"closed": 关闭数量}` |
+
+每条连接包含 `id`、`network`（`tcp`/`udp`）、`host`（请求的域名，或隧道从 TLS SNI / HTTP `Host` 嗅探到的名字）、
+`destination`、`rule`（命中的规则如 `DOMAIN-SUFFIX,example.com`，无规则命中时为 `FINAL`，单出站配置为 `DEFAULT`）、
+`chain`（经过的策略组与最终出站）、`outbound`（节点 id、`DIRECT` 或 `REJECT`）、`started_at_ms` / `ended_at_ms`
+（Unix 毫秒）、`upload`、`download`、`error`（`rejected` 或 `connect_failed`）。
+
+连接列表包含用户访问的目的地址，只保存在内存中，只在显式的 `connections` 请求中返回，不写入 status、日志或错误；
+负载内容与出站配置（密钥、UUID、密码）不会进入列表。隧道自身的 DNS 查询不列为连接。
 
 ## ABI Version Negotiation
 

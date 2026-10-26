@@ -157,6 +157,22 @@ impl RuleMatcher {
     }
 }
 
+/// The rule as a line without its target, such as `DOMAIN-SUFFIX,example.com`,
+/// for connection lists.
+impl fmt::Display for RuleMatcher {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Domain(domain) => write!(formatter, "DOMAIN,{domain}"),
+            Self::DomainSuffix(suffix) => write!(formatter, "DOMAIN-SUFFIX,{suffix}"),
+            Self::DomainKeyword(keyword) => write!(formatter, "DOMAIN-KEYWORD,{keyword}"),
+            Self::IpCidr(cidr) if cidr.network().is_ipv6() => write!(formatter, "IP-CIDR6,{cidr}"),
+            Self::IpCidr(cidr) => write!(formatter, "IP-CIDR,{cidr}"),
+            Self::GeoIp(country) => write!(formatter, "GEOIP,{country}"),
+            Self::RuleSet(name) => write!(formatter, "RULE-SET,{name}"),
+        }
+    }
+}
+
 /// One ordered routing rule.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RoutingRule {

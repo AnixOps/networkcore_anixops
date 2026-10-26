@@ -37,7 +37,7 @@ extern "C" fn count_packets(context: *mut c_void, _packet: *const u8, _len: usiz
 fn versions_match_the_swift_handshake() {
     assert_eq!(networkcore_ios_abi_version(), 1);
     assert_eq!(networkcore_ios_schema_version(), 1);
-    assert_eq!(networkcore_ios_feature_set_version(), 1);
+    assert_eq!(networkcore_ios_feature_set_version(), 2);
 }
 
 #[test]
@@ -271,6 +271,60 @@ fn lifecycle_is_idempotent_and_null_safe() {
     drop(packets);
 }
 
+fn control(handle: *mut NetworkCoreRuntime, request: &str) -> (i32, Option<serde_json::Value>) {
+    let mut buffer = NetworkCoreBuffer {
+        ptr: ptr::null_mut(),
+        len: 0,
+        cap: 0,
+    };
+    let code = unsafe {
+        networkcore_ios_runtime_control(handle, request.as_ptr(), request.len(), &mut buffer)
+    };
+    let answer = (!buffer.ptr.is_null() && buffer.len > 0).then(|| {
+        let bytes = unsafe { std::slice::from_raw_parts(buffer.ptr, buffer.len) };
+        serde_json::from_slice(bytes).unwrap()
+    });
+    unsafe { networkcore_ios_runtime_free_buffer(buffer) };
+    (code, answer)
+}
+
+#[test]
+fn control_answers_json_and_rejects_bad_requests() {
+    let (code, handle) = init(DIRECT_CONFIG);
+    assert_eq!(code, NETWORKCORE_IOS_OK);
+
+    let (code, traffic) = control(handle, r#"{"cmd":"traffic"}"#);
+    assert_eq!(code, NETWORKCORE_IOS_OK);
+    let traffic = traffic.unwrap();
+    assert_eq!(traffic["upload_total"], 0);
+    assert_eq!(traffic["active"], 0);
+
+    let (code, list) = control(handle, r#"{"cmd":"connections"}"#);
+    assert_eq!(code, NETWORKCORE_IOS_OK);
+    let list = list.unwrap();
+    assert!(list["active"].as_array().unwrap().is_empty());
+    assert!(list["closed"].as_array().unwrap().is_empty());
+
+    let (code, closed) = control(handle, r#"{"cmd":"close_connection","id":7}"#);
+    assert_eq!(code, NETWORKCORE_IOS_OK);
+    assert_eq!(closed.unwrap()["closed"], false);
+
+    let (code, answer) = control(handle, r#"{"cmd":"unknown"}"#);
+    assert_eq!(code, NETWORKCORE_IOS_ERR_INVALID_ARGUMENT);
+    assert!(answer.is_none());
+    let (code, _) = control(handle, "");
+    assert_eq!(code, NETWORKCORE_IOS_ERR_INVALID_ARGUMENT);
+    let (code, _) = control(ptr::null_mut(), r#"{"cmd":"traffic"}"#);
+    assert_eq!(code, NETWORKCORE_IOS_ERR_INVALID_ARGUMENT);
+    let request = r#"{"cmd":"traffic"}"#;
+    let code = unsafe {
+        networkcore_ios_runtime_control(handle, request.as_ptr(), request.len(), ptr::null_mut())
+    };
+    assert_eq!(code, NETWORKCORE_IOS_ERR_INVALID_ARGUMENT);
+
+    unsafe { networkcore_ios_runtime_free_handle(handle) };
+}
+
 #[test]
 fn header_declares_every_exported_symbol() {
     let header = include_str!("../include/networkcore_ios_runtime.h");
@@ -283,6 +337,7 @@ fn header_declares_every_exported_symbol() {
         "networkcore_ios_runtime_input_packet",
         "networkcore_ios_runtime_stop_tunnel",
         "networkcore_ios_runtime_collect_status",
+        "networkcore_ios_runtime_control",
         "networkcore_ios_measure_delay",
         "networkcore_ios_runtime_free_buffer",
         "networkcore_ios_runtime_free_handle",

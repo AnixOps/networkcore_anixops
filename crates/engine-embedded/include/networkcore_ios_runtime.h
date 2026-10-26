@@ -59,6 +59,12 @@ int32_t networkcore_ios_runtime_start_tunnel(NetworkCoreRuntime *handle, Network
 int32_t networkcore_ios_runtime_input_packet(NetworkCoreRuntime *handle, const uint8_t *packet, size_t len);
 int32_t networkcore_ios_runtime_stop_tunnel(NetworkCoreRuntime *handle);
 int32_t networkcore_ios_runtime_collect_status(NetworkCoreRuntime *handle, NetworkCoreBuffer *out);
+/* Runtime control (feature set 2): one JSON request {"cmd": ...} in, one JSON answer in `out`.
+ * Commands: traffic, connections, close_connection {id}, close_all. See src/control.rs.
+ * Returns NETWORKCORE_IOS_ERR_INVALID_ARGUMENT for a request that is longer than 4096 bytes,
+ * not JSON, or not a known command. */
+int32_t networkcore_ios_runtime_control(NetworkCoreRuntime *handle, const uint8_t *request, size_t request_len,
+                                        NetworkCoreBuffer *out);
 /* Delay test: time to the first HTTP response line of `url` through the outbound of `config`,
  * in milliseconds. Needs no runtime handle and blocks the calling thread up to timeout_ms
  * (1...60000). Returns NETWORKCORE_IOS_ERR_DELAY_TIMEOUT or NETWORKCORE_IOS_ERR_DELAY_FAILED when

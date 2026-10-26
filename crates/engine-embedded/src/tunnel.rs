@@ -3,11 +3,14 @@
 //! The tunnel owns one current-thread tokio runtime on a dedicated thread. IP
 //! packets from the TUN side enter through [`Tunnel::input_packet`]; packets
 //! produced by the userspace TCP/IP stack leave through the [`PacketSink`]
-//! callback on the tunnel thread. TCP flows are relayed through the outbound,
+//! callback on the tunnel thread. TCP flows are relayed through the
+//! [`Dispatcher`], which routes and tracks them; the host name sniffed from a
+//! flow's first bytes (TLS SNI or HTTP `Host`) goes along for domain rules.
 //! UDP/53 is forwarded as DNS-over-TCP, and other UDP goes through the
 //! outbound's UDP flows, one per app socket and destination. An outbound
-//! without UDP drops those datagrams, so QUIC falls back to TCP. A WireGuard tunnel (`Tunnel::start_wireguard`) skips the
-//! stack and seals packets straight to its peer.
+//! without UDP drops those datagrams, so QUIC falls back to TCP. A WireGuard
+//! tunnel (`Tunnel::start_wireguard`) skips the stack and seals packets
+//! straight to its peer.
 
 use std::collections::HashMap;
 use std::io;
@@ -28,7 +31,9 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{mpsc, oneshot, Semaphore};
 
+use crate::connections::Dispatcher;
 use crate::dns::{self, OutboundFailure};
+use crate::sniff;
 #[cfg(feature = "wireguard")]
 use crate::wireguard::{self, WireGuardSettings};
 
@@ -196,23 +201,25 @@ impl Tunnel {
         interceptor: Option<Arc<dyn FlowInterceptor>>,
         sink: PacketSink,
     ) -> io::Result<Self> {
-        Self::launch(move |packet_rx, stats| {
-            spawn_tasks(settings, outbound, interceptor, sink, packet_rx, stats)
-        })
+        let dispatcher = Arc::new(Dispatcher::single(outbound));
+        Self::start_with_dispatcher(settings, dispatcher, interceptor, None, sink)
     }
 
-    /// Like [`Tunnel::start_with_interceptor`], also running `background` (such
-    /// as policy group health checks) on the tunnel's runtime until it stops.
-    pub fn start_with_background(
+    /// Starts the tunnel with flows through `dispatcher`, offering each new
+    /// TCP flow to `interceptor` first and running `background` (such as
+    /// policy group health checks) on the tunnel's runtime until it stops.
+    pub fn start_with_dispatcher(
         settings: TunnelSettings,
-        outbound: Arc<dyn TcpOutbound>,
+        dispatcher: Arc<Dispatcher>,
         interceptor: Option<Arc<dyn FlowInterceptor>>,
-        background: BoxFuture<'static, ()>,
+        background: Option<BoxFuture<'static, ()>>,
         sink: PacketSink,
     ) -> io::Result<Self> {
         Self::launch(move |packet_rx, stats| {
-            spawn_tasks(settings, outbound, interceptor, sink, packet_rx, stats)?;
-            tokio::spawn(background);
+            spawn_tasks(settings, dispatcher, interceptor, sink, packet_rx, stats)?;
+            if let Some(background) = background {
+                tokio::spawn(background);
+            }
             Ok(())
         })
     }
@@ -321,7 +328,7 @@ impl Drop for Tunnel {
 
 fn spawn_tasks(
     settings: TunnelSettings,
-    outbound: Arc<dyn TcpOutbound>,
+    dispatcher: Arc<Dispatcher>,
     interceptor: Option<Arc<dyn FlowInterceptor>>,
     sink: PacketSink,
     mut packet_rx: mpsc::Receiver<Vec<u8>>,
@@ -365,7 +372,7 @@ fn spawn_tasks(
 
     // TCP flows.
     let tcp_permits = Arc::new(Semaphore::new(settings.max_tcp_connections));
-    let tcp_outbound = outbound.clone();
+    let tcp_dispatcher = dispatcher.clone();
     let tcp_stats = stats.clone();
     let tcp_settings = settings.clone();
     tokio::spawn(async move {
@@ -376,7 +383,7 @@ fn spawn_tasks(
                 continue;
             };
             bump(&tcp_stats.tcp_total);
-            let outbound = tcp_outbound.clone();
+            let dispatcher = tcp_dispatcher.clone();
             let stats = tcp_stats.clone();
             let settings = tcp_settings.clone();
             let interceptor = interceptor.clone();
@@ -386,7 +393,7 @@ fn spawn_tasks(
                 handle_tcp(
                     stream,
                     remote,
-                    outbound.as_ref(),
+                    &dispatcher,
                     interceptor.as_deref(),
                     &stats,
                     &settings,
@@ -412,7 +419,7 @@ fn spawn_tasks(
     tokio::spawn(async move {
         while let Some((payload, src, dst)) = udp_rx.next().await {
             if dst.port() != DNS_PORT {
-                flows.forward(payload, src, dst, &outbound, &stats, &reply_tx, &settings);
+                flows.forward(payload, src, dst, &dispatcher, &stats, &reply_tx, &settings);
                 continue;
             }
             let Ok(permit) = dns_permits.clone().try_acquire_owned() else {
@@ -420,7 +427,8 @@ fn spawn_tasks(
                 continue;
             };
             bump(&stats.dns_queries);
-            let outbound = outbound.clone();
+            // DNS queries are the tunnel's own traffic, not listed connections.
+            let outbound = dispatcher.outbound().clone();
             let stats = stats.clone();
             let reply_tx = reply_tx.clone();
             let upstream = settings.dns_upstream;
@@ -456,7 +464,7 @@ impl UdpFlows {
         payload: Vec<u8>,
         src: SocketAddr,
         dst: SocketAddr,
-        outbound: &Arc<dyn TcpOutbound>,
+        dispatcher: &Arc<Dispatcher>,
         stats: &Arc<TunnelStats>,
         replies: &mpsc::Sender<UdpMsg>,
         settings: &TunnelSettings,
@@ -490,7 +498,7 @@ impl UdpFlows {
             packets,
             src,
             dst,
-            outbound.clone(),
+            dispatcher.clone(),
             stats.clone(),
             replies.clone(),
             settings.connect_timeout,
@@ -504,13 +512,14 @@ async fn run_udp_flow(
     mut packets: mpsc::Receiver<Vec<u8>>,
     app: SocketAddr,
     destination: SocketAddr,
-    outbound: Arc<dyn TcpOutbound>,
+    dispatcher: Arc<Dispatcher>,
     stats: Arc<TunnelStats>,
     replies: mpsc::Sender<UdpMsg>,
     connect_timeout: Duration,
 ) {
     let target = TargetAddr::Ip(destination);
-    let opened = tokio::time::timeout(connect_timeout, outbound.open_udp(&target)).await;
+    let opened =
+        tokio::time::timeout(connect_timeout, dispatcher.open_udp_flow(&target, None)).await;
     let Ok(Ok(UdpFlow { mut send, mut recv })) = opened else {
         bump(&stats.udp_failed);
         // Stay mapped and drop this flow's datagrams until it goes quiet, so
@@ -566,7 +575,7 @@ async fn run_udp_flow(
 async fn handle_tcp(
     mut inbound: netstack_smoltcp::TcpStream,
     target: SocketAddr,
-    outbound: &dyn TcpOutbound,
+    dispatcher: &Dispatcher,
     interceptor: Option<&dyn FlowInterceptor>,
     stats: &TunnelStats,
     settings: &TunnelSettings,
@@ -582,32 +591,34 @@ async fn handle_tcp(
     if let Some(interceptor) = interceptor {
         if let Some(host) = interceptor.claim(&first, target) {
             bump(&stats.mitm_flows);
+            let outbound = dispatcher.with_host(&host);
             let flow = InterceptedFlow {
                 inbound: Box::new(inbound),
                 first,
-                host,
+                host: host.clone(),
                 target,
             };
-            interceptor.serve(flow, outbound, settings, stats).await;
+            interceptor.serve(flow, &outbound, settings, stats).await;
             return;
         }
     }
 
+    let host = sniff::host(&first);
     let target = TargetAddr::Ip(target);
-    let mut remote =
-        match tokio::time::timeout(settings.connect_timeout, outbound.connect(&target)).await {
-            Ok(Ok(remote)) => remote,
-            Ok(Err(err)) => {
-                bump(&stats.tcp_connect_failed);
-                record(&stats.tcp_last_failure, OutboundFailure::connect(&err));
-                return;
-            }
-            Err(_) => {
-                bump(&stats.tcp_connect_failed);
-                record(&stats.tcp_last_failure, OutboundFailure::ConnectTimeout);
-                return;
-            }
-        };
+    let connect = dispatcher.connect_flow(&target, host.as_deref());
+    let mut remote = match tokio::time::timeout(settings.connect_timeout, connect).await {
+        Ok(Ok(remote)) => remote,
+        Ok(Err(err)) => {
+            bump(&stats.tcp_connect_failed);
+            record(&stats.tcp_last_failure, OutboundFailure::connect(&err));
+            return;
+        }
+        Err(_) => {
+            bump(&stats.tcp_connect_failed);
+            record(&stats.tcp_last_failure, OutboundFailure::ConnectTimeout);
+            return;
+        }
+    };
     if !first.is_empty() {
         let written = match remote.write_all(&first).await {
             Ok(()) => remote.flush().await,

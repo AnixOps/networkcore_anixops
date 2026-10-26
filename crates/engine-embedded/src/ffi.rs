@@ -17,7 +17,8 @@ use crate::{EmbeddedRuntime, RuntimeErrorCode};
 
 pub const NETWORKCORE_IOS_ABI_VERSION: u32 = 1;
 pub const NETWORKCORE_IOS_SCHEMA_VERSION: u32 = crate::config::CONFIG_SCHEMA_VERSION;
-pub const NETWORKCORE_IOS_FEATURE_SET_VERSION: u32 = 1;
+/// 2 added `networkcore_ios_runtime_control`.
+pub const NETWORKCORE_IOS_FEATURE_SET_VERSION: u32 = 2;
 
 pub const NETWORKCORE_IOS_OK: i32 = 0;
 pub const NETWORKCORE_IOS_ERR_ARTIFACT_MISSING: i32 = 1;
@@ -346,6 +347,47 @@ pub unsafe extern "C" fn networkcore_ios_measure_delay(
             Err(DelayError::Timeout) => NETWORKCORE_IOS_ERR_DELAY_TIMEOUT,
             Err(DelayError::Failed(_) | DelayError::NotHttp) => NETWORKCORE_IOS_ERR_DELAY_FAILED,
         }
+    })
+}
+
+/// Answers one JSON runtime control request (`{"cmd": ...}`, see
+/// [`crate::control`]) with a JSON document in `out`: the connection list,
+/// traffic counters, and closing connections. Works before the tunnel starts
+/// and after it stops. A request that is too long, not JSON or not a known
+/// command returns `NETWORKCORE_IOS_ERR_INVALID_ARGUMENT`.
+///
+/// # Safety
+///
+/// `handle` must come from `networkcore_ios_runtime_init`, `request` must
+/// point to `request_len` readable bytes, and `out` must be a valid pointer to
+/// writable storage for one `NetworkCoreBuffer`. The buffer must be released
+/// with `networkcore_ios_runtime_free_buffer`.
+#[no_mangle]
+pub unsafe extern "C" fn networkcore_ios_runtime_control(
+    handle: *mut NetworkCoreRuntime,
+    request: *const u8,
+    request_len: usize,
+    out: *mut NetworkCoreBuffer,
+) -> i32 {
+    guarded(|| {
+        if out.is_null() {
+            return NETWORKCORE_IOS_ERR_INVALID_ARGUMENT;
+        }
+        // SAFETY: checked non-null above.
+        unsafe { out.write(NetworkCoreBuffer::from_vec(Vec::new())) };
+        if request.is_null() || request_len == 0 || request_len > crate::control::MAX_REQUEST_LEN {
+            return NETWORKCORE_IOS_ERR_INVALID_ARGUMENT;
+        }
+        // SAFETY: the caller guarantees `request_len` readable bytes.
+        let request = unsafe { std::slice::from_raw_parts(request, request_len) };
+        with_runtime(handle, |runtime| match runtime.control_json(request) {
+            Ok(bytes) => {
+                // SAFETY: checked non-null above; the empty placeholder owns no memory.
+                unsafe { out.write(NetworkCoreBuffer::from_vec(bytes)) };
+                NETWORKCORE_IOS_OK
+            }
+            Err(err) => code_for(err.code),
+        })
     })
 }
 

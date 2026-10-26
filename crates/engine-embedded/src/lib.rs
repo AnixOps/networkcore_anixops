@@ -4,7 +4,11 @@
 //!
 //! - [`ffi`]: the `networkcore_ios_*` C ABI that the Swift packet tunnel calls.
 //! - [`EmbeddedRuntime`]: validated config, outbound selection and lifecycle.
-//! - [`tunnel`]: userspace TCP/IP (smoltcp) that turns packets into flows.
+//! - [`tunnel`]: userspace TCP/IP (smoltcp) that turns packets into flows,
+//!   with [`sniff`] reading the host name of each TCP flow.
+//! - [`connections`]: the dispatcher every flow goes through, which routes
+//!   it and keeps the connection list and traffic counters that [`control`]
+//!   requests read.
 //! - Outbounds implementing [`engine_outbound::TcpOutbound`], looked up by
 //!   config `type` in the registry from [`protocols`]: Shadowsocks-2022
 //!   (`outbound-shadowsocks`), VLESS + REALITY (`outbound-vless`) and direct
@@ -23,6 +27,8 @@
 //! never puts credentials or traffic into errors, status or logs.
 
 pub mod config;
+pub mod connections;
+pub mod control;
 #[cfg(feature = "local-proxy")]
 pub mod delay;
 pub mod direct;
@@ -36,6 +42,7 @@ pub mod nodes;
 pub mod profile;
 pub mod protocols;
 pub mod routing;
+pub mod sniff;
 pub mod tunnel;
 #[cfg(feature = "wireguard")]
 pub mod wireguard;
@@ -52,6 +59,7 @@ use engine_outbound::{Dialer, TcpDialer, TcpOutbound};
 use serde::Serialize;
 
 use crate::config::{RuntimeConfig, TunnelMode};
+use crate::connections::Dispatcher;
 use crate::routing::RoutedOutbound;
 use crate::tunnel::{FlowInterceptor, PacketSink, Tunnel, TunnelSettings, TunnelStatsSnapshot};
 #[cfg(feature = "wireguard")]
@@ -126,7 +134,7 @@ pub struct RuntimeStatus {
 /// What carries the traffic: a TCP outbound behind the userspace stack, or a
 /// WireGuard peer that takes IP packets directly.
 enum Engine {
-    Stack(Arc<dyn TcpOutbound>),
+    Stack(Arc<Dispatcher>),
     #[cfg(feature = "wireguard")]
     WireGuard(WireGuardSettings),
 }
@@ -164,9 +172,11 @@ impl EmbeddedRuntime {
         let interceptor = build_interceptor(&config)?;
         let routed = config.build_routed(registry, dialer.clone())?;
         let engine = match &routed {
-            Some(routed) => Engine::Stack(routed.clone() as Arc<dyn TcpOutbound>),
+            Some(routed) => Engine::Stack(Arc::new(Dispatcher::routed(routed.clone()))),
             None => match config.build_mode(registry, dialer)? {
-                TunnelMode::Stack(outbound) => Engine::Stack(outbound),
+                TunnelMode::Stack(outbound) => {
+                    Engine::Stack(Arc::new(Dispatcher::single(outbound)))
+                }
                 #[cfg(feature = "wireguard")]
                 TunnelMode::WireGuard(settings) => Engine::WireGuard(settings),
             },
@@ -179,7 +189,10 @@ impl EmbeddedRuntime {
 
     /// Uses a caller-provided outbound, for tests and future protocol crates.
     pub fn with_outbound(config: RuntimeConfig, outbound: Arc<dyn TcpOutbound>) -> Self {
-        Self::with_engine(config, Engine::Stack(outbound))
+        Self::with_engine(
+            config,
+            Engine::Stack(Arc::new(Dispatcher::single(outbound))),
+        )
     }
 
     fn with_engine(config: RuntimeConfig, engine: Engine) -> Self {
@@ -213,22 +226,16 @@ impl EmbeddedRuntime {
             dns_upstream: self.config.dns.upstream,
             dns_timeout: Duration::from_millis(self.config.dns.timeout_ms),
         };
-        let started = match (&self.engine, self.health_checks()) {
-            (Engine::Stack(outbound), Some(health_checks)) => Tunnel::start_with_background(
+        let started = match &self.engine {
+            Engine::Stack(dispatcher) => Tunnel::start_with_dispatcher(
                 settings,
-                outbound.clone(),
+                dispatcher.clone(),
                 self.interceptor.clone(),
-                health_checks,
-                sink,
-            ),
-            (Engine::Stack(outbound), None) => Tunnel::start_with_interceptor(
-                settings,
-                outbound.clone(),
-                self.interceptor.clone(),
+                self.health_checks(),
                 sink,
             ),
             #[cfg(feature = "wireguard")]
-            (Engine::WireGuard(wireguard), _) => Tunnel::start_wireguard(wireguard.clone(), sink),
+            Engine::WireGuard(wireguard) => Tunnel::start_wireguard(wireguard.clone(), sink),
         };
         match started {
             Ok(tunnel) => {
@@ -280,7 +287,7 @@ impl EmbeddedRuntime {
             schema_version: config::CONFIG_SCHEMA_VERSION,
             profile_id: self.config.profile_id.clone(),
             outbound: match &self.engine {
-                Engine::Stack(outbound) => outbound.protocol(),
+                Engine::Stack(dispatcher) => dispatcher.protocol(),
                 #[cfg(feature = "wireguard")]
                 Engine::WireGuard(_) => wireguard::PROTOCOL,
             },
@@ -290,6 +297,19 @@ impl EmbeddedRuntime {
                 Some(tunnel) => tunnel.stats(),
                 None => self.last_stats.clone(),
             },
+        }
+    }
+
+    /// Answers one [`control`] request, such as the connection list. A
+    /// WireGuard tunnel has no flows to control and rejects every request.
+    pub fn control_json(&self, request: &[u8]) -> Result<Vec<u8>, RuntimeError> {
+        match &self.engine {
+            Engine::Stack(dispatcher) => control::handle(dispatcher, request),
+            #[cfg(feature = "wireguard")]
+            Engine::WireGuard(_) => {
+                let _ = request;
+                Err(control::unavailable())
+            }
         }
     }
 

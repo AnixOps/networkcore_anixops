@@ -18,11 +18,13 @@ use inbound_mixed::{MixedSettings, MixedStats};
 use tokio::sync::oneshot;
 
 use crate::config::RuntimeConfig;
-use crate::{protocols, RuntimeError, RuntimeErrorCode};
+use crate::connections::Dispatcher;
+use crate::{control, protocols, RuntimeError, RuntimeErrorCode};
 
 pub struct LocalProxy {
     profile_id: String,
     protocol: &'static str,
+    dispatcher: Arc<Dispatcher>,
     local_addr: SocketAddr,
     stats: Arc<MixedStats>,
     shutdown_tx: Option<oneshot::Sender<()>>,
@@ -56,11 +58,12 @@ impl LocalProxy {
         let config = RuntimeConfig::from_json(config)?;
         // A routing config keeps its routed outbound to run group health checks.
         let routed = config.build_routed(registry, dialer.clone())?;
-        let outbound: Arc<dyn TcpOutbound> = match &routed {
-            Some(routed) => routed.clone() as Arc<dyn TcpOutbound>,
-            None => config.build_outbound(registry, dialer)?,
-        };
-        let protocol = outbound.protocol();
+        let dispatcher = Arc::new(match &routed {
+            Some(routed) => Dispatcher::routed(routed.clone()),
+            None => Dispatcher::single(config.build_outbound(registry, dialer)?),
+        });
+        let protocol = dispatcher.protocol();
+        let outbound = dispatcher.clone() as Arc<dyn TcpOutbound>;
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -102,6 +105,7 @@ impl LocalProxy {
         Ok(Self {
             profile_id: config.profile_id,
             protocol,
+            dispatcher,
             local_addr,
             stats,
             shutdown_tx: Some(shutdown_tx),
@@ -124,6 +128,11 @@ impl LocalProxy {
 
     pub fn stats(&self) -> &MixedStats {
         &self.stats
+    }
+
+    /// Answers one [`control`] request, such as the connection list.
+    pub fn control_json(&self, request: &[u8]) -> Result<Vec<u8>, RuntimeError> {
+        control::handle(&self.dispatcher, request)
     }
 
     pub fn is_running(&self) -> bool {
