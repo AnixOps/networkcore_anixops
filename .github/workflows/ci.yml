@@ -2221,7 +2221,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for features in "" http hysteria2 mieru shadowsocks snell socks trojan tuic vless vmess wireguard local-proxy mitm; do
+          for features in "" http hysteria2 mieru shadowsocks snell socks trojan tuic vless vmess wireguard local-proxy mitm scripts; do
             echo "::group::engine-embedded features=[${features}]"
             cargo clippy --locked -p engine-embedded --no-default-features --features "${features}" --all-targets -- -D warnings
             cargo test --locked -p engine-embedded --no-default-features --features "${features}" --tests
@@ -2267,8 +2267,10 @@ jobs:
           # The binding must also build for the iPhone without QuickJS, whose crate ships no iOS bindings.
           rustup target add aarch64-apple-ios
           IPHONEOS_DEPLOYMENT_TARGET=17.0 cargo build --locked -p script-runtime --no-default-features --features javascriptcore --target aarch64-apple-ios
-          # The packet tunnel runtime, MITM (engine-native, mitm-policy and its C core) included, must build for the iPhone.
-          IPHONEOS_DEPLOYMENT_TARGET=17.0 cargo build --locked -p engine-embedded --lib --target aarch64-apple-ios
+          # The packet tunnel runtime, MITM (engine-native, mitm-policy and its C core) and QuickJS scripts
+          # included, must build for the iPhone. rquickjs has no iOS bindings, so bindgen needs the SDK.
+          BINDGEN_EXTRA_CLANG_ARGS_aarch64_apple_ios="-isysroot $(xcrun --sdk iphoneos --show-sdk-path)" \
+            IPHONEOS_DEPLOYMENT_TARGET=17.0 cargo build --locked -p engine-embedded --lib --target aarch64-apple-ios
 
   rust-security-audit:
     name: Rust dependency security audit
@@ -2509,7 +2511,11 @@ jobs:
       # the C headers below; the kernel only guarantees that they build for the iPhone.
       - name: Build the embedded runtime and node import static libraries
         shell: bash
-        run: cargo build --locked --release -p engine-embedded -p node-import --lib --target aarch64-apple-ios
+        # rquickjs (MITM scripts) ships no iOS bindings; bindgen generates them against the iPhone SDK.
+        run: |
+          set -euo pipefail
+          BINDGEN_EXTRA_CLANG_ARGS_aarch64_apple_ios="-isysroot $(xcrun --sdk iphoneos --show-sdk-path)" \
+            cargo build --locked --release -p engine-embedded -p node-import --lib --target aarch64-apple-ios
 
       - name: Check the static libraries and their C headers
         shell: bash

@@ -76,6 +76,14 @@ pub struct MitmConfig {
     /// Root private key, base64 ANSI X9.63 P-256 (`04 || X || Y || D`), as
     /// the Swift side stores it.
     pub ca_private_key: String,
+    /// `[Script]` sources the user consented to: script URL (`script-path`)
+    /// to the local file it was saved to. Each file is pinned by SHA-256 when
+    /// the runtime starts. Needs the `scripts` feature.
+    #[serde(default)]
+    pub script_assets: BTreeMap<String, String>,
+    /// JSON file backing `$persistentStore`; in memory when absent.
+    #[serde(default)]
+    pub script_store_path: Option<String>,
 }
 
 /// One outbound: a `type` name looked up in the [`OutboundRegistry`] and the

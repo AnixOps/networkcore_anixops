@@ -75,6 +75,8 @@ fn mitm_config(device_root: &Root) -> MitmConfig {
         plugins: vec![PLUGIN.to_string()],
         ca_certificate: base64.encode(&device_root.certificate),
         ca_private_key: base64.encode(x963(&device_root.key)),
+        script_assets: Default::default(),
+        script_store_path: None,
     }
 }
 
@@ -339,4 +341,119 @@ fn runtime_config_accepts_and_validates_the_mitm_section() {
         .err()
         .unwrap();
     assert_eq!(error.code, RuntimeErrorCode::ConfigRejected);
+}
+
+/// One request through a TLS client that trusts `device_root`, the engine
+/// and `origin`; returns the response head and body.
+#[cfg(feature = "scripts")]
+async fn exchange(
+    engine: Arc<MitmEngine>,
+    origin: Arc<Origin>,
+    device_root: &Root,
+    request: &'static [u8],
+) -> (String, String) {
+    let target: SocketAddr = "192.0.2.10:443".parse().unwrap();
+    let (app, mut tunnel_side) = tokio::io::duplex(64 * 1024);
+    let client = tokio::spawn({
+        let config = trusting(&device_root.certificate, &[b"http/1.1"]);
+        async move {
+            let connector = tokio_rustls::TlsConnector::from(Arc::new(config));
+            let mut stream = connector
+                .connect(ServerName::try_from(HOST).unwrap(), app)
+                .await
+                .expect("the client trusts the device root");
+            stream.write_all(request).await.unwrap();
+            read_response(&mut stream).await
+        }
+    });
+    let mut first = vec![0u8; 4096];
+    let n = tunnel_side.read(&mut first).await.unwrap();
+    first.truncate(n);
+    let host = engine.claim(&first, target).expect("intercepted");
+    let flow = InterceptedFlow {
+        inbound: Box::new(tunnel_side),
+        first,
+        host,
+        target,
+    };
+    let server = tokio::spawn(async move {
+        let _ = engine
+            .serve_flow(
+                flow,
+                origin.as_ref(),
+                Duration::from_secs(5),
+                Duration::from_secs(5),
+            )
+            .await;
+    });
+    let response = tokio::time::timeout(Duration::from_secs(10), client)
+        .await
+        .expect("client finished")
+        .unwrap();
+    server.abort();
+    response
+}
+
+#[cfg(feature = "scripts")]
+#[tokio::test]
+async fn consented_scripts_rewrite_responses_in_quickjs() {
+    let dir = std::env::temp_dir().join(format!("networkcore-mitm-scripts-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let script = dir.join("upper.js");
+    std::fs::write(
+        &script,
+        "$persistentStore.write('seen', 'count');\n\
+         $done({ body: $response.body.toUpperCase(), headers: { 'X-Script': '1' } });",
+    )
+    .unwrap();
+    let plugin = "#!name = Upper\n\
+[Script]\n\
+http-response ^https://api\\.example\\.test/data script-path=https://scripts.example.test/upper.js, requires-body=true, tag=upper\n\
+\n\
+[MITM]\n\
+hostname = api.example.test\n";
+    let device_root = root("NetworkCore Test Device Root");
+    let origin_root = root("NetworkCore Test Origin Root");
+    let base64 = base64::engine::general_purpose::STANDARD;
+    let config = MitmConfig {
+        policy: String::new(),
+        plugins: vec![plugin.to_string()],
+        ca_certificate: base64.encode(&device_root.certificate),
+        ca_private_key: base64.encode(x963(&device_root.key)),
+        script_assets: [(
+            "https://scripts.example.test/upper.js".to_string(),
+            script.display().to_string(),
+        )]
+        .into(),
+        script_store_path: Some(dir.join("store.json").display().to_string()),
+    };
+    let engine = Arc::new(
+        MitmEngine::new(&config)
+            .unwrap()
+            .with_upstream_config(trusting(&origin_root.certificate, &[b"http/1.1"])),
+    );
+    let (requests_tx, _requests) = mpsc::unbounded_channel();
+    let origin = Arc::new(Origin::new(&origin_root, requests_tx));
+
+    let (head, body) = exchange(
+        engine,
+        origin,
+        &device_root,
+        b"GET /data HTTP/1.1\r\nHost: api.example.test\r\n\r\n",
+    )
+    .await;
+    assert!(head.starts_with("HTTP/1.1 200"), "{head}");
+    assert!(head.to_ascii_lowercase().contains("x-script: 1"), "{head}");
+    assert_eq!(body, "HELLO FROM ORIGIN");
+    let store = std::fs::read_to_string(dir.join("store.json")).unwrap_or_default();
+    assert!(store.contains("count"), "persistent store: {store}");
+
+    // Every consented script must exist when the runtime starts.
+    let mut missing = config.clone();
+    missing.script_assets.insert(
+        "https://scripts.example.test/missing.js".to_string(),
+        dir.join("missing.js").display().to_string(),
+    );
+    assert!(MitmEngine::new(&missing).is_err());
+    let _ = std::fs::remove_dir_all(&dir);
 }
