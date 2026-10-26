@@ -218,7 +218,15 @@ while True:
      "streamSettings": {"network": "ws", "wsSettings": {"path": "/vm"}}},
     {"tag": "vmess-grpc", "listen": "127.0.0.1", "port": 24443, "protocol": "vmess",
      "settings": {"clients": [{"id": "${uuid}"}]},
-     "streamSettings": {"network": "grpc", "grpcSettings": {"serviceName": "vmgrpc"}}}
+     "streamSettings": {"network": "grpc", "grpcSettings": {"serviceName": "vmgrpc"}}},
+    {"tag": "xhttp-plain", "listen": "127.0.0.1", "port": 24451, "protocol": "vless",
+     "settings": {"clients": [{"id": "${uuid}"}], "decryption": "none"},
+     "streamSettings": {"network": "xhttp", "xhttpSettings": {"path": "/xh"}}},
+    {"tag": "xhttp-tls", "listen": "127.0.0.1", "port": 24452, "protocol": "vless",
+     "settings": {"clients": [{"id": "${uuid}"}], "decryption": "none"},
+     "streamSettings": {"network": "xhttp", "xhttpSettings": {"path": "/xh"}, "security": "tls",
+       "tlsSettings": {"alpn": ["h2", "http/1.1"],
+         "certificates": [{"certificateFile": "${work}/server.crt", "keyFile": "${work}/server.key"}]}}}
   ],
   "outbounds": [{"protocol": "freedom",
     "settings": {"finalRules": [{"action": "allow", "network": "tcp", "ip": ["127.0.0.1"]}]}}]
@@ -297,7 +305,7 @@ obfs:
 EOF
   "${bin}/hysteria" server -c "${work}/hysteria-salamander.yaml" > "${work}/hysteria-salamander.log" 2>&1 &
 
-  for port in 18080 18443 18444 24431 24432 24441 24442 24443 25431 25432 25441 25442 25443; do
+  for port in 18080 18443 18444 24431 24432 24441 24442 24443 24451 24452 25431 25432 25441 25442 25443; do
     wait_for_port "${port}"
   done
   for port in 26441 26442 26451 27441 27442 18053; do
@@ -398,6 +406,8 @@ NC_INTEROP_SERVERS=xray-vision=127.0.0.1:24431:vision,xray-plain=127.0.0.1:24432
 NC_VLESS_UUID=${uuid}
 NC_VMESS_SERVERS=xray-vmess-tcp=127.0.0.1:24441:tcp,xray-vmess-ws=127.0.0.1:24442:ws,xray-vmess-grpc=127.0.0.1:24443:grpc,sing-box-vmess-tcp=127.0.0.1:25441:tcp,sing-box-vmess-ws=127.0.0.1:25442:ws,sing-box-vmess-grpc=127.0.0.1:25443:grpc
 NC_VMESS_UUID=${uuid}
+NC_XHTTP_PLAIN=127.0.0.1:24451
+NC_XHTTP_TLS=127.0.0.1:24452
 NC_HYSTERIA2_SERVERS=sing-box=127.0.0.1:26441,hysteria=127.0.0.1:27441,sing-box-salamander=127.0.0.1:26442:salamander,hysteria-salamander=127.0.0.1:27442:salamander
 NC_HYSTERIA2_OBFS_PASSWORD=${hy2_obfs_password}
 NC_HYSTERIA2_PASSWORD=${hy2_password}

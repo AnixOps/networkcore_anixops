@@ -44,6 +44,7 @@ members = [
     "crates/transport-grpc",
     "crates/transport-quic",
     "crates/transport-ws",
+    "crates/transport-xhttp",
 ]
 resolver = "2"
 

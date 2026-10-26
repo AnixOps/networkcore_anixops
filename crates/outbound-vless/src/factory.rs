@@ -1,6 +1,6 @@
 //! Registry entry for `"type": "vless"` config entries: REALITY when
 //! `reality` is set, otherwise plain TCP or standard TLS (`tls`), optionally
-//! inside a WebSocket (`transport`).
+//! inside a WebSocket, gRPC or XHTTP (`transport`).
 
 use std::sync::Arc;
 
@@ -11,6 +11,7 @@ use tls_mimic::Fingerprint;
 use transport_grpc::{GrpcConnector, GrpcSettings};
 use transport_tls::{TlsConnector, TlsSettings};
 use transport_ws::{WsConnector, WsSettings};
+use transport_xhttp::{HttpVersion, XhttpConnector, XhttpSettings, XhttpTarget};
 
 use crate::{
     parse_public_key, parse_short_id, parse_uuid, Flow, RealityConfig, VlessRealityConfig,
@@ -33,8 +34,9 @@ struct VlessSettings {
     /// Standard TLS; without `reality` and `tls` the connection is plain TCP.
     #[serde(default)]
     tls: Option<StandardTlsSettings>,
-    /// `{"type": "ws", "path": ..., "host": ...}` or
-    /// `{"type": "grpc", "service_name": ...}`; raw stream when absent.
+    /// `{"type": "ws", "path": ..., "host": ...}`,
+    /// `{"type": "grpc", "service_name": ...}` or `{"type": "xhttp", ...}`;
+    /// raw stream when absent.
     #[serde(default)]
     transport: Option<TransportSettings>,
 }
@@ -70,6 +72,9 @@ enum TransportSettings {
         #[serde(default)]
         authority: String,
     },
+    /// Xray XHTTP (SplitHTTP); `splithttp` is its older name.
+    #[serde(alias = "splithttp")]
+    Xhttp(XhttpSettings),
 }
 
 #[derive(Deserialize)]
@@ -129,13 +134,23 @@ fn standard_outbound(
     dialer: Arc<dyn Dialer>,
 ) -> Result<VlessTlsOutbound, BuildError> {
     let grpc_transport = matches!(settings.transport, Some(TransportSettings::Grpc { .. }));
+    // XHTTP picks HTTP/1.1 or HTTP/2 from the configured ALPN, as Xray does.
+    let xhttp_version = match &settings.transport {
+        Some(TransportSettings::Xhttp(_)) => Some(
+            HttpVersion::select(settings.tls.as_ref().map(|tls| tls.alpn.as_slice()))
+                .map_err(|_| "vless xhttp over http/3 is not supported yet")?,
+        ),
+        _ => None,
+    };
     let tls = settings.tls.map(|tls| TlsSettings {
         server_name: tls
             .server_name
             .filter(|name| !name.is_empty())
             .unwrap_or_else(|| settings.server.clone()),
-        // gRPC needs HTTP/2.
-        alpn: if tls.alpn.is_empty() && grpc_transport {
+        // gRPC and XHTTP over HTTP/2 need ALPN `h2`.
+        alpn: if tls.alpn.is_empty()
+            && (grpc_transport || xhttp_version == Some(HttpVersion::Http2))
+        {
             vec!["h2".to_owned()]
         } else {
             tls.alpn
@@ -144,8 +159,15 @@ fn standard_outbound(
     });
     let default_host = tls
         .as_ref()
-        .map_or(settings.server.as_str(), |tls| tls.server_name.as_str());
+        .map_or(settings.server.as_str(), |tls| tls.server_name.as_str())
+        .to_owned();
+    let connector = tls
+        .as_ref()
+        .map(TlsConnector::new)
+        .transpose()
+        .map_err(|_| "vless tls settings are invalid")?;
     let mut grpc = None;
+    let mut xhttp = None;
     let websocket = match settings.transport {
         None | Some(TransportSettings::Tcp) => None,
         Some(TransportSettings::Grpc {
@@ -158,7 +180,7 @@ fn standard_outbound(
                         service_name,
                         authority,
                     },
-                    default_host,
+                    &default_host,
                     tls.is_some(),
                 )
                 .map_err(|_| "vless grpc settings are invalid")?,
@@ -172,16 +194,28 @@ fn standard_outbound(
                     host,
                     headers: Vec::new(),
                 },
-                default_host,
+                &default_host,
             )
             .map_err(|_| "vless websocket settings are invalid")?,
         ),
+        Some(TransportSettings::Xhttp(xhttp_settings)) => {
+            xhttp = Some(
+                XhttpConnector::new(
+                    &xhttp_settings,
+                    XhttpTarget {
+                        server: settings.server.clone(),
+                        port: settings.port,
+                        default_host: default_host.clone(),
+                        tls: connector.clone(),
+                        version: xhttp_version.unwrap_or(HttpVersion::Http11),
+                        dialer: dialer.clone(),
+                    },
+                )
+                .map_err(|_| "vless xhttp settings are invalid")?,
+            );
+            None
+        }
     };
-    let connector = tls
-        .as_ref()
-        .map(TlsConnector::new)
-        .transpose()
-        .map_err(|_| "vless tls settings are invalid")?;
     let mut outbound =
         VlessTlsOutbound::new(settings.server, settings.port, uuid, connector, dialer)
             .map_err(|_| "vless outbound settings are invalid")?;
@@ -190,6 +224,9 @@ fn standard_outbound(
     }
     if let Some(grpc) = grpc {
         outbound = outbound.with_grpc(grpc);
+    }
+    if let Some(xhttp) = xhttp {
+        outbound = outbound.with_xhttp(xhttp);
     }
     Ok(outbound)
 }

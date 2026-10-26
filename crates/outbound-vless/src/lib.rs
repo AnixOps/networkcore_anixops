@@ -5,7 +5,8 @@
 //! it, optionally with the `xtls-rprx-vision` flow.
 //!
 //! [`VlessTlsOutbound`]: VLESS over plain TCP or standard TLS
-//! (`transport-tls`), optionally inside a WebSocket (`transport-ws`), without
+//! (`transport-tls`), optionally inside a WebSocket (`transport-ws`), a gRPC
+//! call (`transport-grpc`) or an XHTTP session (`transport-xhttp`), without
 //! Vision.
 //!
 //! Both relay UDP with the VLESS UDP command ([`TcpOutbound::open_udp`]),

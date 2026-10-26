@@ -1,5 +1,5 @@
 //! VLESS without REALITY: over plain TCP or standard TLS, optionally inside a
-//! WebSocket. No Vision flow; the stream carries the VLESS header and then
+//! WebSocket, a gRPC call or an XHTTP session. No Vision flow; the stream carries the VLESS header and then
 //! the payload unchanged (or length-prefixed datagrams for UDP).
 
 use std::fmt;
@@ -13,6 +13,7 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use transport_grpc::GrpcConnector;
 use transport_tls::TlsConnector;
 use transport_ws::WsConnector;
+use transport_xhttp::XhttpConnector;
 
 use crate::protocol::{encode_request_header, encode_udp_request_header, Flow};
 use crate::udp;
@@ -25,6 +26,7 @@ pub struct VlessTlsOutbound {
     tls: Option<TlsConnector>,
     websocket: Option<WsConnector>,
     grpc: Option<GrpcConnector>,
+    xhttp: Option<XhttpConnector>,
     dialer: Arc<dyn Dialer>,
 }
 
@@ -37,6 +39,7 @@ impl fmt::Debug for VlessTlsOutbound {
             .field("tls", &self.tls.is_some())
             .field("websocket", &self.websocket.is_some())
             .field("grpc", &self.grpc.is_some())
+            .field("xhttp", &self.xhttp.is_some())
             .finish()
     }
 }
@@ -64,6 +67,7 @@ impl VlessTlsOutbound {
             tls,
             websocket: None,
             grpc: None,
+            xhttp: None,
             dialer,
         })
     }
@@ -80,17 +84,18 @@ impl VlessTlsOutbound {
         self
     }
 
+    /// Carries the stream in an XHTTP session, which dials (and runs TLS)
+    /// by itself; the TLS connector given to [`Self::new`] is not used then.
+    pub fn with_xhttp(mut self, xhttp: XhttpConnector) -> Self {
+        self.xhttp = Some(xhttp);
+        self
+    }
+
     async fn open(&self, header: Vec<u8>) -> io::Result<BoxStream> {
-        let mut stream = self.dialer.dial(&self.server, self.port).await?;
-        if let Some(tls) = &self.tls {
-            stream = tls.connect(stream).await?;
-        }
-        if let Some(websocket) = &self.websocket {
-            stream = websocket.connect(stream).await?;
-        }
-        if let Some(grpc) = &self.grpc {
-            stream = grpc.connect(stream).await?;
-        }
+        let stream = match &self.xhttp {
+            Some(xhttp) => xhttp.connect().await?,
+            None => self.open_stream().await?,
+        };
         Ok(Box::new(PlainVlessStream {
             inner: stream,
             pending: header,
@@ -101,6 +106,20 @@ impl VlessTlsOutbound {
                 head: [0; 2],
             },
         }))
+    }
+
+    async fn open_stream(&self) -> io::Result<BoxStream> {
+        let mut stream = self.dialer.dial(&self.server, self.port).await?;
+        if let Some(tls) = &self.tls {
+            stream = tls.connect(stream).await?;
+        }
+        if let Some(websocket) = &self.websocket {
+            stream = websocket.connect(stream).await?;
+        }
+        if let Some(grpc) = &self.grpc {
+            stream = grpc.connect(stream).await?;
+        }
+        Ok(stream)
     }
 }
 
