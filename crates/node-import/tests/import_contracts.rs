@@ -278,6 +278,7 @@ fn share_links_import_back_to_the_same_outbound() {
 ss://YWVzLTI1Ni1nY206cGFzc3dvcmQ@82.47.34.99:11111#HK%20%E9%A6%99%E6%B8%AF
 ss://MjAyMi1ibGFrZTMtYWVzLTEyOC1nY206QUFBQUFBQUFBQUFBQUFBQUFBQUFBQT09@[2001:db8::7]:8388#SS%202022
 trojan://trojan%2Fsecret@example.com:443?sni=edge.example.com&alpn=h2,http/1.1&allowInsecure=1&type=ws&path=%2Fws%3Fed%3D2048&host=cdn.example.com#Trojan%20WS
+trojan://trojan-secret@example.com:443?sni=edge.example.com&type=xhttp&path=%2Fxh&mode=stream-up#Trojan%20XHTTP
 vless://00000000-0000-0000-0000-000000000002@vless.example.test:443?encryption=none&security=reality&sni=www.example.com&pbk=PUBLICKEY&sid=ab12&fp=chrome&flow=xtls-rprx-vision&type=tcp#Reality
 vless://00000000-0000-0000-0000-000000000003@vless.example.test:8443?encryption=none&security=tls&sni=grpc.example.test&type=grpc&serviceName=tunnel#VLESS%20gRPC
 vless://00000000-0000-0000-0000-000000000004@192.0.2.4:80?encryption=none&security=none&type=tcp#Plain
@@ -292,6 +293,16 @@ hysteria2://hy2-secret@edge.example.test:443?sni=cdn.example.test&insecure=1&obf
         "id": "00000000-0000-0000-0000-000000000005", "aid": "0", "scy": "aes-128-gcm",
         "net": "ws", "type": "none", "host": "cdn.example.test", "path": "/v",
         "tls": "tls", "sni": "cdn.example.test", "alpn": "h2"
+    });
+    let encoded = base64_standard(vmess.to_string().as_bytes());
+    assert_round_trip(&format!("vmess://{encoded}"));
+    // VMess over XHTTP with v2rayN-style `mode` and `extra`.
+    let vmess = serde_json::json!({
+        "v": "2", "ps": "VMess XHTTP", "add": "vmess.example.test", "port": "443",
+        "id": "00000000-0000-0000-0000-000000000005", "aid": "0", "scy": "auto",
+        "net": "xhttp", "type": "none", "host": "cdn.example.test", "path": "/xh",
+        "mode": "packet-up", "extra": "{\"xPaddingBytes\":\"200-400\"}",
+        "tls": "tls", "sni": "cdn.example.test"
     });
     let encoded = base64_standard(vmess.to_string().as_bytes());
     assert_round_trip(&format!("vmess://{encoded}"));
@@ -499,18 +510,16 @@ fn xhttp_links_keep_mode_and_client_extra_settings() {
     assert!(link.contains("type=xhttp"), "{link}");
     assert!(!link.contains("xmux"), "{link}");
 
-    // Split download servers and VMess/Trojan over XHTTP are not carried
-    // yet.
+    // Split download servers and unknown modes are not carried.
     let report = import_text(
         "\
 vless://00000000-0000-0000-0000-000000000006@a.example.test:443?security=tls&type=xhttp&extra=%7B%22downloadSettings%22%3A%7B%7D%7D#Split
-trojan://secret@b.example.test:443?type=xhttp&path=%2Fxh#Trojan
 vless://00000000-0000-0000-0000-000000000006@d.example.test:443?security=tls&type=xhttp&mode=stream-two#Mode
 ",
     )
     .unwrap();
     assert!(report.nodes.is_empty(), "{:?}", report.nodes);
-    assert_eq!(report.unsupported.len(), 3);
+    assert_eq!(report.unsupported.len(), 2);
 
     // XHTTP over REALITY; Vision does not run over XHTTP.
     let report = import_text(

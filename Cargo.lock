@@ -2103,6 +2103,7 @@ dependencies = [
  "transport-grpc",
  "transport-tls",
  "transport-ws",
+ "transport-xhttp",
 ]
 
 [[package]]
@@ -2161,6 +2162,7 @@ dependencies = [
  "transport-grpc",
  "transport-tls",
  "transport-ws",
+ "transport-xhttp",
 ]
 
 [[package]]

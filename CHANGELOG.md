@@ -15,6 +15,7 @@
 
 ### Added
 
+- VMess、Trojan 出站支持 XHTTP：`"transport": {"type": "xhttp", ...}`（也接受 `splithttp`），HTTP 版本按 TLS ALPN 选择，与 VLESS 相同。订阅导入和分享链接导出支持 VMess（`net: "xhttp"`、`mode`、`extra`）和 Trojan（`type=xhttp`）的 XHTTP 节点。互通测试新增 Xray 的 VMess、Trojan + XHTTP + TLS 入站（本内核作客户端，四种组合）和 Xray 客户端以 VMess、Trojan + XHTTP 连接本内核入站。
 - REALITY 上的 XHTTP：VLESS 出站可同时配置 `reality` 和 `{"type": "xhttp", ...}`（每条连接先做 REALITY 握手再跑 HTTP/2，`auto` 为 `stream-one`，与 Xray 相同）；VLESS 入站可同时配置 `reality` 和 XHTTP 传输，未认证连接照常转给 `handshake` 站点。订阅导入接受 `security=reality&type=xhttp`。互通测试新增 Xray 的 VLESS-REALITY-XHTTP 入站（本内核作客户端）和 Xray 客户端连接本内核同类入站，各三种模式。
 - 订阅导入 XHTTP 节点：`vless://` 链接的 `type=xhttp`（或 `splithttp`）连同 `path`、`host`、`mode` 和 `extra` 中的请求头、填充与上传分段设置导入为 VLESS-XHTTP 出站，`xmux` 和仅服务端的设置忽略；`downloadSettings` 和 VMess/Trojan 的 XHTTP 暂标为不支持。分享链接导出写回同样的字段。
 - XHTTP 服务端传输：`transport-xhttp` 新增 `server::XhttpServer`（连接以 HTTP/2 前言开头按 HTTP/2/h2c，否则按 HTTP/1.1；入站内共享会话表，同一会话的请求可来自不同连接；`packet-up` 按 `seq` 重排、最多领先 30 段并以延后应答反压，`stream-up`、`stream-one` 走 HTTP/2；检查 Host、路径和 `x_padding` 长度，分别以 `404`/`400` 拒绝；会话 30 秒等不到下载即丢弃）。VLESS、VMess、Trojan 入站的 `transport` 新增 `{"type": "xhttp", ...}`（也接受 `splithttp`），TLS 未配置 ALPN 时提供 `h2` 和 `http/1.1`。客户端互通测试新增 Xray 客户端到本内核 VLESS-XHTTP 入站的五种组合，`transport-xhttp` 新增本实现客户端与服务端的回环测试。

@@ -1,6 +1,6 @@
 # XHTTP 传输规格（净室实现用）
 
-状态：草案 v0.3（2026-10-26）。适用：`transport-xhttp` 的客户端（`XhttpConnector`）和服务端（`server::XhttpServer`，经 `inbound-transport` 用于 VLESS、VMess、Trojan 入站）。
+状态：草案 v0.4（2026-10-26）。适用：`transport-xhttp` 的客户端（`XhttpConnector`，用于 VLESS、VMess、Trojan 出站）和服务端（`server::XhttpServer`，经 `inbound-transport` 用于 VLESS、VMess、Trojan 入站）。
 
 ## 0. 本文档的用途与净室规则
 
@@ -14,7 +14,7 @@ XHTTP（旧名 SplitHTTP）是 Xray-core 的 HTTP 传输：把一条代理流拆
 
 ## 1. 配置
 
-出站 `transport` 对象（VLESS，可与 `tls` 或 `reality` 同用）：
+出站 `transport` 对象（VLESS、VMess、Trojan；VLESS 可与 `tls` 或 `reality` 同用，VMess 可带或不带 `tls`，Trojan 总在 TLS 上）：
 
 ```json
 {"type": "xhttp", "path": "/xh", "host": "cdn.example", "mode": "auto",
@@ -103,7 +103,7 @@ Xray 较新版本的可选混淆参数（填充位置、会话/序号位置、�
 
 - `mode` 缺省为 `auto`，只接受第 3 节的四种。
 - `extra` 中的 `headers`、`xPaddingBytes`、`scMaxEachPostBytes`、`scMinPostsIntervalMs`、`noGRPCHeader` 转成第 1 节的字段；`xmux`（连接复用，不影响线上格式）和只对服务端有意义的 `noSSEHeader`、`scMaxBufferedPosts`、`scStreamUpServerSecs` 丢弃；`downloadSettings` 和其他会改变线上格式的项使节点标为不支持。
-- `security=reality` 与 `type=xhttp` 同用时导入为 REALITY 上的 XHTTP（带 `flow` 的标为不支持）。VMess/Trojan 的 XHTTP 暂标为不支持。
+- `security=reality` 与 `type=xhttp` 同用时导入为 REALITY 上的 XHTTP（带 `flow` 的标为不支持）。`vmess://`（v2rayN JSON）用 `net: "xhttp"`、`path`、`host`、`mode` 和字符串形式的 `extra`，`trojan://` 与 `vless://` 写法相同。
 
 导出时把上述五个字段中非默认的写回 `extra`。
 
@@ -112,6 +112,7 @@ Xray 较新版本的可选混淆参数（填充位置、会话/序号位置、�
 `REALITY interop (Linux)` 任务：
 
 - 客户端：启动 Xray 的 VLESS + XHTTP 入站（路径 `/xh`，无 TLS 一个、TLS 且 ALPN `h2`/`http/1.1` 一个），`outbound-vless/tests/xhttp_interop.rs` 依次用以下组合下载 1 MB 并回显 300 KB：无 TLS HTTP/1.1 `packet-up`、TLS HTTP/1.1 `packet-up`、TLS HTTP/2 的 `packet-up`、`stream-up`、`stream-one`（PR #127 首轮全部通过）。
+- VMess、Trojan：`outbound-vmess`、`outbound-trojan` 的 `tests/xhttp_interop.rs` 连接 Xray 的 VMess、Trojan + XHTTP + TLS 入站，以 HTTP/1.1 `packet-up` 和 HTTP/2 三种模式测试；服务端测试让 Xray 客户端以 VMess HTTP/2 `auto`、Trojan HTTP/2 `stream-up` 连接本内核的对应入站。
 - 服务端：`node-runtime/tests/client_interop.rs` 让 Xray 客户端以同样五种组合连接本内核的 VLESS + XHTTP 入站，回显 256 KB、再开一条连接，并做 XUDP 的 UDP 回显。
 - REALITY：客户端测试另连 Xray 的 VLESS + REALITY + XHTTP 入站，以 `auto`（即 `stream-one`）、`stream-up`、`packet-up` 三种模式各测一次；服务端测试让 Xray 客户端以同样三种模式连接本内核的 VLESS + REALITY + XHTTP 入站。
 - 本地：`transport-xhttp/tests/loopback.rs` 让本实现的客户端与服务端在 h1 `packet-up` 和 h2c 三种模式下互相回显。
@@ -119,4 +120,3 @@ Xray 较新版本的可选混淆参数（填充位置、会话/序号位置、�
 ## 7. 后续
 
 - HTTP/3、`xmux` 连接复用、`downloadSettings`（上下行分离到不同服务器）。
-- VMess、Trojan 出站接入。

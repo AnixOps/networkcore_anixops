@@ -262,6 +262,7 @@ fn vmess(name: &str, endpoint: &Endpoint, outbound: &Value) -> Result<String, Un
     let net = match text(transport, "type") {
         Some("ws") => "ws",
         Some("grpc") => "grpc",
+        Some("xhttp" | "splithttp") => "xhttp",
         _ => "tcp",
     };
     let service_name = text(transport, "service_name");
@@ -282,6 +283,14 @@ fn vmess(name: &str, endpoint: &Endpoint, outbound: &Value) -> Result<String, Un
     });
     if let Some(service_name) = service_name {
         link["serviceName"] = json!(service_name);
+    }
+    if net == "xhttp" {
+        if let Some(mode) = text(transport, "mode") {
+            link["mode"] = json!(mode);
+        }
+        if let Some(extra) = xhttp_extra(transport) {
+            link["extra"] = json!(extra);
+        }
     }
     if !tls.is_null() {
         if let Some(server_name) = text(tls, "server_name") {
