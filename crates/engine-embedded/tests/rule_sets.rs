@@ -139,8 +139,14 @@ mod remote {
         assert_eq!(status.source, "remote");
         assert_eq!(status.entries, 2);
         assert_eq!(status.last_error, None);
-        assert_eq!(routed.route(&domain("x.ads.test", 443)), RouteOutcome::Reject);
-        assert_eq!(routed.route(&domain("a.track.test", 443)), RouteOutcome::Reject);
+        assert_eq!(
+            routed.route(&domain("x.ads.test", 443)),
+            RouteOutcome::Reject
+        );
+        assert_eq!(
+            routed.route(&domain("a.track.test", 443)),
+            RouteOutcome::Reject
+        );
         assert_eq!(hits.load(Ordering::SeqCst), 1);
 
         assert_eq!(routed.rule_sets().refresh_now(), 1);
