@@ -18,7 +18,8 @@ use control_domain::{
     SubscriptionService, SubscriptionSource, NODE_METADATA_HYSTERIA2_OBFS_MAX_PACKET_SIZE,
     NODE_METADATA_HYSTERIA2_OBFS_MIN_PACKET_SIZE, NODE_METADATA_HYSTERIA2_OBFS_PASSWORD,
     NODE_METADATA_HYSTERIA2_OBFS_TYPE, NODE_METADATA_HYSTERIA2_PASSWORD,
-    NODE_METADATA_HYSTERIA2_SERVER_PORTS, NODE_METADATA_MIERU_HANDSHAKE_MODE,
+    NODE_METADATA_HYSTERIA2_SERVER_PORTS, NODE_METADATA_IWAN_ENCRYPT, NODE_METADATA_IWAN_MTU,
+    NODE_METADATA_IWAN_PASSWORD, NODE_METADATA_IWAN_USERNAME, NODE_METADATA_MIERU_HANDSHAKE_MODE,
     NODE_METADATA_MIERU_MTU, NODE_METADATA_MIERU_MULTIPLEXING, NODE_METADATA_MIERU_PASSWORD,
     NODE_METADATA_MIERU_PORT_RANGE, NODE_METADATA_MIERU_TRAFFIC_PATTERN,
     NODE_METADATA_MIERU_TRANSPORT, NODE_METADATA_MIERU_USERNAME, NODE_METADATA_SHADOWSOCKS_METHOD,
@@ -33,10 +34,11 @@ use control_domain::{
     NODE_METADATA_TUIC_CONGESTION_CONTROL, NODE_METADATA_TUIC_PASSWORD, NODE_METADATA_TUIC_UUID,
     NODE_METADATA_V2RAY_TRANSPORT_HOST, NODE_METADATA_V2RAY_TRANSPORT_PATH,
     NODE_METADATA_V2RAY_TRANSPORT_SERVICE_NAME, NODE_METADATA_V2RAY_TRANSPORT_TYPE,
-    NODE_METADATA_VLESS_FLOW, NODE_METADATA_VLESS_UUID, NODE_METADATA_VMESS_ALTER_ID,
-    NODE_METADATA_VMESS_SECURITY, NODE_METADATA_VMESS_UUID, NODE_METADATA_WIREGUARD_LOCAL_ADDRESS,
-    NODE_METADATA_WIREGUARD_MTU, NODE_METADATA_WIREGUARD_PEER_PUBLIC_KEY,
-    NODE_METADATA_WIREGUARD_PRE_SHARED_KEY, NODE_METADATA_WIREGUARD_PRIVATE_KEY,
+    NODE_METADATA_VIA, NODE_METADATA_VIA_UNRESOLVED, NODE_METADATA_VLESS_FLOW,
+    NODE_METADATA_VLESS_UUID, NODE_METADATA_VMESS_ALTER_ID, NODE_METADATA_VMESS_SECURITY,
+    NODE_METADATA_VMESS_UUID, NODE_METADATA_WIREGUARD_LOCAL_ADDRESS, NODE_METADATA_WIREGUARD_MTU,
+    NODE_METADATA_WIREGUARD_PEER_PUBLIC_KEY, NODE_METADATA_WIREGUARD_PRE_SHARED_KEY,
+    NODE_METADATA_WIREGUARD_PRIVATE_KEY,
 };
 use routing::{PolicyGroupSpec, RoutingModel, RoutingSpec};
 use serde::Deserialize;
@@ -222,6 +224,12 @@ struct RawSingBoxOutbound {
     obfs: Option<RawSingBoxHysteria2Obfs>,
     tls: Option<RawSingBoxTls>,
     transport: Option<RawSingBoxTransport>,
+    /// The tag of the outbound this one dials through (a proxy chain).
+    detour: Option<RawSingBoxScalar>,
+    /// iWAN (an AnixOps extension; sing-box has no such type).
+    username: Option<RawSingBoxScalar>,
+    mtu: Option<RawSingBoxScalar>,
+    encrypt: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1060,12 +1068,39 @@ fn parse_sing_box_json_subscription(
             "sing-box json outbounds must contain at least one supported proxy outbound",
         ));
     }
+    resolve_vias(&mut nodes);
 
     Ok(Some(SubscriptionDocument {
         nodes,
         rules: Vec::new(),
         diagnostics: Vec::new(),
     }))
+}
+
+/// Turns each node's `detour` tag into the id of the imported node with that
+/// name. A tag that names no imported node stays unresolved, and the node
+/// cannot run (the importer reports it), rather than leaving beside its chain.
+fn resolve_vias(nodes: &mut [NodeDescriptor]) {
+    let mut ids = BTreeMap::new();
+    for node in nodes.iter() {
+        ids.entry(node.name.clone())
+            .or_insert_with(|| node.id.clone());
+    }
+    for node in nodes.iter_mut() {
+        let Some(index) = node
+            .metadata
+            .iter()
+            .position(|entry| entry.key == NODE_METADATA_VIA_UNRESOLVED)
+        else {
+            continue;
+        };
+        if let Some(id) = ids.get(&node.metadata[index].value) {
+            node.metadata[index] = MetadataEntry {
+                key: NODE_METADATA_VIA.to_string(),
+                value: id.clone(),
+            };
+        }
+    }
 }
 
 fn parse_sing_box_outbound(
@@ -1088,6 +1123,10 @@ fn parse_sing_box_outbound(
         obfs,
         tls,
         transport,
+        detour,
+        username,
+        mtu,
+        encrypt,
     } = raw;
     let protocol =
         required_sing_box_scalar_field(protocol, "sing-box outbound type cannot be empty")?;
@@ -1219,13 +1258,48 @@ fn parse_sing_box_outbound(
             metadata.extend(sing_box_tls_metadata(tls, &host)?);
             (Protocol::Tuic, "tuic", metadata)
         }
+        "iwan" => {
+            let username =
+                required_sing_box_scalar_field(username, "sing-box iwan username cannot be empty")?;
+            let password =
+                required_sing_box_scalar_field(password, "sing-box iwan password cannot be empty")?;
+            let mut metadata = vec![
+                MetadataEntry {
+                    key: NODE_METADATA_IWAN_USERNAME.to_string(),
+                    value: username,
+                },
+                MetadataEntry {
+                    key: NODE_METADATA_IWAN_PASSWORD.to_string(),
+                    value: password,
+                },
+            ];
+            if let Some(mtu) = optional_sing_box_scalar_field(mtu) {
+                metadata.push(MetadataEntry {
+                    key: NODE_METADATA_IWAN_MTU.to_string(),
+                    value: mtu,
+                });
+            }
+            if let Some(encrypt) = encrypt {
+                metadata.push(MetadataEntry {
+                    key: NODE_METADATA_IWAN_ENCRYPT.to_string(),
+                    value: encrypt.to_string(),
+                });
+            }
+            (Protocol::Iwan, "iwan", metadata)
+        }
         _ => {
             return Err(domain_error(
                 SUBSCRIPTION_SING_BOX_JSON_UNSUPPORTED_CODE,
-                "sing-box outbound type must be shadowsocks, trojan, vless, vmess, hysteria2, or tuic for catalog import",
+                "sing-box outbound type must be shadowsocks, trojan, vless, vmess, hysteria2, tuic, or iwan for catalog import",
             ));
         }
     };
+    if let Some(detour) = optional_sing_box_scalar_field(detour) {
+        metadata.push(MetadataEntry {
+            key: NODE_METADATA_VIA_UNRESOLVED.to_string(),
+            value: detour,
+        });
+    }
 
     let tag = optional_sing_box_scalar_field(tag);
     let host_id = sanitize_identifier(&host);
@@ -3960,6 +4034,7 @@ fn parse_protocol(raw: String) -> DomainResult<Protocol> {
         "tuic" => Protocol::Tuic,
         "wireguard" => Protocol::WireGuard,
         "snell" => Protocol::Snell,
+        "iwan" => Protocol::Iwan,
         _ => Protocol::Other(protocol),
     })
 }

@@ -77,7 +77,19 @@ App ──iWAN──▶ Panabit 入口（国内）══IPLC══▶ Panabit NA
 
 - QUIC 类协议（`hysteria2`、`tuic`）经由前置节点：需要 quinn 自定义套接字跑在 `UdpFlow` 上。
 - `via` 指向策略组，比如在多条 iWAN 线路之间选择。
-- 导入：Clash `dialer-proxy`、Surge `underlying-proxy`、sing-box `detour` 映射为 `via`。面板订阅给落地节点写上前置节点。
+- 导入：Clash `dialer-proxy`、Surge `underlying-proxy` 映射为 `via`。面板订阅给落地节点写上前置节点。
+
+## 订阅导入
+
+面板发给 App 的订阅用 sing-box JSON：
+
+- `detour` 是 sing-box 标准的前置写法，导入时按 tag 找到对应节点，转成那个节点的 id，写进 `via`。
+- `"type": "iwan"` 是 AnixOps 的扩展类型，字段有 `server`、`server_port`、`username`、`password`，可选 `mtu`、`encrypt`。
+
+导入时有两种情况会把节点报为无法运行，而不是让它绕开前置节点直接连出：
+
+- `detour` 指向的不是导入的节点。
+- 前置节点本身无法运行。
 
 ## 验收
 

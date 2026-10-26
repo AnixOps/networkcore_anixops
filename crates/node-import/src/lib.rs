@@ -21,17 +21,19 @@ use config_core::routing_import::{import_subscription_routing, ImportedRuleSet};
 use control_domain::{
     NodeCatalog, NodeDescriptor, Protocol, SubscriptionService, SubscriptionSource,
     NODE_METADATA_HYSTERIA2_OBFS_PASSWORD, NODE_METADATA_HYSTERIA2_OBFS_TYPE,
-    NODE_METADATA_HYSTERIA2_PASSWORD, NODE_METADATA_MIERU_PASSWORD, NODE_METADATA_MIERU_PORT_RANGE,
-    NODE_METADATA_MIERU_TRANSPORT, NODE_METADATA_MIERU_USERNAME, NODE_METADATA_SHADOWSOCKS_METHOD,
-    NODE_METADATA_SHADOWSOCKS_PASSWORD, NODE_METADATA_SNELL_MODE, NODE_METADATA_SNELL_OBFS,
-    NODE_METADATA_SNELL_OBFS_HOST, NODE_METADATA_SNELL_OBFS_URI, NODE_METADATA_SNELL_PSK,
-    NODE_METADATA_SNELL_REUSE, NODE_METADATA_SNELL_USER_KEY, NODE_METADATA_SNELL_VERSION,
-    NODE_METADATA_TLS_ALPN, NODE_METADATA_TLS_ENABLED, NODE_METADATA_TLS_INSECURE,
-    NODE_METADATA_TLS_REALITY_PUBLIC_KEY, NODE_METADATA_TLS_REALITY_SHORT_ID,
-    NODE_METADATA_TLS_SERVER_NAME, NODE_METADATA_TROJAN_PASSWORD,
-    NODE_METADATA_TUIC_CONGESTION_CONTROL, NODE_METADATA_TUIC_PASSWORD, NODE_METADATA_TUIC_UUID,
-    NODE_METADATA_V2RAY_TRANSPORT_HOST, NODE_METADATA_V2RAY_TRANSPORT_PATH,
-    NODE_METADATA_V2RAY_TRANSPORT_SERVICE_NAME, NODE_METADATA_V2RAY_TRANSPORT_TYPE,
+    NODE_METADATA_HYSTERIA2_PASSWORD, NODE_METADATA_IWAN_ENCRYPT, NODE_METADATA_IWAN_MTU,
+    NODE_METADATA_IWAN_PASSWORD, NODE_METADATA_IWAN_USERNAME, NODE_METADATA_MIERU_PASSWORD,
+    NODE_METADATA_MIERU_PORT_RANGE, NODE_METADATA_MIERU_TRANSPORT, NODE_METADATA_MIERU_USERNAME,
+    NODE_METADATA_SHADOWSOCKS_METHOD, NODE_METADATA_SHADOWSOCKS_PASSWORD, NODE_METADATA_SNELL_MODE,
+    NODE_METADATA_SNELL_OBFS, NODE_METADATA_SNELL_OBFS_HOST, NODE_METADATA_SNELL_OBFS_URI,
+    NODE_METADATA_SNELL_PSK, NODE_METADATA_SNELL_REUSE, NODE_METADATA_SNELL_USER_KEY,
+    NODE_METADATA_SNELL_VERSION, NODE_METADATA_TLS_ALPN, NODE_METADATA_TLS_ENABLED,
+    NODE_METADATA_TLS_INSECURE, NODE_METADATA_TLS_REALITY_PUBLIC_KEY,
+    NODE_METADATA_TLS_REALITY_SHORT_ID, NODE_METADATA_TLS_SERVER_NAME,
+    NODE_METADATA_TROJAN_PASSWORD, NODE_METADATA_TUIC_CONGESTION_CONTROL,
+    NODE_METADATA_TUIC_PASSWORD, NODE_METADATA_TUIC_UUID, NODE_METADATA_V2RAY_TRANSPORT_HOST,
+    NODE_METADATA_V2RAY_TRANSPORT_PATH, NODE_METADATA_V2RAY_TRANSPORT_SERVICE_NAME,
+    NODE_METADATA_V2RAY_TRANSPORT_TYPE, NODE_METADATA_VIA, NODE_METADATA_VIA_UNRESOLVED,
     NODE_METADATA_VLESS_FLOW, NODE_METADATA_VLESS_UUID, NODE_METADATA_VMESS_ALTER_ID,
     NODE_METADATA_VMESS_SECURITY, NODE_METADATA_VMESS_UUID,
 };
@@ -43,8 +45,14 @@ pub type Unsupported = &'static str;
 
 /// The outbound entry for one node. Whether this build's engine compiles the
 /// protocol in is the engine's call (`engine_embedded::nodes::outbound_for_node`).
+///
+/// A node that connects through another one carries `via` with that node's
+/// id; [`report`] keeps it only when that node can run too.
 pub fn outbound_json(node: &NodeDescriptor) -> Result<Value, Unsupported> {
-    match &node.protocol {
+    if metadata(node, NODE_METADATA_VIA_UNRESOLVED).is_some() {
+        return Err("it connects through an outbound that is not one of the imported nodes");
+    }
+    let mut outbound = match &node.protocol {
         Protocol::Shadowsocks => shadowsocks(node),
         Protocol::Vless => vless(node),
         Protocol::Trojan => trojan(node),
@@ -53,8 +61,13 @@ pub fn outbound_json(node: &NodeDescriptor) -> Result<Value, Unsupported> {
         Protocol::Tuic => tuic(node),
         Protocol::Snell => snell(node),
         Protocol::Mieru => mieru(node),
+        Protocol::Iwan => iwan(node),
         _ => Err("protocol is not implemented by the embedded engine yet"),
+    }?;
+    if let Some(via) = metadata(node, NODE_METADATA_VIA) {
+        outbound["via"] = json!(via);
     }
+    Ok(outbound)
 }
 
 /// Largest subscription text [`import_text`] accepts.
@@ -240,6 +253,23 @@ pub fn report(nodes: &[NodeDescriptor]) -> ImportReport {
             }),
         }
     }
+    // A node whose `via` cannot run cannot run either; repeat for chains.
+    loop {
+        let ids: Vec<String> = report.nodes.iter().map(|node| node.id.clone()).collect();
+        let Some(index) = report.nodes.iter().position(|node| {
+            node.outbound["via"]
+                .as_str()
+                .is_some_and(|via| !ids.iter().any(|id| id == via))
+        }) else {
+            break;
+        };
+        let node = report.nodes.remove(index);
+        report.unsupported.push(UnsupportedNode {
+            name: node.name,
+            protocol: node.protocol,
+            reason: "it connects through a node that cannot run",
+        });
+    }
     report
 }
 
@@ -257,6 +287,7 @@ fn protocol_name(protocol: &Protocol) -> String {
         Protocol::WireGuard => "wireguard".to_string(),
         Protocol::Mieru => "mieru".to_string(),
         Protocol::Snell => "snell".to_string(),
+        Protocol::Iwan => "iwan".to_string(),
         Protocol::Other(name) => name.to_ascii_lowercase(),
     }
 }
@@ -470,6 +501,28 @@ fn mieru(node: &NodeDescriptor) -> Result<Value, Unsupported> {
         "port_range": metadata(node, NODE_METADATA_MIERU_PORT_RANGE),
         "transport": "TCP",
     }))
+}
+
+/// iWAN has no confidentiality (docs/protocols/iwan.md §9); a subscription
+/// uses it as the line other nodes connect through.
+fn iwan(node: &NodeDescriptor) -> Result<Value, Unsupported> {
+    let username = metadata(node, NODE_METADATA_IWAN_USERNAME).ok_or("iwan username is missing")?;
+    let password = metadata(node, NODE_METADATA_IWAN_PASSWORD).ok_or("iwan password is missing")?;
+    let mut outbound = json!({
+        "type": "iwan",
+        "server": node.endpoint.host,
+        "port": node.endpoint.port,
+        "username": username,
+        "password": password,
+    });
+    if let Some(mtu) = metadata(node, NODE_METADATA_IWAN_MTU) {
+        let mtu: u16 = mtu.parse().map_err(|_| "iwan mtu is not a number")?;
+        outbound["mtu"] = json!(mtu);
+    }
+    if let Some(encrypt) = metadata(node, NODE_METADATA_IWAN_ENCRYPT) {
+        outbound["encrypt"] = json!(encrypt == "true");
+    }
+    Ok(outbound)
 }
 
 /// The standard TLS entry when the node enables TLS, otherwise `null`.

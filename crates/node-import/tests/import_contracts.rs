@@ -417,3 +417,66 @@ rules:
     let plain = text.replace("RULE-SET,gfw,Proxy", "DOMAIN-SUFFIX,gfw.example,Proxy");
     assert!(import_text(&plain).unwrap().routing.unwrap()["rule_sets"].is_null());
 }
+
+/// A land node behind a Panabit iWAN line, as the panel sends it to the App:
+/// sing-box JSON with `detour`, and `iwan` as an AnixOps extension type.
+const IWAN_LINE: &str = r#"{
+  "outbounds": [
+    {"type": "iwan", "tag": "HK line", "server": "203.0.113.10", "server_port": 4567,
+     "username": "1001", "password": "iwan-secret", "mtu": 1400, "encrypt": true},
+    {"type": "shadowsocks", "tag": "US land", "server": "198.51.100.20", "server_port": 8388,
+     "method": "2022-blake3-aes-128-gcm", "password": "AAAAAAAAAAAAAAAAAAAAAA==", "detour": "HK line"},
+    {"type": "shadowsocks", "tag": "JP land", "server": "198.51.100.30", "server_port": 8388,
+     "method": "2022-blake3-aes-128-gcm", "password": "AAAAAAAAAAAAAAAAAAAAAA==", "detour": "missing"},
+    {"type": "direct", "tag": "direct"}
+  ]
+}"#;
+
+#[test]
+fn sing_box_detour_becomes_via_and_iwan_nodes_import() {
+    let report = import_text(IWAN_LINE).unwrap();
+    let line = report
+        .nodes
+        .iter()
+        .find(|node| node.name == "HK line")
+        .expect("the iWAN line imports");
+    assert_eq!(line.protocol, "iwan");
+    assert_eq!(line.outbound["username"], "1001");
+    assert_eq!(line.outbound["password"], "iwan-secret");
+    assert_eq!(line.outbound["mtu"], 1400);
+    assert_eq!(line.outbound["encrypt"], true);
+    assert!(line.outbound.get("via").is_none());
+
+    let land = report
+        .nodes
+        .iter()
+        .find(|node| node.name == "US land")
+        .expect("the land node imports");
+    assert_eq!(land.outbound["via"], line.id.as_str());
+
+    // A detour that names no imported node must not silently go direct.
+    assert_eq!(report.unsupported.len(), 1);
+    assert_eq!(report.unsupported[0].name, "JP land");
+    let unsupported = serde_json::to_string(&report.unsupported).unwrap();
+    assert!(!unsupported.contains("AAAA"), "{unsupported}");
+}
+
+#[test]
+fn a_node_behind_a_node_that_cannot_run_cannot_run_either() {
+    let text = r#"{
+  "outbounds": [
+    {"type": "shadowsocks", "tag": "old", "server": "192.0.2.1", "server_port": 8388,
+     "method": "rc4-md5", "password": "pw"},
+    {"type": "shadowsocks", "tag": "behind", "server": "192.0.2.2", "server_port": 8388,
+     "method": "aes-128-gcm", "password": "pw", "detour": "old"}
+  ]
+}"#;
+    let report = import_text(text).unwrap();
+    assert!(report.nodes.is_empty());
+    let names: Vec<_> = report
+        .unsupported
+        .iter()
+        .map(|node| node.name.as_str())
+        .collect();
+    assert_eq!(names, ["old", "behind"]);
+}

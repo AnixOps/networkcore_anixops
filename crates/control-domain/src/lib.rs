@@ -160,6 +160,15 @@ pub const NODE_METADATA_SNELL_OBFS_HOST: &str = "snell.obfs_host";
 pub const NODE_METADATA_SNELL_OBFS_URI: &str = "snell.obfs_uri";
 pub const NODE_METADATA_SNELL_REUSE: &str = "snell.reuse";
 pub const NODE_METADATA_SNELL_USER_KEY: &str = "snell.user_key";
+pub const NODE_METADATA_IWAN_USERNAME: &str = "iwan.username";
+pub const NODE_METADATA_IWAN_PASSWORD: &str = "iwan.password";
+pub const NODE_METADATA_IWAN_MTU: &str = "iwan.mtu";
+pub const NODE_METADATA_IWAN_ENCRYPT: &str = "iwan.encrypt";
+/// Id of the node this one connects through (`via`, a proxy chain).
+pub const NODE_METADATA_VIA: &str = "proxy.via";
+/// The subscription's name for that node when it could not be resolved to
+/// an imported node; such a node cannot run.
+pub const NODE_METADATA_VIA_UNRESOLVED: &str = "proxy.via_unresolved";
 pub const NODE_METADATA_WIREGUARD_PRIVATE_KEY: &str = "wireguard.private_key";
 pub const NODE_METADATA_WIREGUARD_PEER_PUBLIC_KEY: &str = "wireguard.peer_public_key";
 pub const NODE_METADATA_WIREGUARD_LOCAL_ADDRESS: &str = "wireguard.local_address";
@@ -405,6 +414,8 @@ pub enum Protocol {
     WireGuard,
     Mieru,
     Snell,
+    /// Panabit iWAN, a layer-3 tunnel (docs/protocols/iwan.md).
+    Iwan,
     Other(String),
 }
 
