@@ -1,8 +1,9 @@
 //! Host names sniffed from the first bytes of a TCP flow: the SNI of a TLS
 //! ClientHello or the `Host` header of a plain HTTP/1.x request.
 //!
-//! The packet tunnel only sees destination addresses, so these names are what
-//! lets domain rules match there and the connection list show a site name.
+//! The packet tunnel (and a node whose clients send addresses rather than
+//! names) only sees destination addresses, so these names are what lets
+//! domain rules match there and the connection list show a site name.
 
 /// The host name `first` announces, TLS first, then HTTP.
 pub fn host(first: &[u8]) -> Option<String> {

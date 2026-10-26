@@ -72,6 +72,17 @@ fn start(config: NodeConfig, check_only: bool) -> Result<(), String> {
                 .map_err(|error| format!("inbound {tag}: {error}"))?;
             println!("inbound {tag} listening on {listen}");
         }
+        if let Some(egress) = &config.egress {
+            let status = node
+                .apply_egress(egress)
+                .await
+                .map_err(|error| format!("egress: {error}"))?;
+            println!(
+                "egress: {} routes, {} relays",
+                status.routes.len(),
+                status.relays.len()
+            );
+        }
         if check_only {
             println!("config ok");
             return Ok(());

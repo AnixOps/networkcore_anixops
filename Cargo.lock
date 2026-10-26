@@ -1884,6 +1884,7 @@ dependencies = [
  "inbound-vless",
  "inbound-vmess",
  "outbound-shadowsocks",
+ "regex",
  "serde",
  "serde_json",
  "socket2",

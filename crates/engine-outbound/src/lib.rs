@@ -16,6 +16,7 @@
 //! credentials (UUIDs, passwords, private keys) out of error messages.
 
 pub mod registry;
+pub mod sniff;
 
 use std::fmt;
 use std::future::Future;
