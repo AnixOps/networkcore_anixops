@@ -795,6 +795,7 @@ dependencies = [
  "node-import",
  "outbound-http",
  "outbound-hysteria2",
+ "outbound-iwan",
  "outbound-mieru",
  "outbound-shadowsocks",
  "outbound-snell",
