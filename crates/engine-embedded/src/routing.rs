@@ -12,7 +12,9 @@
 //! connection, the same result sing-box gives. GeoIP rules never match
 //! because the runtime ships no GeoIP database. `RULE-SET` rules match the
 //! named [`RuleSet`] from the config, never resolving a domain for its
-//! networks. Select groups use their configured default (or first member).
+//! networks. Select groups use their configured default (or first member)
+//! until [`RoutedOutbound::select`] switches them while the engine runs. The
+//! global mode skips the rules for one target ([`RoutedOutbound::with_global`]).
 //! url-test and fallback groups use the latencies measured by
 //! [`RoutedOutbound::run_health_checks`] (the desktop local proxy runs it):
 //! url-test takes the fastest member, fallback the first that answered, and
@@ -24,8 +26,8 @@ use std::net::IpAddr;
 use std::sync::{Arc, RwLock};
 
 use config_core::routing::{
-    PolicyTarget, RouteMatch, RouteOutcome, RouteQuery, RouteResolution, RoutingEnvironment,
-    RoutingModel, RoutingSpec, RuleMatcher,
+    PolicyGroupKind, PolicyTarget, RouteMatch, RouteOutcome, RouteQuery, RouteResolution,
+    RoutingEnvironment, RoutingModel, RoutingSpec, RuleMatcher,
 };
 use config_core::rule_set::RuleSet;
 use engine_outbound::{BoxFuture, BoxStream, TargetAddr, TcpOutbound, UdpFlow};
@@ -42,6 +44,10 @@ pub struct RoutedOutbound {
     nodes: BTreeMap<String, Arc<dyn TcpOutbound>>,
     resolver: Arc<dyn DomainResolver>,
     latencies: Arc<RwLock<Latencies>>,
+    /// Members picked at runtime in select groups, by group id.
+    selected: RwLock<BTreeMap<String, String>>,
+    /// Where the global mode sends every connection.
+    global: PolicyTarget,
 }
 
 /// Last measured latency per url-test or fallback group, keyed by member name.
@@ -87,6 +93,7 @@ struct RuleSets(BTreeMap<String, RuleSet>);
 struct QueryEnvironment<'a> {
     rule_sets: &'a RuleSets,
     latencies: &'a Latencies,
+    selected: &'a BTreeMap<String, String>,
     resolved: Option<IpAddr>,
 }
 
@@ -105,6 +112,29 @@ impl RoutingEnvironment for QueryEnvironment<'_> {
     fn member_latency_ms(&self, group_id: &str, member: &PolicyTarget) -> Option<u32> {
         self.latencies.get(group_id)?.get(member.name()).copied()
     }
+
+    fn selected_member(&self, group_id: &str) -> Option<String> {
+        self.selected.get(group_id).cloned()
+    }
+}
+
+/// One policy group as the client's policy page shows it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct GroupView {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub kind: &'static str,
+    /// The member the group picks now.
+    pub now: String,
+    pub members: Vec<MemberView>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct MemberView {
+    pub name: String,
+    /// Last health check result of a url-test or fallback member; `None`
+    /// when untested, failed, or in a select group.
+    pub latency_ms: Option<u32>,
 }
 
 impl RoutedOutbound {
@@ -142,6 +172,13 @@ impl RoutedOutbound {
                 "a routing rule names a rule set that is not configured",
             ));
         }
+        let global = match model.groups.first() {
+            Some(group) => PolicyTarget::Group(group.id.clone()),
+            None => nodes
+                .keys()
+                .next()
+                .map_or(PolicyTarget::Direct, |id| PolicyTarget::Node(id.clone())),
+        };
         Ok(Self {
             model,
             rule_sets: RuleSets(rule_sets),
@@ -149,7 +186,30 @@ impl RoutedOutbound {
             nodes,
             resolver: Arc::new(SystemResolver),
             latencies: Arc::default(),
+            selected: RwLock::default(),
+            global,
         })
+    }
+
+    /// Sets where the global mode sends connections: a policy group, a node
+    /// or DIRECT. Without one it is the first group, else the first node.
+    pub fn with_global(mut self, name: &str) -> Result<Self, RuntimeError> {
+        let node_ids = self.nodes.keys().cloned().collect();
+        self.global = match self.model.target_named(name, &node_ids) {
+            Some(PolicyTarget::Reject) | None => {
+                return Err(RuntimeError::new(
+                    RuntimeErrorCode::ConfigRejected,
+                    "the global target must be a policy group, a node or DIRECT",
+                ))
+            }
+            Some(target) => target,
+        };
+        Ok(self)
+    }
+
+    /// The outbound for connections that skip the rules (the direct mode).
+    pub fn direct(&self) -> &Arc<dyn TcpOutbound> {
+        &self.direct
     }
 
     /// Replaces the resolver used for IP rules (tests inject a fixed one).
@@ -169,16 +229,100 @@ impl RoutedOutbound {
     }
 
     fn decide(&self, query: &RouteQuery, resolved: Option<IpAddr>) -> RouteResolution {
+        self.with_environment(resolved, |environment| {
+            self.model.decide(query, environment)
+        })
+    }
+
+    fn with_environment<T>(
+        &self,
+        resolved: Option<IpAddr>,
+        body: impl FnOnce(&QueryEnvironment<'_>) -> T,
+    ) -> T {
         let latencies = self
             .latencies
             .read()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let environment = QueryEnvironment {
+        let selected = self
+            .selected
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        body(&QueryEnvironment {
             rule_sets: &self.rule_sets,
             latencies: &latencies,
+            selected: &selected,
             resolved,
-        };
-        self.model.decide(query, &environment)
+        })
+    }
+
+    /// Picks `member` in the select group `group_id` for every later
+    /// connection, without restarting. Returns the member's name.
+    pub fn select(&self, group_id: &str, member: &str) -> Result<String, RuntimeError> {
+        let invalid = |message| RuntimeError::new(RuntimeErrorCode::InvalidArgument, message);
+        let group = self
+            .model
+            .group(group_id)
+            .ok_or_else(|| invalid("no policy group has that id"))?;
+        if group.kind != PolicyGroupKind::Select {
+            return Err(invalid("only select groups can be switched"));
+        }
+        let member = group
+            .members
+            .iter()
+            .find(|candidate| candidate.name() == member.trim())
+            .ok_or_else(|| invalid("the policy group has no such member"))?;
+        self.selected
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .insert(group.id.clone(), member.name().to_string());
+        Ok(member.name().to_string())
+    }
+
+    /// Every policy group with the member it picks now and the members'
+    /// last measured latencies, in configuration order.
+    pub fn groups(&self) -> Vec<GroupView> {
+        self.with_environment(None, |environment| {
+            self.model
+                .groups
+                .iter()
+                .map(|group| GroupView {
+                    id: group.id.clone(),
+                    kind: group.kind.as_str(),
+                    now: self
+                        .model
+                        .group_member(&group.id, environment)
+                        .map(|member| member.name().to_string())
+                        .unwrap_or_default(),
+                    members: group
+                        .members
+                        .iter()
+                        .map(|member| MemberView {
+                            name: member.name().to_string(),
+                            latency_ms: environment.member_latency_ms(&group.id, member),
+                        })
+                        .collect(),
+                })
+                .collect()
+        })
+    }
+
+    /// Routes a flow of the global mode: every connection to the global
+    /// target, through its groups.
+    pub fn route_global(&self) -> (RouteInfo, Option<Arc<dyn TcpOutbound>>) {
+        let resolution = self.with_environment(None, |environment| {
+            self.model.route_to(&self.global, environment)
+        });
+        let mut route = self.describe(&resolution);
+        route.rule = "MODE,global".to_string();
+        (route, self.outbound_of(&resolution.outcome))
+    }
+
+    fn outbound_of(&self, outcome: &RouteOutcome) -> Option<Arc<dyn TcpOutbound>> {
+        match outcome {
+            RouteOutcome::Reject => None,
+            RouteOutcome::Direct => Some(self.direct.clone()),
+            RouteOutcome::Node(id) => self.nodes.get(id).cloned(),
+        }
     }
 
     /// Records a health check result for a group member; `None` marks it
@@ -215,11 +359,7 @@ impl RoutedOutbound {
             query.domain = sniffed.map(str::to_string);
         }
         let resolution = self.resolve_query(&query).await;
-        let outbound = match &resolution.outcome {
-            RouteOutcome::Reject => None,
-            RouteOutcome::Direct => Some(self.direct.clone()),
-            RouteOutcome::Node(id) => self.nodes.get(id).cloned(),
-        };
+        let outbound = self.outbound_of(&resolution.outcome);
         (self.describe(&resolution), outbound)
     }
 
@@ -265,7 +405,6 @@ impl RoutedOutbound {
     /// returns when no group needs checks.
     #[cfg(feature = "local-proxy")]
     pub async fn run_health_checks(self: Arc<Self>) {
-        use config_core::routing::PolicyGroupKind;
         use std::time::Duration;
 
         const PROBE_TIMEOUT: Duration = Duration::from_secs(5);

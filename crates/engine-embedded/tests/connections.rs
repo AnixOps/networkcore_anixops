@@ -1,14 +1,15 @@
-//! Connection list and traffic counters of the dispatcher every flow uses.
+//! Connection list, traffic counters, modes and policy group switching of
+//! the dispatcher every flow uses.
 
 use std::collections::BTreeMap;
 use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use config_core::routing::RoutingSpec;
-use engine_embedded::connections::{Dispatcher, Network, MAX_CLOSED_CONNECTIONS};
-use engine_embedded::control;
+use config_core::routing::{PolicyGroupSpec, RoutingSpec};
+use engine_embedded::connections::{Dispatcher, Mode, Network, MAX_CLOSED_CONNECTIONS};
 use engine_embedded::routing::RoutedOutbound;
+use engine_embedded::{control, EmbeddedRuntime};
 use engine_outbound::{BoxFuture, BoxStream, TargetAddr, TcpOutbound};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -273,5 +274,194 @@ fn control_requests_answer_json() {
             "x".repeat(control::MAX_REQUEST_LEN)
         );
         assert!(control::handle(&dispatcher, long.as_bytes()).is_err());
+    });
+}
+
+fn grouped() -> Dispatcher {
+    let nodes = BTreeMap::from([
+        (
+            "hk-1".to_string(),
+            Arc::new(Echo("test-node")) as Arc<dyn TcpOutbound>,
+        ),
+        (
+            "jp-1".to_string(),
+            Arc::new(Echo("test-node")) as Arc<dyn TcpOutbound>,
+        ),
+    ]);
+    let group = |id: &str, kind: &str| PolicyGroupSpec {
+        id: id.to_string(),
+        kind: kind.to_string(),
+        members: vec!["hk-1".to_string(), "jp-1".to_string()],
+        default: None,
+        url: None,
+        interval_secs: None,
+        tolerance_ms: None,
+    };
+    let spec = RoutingSpec {
+        rules: vec![
+            "DOMAIN-SUFFIX,example.test,Proxy".to_string(),
+            "FINAL,DIRECT".to_string(),
+        ],
+        groups: vec![group("Proxy", "select"), group("Auto", "url-test")],
+    };
+    let routed = RoutedOutbound::new(&spec, Arc::new(Echo("direct")), nodes).unwrap();
+    Dispatcher::routed(Arc::new(routed))
+}
+
+async fn route_of(dispatcher: &Dispatcher, host: &str) -> (String, Vec<String>) {
+    let stream = dispatcher
+        .connect_flow(&TargetAddr::Domain(host.to_string(), 443), None)
+        .await
+        .unwrap();
+    let list = dispatcher.tracker().connections();
+    let connection = list.active.last().unwrap();
+    let route = (connection.rule.clone(), connection.chain.clone());
+    drop(stream);
+    route
+}
+
+#[test]
+fn select_groups_switch_without_a_restart() {
+    runtime().block_on(async {
+        let dispatcher = grouped();
+        assert_eq!(
+            route_of(&dispatcher, "www.example.test").await.1,
+            ["Proxy", "hk-1"]
+        );
+        let answer = control_json(
+            &dispatcher,
+            r#"{"cmd":"select","group":"Proxy","member":"jp-1"}"#,
+        );
+        assert_eq!(answer["now"], "jp-1");
+        assert_eq!(
+            route_of(&dispatcher, "www.example.test").await.1,
+            ["Proxy", "jp-1"]
+        );
+
+        let groups = control_json(&dispatcher, r#"{"cmd":"groups"}"#);
+        let groups = groups["groups"].as_array().unwrap();
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0]["id"], "Proxy");
+        assert_eq!(groups[0]["type"], "select");
+        assert_eq!(groups[0]["now"], "jp-1");
+        assert_eq!(groups[0]["members"][0]["name"], "hk-1");
+        assert!(groups[0]["members"][0]["latency_ms"].is_null());
+        assert_eq!(groups[1]["type"], "url-test");
+        assert_eq!(groups[1]["now"], "hk-1");
+
+        for bad in [
+            r#"{"cmd":"select","group":"Auto","member":"jp-1"}"#,
+            r#"{"cmd":"select","group":"Missing","member":"jp-1"}"#,
+            r#"{"cmd":"select","group":"Proxy","member":"us-1"}"#,
+            r#"{"cmd":"select","group":"Proxy"}"#,
+        ] {
+            assert!(
+                control::handle(&dispatcher, bad.as_bytes()).is_err(),
+                "{bad}"
+            );
+        }
+    });
+}
+
+#[test]
+fn modes_override_the_rules() {
+    runtime().block_on(async {
+        let dispatcher = grouped();
+        assert_eq!(
+            control_json(&dispatcher, r#"{"cmd":"mode"}"#)["mode"],
+            "rule"
+        );
+        assert_eq!(
+            route_of(&dispatcher, "other.test").await,
+            ("FINAL".to_string(), vec!["DIRECT".to_string()])
+        );
+
+        let answer = control_json(&dispatcher, r#"{"cmd":"set_mode","mode":"global"}"#);
+        assert_eq!(answer["mode"], "global");
+        assert_eq!(dispatcher.mode(), Mode::Global);
+        // The global target defaults to the first group.
+        assert_eq!(
+            route_of(&dispatcher, "other.test").await,
+            (
+                "MODE,global".to_string(),
+                vec!["Proxy".to_string(), "hk-1".to_string()]
+            )
+        );
+
+        control_json(&dispatcher, r#"{"cmd":"set_mode","mode":"direct"}"#);
+        assert_eq!(
+            route_of(&dispatcher, "www.example.test").await,
+            ("MODE,direct".to_string(), vec!["DIRECT".to_string()])
+        );
+        assert!(control::handle(&dispatcher, br#"{"cmd":"set_mode","mode":"fast"}"#).is_err());
+
+        // A config with one outbound has no groups but switches modes.
+        let single =
+            Dispatcher::single(Arc::new(Echo("test-echo"))).with_direct(Arc::new(Echo("direct")));
+        assert_eq!(
+            control_json(&single, r#"{"cmd":"groups"}"#)["groups"],
+            serde_json::json!([])
+        );
+        assert!(
+            control::handle(&single, br#"{"cmd":"select","group":"Proxy","member":"x"}"#).is_err()
+        );
+        assert_eq!(route_of(&single, "a.test").await.0, "DEFAULT");
+        single.set_mode(Mode::Global);
+        assert_eq!(route_of(&single, "a.test").await.0, "DEFAULT");
+        single.set_mode(Mode::Direct);
+        assert_eq!(
+            route_of(&single, "a.test").await,
+            ("MODE,direct".to_string(), vec!["DIRECT".to_string()])
+        );
+    });
+}
+
+#[test]
+fn the_global_target_and_start_mode_come_from_the_config() {
+    let config = |extra: &str| {
+        format!(
+            r#"{{"schema_version":1,"profile_id":"p",{extra}"routing":{{"outbounds":{{"hk-1":{{"type":"direct"}},"jp-1":{{"type":"direct"}}}},"rules":["FINAL,Proxy"],"groups":[{{"id":"Proxy","type":"select","members":["hk-1","jp-1"]}}],"global":"jp-1"}}}}"#
+        )
+    };
+    let runtime = EmbeddedRuntime::from_json(config(r#""mode":"global","#).as_bytes())
+        .unwrap_or_else(|err| panic!("{err}"));
+    let answer: serde_json::Value =
+        serde_json::from_slice(&runtime.control_json(br#"{"cmd":"mode"}"#).unwrap()).unwrap();
+    assert_eq!(answer["mode"], "global");
+
+    assert!(EmbeddedRuntime::from_json(config(r#""mode":"fast","#).as_bytes()).is_err());
+    let rejected = config("").replace(r#""global":"jp-1""#, r#""global":"REJECT""#);
+    assert!(EmbeddedRuntime::from_json(rejected.as_bytes()).is_err());
+    let unknown = config("").replace(r#""global":"jp-1""#, r#""global":"us-1""#);
+    assert!(EmbeddedRuntime::from_json(unknown.as_bytes()).is_err());
+
+    let single = EmbeddedRuntime::from_json(
+        br#"{"schema_version":1,"profile_id":"p","mode":"direct","outbound":{"type":"direct"}}"#,
+    )
+    .unwrap_or_else(|err| panic!("{err}"));
+    let answer: serde_json::Value =
+        serde_json::from_slice(&single.control_json(br#"{"cmd":"mode"}"#).unwrap()).unwrap();
+    assert_eq!(answer["mode"], "direct");
+}
+
+#[test]
+fn global_routes_to_the_configured_target() {
+    runtime().block_on(async {
+        let nodes = BTreeMap::from([(
+            "hk-1".to_string(),
+            Arc::new(Echo("test-node")) as Arc<dyn TcpOutbound>,
+        )]);
+        let spec = RoutingSpec {
+            rules: vec!["FINAL,DIRECT".to_string()],
+            groups: Vec::new(),
+        };
+        let routed = RoutedOutbound::new(&spec, Arc::new(Echo("direct")), nodes).unwrap();
+        let dispatcher = Dispatcher::routed(Arc::new(routed));
+        dispatcher.set_mode(Mode::Global);
+        // Without groups the global target is the first node.
+        assert_eq!(
+            route_of(&dispatcher, "a.test").await.1,
+            ["hk-1".to_string()]
+        );
     });
 }

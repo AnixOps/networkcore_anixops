@@ -104,6 +104,14 @@ struct 必须采用 C-compatible layout，字段必须固定大小、对齐和 o
 | `connections` | | `traffic`，`active`（最早的在前）与 `closed`（最新的在前，最多 128 条）连接列表 |
 | `close_connection` | `id` | `{"closed": bool}`，连接不在活动列表时为 `false` |
 | `close_all` | | `{"closed": 关闭数量}` |
+| `mode` | | `{"mode": "rule" \| "global" \| "direct"}` |
+| `set_mode` | `mode` | `{"mode": ...}`；之后的新连接按新模式选路，已建立的连接不变 |
+| `groups` | | `{"groups": [{"id", "type", "now", "members": [{"name", "latency_ms"}]}]}`，单出站配置为空列表 |
+| `select` | `group`、`member` | `{"now": member}`；只用于 select 组，未知组、非 select 组或非成员返回 `INVALID_ARGUMENT` |
+
+模式：`rule` 按配置的规则与策略组；`global` 全部发往 `routing.global`（策略组 id、节点 id 或 `DIRECT`，缺省为第一个策略组，
+没有策略组时为第一个节点），单出站配置走该出站；`direct` 全部直连。启动模式取配置顶层的 `mode`（缺省 `rule`）。运行时切换的模式和
+select 组选择只保留到 runtime 停止，客户端应把它们写回 profile（`mode`、select 组的 `default`）供下次启动使用。
 
 每条连接包含 `id`、`network`（`tcp`/`udp`）、`host`（请求的域名，或隧道从 TLS SNI / HTTP `Host` 嗅探到的名字）、
 `destination`、`rule`（命中的规则如 `DOMAIN-SUFFIX,example.com`，无规则命中时为 `FINAL`，单出站配置为 `DEFAULT`）、

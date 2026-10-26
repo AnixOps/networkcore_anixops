@@ -14,19 +14,20 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::io;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use engine_outbound::{
-    BoxFuture, BoxStream, DatagramRecv, DatagramSend, TargetAddr, TcpOutbound, UdpFlow,
+    BoxFuture, BoxStream, DatagramRecv, DatagramSend, TargetAddr, TcpDialer, TcpOutbound, UdpFlow,
 };
 use futures::task::AtomicWaker;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::Notify;
 
+use crate::direct::DirectOutbound;
 use crate::routing::{RouteInfo, RoutedOutbound};
 
 /// Closed connections kept for the list, newest first.
@@ -34,6 +35,31 @@ pub const MAX_CLOSED_CONNECTIONS: usize = 128;
 /// Shortest interval the traffic rates are measured over; calls closer
 /// together report the previous rates.
 const RATE_MIN_INTERVAL: Duration = Duration::from_millis(500);
+
+/// How flows are routed, switchable while the engine runs.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Mode {
+    /// The config's rules and policy groups.
+    #[default]
+    Rule,
+    /// Every flow to the global target of a routing config (its outbound for
+    /// a config with one outbound).
+    Global,
+    /// Every flow direct.
+    Direct,
+}
+
+impl Mode {
+    const ALL: [Self; 3] = [Self::Rule, Self::Global, Self::Direct];
+
+    fn from_code(code: u8) -> Self {
+        Self::ALL
+            .into_iter()
+            .find(|mode| *mode as u8 == code)
+            .unwrap_or_default()
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -448,26 +474,56 @@ impl DatagramRecv for TrackedRecv {
 pub struct Dispatcher {
     outbound: Arc<dyn TcpOutbound>,
     routed: Option<Arc<RoutedOutbound>>,
+    /// The outbound of the direct mode.
+    direct: Arc<dyn TcpOutbound>,
+    mode: AtomicU8,
     tracker: Arc<ConnectionTracker>,
 }
 
 impl Dispatcher {
-    /// Every flow through `outbound`, as a config with one outbound runs.
+    /// Every flow through `outbound`, as a config with one outbound runs. The
+    /// direct mode uses the system's sockets; see [`Dispatcher::with_direct`].
     pub fn single(outbound: Arc<dyn TcpOutbound>) -> Self {
         Self {
             outbound,
             routed: None,
+            direct: Arc::new(DirectOutbound::new(Arc::new(TcpDialer))),
+            mode: AtomicU8::new(Mode::Rule as u8),
             tracker: Arc::default(),
         }
     }
 
-    /// Flows routed by the rules and groups of `routed`.
+    /// Flows routed by the rules and groups of `routed`; the direct mode uses
+    /// its DIRECT outbound.
     pub fn routed(routed: Arc<RoutedOutbound>) -> Self {
         Self {
             outbound: routed.clone(),
+            direct: routed.direct().clone(),
             routed: Some(routed),
+            mode: AtomicU8::new(Mode::Rule as u8),
             tracker: Arc::default(),
         }
+    }
+
+    /// Replaces the outbound of the direct mode.
+    pub fn with_direct(mut self, direct: Arc<dyn TcpOutbound>) -> Self {
+        self.direct = direct;
+        self
+    }
+
+    pub fn mode(&self) -> Mode {
+        Mode::from_code(self.mode.load(Ordering::Relaxed))
+    }
+
+    /// Switches the mode for every later flow; open connections keep their
+    /// route.
+    pub fn set_mode(&self, mode: Mode) {
+        self.mode.store(mode as u8, Ordering::Relaxed);
+    }
+
+    /// The rule-based outbound of a routing config, for its policy groups.
+    pub fn routed_outbound(&self) -> Option<&Arc<RoutedOutbound>> {
+        self.routed.as_ref()
     }
 
     pub fn tracker(&self) -> &Arc<ConnectionTracker> {
@@ -486,9 +542,11 @@ impl Dispatcher {
         host: Option<&str>,
         guard: &ConnectionGuard,
     ) -> io::Result<Arc<dyn TcpOutbound>> {
-        let (route, outbound) = match &self.routed {
-            Some(routed) => routed.route_flow(target, host).await,
-            None => (single_route(&*self.outbound), Some(self.outbound.clone())),
+        let (route, outbound) = match (self.mode(), &self.routed) {
+            (Mode::Direct, _) => (direct_route(), Some(self.direct.clone())),
+            (Mode::Global, Some(routed)) => routed.route_global(),
+            (Mode::Rule, Some(routed)) => routed.route_flow(target, host).await,
+            (_, None) => (single_route(&*self.outbound), Some(self.outbound.clone())),
         };
         guard.set_route(route);
         outbound.ok_or_else(|| {
@@ -593,6 +651,15 @@ fn single_route(outbound: &dyn TcpOutbound) -> RouteInfo {
         rule: "DEFAULT".to_string(),
         chain: vec![name.clone()],
         outbound: name,
+    }
+}
+
+/// The route of the direct mode.
+fn direct_route() -> RouteInfo {
+    RouteInfo {
+        rule: "MODE,direct".to_string(),
+        chain: vec!["DIRECT".to_string()],
+        outbound: "DIRECT".to_string(),
     }
 }
 
