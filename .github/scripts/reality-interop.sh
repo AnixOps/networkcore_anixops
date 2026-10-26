@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
 # REALITY (outbound-vless), VMess (outbound-vmess), Hysteria2
 # (outbound-hysteria2), TUIC (outbound-tuic), Snell (outbound-snell) and
-# Mieru (outbound-mieru) interop harness, plus the reverse direction: Xray-core,
+# Mieru (outbound-mieru) and iWAN (outbound-iwan) interop harness, plus the
+# reverse direction: Xray-core,
 # sing-box and Hysteria clients against our server inbounds
 # (node-runtime client_interop). Linux runners only.
 #
 #   reality-interop.sh download   fetch Xray-core, sing-box and Hysteria
 #                                 release binaries, official snell-server
-#                                 builds and the official mita package (run
-#                                 in CI only, never redistributed)
+#                                 builds and the official mita package, and
+#                                 build iwand-server from a pinned commit
+#                                 (needs Go; run in CI only, never
+#                                 redistributed)
 #   reality-interop.sh start      start targets and REALITY servers, write env
 #   reality-interop.sh logs       print server logs (for failed runs)
 #
@@ -16,8 +19,8 @@
 # release tag or "latest") and SNELL_VERSIONS (space-separated snell-server
 # versions; a version that cannot be downloaded is skipped with a warning,
 # except the v6 one) and MIERU_VERSION (an enfein/mieru release tag or
-# "latest"). Keys, UUID, short id and passwords are generated
-# per run.
+# "latest") and IWAND_COMMIT (Ricky-Hao/iwand commit, default 9f6a0e3). Keys,
+# UUID, short id and passwords are generated per run.
 
 set -euo pipefail
 
@@ -84,6 +87,13 @@ download() {
   mieru_tag="$(resolve_tag enfein/mieru "${MIERU_VERSION:-latest}")"
   gh release download "${mieru_tag}" -R enfein/mieru -p "mita_${mieru_tag#v}_amd64.deb" \
     -O "${work}/mita.deb" --clobber
+  # iwand-server, a black box for outbound-iwan (docs/protocols/iwan.md §10.1).
+  # Only built and run: its source is never read, linked or redistributed.
+  local iwand_commit="${IWAND_COMMIT:-9f6a0e3}"
+  rm -rf "${work}/iwand"
+  git clone --quiet --filter=blob:none https://github.com/Ricky-Hao/iwand "${work}/iwand"
+  git -C "${work}/iwand" checkout --quiet "${iwand_commit}"
+  (cd "${work}/iwand" && CGO_ENABLED=0 go build -trimpath -o "${bin}/iwand-server" ./cmd/iwand-server)
   if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
     {
       echo "### REALITY interop servers"
@@ -95,6 +105,7 @@ download() {
       echo "| Hysteria | ${hysteria_tag} |"
       printf '%s' "${snell_rows}"
       echo "| mita | ${mieru_tag} |"
+      echo "| iwand-server | ${iwand_commit} |"
     } >> "${GITHUB_STEP_SUMMARY}"
   fi
 }
@@ -359,6 +370,25 @@ JSON
     wait_for_port "${port}"
   done
 
+  # iwand-server in no-exit mode: it forwards packets between sessions by
+  # destination address and echoes the rest. "plain" may not mask.
+  local iwan_plain_password iwan_xor_password
+  iwan_plain_password="$(openssl rand -hex 8)"
+  iwan_xor_password="$(openssl rand -hex 8)"
+  cat > "${work}/iwand.json" <<JSON
+{
+  "listen": "127.0.0.1:28601",
+  "mtu": 1380,
+  "dns": ["1.1.1.1", "8.8.8.8"],
+  "users": [
+    {"username": "plain", "password": "${iwan_plain_password}", "address": "10.20.30.10", "allow_encrypt": false},
+    {"username": "xor", "password": "${iwan_xor_password}", "address": "10.20.30.11"}
+  ]
+}
+JSON
+  "${bin}/iwand-server" -config "${work}/iwand.json" > "${work}/iwand-server.log" 2>&1 &
+  wait_for_udp_port 28601
+
   cat > "${work}/env" <<EOF
 NC_INTEROP_SERVERS=xray-vision=127.0.0.1:24431:vision,xray-plain=127.0.0.1:24432:none,sing-box-vision=127.0.0.1:25431:vision,sing-box-plain=127.0.0.1:25432:none
 NC_VLESS_UUID=${uuid}
@@ -392,12 +422,17 @@ NC_MIERU_PORT_RANGE=28510-28512
 NC_MIERU_USER=${mieru_user}
 NC_MIERU_PASSWORD=${mieru_password}
 NC_MIERU_DOMAIN=mieru.interop.test
+NC_IWAN_SERVER=127.0.0.1:28601
+NC_IWAN_PLAIN=plain:${iwan_plain_password}:10.20.30.10
+NC_IWAN_XOR=xor:${iwan_xor_password}:10.20.30.11
+NC_IWAN_DNS=1.1.1.1,8.8.8.8
+NC_IWAN_MTU=1380
 EOF
 }
 
 logs() {
   local log
-  for log in xray sing-box hysteria hysteria-salamander target-tls target-dest target-http target-udp target-echo mita-install; do
+  for log in xray sing-box hysteria hysteria-salamander target-tls target-dest target-http target-udp target-echo mita-install iwand-server; do
     if [[ -f "${work}/${log}.log" ]]; then
       echo "::group::${log}.log"
       tail -n 200 "${work}/${log}.log"

@@ -1,0 +1,24 @@
+[package]
+name = "outbound-iwan"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Panabit iWAN layer-3 tunnel as a routable outbound: sans-IO codec and session state machine plus a per-node userspace TCP/IP stack, written from docs/protocols/iwan.md."
+
+[dependencies]
+# Password block only (AES-128-ECB, one block).
+aes = "0.9"
+engine-outbound = { path = "../engine-outbound" }
+md-5 = "0.10"
+serde = { version = "1", features = ["derive"] }
+# The node's private TCP/IP stack; `async` adds the socket wakers.
+smoltcp = { version = "0.12", default-features = false, features = ["std", "log", "medium-ip", "proto-ipv4", "socket-tcp", "socket-udp", "async"] }
+tokio = { version = "1", default-features = false, features = ["net", "rt", "sync", "time", "macros"] }
+
+[dev-dependencies]
+serde_json = "1"
+tokio = { version = "1", default-features = false, features = ["io-util", "net", "rt", "rt-multi-thread", "macros", "sync", "time"] }
+
+[lib]
+path = "src/lib.rs"
