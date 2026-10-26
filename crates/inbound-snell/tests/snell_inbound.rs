@@ -6,14 +6,15 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use engine_inbound::registry::{InboundFactory, Settings};
-use engine_inbound::server::{serve, InboundStats, ServeSettings};
+use engine_inbound::server::{serve_with_udp, InboundStats, ServeSettings};
+use engine_inbound::udp::{UdpOutbound, UdpSession};
 use engine_inbound::StreamInbound;
 use engine_outbound::{BoxFuture, BoxStream, TargetAddr, TcpDialer, TcpOutbound};
 use inbound_snell::SnellInboundFactory;
 use outbound_snell::request::{encode_request, Command};
 use outbound_snell::{Encoder, Framing, HttpObfsSettings, SnellOptions, SnellOutbound, V6Mode};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::{TcpListener, TcpStream, UdpSocket};
 
 const PSK: &str = "inbound test psk";
 const TIMEOUT: Duration = Duration::from_secs(20);
@@ -31,6 +32,53 @@ impl TcpOutbound for Direct {
             Ok(Box::new(stream) as BoxStream)
         })
     }
+}
+
+struct DirectUdp;
+
+impl UdpOutbound for DirectUdp {
+    fn bind(&self) -> BoxFuture<'_, std::io::Result<Arc<dyn UdpSession>>> {
+        Box::pin(async {
+            let socket = UdpSocket::bind("127.0.0.1:0").await?;
+            Ok(Arc::new(Socket(socket)) as Arc<dyn UdpSession>)
+        })
+    }
+}
+
+struct Socket(UdpSocket);
+
+impl UdpSession for Socket {
+    fn send_to<'a>(
+        &'a self,
+        payload: &'a [u8],
+        target: &'a TargetAddr,
+    ) -> BoxFuture<'a, std::io::Result<()>> {
+        Box::pin(async move {
+            self.0
+                .send_to(payload, (target.host(), target.port()))
+                .await
+                .map(|_| ())
+        })
+    }
+
+    fn recv_from<'a>(
+        &'a self,
+        buf: &'a mut [u8],
+    ) -> BoxFuture<'a, std::io::Result<(usize, SocketAddr)>> {
+        Box::pin(self.0.recv_from(buf))
+    }
+}
+
+async fn udp_echo_server() -> SocketAddr {
+    let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let addr = socket.local_addr().unwrap();
+    tokio::spawn(async move {
+        let mut buf = vec![0u8; 65536];
+        while let Ok((n, from)) = socket.recv_from(&mut buf).await {
+            let _ = socket.send_to(&buf[..n], from).await;
+        }
+    });
+    addr
 }
 
 async fn echo_server() -> SocketAddr {
@@ -70,10 +118,11 @@ async fn start(settings: serde_json::Value) -> Server {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let stats = Arc::new(InboundStats::default());
-    tokio::spawn(serve(
+    tokio::spawn(serve_with_udp(
         listener,
         inbound,
         Arc::new(Direct),
+        Some(Arc::new(DirectUdp)),
         ServeSettings::default(),
         stats.clone(),
     ));
@@ -297,4 +346,116 @@ async fn garbage_is_closed_without_a_reply() {
         .await
         .map_or(0, |read| read.unwrap_or(0));
     assert_eq!(n, 0);
+}
+
+/// One request on a reusable connection, read to the server's zero chunk so
+/// the client can pool the connection.
+async fn fetch(outbound: &SnellOutbound, echo: SocketAddr, payload: &[u8]) -> Vec<u8> {
+    tokio::time::timeout(TIMEOUT, async {
+        let mut stream = outbound.connect_stream(&TargetAddr::Ip(echo)).await?;
+        stream.write_all(payload).await?;
+        stream.shutdown().await?;
+        let mut back = Vec::new();
+        stream.read_to_end(&mut back).await?;
+        Ok::<_, std::io::Error>(back)
+    })
+    .await
+    .expect("fetch timed out")
+    .expect("fetch failed")
+}
+
+#[tokio::test]
+async fn reusing_clients_send_several_requests_on_one_connection() {
+    let echo = echo_server().await;
+    for (version, mode) in [
+        (3u8, None),
+        (4, None),
+        (6, Some("default")),
+        (6, Some("unshaped")),
+    ] {
+        let mut settings = serde_json::json!({ "psk": PSK, "version": version });
+        if let Some(mode) = mode {
+            settings["mode"] = mode.into();
+        }
+        let server = start(settings).await;
+        let mode = mode.and_then(V6Mode::parse).unwrap_or(V6Mode::Default);
+        let outbound = client(&server, version, mode, false, true);
+        for round in 0..4 {
+            let data = payload(3000 + round * 7000);
+            assert!(
+                fetch(&outbound, echo, &data).await == data,
+                "v{version} round {round}"
+            );
+        }
+        assert_eq!(
+            server.stats.accepted.load(Ordering::Relaxed),
+            1,
+            "v{version} {mode:?}: requests did not share a connection"
+        );
+    }
+}
+
+#[tokio::test]
+async fn unreachable_targets_get_an_error_reply() {
+    let closed = {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        listener.local_addr().unwrap()
+    };
+    for (version, mode) in [(4u8, None), (6, Some("default"))] {
+        let mut settings = serde_json::json!({ "psk": PSK, "version": version });
+        if let Some(mode) = mode {
+            settings["mode"] = mode.into();
+        }
+        let server = start(settings).await;
+        let mode = mode.and_then(V6Mode::parse).unwrap_or(V6Mode::Default);
+        let outbound = client(&server, version, mode, false, false);
+        let result = tokio::time::timeout(TIMEOUT, async {
+            let mut stream = outbound.connect_stream(&TargetAddr::Ip(closed)).await?;
+            stream.write_all(b"hello").await?;
+            stream.flush().await?;
+            let mut back = Vec::new();
+            stream.read_to_end(&mut back).await.map(|_| back)
+        })
+        .await
+        .unwrap();
+        let err = result.expect_err("a closed port answered");
+        assert_eq!(
+            err.kind(),
+            std::io::ErrorKind::ConnectionRefused,
+            "v{version}: {err}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn udp_datagrams_are_relayed() {
+    let echo = udp_echo_server().await;
+    for (version, mode) in [
+        (3u8, None),
+        (4, None),
+        (6, Some("default")),
+        (6, Some("unsafe-raw")),
+    ] {
+        let mut settings = serde_json::json!({ "psk": PSK, "version": version });
+        if let Some(mode) = mode {
+            settings["mode"] = mode.into();
+        }
+        let server = start(settings).await;
+        let mode = mode.and_then(V6Mode::parse).unwrap_or(V6Mode::Default);
+        let outbound = client(&server, version, mode, false, false);
+        let (mut sender, mut receiver) = tokio::time::timeout(TIMEOUT, outbound.udp())
+            .await
+            .unwrap()
+            .unwrap();
+        for size in [1usize, 512, 1400, 8000] {
+            let data = payload(size);
+            assert!(sender.send_to(&TargetAddr::Ip(echo), &data).await.unwrap());
+            let (source, back) = tokio::time::timeout(TIMEOUT, receiver.recv_from())
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(source, echo, "v{version}");
+            assert!(back == data, "v{version} udp {size}: payload differs");
+        }
+    }
 }

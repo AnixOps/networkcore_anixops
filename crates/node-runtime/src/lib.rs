@@ -23,7 +23,8 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
 use engine_inbound::registry::{BuildError, Inbound, InboundRegistry};
-use engine_inbound::server::{serve, InboundStats, ServeSettings};
+use engine_inbound::server::{serve_with_udp, InboundStats, ServeSettings};
+use engine_inbound::udp::UdpOutbound;
 use engine_inbound::UserStore;
 use engine_outbound::TcpOutbound;
 use serde::Serialize;
@@ -140,10 +141,12 @@ impl Node {
             .registry
             .build(&config.kind, &config.settings)
             .map_err(NodeError::Invalid)?;
-        let outbound: Arc<dyn TcpOutbound> = Arc::new(DirectOutbound::new(
+        let direct = Arc::new(DirectOutbound::new(
             self.allow_private_targets,
             config.allowed_targets(),
         ));
+        let outbound: Arc<dyn TcpOutbound> = direct.clone();
+        let udp: Arc<dyn UdpOutbound> = direct;
         let stats = Arc::new(InboundStats::default());
         let settings = self.serve_settings.clone();
         let address = SocketAddr::new(config.listen, config.listen_port);
@@ -154,7 +157,9 @@ impl Node {
                 let task = tokio::spawn({
                     let (stream, stats) = (stream.clone(), stats.clone());
                     async move {
-                        let _ = serve(listener, stream, outbound, settings, stats).await;
+                        let _ =
+                            serve_with_udp(listener, stream, outbound, Some(udp), settings, stats)
+                                .await;
                     }
                 });
                 (listen, task)
