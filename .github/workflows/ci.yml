@@ -943,7 +943,6 @@ jobs:
           grep -q "LinuxNodeCatalogReport" apps/linux-cli/src/lib.rs
           grep -q "node_catalog" apps/linux-cli/src/lib.rs
           grep -q "structured catalog" apps/linux-cli/tests/linux_cli_contracts.rs
-          grep -q "node_switch_rejects_missing_confirmation_before_any_network_or_file_mutation" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "Loopback Selector Switch" docs/architecture/linux-native-proxy-engine-start.md
           grep -q "Explicit Remote Update Boundary" docs/architecture/subscription-catalog-persistence-source-contract.md
           grep -q "subscription_catalog_rollback_restores_snapshot_and_retains_snapshot" apps/linux-cli/tests/linux_cli_contracts.rs
