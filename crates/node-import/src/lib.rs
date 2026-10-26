@@ -31,7 +31,8 @@ use control_domain::{
     NODE_METADATA_TLS_INSECURE, NODE_METADATA_TLS_REALITY_PUBLIC_KEY,
     NODE_METADATA_TLS_REALITY_SHORT_ID, NODE_METADATA_TLS_SERVER_NAME,
     NODE_METADATA_TROJAN_PASSWORD, NODE_METADATA_TUIC_CONGESTION_CONTROL,
-    NODE_METADATA_TUIC_PASSWORD, NODE_METADATA_TUIC_UUID, NODE_METADATA_V2RAY_TRANSPORT_HOST,
+    NODE_METADATA_TUIC_PASSWORD, NODE_METADATA_TUIC_UUID, NODE_METADATA_V2RAY_TRANSPORT_EXTRA,
+    NODE_METADATA_V2RAY_TRANSPORT_HOST, NODE_METADATA_V2RAY_TRANSPORT_MODE,
     NODE_METADATA_V2RAY_TRANSPORT_PATH, NODE_METADATA_V2RAY_TRANSPORT_SERVICE_NAME,
     NODE_METADATA_V2RAY_TRANSPORT_TYPE, NODE_METADATA_VIA, NODE_METADATA_VIA_UNRESOLVED,
     NODE_METADATA_VLESS_FLOW, NODE_METADATA_VLESS_UUID, NODE_METADATA_VMESS_ALTER_ID,
@@ -381,6 +382,9 @@ fn vmess(node: &NodeDescriptor) -> Result<Value, Unsupported> {
         return Err("vmess alterId other than 0 (legacy headers) is not supported");
     }
     let transport = v2ray_transport(node)?;
+    if transport["type"] == "xhttp" {
+        return Err("vmess over xhttp is not implemented yet");
+    }
     Ok(json!({
         "type": "vmess",
         "server": node.endpoint.host,
@@ -551,8 +555,50 @@ fn v2ray_transport(node: &NodeDescriptor) -> Result<Value, Unsupported> {
             "service_name": metadata(node, NODE_METADATA_V2RAY_TRANSPORT_SERVICE_NAME)
                 .ok_or("grpc service name is missing")?,
         })),
-        Some(_) => Err("transports other than tcp, ws and grpc are not implemented yet"),
+        Some("xhttp") => xhttp_transport(node),
+        Some(_) => Err("transports other than tcp, ws, grpc and xhttp are not implemented yet"),
     }
+}
+
+/// The `xhttp` transport entry. Of the share link's `extra` settings, the
+/// client-side ones the transport implements are kept, connection reuse
+/// (`xmux`) and server-only ones are dropped, and anything that changes the
+/// wire format makes the node unsupported.
+fn xhttp_transport(node: &NodeDescriptor) -> Result<Value, Unsupported> {
+    let mut transport = json!({
+        "type": "xhttp",
+        "path": metadata(node, NODE_METADATA_V2RAY_TRANSPORT_PATH).unwrap_or("/"),
+        "host": metadata(node, NODE_METADATA_V2RAY_TRANSPORT_HOST).unwrap_or_default(),
+        "mode": metadata(node, NODE_METADATA_V2RAY_TRANSPORT_MODE).unwrap_or("auto"),
+    });
+    if !matches!(
+        transport["mode"].as_str(),
+        Some("auto" | "packet-up" | "stream-up" | "stream-one")
+    ) {
+        return Err("xhttp mode must be auto, packet-up, stream-up or stream-one");
+    }
+    let Some(extra) = metadata(node, NODE_METADATA_V2RAY_TRANSPORT_EXTRA) else {
+        return Ok(transport);
+    };
+    let Ok(Value::Object(extra)) = serde_json::from_str::<Value>(extra) else {
+        return Err("xhttp extra is not a JSON object");
+    };
+    for (key, value) in extra {
+        let field = match key.as_str() {
+            "headers" => "headers",
+            "xPaddingBytes" => "x_padding_bytes",
+            "scMaxEachPostBytes" => "sc_max_each_post_bytes",
+            "scMinPostsIntervalMs" => "sc_min_posts_interval_ms",
+            "noGRPCHeader" => "no_grpc_header",
+            "xmux" | "noSSEHeader" | "scMaxBufferedPosts" | "scStreamUpServerSecs" => continue,
+            "downloadSettings" => {
+                return Err("xhttp downloadSettings (split download server) is not implemented yet")
+            }
+            _ => return Err("xhttp extra options other than headers, padding and post sizing are not implemented yet"),
+        };
+        transport[field] = value;
+    }
+    Ok(transport)
 }
 
 fn alpn_list(node: &NodeDescriptor) -> Vec<&str> {
@@ -570,6 +616,9 @@ fn trojan(node: &NodeDescriptor) -> Result<Value, Unsupported> {
     let password =
         metadata(node, NODE_METADATA_TROJAN_PASSWORD).ok_or("trojan password is missing")?;
     let transport = v2ray_transport(node)?;
+    if transport["type"] == "xhttp" {
+        return Err("trojan over xhttp is not implemented yet");
+    }
     if metadata(node, NODE_METADATA_TLS_ENABLED) == Some("false") {
         return Err("trojan without tls is not supported");
     }

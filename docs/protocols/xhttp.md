@@ -92,6 +92,16 @@ Xray 较新版本的可选混淆参数（填充位置、会话/序号位置、�
 - `User-Agent`：默认为桌面 Chrome 的 UA，可由 `headers` 覆盖。
 - `headers` 中的其他头原样发送；`Content-Length`、`Transfer-Encoding`、`Connection`、`Referer` 由传输自己生成，配置中的同名项被忽略。
 
+## 5.1 订阅链接
+
+`vless://` 链接用 `type=xhttp`（也接受 `splithttp`）、`path`、`host`、`mode` 和 `extra`（URL 编码的 JSON）描述 XHTTP。导入时：
+
+- `mode` 缺省为 `auto`，只接受第 3 节的四种。
+- `extra` 中的 `headers`、`xPaddingBytes`、`scMaxEachPostBytes`、`scMinPostsIntervalMs`、`noGRPCHeader` 转成第 1 节的字段；`xmux`（连接复用，不影响线上格式）和只对服务端有意义的 `noSSEHeader`、`scMaxBufferedPosts`、`scStreamUpServerSecs` 丢弃；`downloadSettings` 和其他会改变线上格式的项使节点标为不支持。
+- REALITY 上的 XHTTP、VMess/Trojan 的 XHTTP 暂标为不支持。
+
+导出时把上述五个字段中非默认的写回 `extra`。
+
 ## 6. 互通验证
 
 `REALITY interop (Linux)` 任务：
@@ -103,4 +113,4 @@ Xray 较新版本的可选混淆参数（填充位置、会话/序号位置、�
 ## 7. 后续
 
 - HTTP/3、REALITY 上的 XHTTP、`xmux` 连接复用、`downloadSettings`（上下行分离到不同服务器）。
-- VMess、Trojan 出站接入和订阅链接（`type=xhttp`、`mode`、`extra`）导入。
+- VMess、Trojan 出站接入。

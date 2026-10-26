@@ -281,6 +281,7 @@ trojan://trojan%2Fsecret@example.com:443?sni=edge.example.com&alpn=h2,http/1.1&a
 vless://00000000-0000-0000-0000-000000000002@vless.example.test:443?encryption=none&security=reality&sni=www.example.com&pbk=PUBLICKEY&sid=ab12&fp=chrome&flow=xtls-rprx-vision&type=tcp#Reality
 vless://00000000-0000-0000-0000-000000000003@vless.example.test:8443?encryption=none&security=tls&sni=grpc.example.test&type=grpc&serviceName=tunnel#VLESS%20gRPC
 vless://00000000-0000-0000-0000-000000000004@192.0.2.4:80?encryption=none&security=none&type=tcp#Plain
+vless://00000000-0000-0000-0000-000000000006@xh.example.test:443?encryption=none&security=tls&sni=cdn.example.test&alpn=h2&type=xhttp&path=%2Fxh&host=cdn.example.test&mode=stream-one&extra=%7B%22headers%22%3A%7B%22X-Edge%22%3A%221%22%7D%2C%22xPaddingBytes%22%3A%22200-400%22%2C%22noGRPCHeader%22%3Atrue%7D#VLESS%20XHTTP
 tuic://00000000-0000-0000-0000-000000000001:tuic%2Dpassword@tuic.example.test:443?sni=cdn.tuic.example.test&alpn=h3&congestion_control=bbr#TUIC%20Node
 hysteria2://hy2-secret@edge.example.test:443?sni=cdn.example.test&insecure=1&obfs=salamander&obfs-password=mask-secret#Hy2
 ",
@@ -479,4 +480,36 @@ fn a_node_behind_a_node_that_cannot_run_cannot_run_either() {
         .map(|node| node.name.as_str())
         .collect();
     assert_eq!(names, ["old", "behind"]);
+}
+
+#[test]
+fn xhttp_links_keep_mode_and_client_extra_settings() {
+    let report = import_text(
+        "vless://00000000-0000-0000-0000-000000000006@xh.example.test:443?encryption=none&security=none&type=splithttp&path=%2Fxh&extra=%7B%22scMaxEachPostBytes%22%3A500000%2C%22xmux%22%3A%7B%22maxConcurrency%22%3A%2216-32%22%7D%7D#XH",
+    )
+    .unwrap();
+    assert_eq!(
+        report.nodes[0].outbound["transport"],
+        serde_json::json!({
+            "type": "xhttp", "path": "/xh", "host": "", "mode": "auto",
+            "sc_max_each_post_bytes": 500000,
+        })
+    );
+    let link = share_link("XH", &report.nodes[0].outbound).unwrap();
+    assert!(link.contains("type=xhttp"), "{link}");
+    assert!(!link.contains("xmux"), "{link}");
+
+    // Split download servers, VMess/Trojan over XHTTP and XHTTP over REALITY
+    // are not carried yet.
+    let report = import_text(
+        "\
+vless://00000000-0000-0000-0000-000000000006@a.example.test:443?security=tls&type=xhttp&extra=%7B%22downloadSettings%22%3A%7B%7D%7D#Split
+trojan://secret@b.example.test:443?type=xhttp&path=%2Fxh#Trojan
+vless://00000000-0000-0000-0000-000000000006@c.example.test:443?security=reality&sni=www.example.com&pbk=KEY&type=xhttp#Reality
+vless://00000000-0000-0000-0000-000000000006@d.example.test:443?security=tls&type=xhttp&mode=stream-two#Mode
+",
+    )
+    .unwrap();
+    assert!(report.nodes.is_empty(), "{:?}", report.nodes);
+    assert_eq!(report.unsupported.len(), 4);
 }

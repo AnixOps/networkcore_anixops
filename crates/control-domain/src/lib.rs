@@ -187,6 +187,10 @@ pub const NODE_METADATA_V2RAY_TRANSPORT_TYPE: &str = "v2ray.transport.type";
 pub const NODE_METADATA_V2RAY_TRANSPORT_HOST: &str = "v2ray.transport.host";
 pub const NODE_METADATA_V2RAY_TRANSPORT_PATH: &str = "v2ray.transport.path";
 pub const NODE_METADATA_V2RAY_TRANSPORT_SERVICE_NAME: &str = "v2ray.transport.service_name";
+/// XHTTP upload mode (`auto`, `packet-up`, `stream-up`, `stream-one`).
+pub const NODE_METADATA_V2RAY_TRANSPORT_MODE: &str = "v2ray.transport.mode";
+/// XHTTP `extra` settings as the share link carries them (JSON text).
+pub const NODE_METADATA_V2RAY_TRANSPORT_EXTRA: &str = "v2ray.transport.extra";
 pub const NODE_METADATA_SOURCE_FORMAT: &str = "subscription.source_format";
 
 /// Operating system capability target.

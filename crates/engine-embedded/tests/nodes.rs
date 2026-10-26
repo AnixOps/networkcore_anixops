@@ -489,3 +489,33 @@ fn selected_node_and_routing_envelopes() {
     ];
     assert!(routing_envelope("p", &with_unsupported, &spec).is_err());
 }
+
+#[test]
+fn vless_xhttp_nodes_build_with_their_extra_settings() {
+    let vless_xhttp = node(
+        "vless-xhttp",
+        Protocol::Vless,
+        &[
+            ("vless.uuid", "b831381d-6324-4d53-ad4f-8cda48b30811"),
+            ("tls.enabled", "true"),
+            ("tls.server_name", "cdn.example"),
+            ("v2ray.transport.type", "xhttp"),
+            ("v2ray.transport.path", "/xh"),
+            ("v2ray.transport.mode", "stream-up"),
+            (
+                "v2ray.transport.extra",
+                r#"{"headers":{"X-Edge":"1"},"xPaddingBytes":"200-400","xmux":{"maxConcurrency":"16-32"}}"#,
+            ),
+        ],
+    );
+    let outbound = outbound_for_node(&vless_xhttp).unwrap();
+    assert_eq!(
+        outbound["transport"],
+        serde_json::json!({
+            "type": "xhttp", "path": "/xh", "host": "", "mode": "stream-up",
+            "headers": {"X-Edge": "1"}, "x_padding_bytes": "200-400",
+        })
+    );
+    let (envelope, _) = single_node_envelope("p", &[vless_xhttp], None).unwrap();
+    assert_eq!(builds(&envelope), "vless");
+}

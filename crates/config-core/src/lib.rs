@@ -32,7 +32,8 @@ use control_domain::{
     NODE_METADATA_TLS_REALITY_SHORT_ID, NODE_METADATA_TLS_SERVER_NAME,
     NODE_METADATA_TLS_UTLS_FINGERPRINT, NODE_METADATA_TROJAN_PASSWORD,
     NODE_METADATA_TUIC_CONGESTION_CONTROL, NODE_METADATA_TUIC_PASSWORD, NODE_METADATA_TUIC_UUID,
-    NODE_METADATA_V2RAY_TRANSPORT_HOST, NODE_METADATA_V2RAY_TRANSPORT_PATH,
+    NODE_METADATA_V2RAY_TRANSPORT_EXTRA, NODE_METADATA_V2RAY_TRANSPORT_HOST,
+    NODE_METADATA_V2RAY_TRANSPORT_MODE, NODE_METADATA_V2RAY_TRANSPORT_PATH,
     NODE_METADATA_V2RAY_TRANSPORT_SERVICE_NAME, NODE_METADATA_V2RAY_TRANSPORT_TYPE,
     NODE_METADATA_VIA, NODE_METADATA_VIA_UNRESOLVED, NODE_METADATA_VLESS_FLOW,
     NODE_METADATA_VLESS_UUID, NODE_METADATA_VMESS_ALTER_ID, NODE_METADATA_VMESS_SECURITY,
@@ -3704,11 +3705,12 @@ fn append_v2ray_share_link_transport_metadata(
         "http" | "h2" => "http",
         "httpupgrade" | "http_upgrade" => "httpupgrade",
         "quic" => "quic",
+        "xhttp" | "splithttp" => "xhttp",
         _ => {
             return Err(domain_error(
                 code,
                 format!(
-                    "{protocol_name} transport must be tcp, ws, grpc, http, httpupgrade, or quic"
+                    "{protocol_name} transport must be tcp, ws, grpc, http, httpupgrade, quic, or xhttp"
                 ),
             ));
         }
@@ -3738,6 +3740,20 @@ fn append_v2ray_share_link_transport_metadata(
             key: NODE_METADATA_V2RAY_TRANSPORT_SERVICE_NAME.to_string(),
             value: service_name.trim().to_string(),
         });
+    }
+    if kind == "xhttp" {
+        if let Some(mode) = query.get("mode").filter(|value| !value.trim().is_empty()) {
+            metadata.push(MetadataEntry {
+                key: NODE_METADATA_V2RAY_TRANSPORT_MODE.to_string(),
+                value: mode.trim().to_string(),
+            });
+        }
+        if let Some(extra) = query.get("extra").filter(|value| !value.trim().is_empty()) {
+            metadata.push(MetadataEntry {
+                key: NODE_METADATA_V2RAY_TRANSPORT_EXTRA.to_string(),
+                value: extra.trim().to_string(),
+            });
+        }
     }
     Ok(())
 }
