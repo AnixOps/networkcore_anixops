@@ -205,7 +205,7 @@ pub fn encode_open(request: &OpenRequest<'_>) -> Vec<u8> {
     signed(header, &payload)
 }
 
-/// The fields of an OPEN as a server reads them; used by tests and test servers.
+/// The fields of an OPEN as a server reads them; used by `inbound-iwan` and tests.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct OpenFields {
     pub flags: u8,
@@ -314,7 +314,7 @@ pub fn decode_open_ack(datagram: &[u8]) -> Option<OpenAck> {
     Some(ack)
 }
 
-/// OPENACK as a server would send it; used by tests and test servers.
+/// OPENACK as a server sends it; used by `inbound-iwan` and tests.
 pub fn encode_open_ack(session: Session, encrypt: u8, tlvs: &[(u8, &[u8])]) -> Vec<u8> {
     let mut payload = Vec::new();
     for (kind, value) in tlvs {

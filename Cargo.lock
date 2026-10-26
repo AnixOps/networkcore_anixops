@@ -1441,6 +1441,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "inbound-iwan"
+version = "0.2.0"
+dependencies = [
+ "engine-inbound",
+ "engine-outbound",
+ "futures",
+ "netstack-smoltcp",
+ "outbound-iwan",
+ "ring",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "inbound-mixed"
 version = "0.2.0"
 dependencies = [
@@ -1878,6 +1893,7 @@ dependencies = [
  "engine-inbound",
  "engine-outbound",
  "inbound-hysteria2",
+ "inbound-iwan",
  "inbound-shadowsocks",
  "inbound-snell",
  "inbound-trojan",
