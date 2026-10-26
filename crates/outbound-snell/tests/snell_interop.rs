@@ -212,6 +212,9 @@ async fn ping_is_answered_with_pong() {
 async fn udp_datagrams_are_relayed() {
     let echo = target("NC_UDP_ECHO");
     let echo_addr: SocketAddr = env("NC_UDP_ECHO").parse().unwrap();
+    // Every server and size is tried before failing, so one run reports
+    // the full picture.
+    let mut failures = Vec::new();
     for server in servers() {
         if server.version < 3 {
             continue;
@@ -221,20 +224,84 @@ async fn udp_datagrams_are_relayed() {
             .await
             .unwrap_or_else(|_| panic!("{}: timed out", server.name))
             .unwrap_or_else(|err| panic!("{}: udp: {err}", server.name));
-        for size in [1usize, 512, 1400, 8000] {
+        for size in [1usize, 512, 1400, 2048, 4096, 8000] {
             let payload: Vec<u8> = (0..size).map(|i| (i % 256) as u8).collect();
             assert!(sender.send_to(&echo, &payload).await.unwrap());
             let (source, echoed) = tokio::time::timeout(TIMEOUT, receiver.recv_from())
                 .await
                 .unwrap_or_else(|_| panic!("{} udp {size}: timed out", server.name))
                 .unwrap_or_else(|err| panic!("{} udp {size}: {err}", server.name));
-            assert_eq!(source, echo_addr, "{}", server.name);
-            assert!(
-                echoed == payload,
-                "{} udp {size}: payload differs",
-                server.name
+            if source != echo_addr {
+                failures.push(format!("{} udp {size}: source {source}", server.name));
+            }
+            if echoed != payload {
+                let first_diff = echoed
+                    .iter()
+                    .zip(&payload)
+                    .position(|(a, b)| a != b)
+                    .unwrap_or(echoed.len().min(payload.len()));
+                println!(
+                    "observed: {} udp {size}: echoed {} bytes, first difference at {first_diff}",
+                    server.name,
+                    echoed.len()
+                );
+                failures.push(format!("{} udp {size}: payload differs", server.name));
+                // The echo of this datagram may be split; start over on a
+                // fresh session so later sizes are measured cleanly.
+                break;
+            }
+        }
+        println!("{}: udp done", server.name);
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// A large datagram as the first one on a fresh session. snell-server
+/// v5.0.1 echoed it differently in early runs (while the stepped sizes above
+/// pass), so v5 is measured here and only v4/v6 are asserted until the spec
+/// settles v5 downstream datagram limits.
+#[tokio::test]
+#[ignore = "needs official snell-server binaries; run by the interop CI job"]
+async fn large_first_udp_datagram() {
+    let echo = target("NC_UDP_ECHO");
+    let mut failures = Vec::new();
+    for server in servers() {
+        if server.version < 3 {
+            continue;
+        }
+        let outbound = outbound(&server, false);
+        let (mut sender, mut receiver) = tokio::time::timeout(TIMEOUT, outbound.udp())
+            .await
+            .unwrap_or_else(|_| panic!("{}: timed out", server.name))
+            .unwrap_or_else(|err| panic!("{}: udp: {err}", server.name));
+        let payload: Vec<u8> = (0..8000).map(|i| (i % 256) as u8).collect();
+        assert!(sender.send_to(&echo, &payload).await.unwrap());
+        let mut received = Vec::new();
+        while let Ok(Ok((source, echoed))) =
+            tokio::time::timeout(Duration::from_secs(2), receiver.recv_from()).await
+        {
+            received.push((source, echoed));
+        }
+        let lengths: Vec<usize> = received.iter().map(|(_, data)| data.len()).collect();
+        let intact = received.len() == 1 && received[0].1 == payload;
+        println!(
+            "observed: {} first udp 8000: {} datagram(s) with lengths {lengths:?}, intact={intact}",
+            server.name,
+            received.len()
+        );
+        for (source, data) in received.iter().skip(1) {
+            println!(
+                "observed: {}   extra datagram from {source}, first bytes {:02x?}",
+                server.name,
+                &data[..data.len().min(8)]
             );
         }
-        println!("{}: udp ok", server.name);
+        if !intact && server.version != 5 {
+            failures.push(format!(
+                "{} first udp 8000: lengths {lengths:?}",
+                server.name
+            ));
+        }
     }
+    assert!(failures.is_empty(), "{failures:#?}");
 }
