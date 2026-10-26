@@ -13,18 +13,18 @@ current-main-release-state=released
 current-main-source-candidate=v0.2.0
 current-main-latest-published-tag=v0.2.0
 current-main-latest-stable-tag=v0.2.0
-current-main-subscription-foreground=public-engine-run-plan-mieru-and-sing-box-active
+current-main-subscription-foreground=embedded-engine-run-url-and-run-catalog-active
 current-main-subscription-background=linux-systemd-oneshot-timer-and-windows-opt-in-single-source-active
 ```
 
 当前 main 概况：
 
 - **发布**：最新 stable `v0.2.0`（2026-10-26，Linux CLI tarball + Linux 图形客户端 tarball/.deb + Windows MSI + Windows portable ZIP，各四件套；rc.1/rc.2 为候选，rc.2 通过真机验收），全部须通过同 commit CI、checksum、manifest、attestation、release notes、rollback 和 publish eligibility。Linux artifact marker：`linux-artifact-release-state=confirmed-release-path`。
-- **订阅与运行**：平台无关 `PublicEngineRunPlan` 把 SS/Trojan/VLESS/VMess/Hysteria2/TUIC 路由到 sing-box，`mierus://` 路由到 engine-mieru（显式 binary/digest、原子 config、loopback readiness，失败保留现有核心）。解析层包含 Hysteria2/TUIC share-link parser gate、Clash YAML parser gate、sing-box JSON parser gate、Surge proxy line parser gate、Loon proxy line parser gate 和 Quantumult X proxy/server line parser gate；Hysteria2/TUIC 前台路径不启用 HTTP/3 MITM。
+- **订阅与运行**：所有平台都在进程内运行自研嵌入式引擎（`engine-embedded`），协议按 crate 和 cargo feature 模块化；第三方内核 adapter 已于 2026-10-26 移除。解析层包含 Hysteria2/TUIC share-link parser gate、Clash YAML parser gate、sing-box JSON parser gate、Surge proxy line parser gate、Loon proxy line parser gate 和 Quantumult X proxy/server line parser gate；Hysteria2/TUIC 前台路径不启用 HTTP/3 MITM。
 - **持久订阅与刷新**：`v0.1.2-alpha.1` 起的显式本地 catalog（add/list/remove/select/update/rollback，见 [Persistent Subscription Catalog Source Contract](docs/architecture/subscription-catalog-persistence-source-contract.md)）；`subscription update` 先验证候选再写 snapshot，失败保留旧 catalog。Linux `subscription refresh schedule` 生成 systemd oneshot/timer；Windows GUI 提供 opt-in 单 HTTP(S) source 小时级刷新。默认路径扫描仍未启用。
 - **managed 记录**：`managed-status`、`managed-event`（含 `networkcore-linux managed-event list` 有界分页）和 `managed-log` 只读写显式 schema v1 记录，固定 `liveness_verified=false`。
 - **Linux 系统集成**：显式 systemd unit 安装/控制（`connect`/`disconnect`/`restart` 映射到该 unit）；`proxy apply/status/rollback` 写显式环境代理文件（绝对路径、独立 snapshot、`--confirm`，Unix `0600`，rollback 检测外部修改）；`mitm certificate trust-apply/trust-rollback` 管理 Ubuntu-style CA trust-file（见 [Linux Trust-File Source Contract](docs/architecture/linux-trust-file-source-contract.md)），其他 trust backend 仍 blocked。
-- **Windows**：原生 GUI（Home/Nodes/Subscriptions/Settings/Diagnostics/Advanced）、SCM service、WiX MSI、portable ZIP；连接状态由 SCM、`sing-box check -c`、loopback listener、selector readback、子进程 PID 和交互用户代理共同确认。见 [Windows GUI Daily Usability](docs/architecture/windows-gui-daily-usability.md)。自动 `urltest`、订阅目录/组、route/rule 拉取、HTTP/2/HTTP/3 MITM 仍未启用。
+- **Windows**：原生 GUI（Home/Nodes/Subscriptions/Settings/Diagnostics/Advanced）、SCM service、WiX MSI、portable ZIP；连接状态由 SCM、嵌入式引擎的 loopback listener 和交互用户代理共同确认。见 [Windows GUI Daily Usability](docs/architecture/windows-gui-daily-usability.md)。HTTP/2/HTTP/3 MITM 仍未启用。
 - **MITM**：`mitm-cli-command-gate-status=partial-active`。Linux `start --enable-https-mitm --mitm-ca-cert <path> --mitm-ca-key <path> --confirm` 提供受控 HTTP/1.1 TLS 终止、web-PKI 上游校验、每 session 最多四次有界 rewrite 和 no-network sandbox 本地脚本；Windows 可显式启用同类 HTTP/1.1 MITM，但拒绝脚本。边界合同：[certificate lifecycle](docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md)、[browser capture](docs/architecture/linux-mitm-browser-capture-source-contract.md)、[HTTP rewrite](docs/architecture/linux-mitm-http-rewrite-source-contract.md)。四个 gate 的当前状态见 [README](README.md#mitm)。
 - **iOS**：`apps/ios` 已有 Swift package、XcodeGen spec 和 `NetworkCorePacketTunnel` target；嵌入式 Rust runtime、签名、TestFlight/App Store upload 和 iOS release asset 仍 blocked。
 
@@ -46,7 +46,7 @@ P4 backlog buckets：
 | M5 | macOS（System Extension、Developer ID）与 App Store |
 | M6 | 1.0 |
 
-iOS Network Extension 使用 Rust 原生引擎而非 sing-box/libbox；桌面端继续使用 sing-box 等外部内核，待 `engine-embedded` 覆盖桌面后再分阶段移除外部引擎 adapter（第三方说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)）。
+iOS Network Extension 与桌面端都使用仓库内自研的 Rust 引擎，不托管第三方内核（第三方说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)）。
 
 ## 版本节奏
 

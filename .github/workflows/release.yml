@@ -459,7 +459,7 @@ jobs:
           grep -q '^windows-managed-client-release-state=implementation-active$' "${contract}"
           grep -q '^windows-managed-client-version-scope=v0.2.0$' "${contract}"
           grep -q '^windows-managed-client-gui-daily-usability=home-nodes-subscriptions-settings-diagnostics-advanced-active$' "${contract}"
-          grep -q '^windows-managed-client-gui-runtime-status=scm-core-config-validation-loopback-listener-selector-readback-pid-current-user-proxy-active$' "${contract}"
+          grep -q '^windows-managed-client-gui-runtime-status=scm-embedded-listener-current-user-proxy-active$' "${contract}"
           grep -q '^windows-managed-client-gui-background-commands=active$' "${contract}"
           grep -q '^WINDOWS_CLI_ARTIFACT_GATE=windows-managed-client-active$' "${contract}"
           grep -q '^windows-managed-client-runner=windows-latest$' "${contract}"
@@ -479,25 +479,19 @@ jobs:
           grep -q '^windows-managed-client-system-proxy-mutation=active$' "${contract}"
           grep -q '^windows-managed-client-trust-store-mutation=active$' "${contract}"
           grep -q '^windows-managed-client-managed-lifecycle=active$' "${contract}"
-          grep -q '^windows-managed-client-sing-box-managed-process=active$' "${contract}"
-          grep -q '^windows-managed-client-sing-box-bundled=blocked$' "${contract}"
-          grep -q '^windows-managed-client-sing-box-gui-install=active$' "${contract}"
+          grep -q '^windows-managed-client-embedded-engine=in-process-local-proxy-active$' "${contract}"
+          grep -q '^windows-managed-client-third-party-core=removed$' "${contract}"
+          grep -q '^windows-managed-client-embedded-supervision=service-poll-failure-rollback-active$' "${contract}"
+          grep -q '^windows-managed-client-embedded-node-switch=envelope-rewrite-and-engine-restart-active$' "${contract}"
+          grep -q '^windows-managed-client-embedded-delay-test=in-process-url-request-active$' "${contract}"
+          grep -q '^windows-managed-client-embedded-urltest=background-group-health-checks-active$' "${contract}"
+          grep -q '^windows-managed-client-embedded-basic-protocols=shadowsocks-trojan-vless-vmess-hysteria2-tuic$' "${contract}"
+          grep -q '^windows-managed-client-mitm-upstream=embedded-engine-loopback-socks-7891$' "${contract}"
           grep -q '^windows-managed-client-local-profile-import=active$' "${contract}"
-          grep -q '^windows-managed-client-sing-box-native-json-import=active$' "${contract}"
-          grep -q '^windows-managed-client-sing-box-native-json-mitm=controlled-mixed-in-snapshot-restore-active$' "${contract}"
           grep -q '^windows-managed-client-remote-subscription-fetch=operator-initiated-http-s-profile-import-and-update-active$' "${contract}"
           grep -q '^windows-managed-client-remote-subscription-update=single-saved-url-explicit-only$' "${contract}"
-          grep -q '^windows-managed-client-profile-node-selector=generated-clash-api-runtime-selector-active$' "${contract}"
-          grep -q '^windows-managed-client-sing-box-clash-api=loopback-explicit-switch-active$' "${contract}"
-          grep -q '^windows-managed-client-sing-box-manual-delay-test=loopback-explicit-single-node-https-active$' "${contract}"
-          grep -q '^windows-managed-client-sing-box-runtime-health=loopback-explicit-selector-read-active$' "${contract}"
+          grep -q '^windows-managed-client-profile-node-selector=embedded-envelope-node-and-policy-group-active$' "${contract}"
           grep -q '^windows-managed-client-system-proxy-lifecycle=service-owned-runtime-snapshot-active$' "${contract}"
-          grep -q '^windows-managed-client-sing-box-process-supervision=service-poll-failure-rollback-active$' "${contract}"
-          grep -q '^windows-managed-client-sing-box-urltest=blocked$' "${contract}"
-          grep -q '^windows-managed-client-sing-box-basic-protocols=shadowsocks-trojan-vless-vmess-hysteria2-tuic$' "${contract}"
-          grep -q '^windows-managed-client-sing-box-quic-share-link-import=hysteria2-tuic-local-file-active$' "${contract}"
-          grep -q '^windows-managed-client-sing-box-v2ray-share-link-compatibility=tls-reality-ws-grpc-http-httpupgrade-quic-local-file-active$' "${contract}"
-          grep -q '^windows-managed-client-sing-box-advanced-transport-rendering=v2ray-share-link-subset-active$' "${contract}"
           grep -q '^windows-managed-client-mitm-data-plane=active$' "${contract}"
           grep -q '^windows-managed-client-mitm-certificate-lifecycle=active$' "${contract}"
           grep -q '^windows-managed-client-mitm-protocol=http1-controlled-tls$' "${contract}"
@@ -2128,8 +2122,8 @@ jobs:
           - Install model: wix-per-machine-msi
           - System mutation policy: managed-apply-and-rollback
           - Subscription compatibility: explicit-local-and-operator-initiated-http-s-profile-import-v2ray-tls-reality-ws-grpc-http-httpupgrade-quic-hysteria2-tuic-active
-          - Active: native GUI, Windows service, signed INF driver package lifecycle, MSI installer, system proxy mutation, system trust store mutation, managed daemon lifecycle, explicit GUI sing-box core install, local and operator-initiated HTTP(S) profile import, sing-box check/run/PID/exit/log lifecycle, explicit controlled HTTP/1.1 HTTPS MITM with service-owned CA lifecycle and sing-box SOCKS upstream
-          - External core boundary: sing-box is not bundled or silently downloaded by the MSI; GUI installation is an explicit operator action
+          - Active: native GUI, Windows service, signed INF driver package lifecycle, MSI installer, system proxy mutation, system trust store mutation, managed daemon lifecycle, in-process embedded engine, local and operator-initiated HTTP(S) profile import, explicit controlled HTTP/1.1 HTTPS MITM with service-owned CA lifecycle and embedded engine SOCKS upstream
+          - External core boundary: no third-party proxy core is bundled, downloaded or started
           - Blocked: scheduled remote subscription refresh, persistent subscription catalog/group, remote route/rule fetch, XHTTP/ECH/multiplex transport inference, HTTP/2 and HTTP/3/QUIC MITM, chunked or streaming exchanges, multi-request CONNECT sessions, remote scripts, and JavaScript script dispatch
 
           ## Windows Portable Client

@@ -1,5 +1,7 @@
 # sing-box Public Engine Adapter Source Contract
 
+> **Archived 2026-10-26.** The adapter crate this contract described was removed; all platforms now run the in-repo embedded engine (`engine-embedded`). Kept for history only; not a current requirement.
+
 ## Purpose
 
 This document defines the first source contract for the `sing-box` public engine
