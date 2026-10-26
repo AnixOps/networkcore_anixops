@@ -159,17 +159,19 @@ async fn wrong_passwords_are_refused() {
     let server = start("cubic").await;
     let echo_addr = echo_server().await;
     // TUIC servers never answer the Authenticate command, so a wrong
-    // password shows up as a closed connection on the first read.
-    let mut stream = client(server.addr, ALICE, "guess", Congestion::Cubic)
+    // password shows up as a closed connection: on the first read, or
+    // already while opening the stream when the close arrives first.
+    let connected = client(server.addr, ALICE, "guess", Congestion::Cubic)
         .connect(&TargetAddr::Ip(echo_addr))
-        .await
-        .unwrap();
-    let _ = stream.write_all(b"hello").await;
-    let mut buf = [0u8; 5];
-    let read = tokio::time::timeout(TIMEOUT, stream.read_exact(&mut buf))
-        .await
-        .expect("refusal timed out");
-    assert!(read.is_err());
+        .await;
+    if let Ok(mut stream) = connected {
+        let _ = stream.write_all(b"hello").await;
+        let mut buf = [0u8; 5];
+        let read = tokio::time::timeout(TIMEOUT, stream.read_exact(&mut buf))
+            .await
+            .expect("refusal timed out");
+        assert!(read.is_err());
+    }
     assert!(server.stats.handshake_failed.load(Ordering::Relaxed) >= 1);
 }
 
