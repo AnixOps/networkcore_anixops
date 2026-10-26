@@ -226,7 +226,12 @@ while True:
      "settings": {"clients": [{"id": "${uuid}"}], "decryption": "none"},
      "streamSettings": {"network": "xhttp", "xhttpSettings": {"path": "/xh"}, "security": "tls",
        "tlsSettings": {"alpn": ["h2", "http/1.1"],
-         "certificates": [{"certificateFile": "${work}/server.crt", "keyFile": "${work}/server.key"}]}}}
+         "certificates": [{"certificateFile": "${work}/server.crt", "keyFile": "${work}/server.key"}]}}},
+    {"tag": "xhttp-reality", "listen": "127.0.0.1", "port": 24453, "protocol": "vless",
+     "settings": {"clients": [{"id": "${uuid}"}], "decryption": "none"},
+     "streamSettings": {"network": "xhttp", "xhttpSettings": {"path": "/xh"}, "security": "reality",
+       "realitySettings": {"dest": "127.0.0.1:18444", "serverNames": ["${server_name}"],
+         "privateKey": "${private_key}", "shortIds": ["${short_id}"], "show": true}}}
   ],
   "outbounds": [{"protocol": "freedom",
     "settings": {"finalRules": [{"action": "allow", "network": "tcp", "ip": ["127.0.0.1"]}]}}]
@@ -305,7 +310,7 @@ obfs:
 EOF
   "${bin}/hysteria" server -c "${work}/hysteria-salamander.yaml" > "${work}/hysteria-salamander.log" 2>&1 &
 
-  for port in 18080 18443 18444 24431 24432 24441 24442 24443 24451 24452 25431 25432 25441 25442 25443; do
+  for port in 18080 18443 18444 24431 24432 24441 24442 24443 24451 24452 24453 25431 25432 25441 25442 25443; do
     wait_for_port "${port}"
   done
   for port in 26441 26442 26451 27441 27442 18053; do
@@ -408,6 +413,7 @@ NC_VMESS_SERVERS=xray-vmess-tcp=127.0.0.1:24441:tcp,xray-vmess-ws=127.0.0.1:2444
 NC_VMESS_UUID=${uuid}
 NC_XHTTP_PLAIN=127.0.0.1:24451
 NC_XHTTP_TLS=127.0.0.1:24452
+NC_XHTTP_REALITY=127.0.0.1:24453
 NC_HYSTERIA2_SERVERS=sing-box=127.0.0.1:26441,hysteria=127.0.0.1:27441,sing-box-salamander=127.0.0.1:26442:salamander,hysteria-salamander=127.0.0.1:27442:salamander
 NC_HYSTERIA2_OBFS_PASSWORD=${hy2_obfs_password}
 NC_HYSTERIA2_PASSWORD=${hy2_password}

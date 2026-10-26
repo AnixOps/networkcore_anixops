@@ -8,7 +8,7 @@ use engine_outbound::{BoxStream, TcpDialer};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use transport_xhttp::server::XhttpServer;
-use transport_xhttp::{HttpVersion, Mode, XhttpConnector, XhttpSettings, XhttpTarget};
+use transport_xhttp::{HttpVersion, Mode, Security, XhttpConnector, XhttpSettings, XhttpTarget};
 
 const LEN: usize = 200_000;
 
@@ -45,7 +45,7 @@ async fn round_trip(settings: &XhttpSettings, port: u16, version: HttpVersion) {
             server: "127.0.0.1".into(),
             port,
             default_host: "127.0.0.1".into(),
-            tls: None,
+            security: Security::None,
             version,
             dialer: Arc::new(TcpDialer),
         },
@@ -117,7 +117,7 @@ async fn wrong_path_and_mode_are_refused() {
                 server: "127.0.0.1".into(),
                 port,
                 default_host: "127.0.0.1".into(),
-                tls: None,
+                security: Security::None,
                 version,
                 dialer: Arc::new(TcpDialer),
             },

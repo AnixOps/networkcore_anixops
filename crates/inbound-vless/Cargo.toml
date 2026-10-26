@@ -15,7 +15,7 @@ outbound-vless = { path = "../outbound-vless" }
 ring = "0.17.14"
 serde = { version = "1", features = ["derive"] }
 tls-mimic = { path = "../tls-mimic" }
-tokio = { version = "1", default-features = false, features = ["io-util"] }
+tokio = { version = "1", default-features = false, features = ["io-util", "time"] }
 x25519-dalek = { version = "2.0.1", features = ["static_secrets"] }
 
 [dev-dependencies]

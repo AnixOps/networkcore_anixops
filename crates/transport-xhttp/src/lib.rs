@@ -30,7 +30,7 @@ use std::task::{Context, Poll};
 use std::time::Duration;
 
 use bytes::Bytes;
-use engine_outbound::{BoxStream, Dialer};
+use engine_outbound::{BoxFuture, BoxStream, Dialer};
 use h2::client::{ResponseFuture, SendRequest};
 use h2::{RecvStream, SendStream};
 use tokio::io::{
@@ -90,10 +90,25 @@ pub struct XhttpTarget {
     /// The host used when the settings name none: the TLS server name or
     /// the server address.
     pub default_host: String,
-    /// TLS on every connection; `None` is plain HTTP.
-    pub tls: Option<TlsConnector>,
+    /// The layer over every connection.
+    pub security: Security,
     pub version: HttpVersion,
     pub dialer: Arc<dyn Dialer>,
+}
+
+/// What runs over each connection before HTTP.
+#[derive(Clone)]
+pub enum Security {
+    /// Plain HTTP.
+    None,
+    Tls(TlsConnector),
+    /// Another handshake, such as REALITY; HTTP runs as `https`.
+    Custom(Arc<dyn Handshake>),
+}
+
+/// A secure layer that is not standard TLS.
+pub trait Handshake: Send + Sync {
+    fn handshake(&self, stream: BoxStream) -> BoxFuture<'_, io::Result<BoxStream>>;
 }
 
 /// Opens XHTTP sessions to one server.
@@ -105,7 +120,7 @@ pub struct XhttpConnector {
 struct Inner {
     server: String,
     port: u16,
-    tls: Option<TlsConnector>,
+    security: Security,
     dialer: Arc<dyn Dialer>,
     version: HttpVersion,
     mode: Mode,
@@ -133,11 +148,8 @@ impl XhttpConnector {
         if target.version == HttpVersion::Http11 && mode != Mode::PacketUp {
             return Err(invalid("xhttp stream-up and stream-one need HTTP/2"));
         }
-        let scheme = if target.tls.is_some() {
-            "https"
-        } else {
-            "http"
-        };
+        let secure = !matches!(target.security, Security::None);
+        let scheme = if secure { "https" } else { "http" };
         let mut headers = Vec::new();
         let mut header_host = None;
         for (name, value) in &settings.headers {
@@ -166,7 +178,7 @@ impl XhttpConnector {
                 http::HeaderValue::from_static(DEFAULT_USER_AGENT),
             ));
         }
-        let default_port = if target.tls.is_some() { 443 } else { 80 };
+        let default_port = if secure { 443 } else { 80 };
         let authority = if !settings.host.is_empty() {
             settings.host.clone()
         } else if let Some(host) = header_host.filter(|host| !host.is_empty()) {
@@ -190,7 +202,7 @@ impl XhttpConnector {
             inner: Arc::new(Inner {
                 server: target.server,
                 port: target.port,
-                tls: target.tls,
+                security: target.security,
                 dialer: target.dialer,
                 version: target.version,
                 mode,
@@ -299,9 +311,10 @@ impl XhttpConnector {
 impl Inner {
     async fn open(&self) -> io::Result<BoxStream> {
         let stream = self.dialer.dial(&self.server, self.port).await?;
-        match &self.tls {
-            Some(tls) => tls.connect(stream).await,
-            None => Ok(stream),
+        match &self.security {
+            Security::None => Ok(stream),
+            Security::Tls(tls) => tls.connect(stream).await,
+            Security::Custom(handshake) => handshake.handshake(stream).await,
         }
     }
 
@@ -686,7 +699,7 @@ mod tests {
                 server: "127.0.0.1".into(),
                 port,
                 default_host: "edge.example".into(),
-                tls: None,
+                security: Security::None,
                 version,
                 dialer: Arc::new(TcpDialer),
             },

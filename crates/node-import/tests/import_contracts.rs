@@ -499,17 +499,37 @@ fn xhttp_links_keep_mode_and_client_extra_settings() {
     assert!(link.contains("type=xhttp"), "{link}");
     assert!(!link.contains("xmux"), "{link}");
 
-    // Split download servers, VMess/Trojan over XHTTP and XHTTP over REALITY
-    // are not carried yet.
+    // Split download servers and VMess/Trojan over XHTTP are not carried
+    // yet.
     let report = import_text(
         "\
 vless://00000000-0000-0000-0000-000000000006@a.example.test:443?security=tls&type=xhttp&extra=%7B%22downloadSettings%22%3A%7B%7D%7D#Split
 trojan://secret@b.example.test:443?type=xhttp&path=%2Fxh#Trojan
-vless://00000000-0000-0000-0000-000000000006@c.example.test:443?security=reality&sni=www.example.com&pbk=KEY&type=xhttp#Reality
 vless://00000000-0000-0000-0000-000000000006@d.example.test:443?security=tls&type=xhttp&mode=stream-two#Mode
 ",
     )
     .unwrap();
     assert!(report.nodes.is_empty(), "{:?}", report.nodes);
-    assert_eq!(report.unsupported.len(), 4);
+    assert_eq!(report.unsupported.len(), 3);
+
+    // XHTTP over REALITY; Vision does not run over XHTTP.
+    let report = import_text(
+        "\
+vless://00000000-0000-0000-0000-000000000006@c.example.test:443?security=reality&sni=www.example.com&pbk=KEY&sid=ab12&type=xhttp&path=%2Fxh#Reality
+vless://00000000-0000-0000-0000-000000000006@c.example.test:443?security=reality&sni=www.example.com&pbk=KEY&flow=xtls-rprx-vision&type=xhttp#Vision
+",
+    )
+    .unwrap();
+    assert_eq!(report.nodes.len(), 1);
+    assert_eq!(report.unsupported.len(), 1);
+    let outbound = &report.nodes[0].outbound;
+    assert_eq!(outbound["reality"]["public_key"], "KEY");
+    assert_eq!(outbound["transport"]["type"], "xhttp");
+    let link = share_link("Reality", outbound).unwrap();
+    assert!(
+        link.contains("security=reality") && link.contains("type=xhttp"),
+        "{link}"
+    );
+    let again = import_text(&link).unwrap();
+    assert_eq!(&again.nodes[0].outbound, outbound);
 }

@@ -1,6 +1,6 @@
 # XHTTP 传输规格（净室实现用）
 
-状态：草案 v0.2（2026-10-26）。适用：`transport-xhttp` 的客户端（`XhttpConnector`）和服务端（`server::XhttpServer`，经 `inbound-transport` 用于 VLESS、VMess、Trojan 入站）。
+状态：草案 v0.3（2026-10-26）。适用：`transport-xhttp` 的客户端（`XhttpConnector`）和服务端（`server::XhttpServer`，经 `inbound-transport` 用于 VLESS、VMess、Trojan 入站）。
 
 ## 0. 本文档的用途与净室规则
 
@@ -14,7 +14,7 @@ XHTTP（旧名 SplitHTTP）是 Xray-core 的 HTTP 传输：把一条代理流拆
 
 ## 1. 配置
 
-出站 `transport` 对象（VLESS 非 REALITY）：
+出站 `transport` 对象（VLESS，可与 `tls` 或 `reality` 同用）：
 
 ```json
 {"type": "xhttp", "path": "/xh", "host": "cdn.example", "mode": "auto",
@@ -38,6 +38,7 @@ XHTTP（旧名 SplitHTTP）是 Xray-core 的 HTTP 传输：把一条代理流拆
 - `host` 为空时接受任意 Host；`mode` 为 `auto` 时三种上行都接受，否则只接受该模式（下载 `GET` 在 `packet-up` 和 `stream-up` 下都接受）。
 - TLS 未配置 ALPN 时提供 `h2` 和 `http/1.1`。
 - 服务端 `path` 不带查询串。
+- VLESS 入站可同时配置 `reality` 和 XHTTP `transport`（第 2.1 节）；此时不提供 Vision。
 
 ## 2. HTTP 版本
 
@@ -50,7 +51,11 @@ XHTTP（旧名 SplitHTTP）是 Xray-core 的 HTTP 传输：把一条代理流拆
 | ALPN 恰好为 `h3` | HTTP/3（本实现暂不支持，配置报错） |
 | 其他（含空列表） | HTTP/2；空列表时客户端提供 `h2` |
 
-REALITY 上的 XHTTP（Xray 此时用 HTTP/2 和 `stream-one`）暂不支持。
+### 2.1 REALITY 上的 XHTTP
+
+出站同时配置 `reality` 和 XHTTP `transport` 时，每条连接先做 REALITY 握手（与裸 REALITY 相同，ClientHello 的 ALPN 为指纹默认的 `h2`、`http/1.1`），再在其中跑 HTTP/2，`scheme` 为 `https`，默认 `Host` 为 REALITY 的 `server_name`。与 Xray 相同，`auto` 此时为 `stream-one`，三种模式都可显式指定；`flow` 必须为空（Vision 不跑在 XHTTP 上）。
+
+入站同时配置 `reality` 和 XHTTP `transport` 时，通过 REALITY 认证的连接交给 XHTTP 服务端（第 3.1 节）处理；未通过认证的连接照常转给 `handshake` 站点。
 
 服务端不看 ALPN：连接以 HTTP/2 前言（`PRI * HTTP/2.0…`）开头时按 HTTP/2（含明文 h2c）处理，否则按 HTTP/1.1。
 
@@ -64,7 +69,7 @@ REALITY 上的 XHTTP（Xray 此时用 HTTP/2 和 `stream-one`）暂不支持。
 | `stream-up` | `GET {path}{session}` | 一个流式 `POST {path}{session}`，body 即上行流 | HTTP/2 |
 | `stream-one` | `POST {path}` 的响应 body | 同一个 `POST {path}` 的请求 body | HTTP/2 |
 
-- `auto`：非 REALITY 时为 `packet-up`。
+- `auto`：非 REALITY 时为 `packet-up`，REALITY 时为 `stream-one`。
 - `packet-up`：每段上行 body 不超过 `sc_max_each_post_bytes`；相邻两次上传的间隔不小于 `sc_min_posts_interval_ms`。客户端缓冲期间写入的数据会合并成一段。服务端按 `seq` 重排后交给协议层。本实现按顺序逐个发送并等待 `200`。
 - 流式 `POST`（`stream-up`、`stream-one`）默认带 `Content-Type: application/grpc`，让 CDN 不缓冲请求 body；`no_grpc_header` 关闭它。
 - `stream-up` 的 `POST` 响应 body 可能被服务端周期性写入 `X` 填充以保活，客户端读出丢弃。
@@ -98,7 +103,7 @@ Xray 较新版本的可选混淆参数（填充位置、会话/序号位置、�
 
 - `mode` 缺省为 `auto`，只接受第 3 节的四种。
 - `extra` 中的 `headers`、`xPaddingBytes`、`scMaxEachPostBytes`、`scMinPostsIntervalMs`、`noGRPCHeader` 转成第 1 节的字段；`xmux`（连接复用，不影响线上格式）和只对服务端有意义的 `noSSEHeader`、`scMaxBufferedPosts`、`scStreamUpServerSecs` 丢弃；`downloadSettings` 和其他会改变线上格式的项使节点标为不支持。
-- REALITY 上的 XHTTP、VMess/Trojan 的 XHTTP 暂标为不支持。
+- `security=reality` 与 `type=xhttp` 同用时导入为 REALITY 上的 XHTTP（带 `flow` 的标为不支持）。VMess/Trojan 的 XHTTP 暂标为不支持。
 
 导出时把上述五个字段中非默认的写回 `extra`。
 
@@ -108,9 +113,10 @@ Xray 较新版本的可选混淆参数（填充位置、会话/序号位置、�
 
 - 客户端：启动 Xray 的 VLESS + XHTTP 入站（路径 `/xh`，无 TLS 一个、TLS 且 ALPN `h2`/`http/1.1` 一个），`outbound-vless/tests/xhttp_interop.rs` 依次用以下组合下载 1 MB 并回显 300 KB：无 TLS HTTP/1.1 `packet-up`、TLS HTTP/1.1 `packet-up`、TLS HTTP/2 的 `packet-up`、`stream-up`、`stream-one`（PR #127 首轮全部通过）。
 - 服务端：`node-runtime/tests/client_interop.rs` 让 Xray 客户端以同样五种组合连接本内核的 VLESS + XHTTP 入站，回显 256 KB、再开一条连接，并做 XUDP 的 UDP 回显。
+- REALITY：客户端测试另连 Xray 的 VLESS + REALITY + XHTTP 入站，以 `auto`（即 `stream-one`）、`stream-up`、`packet-up` 三种模式各测一次；服务端测试让 Xray 客户端以同样三种模式连接本内核的 VLESS + REALITY + XHTTP 入站。
 - 本地：`transport-xhttp/tests/loopback.rs` 让本实现的客户端与服务端在 h1 `packet-up` 和 h2c 三种模式下互相回显。
 
 ## 7. 后续
 
-- HTTP/3、REALITY 上的 XHTTP、`xmux` 连接复用、`downloadSettings`（上下行分离到不同服务器）。
+- HTTP/3、`xmux` 连接复用、`downloadSettings`（上下行分离到不同服务器）。
 - VMess、Trojan 出站接入。

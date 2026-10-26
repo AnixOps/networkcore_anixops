@@ -223,8 +223,8 @@ fn vless(name: &str, endpoint: &Endpoint, outbound: &Value) -> Result<String, Un
             ("sid", text(reality, "short_id").map(str::to_string)),
             ("fp", text(reality, "fingerprint").map(str::to_string)),
             ("flow", text(outbound, "flow").map(str::to_string)),
-            ("type", Some("tcp".to_string())),
         ]);
+        pairs.extend(transport_query(&outbound["transport"]));
     } else {
         pairs.extend(tls_query(&outbound["tls"]));
         pairs.extend(transport_query(&outbound["transport"]));

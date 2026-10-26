@@ -125,6 +125,33 @@ const CASES: &[Case] = &[
         tls: false,
     },
     Case {
+        tag: "vless-reality-xhttp",
+        proto: Proto::VlessReality { vision: false },
+        net: Net::Xhttp {
+            mode: "auto",
+            h1: false,
+        },
+        tls: false,
+    },
+    Case {
+        tag: "vless-reality-xhttp-stream-up",
+        proto: Proto::VlessReality { vision: false },
+        net: Net::Xhttp {
+            mode: "stream-up",
+            h1: false,
+        },
+        tls: false,
+    },
+    Case {
+        tag: "vless-reality-xhttp-packet-up",
+        proto: Proto::VlessReality { vision: false },
+        net: Net::Xhttp {
+            mode: "packet-up",
+            h1: false,
+        },
+        tls: false,
+    },
+    Case {
         tag: "vless-tls-ws",
         proto: Proto::Vless,
         net: Net::Ws,
