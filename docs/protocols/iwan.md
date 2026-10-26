@@ -325,14 +325,14 @@ iWAN 的"加密"不提供保密性或认证：
 
 - 一个 UDP 监听端口服务所有用户。会话按（客户端 UDP 源地址、token、session_id）三元组查找。
 - OPEN 处理：校验签名和 TLV（§3.4，服务端遇到格式错误整包拒绝）；必须有用户名 TLV、长度恰为 16 的口令 TLV；客户端 MTU 缺省按 1400，范围 46–1600。用户不存在、口令密文不符（按 §4.2 用该用户的口令算出密文后**常数时间比较**）或任何格式错误，一律回 OPENREJ：24 字节，包头类型 0x11、其余为 0，加签名。
-- 成功：token（2 字节）和 session_id（4 字节）用安全随机数生成；有效 MTU = min(节点 MTU, 客户端 MTU)；加密模式 = 客户端请求加密（标志字节非 0 或 TLV 8 非 0）且该用户允许加密。回 OPENACK：包头类型 0x12，标志字节为加密模式，带新的 token 和 session_id，加签名，TLV 依次为 3（有效 MTU）、4（分配的隧道地址）、5 或 6（DNS，见 §12.3）、8（加密模式，总是发送）。
+- 成功：token（2 字节）和 session_id（4 字节）用安全随机数生成；有效 MTU = min(节点 MTU, 客户端 MTU)；加密模式 = 客户端请求加密（标志字节非 0 或 TLV 8 非 0）且入站允许加密（入站级 `allow_encrypt`，默认 true，不按用户区分）。回 OPENACK：包头类型 0x12，标志字节为加密模式，带新的 token 和 session_id，加签名，TLV 依次为 3（有效 MTU）、4（分配的隧道地址）、5 或 6（DNS，见 §12.3）、8（加密模式，总是发送）。
 - 同一用户名或同一 UDP 源地址再次认证成功时，旧会话立即移除（客户端换端口重连是常态，见 §5 的重置）。
 - 客户端在等待期间每 2 秒重发 OPEN：同一源地址在会话建立后又发来 OPEN，按新认证处理（替换旧会话），不要回复旧的 OPENACK。
 - ECHOREQ：校验签名并找到会话后，回 ECHORESP（包头类型 0x16、该会话的 token 和 session_id、签名、原样回显载荷）。
 - CLOSE：校验签名，找到会话则移除，不回包。
 - 空闲超时：会话 60 秒内没有收到任何被接受的包（客户端每 2 秒发 ECHO，§5）则移除。
 - 找不到会话的 DATA / ECHOREQ 静默丢弃；类型与协商加密模式不符的 DATA 静默丢弃。
-- 不实现 IPFRAG 和 SEGRT 的发送；服务端发出的 IP 包不超过该会话的有效 MTU（由用户态协议栈的 MSS 和分片设置保证）。
+- 不实现 IPFRAG 和 SEGRT 的发送；服务端发出的 IP 包不超过该会话的有效 MTU：TCP 由用户态协议栈的 MSS 保证，超过 MTU 的其他包按普通 IPv4 分片发出（不用 IPFRAG）。
 
 ### 12.2 地址池
 
@@ -351,6 +351,7 @@ iWAN 的"加密"不提供保密性或认证：
 
 ### 12.4 节点与面板集成（本仓库及 anix-agent / anix-control 的约定）
 
-- anixcore 新增入站类型 `iwan`，配置：`listen`、`mtu`（默认 1400）、`pool`（IPv4 网段）、`dns_upstream`（可选）、`allow_client_to_client`（默认 false）；用户由 Agent 通过管理 API 增删，用户名 = 面板用户 id 之外还需要一个 iWAN 登录名和口令（iWAN 客户端只能填用户名和口令，口令最长 16 字节，§4.2）。
+- anixcore 新增入站类型 `iwan`，配置：`listen`、`mtu`（默认 1400，范围 576–1600，因为它决定 TCP MSS）、`pool`（IPv4 网段）、`dns_upstream`（`ip` 或 `ip:port`，默认 `1.1.1.1:53`）、`allow_encrypt`（默认 true）、`allow_client_to_client`（默认 false）。
+- 用户由 Agent 通过管理 API 增删。engine-inbound 的通用用户增加两个可选字段：`username`（iWAN 登录名，缺省用 `name`，即面板用户 id）和 `address`（固定隧道地址）。口令最长 16 字节（§4.2）。登录名和固定地址在同一入站内必须唯一：管理 API 增加用户时遇到重复应拒绝该用户并报错，不能静默覆盖（否则流量会记到错误的用户）。
 - anixcore 实现面板 `egress` 成员（域名列表 → SS-2022 中继到出口节点），对 iWAN 入站和其他入站一样生效。
 - anix-agent：面板 iwan 节点映射到 anixcore 的 `iwan` 入站；anix-control：节点类型增加 iwan，用户页显示 iWAN 登录名、口令和分配地址；iWAN 没有订阅格式，客户端手工填写。

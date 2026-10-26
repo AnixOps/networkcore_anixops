@@ -374,7 +374,7 @@ fn rejects_invalid_policy_groups() {
             ROUTING_GROUP_ID_CONFLICT_CODE,
         ),
         (
-            group("Proxy", "load-balance", &["hk-1"]),
+            group("Proxy", "relay", &["hk-1"]),
             ROUTING_GROUP_TYPE_UNSUPPORTED_CODE,
         ),
         (
@@ -689,4 +689,102 @@ fn malformed_logical_and_port_rules_are_rejected() {
     };
     assert!(parse_rule_line(&nest(8)).is_ok());
     assert!(parse_rule_line(&nest(9)).is_err());
+}
+
+/// Every member healthy, with a counter for round-robin groups.
+#[derive(Default)]
+struct BalanceEnvironment {
+    down: Vec<&'static str>,
+    turns: std::cell::Cell<usize>,
+}
+
+impl RoutingEnvironment for BalanceEnvironment {
+    fn member_latency_ms(&self, _group_id: &str, member: &PolicyTarget) -> Option<u32> {
+        (!self.down.iter().any(|down| *down == member.name())).then_some(50)
+    }
+
+    fn round_robin(&self, _group_id: &str) -> usize {
+        let turn = self.turns.get();
+        self.turns.set(turn + 1);
+        turn
+    }
+}
+
+#[test]
+fn load_balance_groups_spread_hosts_over_healthy_members() {
+    let nodes = BTreeSet::from(["a".to_string(), "b".to_string(), "c".to_string()]);
+    let spec = spec(
+        &["DOMAIN-SUFFIX,rr.example,RR", "FINAL,LB"],
+        vec![
+            group("LB", "load-balance", &["a", "b", "c"]),
+            group("RR", "round-robin", &["a", "b", "c"]),
+        ],
+    );
+    let model = RoutingModel::from_spec(&spec, &nodes).unwrap();
+    assert_eq!(
+        model.group("LB").unwrap().kind,
+        PolicyGroupKind::LoadBalance
+    );
+    assert_eq!(model.group("RR").unwrap().kind, PolicyGroupKind::RoundRobin);
+    assert!(model.group("LB").unwrap().health_check.is_some());
+
+    let node = |resolution: RouteResolution| match resolution.outcome {
+        RouteOutcome::Node(id) => id,
+        other => panic!("expected a node, got {other:?}"),
+    };
+    let all_up = BalanceEnvironment::default();
+    // One host always gets the same member; many hosts use several members.
+    let first = node(model.decide(&RouteQuery::domain("www.example.com"), &all_up));
+    for _ in 0..3 {
+        assert_eq!(
+            node(model.decide(&RouteQuery::domain("www.example.com"), &all_up)),
+            first
+        );
+    }
+    let used: BTreeSet<String> = (0..32)
+        .map(|index| {
+            node(model.decide(&RouteQuery::domain(format!("site{index}.example")), &all_up))
+        })
+        .collect();
+    assert!(used.len() > 1, "hashing should use more than one member");
+
+    // A host whose member goes down moves; the others stay.
+    let down = BalanceEnvironment {
+        down: vec!["a"],
+        ..BalanceEnvironment::default()
+    };
+    for index in 0..32 {
+        let query = RouteQuery::domain(format!("site{index}.example"));
+        let before = node(model.decide(&query, &all_up));
+        let after = node(model.decide(&query, &down));
+        assert_ne!(after, "a");
+        if before != "a" {
+            assert_eq!(after, before);
+        }
+    }
+
+    // Round-robin takes the members in turn.
+    let turns: Vec<String> = (0..4)
+        .map(|_| node(model.decide(&RouteQuery::domain("x.rr.example"), &all_up)))
+        .collect();
+    assert_eq!(turns, vec!["a", "b", "c", "a"]);
+    // Without a connection the group reports its first healthy member.
+    assert_eq!(
+        model.group_member("RR", &down),
+        Some(PolicyTarget::Node("b".to_string()))
+    );
+    assert_eq!(
+        model_error(&spec_with_tolerance()),
+        ROUTING_GROUP_HEALTH_CHECK_INVALID_CODE
+    );
+}
+
+fn spec_with_tolerance() -> RoutingSpec {
+    spec(
+        &["FINAL,LB"],
+        vec![PolicyGroupSpec {
+            tolerance_ms: Some(10),
+            ..group("LB", "load-balance", &["hk-1", "jp-1"])
+        }],
+    )
 }

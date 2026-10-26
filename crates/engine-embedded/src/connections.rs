@@ -76,6 +76,10 @@ pub struct ConnectionSnapshot {
     /// The destination's host name: the requested domain, or the TLS SNI or
     /// HTTP `Host` sniffed from an address target.
     pub host: Option<String>,
+    /// The local process that opened the connection, when the desktop local
+    /// proxy looked it up for `PROCESS-NAME` rules.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub process: Option<String>,
     /// The destination as requested, `address:port` or `domain:port`.
     pub destination: String,
     pub rule: String,
@@ -113,6 +117,7 @@ struct Entry {
     id: u64,
     network: Network,
     host: Option<String>,
+    process: Option<String>,
     destination: String,
     started_at_ms: u64,
     route: Mutex<RouteInfo>,
@@ -133,6 +138,7 @@ impl Entry {
             id: self.id,
             network: self.network,
             host: self.host.clone(),
+            process: self.process.clone(),
             destination: self.destination.clone(),
             rule: route.rule,
             chain: route.chain,
@@ -215,6 +221,7 @@ impl ConnectionTracker {
         network: Network,
         target: &TargetAddr,
         host: Option<&str>,
+        process: Option<&str>,
     ) -> Arc<ConnectionGuard> {
         let host = match target {
             TargetAddr::Domain(domain, _) => Some(domain.clone()),
@@ -224,6 +231,7 @@ impl ConnectionTracker {
             id: self.next_id.fetch_add(1, Ordering::Relaxed),
             network,
             host,
+            process: process.map(str::to_string),
             destination: target.to_string(),
             started_at_ms: unix_millis(),
             route: Mutex::default(),
@@ -522,6 +530,16 @@ impl Dispatcher {
     }
 
     /// The rule-based outbound of a routing config, for its policy groups.
+    /// Whether flows should carry the name of their local process: the
+    /// rule mode with a `PROCESS-NAME` rule.
+    pub fn wants_process(&self) -> bool {
+        self.mode() == Mode::Rule
+            && self
+                .routed
+                .as_ref()
+                .is_some_and(|routed| routed.uses_process())
+    }
+
     pub fn routed_outbound(&self) -> Option<&Arc<RoutedOutbound>> {
         self.routed.as_ref()
     }
@@ -546,12 +564,13 @@ impl Dispatcher {
         &self,
         target: &TargetAddr,
         host: Option<&str>,
+        process: Option<&str>,
         guard: &ConnectionGuard,
     ) -> io::Result<Arc<dyn TcpOutbound>> {
         let (route, outbound) = match (self.mode(), &self.routed) {
             (Mode::Direct, _) => (direct_route(), Some(self.direct.clone())),
             (Mode::Global, Some(routed)) => routed.route_global(),
-            (Mode::Rule, Some(routed)) => routed.route_flow(target, host).await,
+            (Mode::Rule, Some(routed)) => routed.route_flow(target, host, process).await,
             (_, None) => (single_route(&*self.outbound), Some(self.outbound.clone())),
         };
         guard.set_route(route);
@@ -571,8 +590,19 @@ impl Dispatcher {
         target: &TargetAddr,
         host: Option<&str>,
     ) -> io::Result<BoxStream> {
-        let guard = self.tracker.open(Network::Tcp, target, host);
-        let outbound = self.route(target, host, &guard).await?;
+        self.connect_process_flow(target, host, None).await
+    }
+
+    /// Opens a TCP connection to `target` for the local process named
+    /// `process`, which `PROCESS-NAME` rules match.
+    pub async fn connect_process_flow(
+        &self,
+        target: &TargetAddr,
+        host: Option<&str>,
+        process: Option<&str>,
+    ) -> io::Result<BoxStream> {
+        let guard = self.tracker.open(Network::Tcp, target, host, process);
+        let outbound = self.route(target, host, process, &guard).await?;
         let stream = outbound.connect(target).await?;
         guard.connected();
         Ok(Box::new(TrackedStream {
@@ -587,8 +617,8 @@ impl Dispatcher {
         target: &TargetAddr,
         host: Option<&str>,
     ) -> io::Result<UdpFlow> {
-        let guard = self.tracker.open(Network::Udp, target, host);
-        let outbound = self.route(target, host, &guard).await?;
+        let guard = self.tracker.open(Network::Udp, target, host, None);
+        let outbound = self.route(target, host, None, &guard).await?;
         let flow = outbound.open_udp(target).await?;
         guard.connected();
         Ok(UdpFlow::new(

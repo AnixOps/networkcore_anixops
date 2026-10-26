@@ -7,7 +7,8 @@ use node_import::ffi::{
     NETWORKCORE_IMPORT_ERR_INVALID_ARGUMENT, NETWORKCORE_IMPORT_ERR_UNRECOGNIZED,
     NETWORKCORE_IMPORT_OK,
 };
-use node_import::{import_text, ImportError};
+use node_import::ffi::{networkcore_import_share_link, NETWORKCORE_IMPORT_ERR_UNSUPPORTED};
+use node_import::{import_text, share_link, ImportError};
 
 const LINKS: &str = "\
 ss://YWVzLTI1Ni1nY206cGFzc3dvcmQ@82.47.34.99:11111#HK
@@ -166,6 +167,7 @@ fn header_declares_every_symbol_and_code() {
     for symbol in [
         "networkcore_import_abi_version",
         "networkcore_import_nodes",
+        "networkcore_import_share_link",
         "networkcore_import_free_buffer",
     ] {
         assert!(header.contains(&format!("{symbol}(")), "{symbol}");
@@ -178,6 +180,7 @@ fn header_declares_every_symbol_and_code() {
         ("NETWORKCORE_IMPORT_ERR_UNRECOGNIZED", 4),
         ("NETWORKCORE_IMPORT_ERR_PANIC_CAUGHT", 5),
         ("NETWORKCORE_IMPORT_ERR_INTERNAL_ERROR", 6),
+        ("NETWORKCORE_IMPORT_ERR_UNSUPPORTED", 7),
     ] {
         let define = format!("#define {name} {value}");
         assert!(
@@ -247,4 +250,170 @@ proxies:
     assert_eq!(outbound["version"], 3);
     assert_eq!(outbound["obfs"], "http");
     assert_eq!(outbound["obfs_host"], "bing.com");
+}
+
+/// Imports `text`, exports every node and imports the links again: the
+/// outbounds and names must come back unchanged.
+fn assert_round_trip(text: &str) {
+    let first = import_text(text).unwrap();
+    assert!(!first.nodes.is_empty(), "{text}");
+    for node in &first.nodes {
+        let link = share_link(&node.name, &node.outbound).unwrap();
+        let link_text = if node.protocol == "snell" {
+            format!("[Proxy]\n{link}\n")
+        } else {
+            link.clone()
+        };
+        let again = import_text(&link_text).unwrap_or_else(|_| panic!("{link}"));
+        assert_eq!(again.nodes.len(), 1, "{link}");
+        assert_eq!(again.nodes[0].outbound, node.outbound, "{link}");
+        assert_eq!(again.nodes[0].name, node.name, "{link}");
+    }
+}
+
+#[test]
+fn share_links_import_back_to_the_same_outbound() {
+    assert_round_trip(
+        "\
+ss://YWVzLTI1Ni1nY206cGFzc3dvcmQ@82.47.34.99:11111#HK%20%E9%A6%99%E6%B8%AF
+ss://MjAyMi1ibGFrZTMtYWVzLTEyOC1nY206QUFBQUFBQUFBQUFBQUFBQUFBQUFBQT09@[2001:db8::7]:8388#SS%202022
+trojan://trojan%2Fsecret@example.com:443?sni=edge.example.com&alpn=h2,http/1.1&allowInsecure=1&type=ws&path=%2Fws%3Fed%3D2048&host=cdn.example.com#Trojan%20WS
+vless://00000000-0000-0000-0000-000000000002@vless.example.test:443?encryption=none&security=reality&sni=www.example.com&pbk=PUBLICKEY&sid=ab12&fp=chrome&flow=xtls-rprx-vision&type=tcp#Reality
+vless://00000000-0000-0000-0000-000000000003@vless.example.test:8443?encryption=none&security=tls&sni=grpc.example.test&type=grpc&serviceName=tunnel#VLESS%20gRPC
+vless://00000000-0000-0000-0000-000000000004@192.0.2.4:80?encryption=none&security=none&type=tcp#Plain
+tuic://00000000-0000-0000-0000-000000000001:tuic%2Dpassword@tuic.example.test:443?sni=cdn.tuic.example.test&alpn=h3&congestion_control=bbr#TUIC%20Node
+hysteria2://hy2-secret@edge.example.test:443?sni=cdn.example.test&insecure=1&obfs=salamander&obfs-password=mask-secret#Hy2
+",
+    );
+    // VMess over TLS with WebSocket, as a v2rayN link.
+    let vmess = serde_json::json!({
+        "v": "2", "ps": "VMess WS", "add": "vmess.example.test", "port": "443",
+        "id": "00000000-0000-0000-0000-000000000005", "aid": "0", "scy": "aes-128-gcm",
+        "net": "ws", "type": "none", "host": "cdn.example.test", "path": "/v",
+        "tls": "tls", "sni": "cdn.example.test", "alpn": "h2"
+    });
+    let encoded = base64_standard(vmess.to_string().as_bytes());
+    assert_round_trip(&format!("vmess://{encoded}"));
+    assert_round_trip(
+        "[Proxy]\nSnell v4 = snell, snell.example.test, 8443, psk=snell-secret, version=4, obfs=http, obfs-host=cdn.example.test, reuse=true\n",
+    );
+}
+
+/// Test-side base64, independent of the exporter's.
+fn base64_standard(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::new();
+    for chunk in bytes.chunks(3) {
+        let b = [
+            chunk[0],
+            *chunk.get(1).unwrap_or(&0),
+            *chunk.get(2).unwrap_or(&0),
+        ];
+        let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
+        for i in 0..4 {
+            if i <= chunk.len() {
+                out.push(char::from(ALPHABET[((n >> (18 - 6 * i)) & 63) as usize]));
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
+}
+
+#[test]
+fn share_links_are_refused_for_protocols_without_a_format() {
+    let mieru = serde_json::json!({
+        "type": "mieru", "server": "example.com", "port": 443,
+        "username": "user", "password": "secret-pass", "transport": "TCP"
+    });
+    let error = share_link("M", &mieru).unwrap_err();
+    assert!(!error.contains("secret"));
+    assert!(share_link("X", &serde_json::json!({"type": "shadowsocks"})).is_err());
+}
+
+fn call_share_link(input: &[u8]) -> (i32, Option<String>) {
+    let mut out = NetworkCoreImportBuffer {
+        ptr: std::ptr::null_mut(),
+        len: 0,
+        cap: 0,
+    };
+    // SAFETY: valid input slice and output pointer.
+    let code = unsafe { networkcore_import_share_link(input.as_ptr(), input.len(), &mut out) };
+    let text = (code == NETWORKCORE_IMPORT_OK).then(|| {
+        // SAFETY: the library returned `len` initialized bytes.
+        let bytes = unsafe { std::slice::from_raw_parts(out.ptr, out.len) };
+        String::from_utf8(bytes.to_vec()).unwrap()
+    });
+    // SAFETY: released once, as returned.
+    unsafe { networkcore_import_free_buffer(out) };
+    (code, text)
+}
+
+#[test]
+fn c_abi_exports_share_links() {
+    let report = import_text(LINKS).unwrap();
+    let entry = serde_json::json!({
+        "name": report.nodes[0].name,
+        "outbound": report.nodes[0].outbound,
+    });
+    let (code, link) = call_share_link(entry.to_string().as_bytes());
+    assert_eq!(code, NETWORKCORE_IMPORT_OK);
+    let link = link.unwrap();
+    assert!(link.starts_with("ss://"), "{link}");
+    assert!(link.ends_with("#HK"), "{link}");
+
+    assert_eq!(call_share_link(b"").0, NETWORKCORE_IMPORT_ERR_EMPTY);
+    assert_eq!(
+        call_share_link(b"not json").0,
+        NETWORKCORE_IMPORT_ERR_INVALID_ARGUMENT
+    );
+    assert_eq!(
+        call_share_link(br#"{"name":"x"}"#).0,
+        NETWORKCORE_IMPORT_ERR_INVALID_ARGUMENT
+    );
+    assert_eq!(
+        call_share_link(br#"{"name":"x","outbound":{"type":"mieru","server":"a","port":1}}"#).0,
+        NETWORKCORE_IMPORT_ERR_UNSUPPORTED
+    );
+}
+
+#[test]
+fn clash_rule_providers_come_with_the_routing() {
+    let text = r#"
+proxies:
+  - { name: HK 01, type: ss, server: 82.47.34.99, port: 11111, cipher: aes-256-gcm, password: f43c0eee-13b9-4f07-bec9-d4b744141503 }
+proxy-groups:
+  - { name: Proxy, type: select, proxies: [HK 01, DIRECT] }
+rule-providers:
+  gfw:
+    type: http
+    behavior: domain
+    url: https://rules.example/gfw.txt
+    interval: 86400
+    proxy: Proxy
+rules:
+  - RULE-SET,gfw,Proxy
+  - GEOSITE,cn,DIRECT
+  - MATCH,DIRECT
+"#;
+    let routing = import_text(text).unwrap().routing.unwrap();
+    assert_eq!(
+        routing["rules"],
+        serde_json::json!(["RULE-SET,gfw,Proxy", "GEOSITE,cn,DIRECT", "FINAL,DIRECT"])
+    );
+    assert_eq!(
+        routing["rule_sets"],
+        serde_json::json!({
+            "gfw": {
+                "url": "https://rules.example/gfw.txt",
+                "format": "domain",
+                "interval_secs": 86400,
+                "via": "Proxy"
+            }
+        })
+    );
+    // Without remote sets the key is left out.
+    let plain = text.replace("RULE-SET,gfw,Proxy", "DOMAIN-SUFFIX,gfw.example,Proxy");
+    assert!(import_text(&plain).unwrap().routing.unwrap()["rule_sets"].is_null());
 }

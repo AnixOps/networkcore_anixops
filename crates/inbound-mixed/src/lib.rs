@@ -17,11 +17,12 @@ mod http;
 mod socks5;
 
 use std::io;
+use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use engine_outbound::{BoxStream, TargetAddr, TcpOutbound};
+use engine_outbound::{BoxFuture, BoxStream, TargetAddr, TcpOutbound};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Semaphore;
@@ -90,6 +91,38 @@ pub(crate) enum Reply {
     HttpForward,
 }
 
+/// Both ends of an accepted client connection.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ClientAddrs {
+    /// The client's own address.
+    pub peer: SocketAddr,
+    /// The listener address the client connected to.
+    pub local: SocketAddr,
+}
+
+/// Connects a client's request; unlike a [`TcpOutbound`] it learns which
+/// client asked, for routing by the local process.
+pub trait ClientConnector: Send + Sync {
+    fn connect_client<'a>(
+        &'a self,
+        client: ClientAddrs,
+        target: &'a TargetAddr,
+    ) -> BoxFuture<'a, io::Result<BoxStream>>;
+}
+
+/// Any outbound, ignoring who asked.
+struct AnyClient(Arc<dyn TcpOutbound>);
+
+impl ClientConnector for AnyClient {
+    fn connect_client<'a>(
+        &'a self,
+        _client: ClientAddrs,
+        target: &'a TargetAddr,
+    ) -> BoxFuture<'a, io::Result<BoxStream>> {
+        self.0.connect(target)
+    }
+}
+
 /// Accepts connections until the listener fails or the task is dropped.
 pub async fn serve(
     listener: TcpListener,
@@ -97,24 +130,38 @@ pub async fn serve(
     settings: MixedSettings,
     stats: Arc<MixedStats>,
 ) -> io::Result<()> {
+    serve_clients(listener, Arc::new(AnyClient(outbound)), settings, stats).await
+}
+
+/// [`serve`] with a connector that is told each client's addresses.
+pub async fn serve_clients(
+    listener: TcpListener,
+    connector: Arc<dyn ClientConnector>,
+    settings: MixedSettings,
+    stats: Arc<MixedStats>,
+) -> io::Result<()> {
     let permits = Arc::new(Semaphore::new(settings.max_connections));
     let settings = Arc::new(settings);
     loop {
-        let (stream, _) = listener.accept().await?;
+        let (stream, peer) = listener.accept().await?;
         let Ok(permit) = permits.clone().try_acquire_owned() else {
             stats.rejected.fetch_add(1, Ordering::Relaxed);
             drop(stream);
             continue;
         };
         stats.accepted.fetch_add(1, Ordering::Relaxed);
-        let outbound = outbound.clone();
+        let Ok(local) = stream.local_addr() else {
+            continue;
+        };
+        let client = ClientAddrs { peer, local };
+        let connector = connector.clone();
         let settings = settings.clone();
         let stats = stats.clone();
         tokio::spawn(async move {
             let _permit = permit;
             let _ = stream.set_nodelay(true);
             stats.active.fetch_add(1, Ordering::Relaxed);
-            handle(stream, outbound.as_ref(), &settings, &stats).await;
+            handle(stream, client, connector.as_ref(), &settings, &stats).await;
             stats.active.fetch_sub(1, Ordering::Relaxed);
         });
     }
@@ -122,7 +169,8 @@ pub async fn serve(
 
 async fn handle(
     mut client: TcpStream,
-    outbound: &dyn TcpOutbound,
+    addrs: ClientAddrs,
+    connector: &dyn ClientConnector,
     settings: &MixedSettings,
     stats: &MixedStats,
 ) {
@@ -140,8 +188,11 @@ async fn handle(
         }
     };
 
-    let connected =
-        tokio::time::timeout(settings.connect_timeout, outbound.connect(&request.target)).await;
+    let connected = tokio::time::timeout(
+        settings.connect_timeout,
+        connector.connect_client(addrs, &request.target),
+    )
+    .await;
     let mut remote = match connected {
         Ok(Ok(remote)) => remote,
         Ok(Err(_)) | Err(_) => {

@@ -15,14 +15,17 @@
 //! networks. Select groups use their configured default (or first member)
 //! until [`RoutedOutbound::select`] switches them while the engine runs. The
 //! global mode skips the rules for one target ([`RoutedOutbound::with_global`]).
-//! url-test and fallback groups use the latencies measured by
-//! [`RoutedOutbound::run_health_checks`] (the desktop local proxy runs it):
-//! url-test takes the fastest member, fallback the first that answered, and
-//! both use their first member until a check has finished.
+//! url-test, fallback, load-balance and round-robin groups use the latencies
+//! measured by [`RoutedOutbound::run_health_checks`]: url-test takes the
+//! fastest member, fallback the first that answered, load-balance hashes the
+//! destination host over the members that answered (one site keeps one
+//! member) and round-robin takes them in turn; all of them use every member
+//! (url-test and fallback their first) until a check has finished.
 
 use std::collections::BTreeMap;
 use std::io;
 use std::net::IpAddr;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 
 use config_core::routing::{
@@ -49,6 +52,11 @@ pub struct RoutedOutbound {
     selected: RwLock<BTreeMap<String, String>>,
     /// Where the global mode sends every connection.
     global: PolicyTarget,
+    /// Connections routed by round-robin groups so far.
+    round_robin: AtomicUsize,
+    /// Whether a rule matches the local process, so callers that can look
+    /// it up should.
+    uses_process: bool,
 }
 
 /// Last measured latency per url-test or fallback group, keyed by member name.
@@ -93,6 +101,7 @@ struct QueryEnvironment<'a> {
     latencies: &'a Latencies,
     selected: &'a BTreeMap<String, String>,
     resolved: Option<IpAddr>,
+    round_robin: &'a AtomicUsize,
 }
 
 impl RoutingEnvironment for QueryEnvironment<'_> {
@@ -121,6 +130,10 @@ impl RoutingEnvironment for QueryEnvironment<'_> {
 
     fn selected_member(&self, group_id: &str) -> Option<String> {
         self.selected.get(group_id).cloned()
+    }
+
+    fn round_robin(&self, _group_id: &str) -> usize {
+        self.round_robin.fetch_add(1, Ordering::Relaxed)
     }
 }
 
@@ -189,6 +202,10 @@ impl RoutedOutbound {
         for rule in &model.rules {
             named_sets(&rule.matcher, &mut named);
         }
+        let uses_process = model
+            .rules
+            .iter()
+            .any(|rule| matches_process(&rule.matcher));
         let unknown_set = named.iter().any(|name| !rule_sets.contains(name));
         if unknown_set {
             return Err(RuntimeError::new(
@@ -224,7 +241,14 @@ impl RoutedOutbound {
             latencies: Arc::default(),
             selected: RwLock::default(),
             global,
+            round_robin: AtomicUsize::new(0),
+            uses_process,
         })
+    }
+
+    /// Whether a `PROCESS-NAME` rule exists, alone or inside a logical rule.
+    pub fn uses_process(&self) -> bool {
+        self.uses_process
     }
 
     /// Sets where the global mode sends connections: a policy group, a node
@@ -383,6 +407,7 @@ impl RoutedOutbound {
             latencies: &latencies,
             selected: &selected,
             resolved,
+            round_robin: &self.round_robin,
         })
     }
 
@@ -479,16 +504,19 @@ impl RoutedOutbound {
     /// Routes a flow to `target` and says why. For an address target,
     /// `sniffed` (a TLS SNI or HTTP `Host`) is matched by the domain rules
     /// while IP rules keep matching the address; the flow still connects to
-    /// the address. A rejected flow gets no outbound.
+    /// the address. `process` is the name of the local process that opened
+    /// the flow, for `PROCESS-NAME` rules. A rejected flow gets no outbound.
     pub async fn route_flow(
         &self,
         target: &TargetAddr,
         sniffed: Option<&str>,
+        process: Option<&str>,
     ) -> (RouteInfo, Option<Arc<dyn TcpOutbound>>) {
         let mut query = query(target);
         if query.domain.is_none() {
             query.domain = sniffed.map(str::to_string);
         }
+        query.process = process.map(str::to_string);
         let resolution = self.resolve_query(&query).await;
         let outbound = self.outbound_of(&resolution.outcome);
         (self.describe(&resolution), outbound)
@@ -530,7 +558,7 @@ impl RoutedOutbound {
         }
     }
 
-    /// Measures every member of the url-test and fallback groups through its
+    /// Measures every member of the health-checked groups through its
     /// outbound, then again after the shortest group interval, forever. Group
     /// members that are groups themselves or REJECT are not measured. Never
     /// returns when no group needs checks.
@@ -593,6 +621,15 @@ fn query(target: &TargetAddr) -> RouteQuery {
         TargetAddr::Domain(domain, _) => RouteQuery::domain(domain.clone()),
     }
     .with_port(target.port())
+}
+
+fn matches_process(matcher: &RuleMatcher) -> bool {
+    match matcher {
+        RuleMatcher::ProcessName(_) => true,
+        RuleMatcher::And(rules) | RuleMatcher::Or(rules) => rules.iter().any(matches_process),
+        RuleMatcher::Not(rule) => matches_process(rule),
+        _ => false,
+    }
 }
 
 /// The rule sets a rule needs: `RULE-SET` names and `geosite-<category>`.
