@@ -288,6 +288,52 @@ fn hysteria2_nodes_map_password_and_tls() {
     assert!(outbound_for_node(&missing).is_err());
 }
 
+#[cfg(feature = "snell")]
+#[test]
+fn snell_nodes_map_psk_version_and_obfs() {
+    let snell = node(
+        "snell",
+        Protocol::Snell,
+        &[
+            ("snell.psk", "snell-secret"),
+            ("snell.version", "4"),
+            ("snell.obfs", "http"),
+            ("snell.obfs_host", "cdn.example"),
+            ("snell.reuse", "true"),
+        ],
+    );
+    let outbound = outbound_for_node(&snell).unwrap();
+    assert_eq!(
+        outbound,
+        serde_json::json!({
+            "type": "snell",
+            "server": "192.0.2.1",
+            "port": 443,
+            "psk": "snell-secret",
+            "version": 4,
+            "mode": "default",
+            "obfs": "http",
+            "obfs_host": "cdn.example",
+            "obfs_uri": null,
+            "reuse": true,
+            "userkey": null,
+        })
+    );
+    let (envelope, _) = single_node_envelope("p", &[snell], None).unwrap();
+    assert_eq!(builds(&envelope), "snell");
+
+    let v6_obfs = node(
+        "snell-v6",
+        Protocol::Snell,
+        &[
+            ("snell.psk", "snell-secret"),
+            ("snell.version", "6"),
+            ("snell.obfs", "http"),
+        ],
+    );
+    assert!(outbound_for_node(&v6_obfs).is_err());
+}
+
 #[cfg(feature = "tuic")]
 #[test]
 fn tuic_nodes_map_uuid_password_and_congestion() {

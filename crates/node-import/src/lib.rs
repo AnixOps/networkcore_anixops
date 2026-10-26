@@ -17,14 +17,17 @@ use control_domain::{
     NodeCatalog, NodeDescriptor, Protocol, SubscriptionService, SubscriptionSource,
     NODE_METADATA_HYSTERIA2_OBFS_PASSWORD, NODE_METADATA_HYSTERIA2_OBFS_TYPE,
     NODE_METADATA_HYSTERIA2_PASSWORD, NODE_METADATA_SHADOWSOCKS_METHOD,
-    NODE_METADATA_SHADOWSOCKS_PASSWORD, NODE_METADATA_TLS_ALPN, NODE_METADATA_TLS_ENABLED,
-    NODE_METADATA_TLS_INSECURE, NODE_METADATA_TLS_REALITY_PUBLIC_KEY,
-    NODE_METADATA_TLS_REALITY_SHORT_ID, NODE_METADATA_TLS_SERVER_NAME,
-    NODE_METADATA_TROJAN_PASSWORD, NODE_METADATA_TUIC_CONGESTION_CONTROL,
-    NODE_METADATA_TUIC_PASSWORD, NODE_METADATA_TUIC_UUID, NODE_METADATA_V2RAY_TRANSPORT_HOST,
-    NODE_METADATA_V2RAY_TRANSPORT_PATH, NODE_METADATA_V2RAY_TRANSPORT_SERVICE_NAME,
-    NODE_METADATA_V2RAY_TRANSPORT_TYPE, NODE_METADATA_VLESS_FLOW, NODE_METADATA_VLESS_UUID,
-    NODE_METADATA_VMESS_ALTER_ID, NODE_METADATA_VMESS_SECURITY, NODE_METADATA_VMESS_UUID,
+    NODE_METADATA_SHADOWSOCKS_PASSWORD, NODE_METADATA_SNELL_MODE, NODE_METADATA_SNELL_OBFS,
+    NODE_METADATA_SNELL_OBFS_HOST, NODE_METADATA_SNELL_OBFS_URI, NODE_METADATA_SNELL_PSK,
+    NODE_METADATA_SNELL_REUSE, NODE_METADATA_SNELL_USER_KEY, NODE_METADATA_SNELL_VERSION,
+    NODE_METADATA_TLS_ALPN, NODE_METADATA_TLS_ENABLED, NODE_METADATA_TLS_INSECURE,
+    NODE_METADATA_TLS_REALITY_PUBLIC_KEY, NODE_METADATA_TLS_REALITY_SHORT_ID,
+    NODE_METADATA_TLS_SERVER_NAME, NODE_METADATA_TROJAN_PASSWORD,
+    NODE_METADATA_TUIC_CONGESTION_CONTROL, NODE_METADATA_TUIC_PASSWORD, NODE_METADATA_TUIC_UUID,
+    NODE_METADATA_V2RAY_TRANSPORT_HOST, NODE_METADATA_V2RAY_TRANSPORT_PATH,
+    NODE_METADATA_V2RAY_TRANSPORT_SERVICE_NAME, NODE_METADATA_V2RAY_TRANSPORT_TYPE,
+    NODE_METADATA_VLESS_FLOW, NODE_METADATA_VLESS_UUID, NODE_METADATA_VMESS_ALTER_ID,
+    NODE_METADATA_VMESS_SECURITY, NODE_METADATA_VMESS_UUID,
 };
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -42,6 +45,7 @@ pub fn outbound_json(node: &NodeDescriptor) -> Result<Value, Unsupported> {
         Protocol::Vmess => vmess(node),
         Protocol::Hysteria2 => hysteria2(node),
         Protocol::Tuic => tuic(node),
+        Protocol::Snell => snell(node),
         _ => Err("protocol is not implemented by the embedded engine yet"),
     }
 }
@@ -218,6 +222,7 @@ fn protocol_name(protocol: &Protocol) -> String {
         Protocol::Tuic => "tuic".to_string(),
         Protocol::WireGuard => "wireguard".to_string(),
         Protocol::Mieru => "mieru".to_string(),
+        Protocol::Snell => "snell".to_string(),
         Protocol::Other(name) => name.to_ascii_lowercase(),
     }
 }
@@ -366,6 +371,44 @@ fn tuic(node: &NodeDescriptor) -> Result<Value, Unsupported> {
         "alpn": alpn_list(node),
         "insecure": metadata(node, NODE_METADATA_TLS_INSECURE) == Some("true"),
         "congestion_control": metadata(node, NODE_METADATA_TUIC_CONGESTION_CONTROL),
+    }))
+}
+
+/// Snell v1–v4 and v6 (v5 runs as v4). A missing version means 1, as in
+/// Surge and Clash.
+fn snell(node: &NodeDescriptor) -> Result<Value, Unsupported> {
+    let psk = metadata(node, NODE_METADATA_SNELL_PSK).ok_or("snell psk is missing")?;
+    let version = match metadata(node, NODE_METADATA_SNELL_VERSION) {
+        None => 1,
+        Some(raw) => raw
+            .parse::<u8>()
+            .ok()
+            .filter(|version| (1..=6).contains(version))
+            .ok_or("snell version must be between 1 and 6")?,
+    };
+    let mode = metadata(node, NODE_METADATA_SNELL_MODE).unwrap_or("default");
+    if !matches!(mode, "default" | "unshaped" | "unsafe-raw") {
+        return Err("snell mode must be default, unshaped or unsafe-raw");
+    }
+    let obfs = match metadata(node, NODE_METADATA_SNELL_OBFS) {
+        None | Some("none") | Some("off") => None,
+        Some("http") if version <= 4 => Some("http"),
+        Some("http") => return Err("snell obfs needs version 4 or earlier"),
+        Some("tls") => return Err("snell tls obfs is not implemented yet"),
+        Some(_) => return Err("snell obfs must be http"),
+    };
+    Ok(json!({
+        "type": "snell",
+        "server": node.endpoint.host,
+        "port": node.endpoint.port,
+        "psk": psk,
+        "version": version,
+        "mode": mode,
+        "obfs": obfs,
+        "obfs_host": obfs.and(metadata(node, NODE_METADATA_SNELL_OBFS_HOST)),
+        "obfs_uri": obfs.and(metadata(node, NODE_METADATA_SNELL_OBFS_URI)),
+        "reuse": metadata(node, NODE_METADATA_SNELL_REUSE) == Some("true"),
+        "userkey": metadata(node, NODE_METADATA_SNELL_USER_KEY),
     }))
 }
 

@@ -101,6 +101,8 @@ impl std::fmt::Debug for MetadataEntry {
                 | NODE_METADATA_HYSTERIA2_PASSWORD
                 | NODE_METADATA_HYSTERIA2_OBFS_PASSWORD
                 | NODE_METADATA_TUIC_PASSWORD
+                | NODE_METADATA_SNELL_PSK
+                | NODE_METADATA_SNELL_USER_KEY
                 | NODE_METADATA_WIREGUARD_PRIVATE_KEY
                 | NODE_METADATA_WIREGUARD_PRE_SHARED_KEY
         ) || self.key.ends_with(".password");
@@ -140,6 +142,14 @@ pub const NODE_METADATA_HYSTERIA2_OBFS_MAX_PACKET_SIZE: &str = "hysteria2.obfs.m
 pub const NODE_METADATA_TUIC_UUID: &str = "tuic.uuid";
 pub const NODE_METADATA_TUIC_PASSWORD: &str = "tuic.password";
 pub const NODE_METADATA_TUIC_CONGESTION_CONTROL: &str = "tuic.congestion_control";
+pub const NODE_METADATA_SNELL_PSK: &str = "snell.psk";
+pub const NODE_METADATA_SNELL_VERSION: &str = "snell.version";
+pub const NODE_METADATA_SNELL_MODE: &str = "snell.mode";
+pub const NODE_METADATA_SNELL_OBFS: &str = "snell.obfs";
+pub const NODE_METADATA_SNELL_OBFS_HOST: &str = "snell.obfs_host";
+pub const NODE_METADATA_SNELL_OBFS_URI: &str = "snell.obfs_uri";
+pub const NODE_METADATA_SNELL_REUSE: &str = "snell.reuse";
+pub const NODE_METADATA_SNELL_USER_KEY: &str = "snell.user_key";
 pub const NODE_METADATA_WIREGUARD_PRIVATE_KEY: &str = "wireguard.private_key";
 pub const NODE_METADATA_WIREGUARD_PEER_PUBLIC_KEY: &str = "wireguard.peer_public_key";
 pub const NODE_METADATA_WIREGUARD_LOCAL_ADDRESS: &str = "wireguard.local_address";
@@ -384,6 +394,7 @@ pub enum Protocol {
     Tuic,
     WireGuard,
     Mieru,
+    Snell,
     Other(String),
 }
 
