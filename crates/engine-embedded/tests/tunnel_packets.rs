@@ -294,19 +294,14 @@ fn udp_flow_is_relayed_through_the_outbound() {
         let mut expected = b"echo:".to_vec();
         expected.extend_from_slice(payload);
         wait_for(&rx, |sliced| match (&sliced.net, &sliced.transport) {
-            (Some(net), Some(TransportSlice::Udp(udp)))
+            (Some(etherparse::NetSlice::Ipv4(ip)), Some(TransportSlice::Udp(udp)))
                 if udp.source_port() == 443
                     && udp.destination_port() == 40001
                     && udp.payload() == expected.as_slice() =>
             {
-                match net {
-                    etherparse::NetSlice::Ipv4(ip) => {
-                        assert_eq!(ip.header().source(), REMOTE);
-                        assert_eq!(ip.header().destination(), APP);
-                        Some(())
-                    }
-                    _ => None,
-                }
+                assert_eq!(ip.header().source(), REMOTE);
+                assert_eq!(ip.header().destination(), APP);
+                Some(())
             }
             _ => None,
         });
