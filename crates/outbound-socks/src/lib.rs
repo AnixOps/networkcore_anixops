@@ -4,16 +4,26 @@
 //! The handshake finishes before [`TcpOutbound::connect`] returns, so the
 //! returned stream is the raw tunnel to the target.
 //!
+//! UDP ([`TcpOutbound::open_udp`]) uses `UDP ASSOCIATE`: the TCP connection
+//! stays open as the association's lifetime, and datagrams go to the relay
+//! address in the reply as `RSV(2) FRAG ATYP ADDR PORT payload`. An
+//! unspecified relay address means the server's own address. Fragmented
+//! replies are dropped.
+//!
 //! [`SocksFactory`] registers the outbound under `"type": "socks"`.
 
 mod factory;
 
 use std::io;
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
 
-use engine_outbound::{BoxFuture, BoxStream, Dialer, TargetAddr, TcpOutbound};
+use engine_outbound::{
+    BoxFuture, BoxStream, DatagramRecv, DatagramSend, Dialer, TargetAddr, TcpOutbound, UdpFlow,
+    MAX_DATAGRAM,
+};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
+use tokio::net::UdpSocket;
 
 pub use factory::{SocksFactory, TYPE_NAME};
 
@@ -25,6 +35,7 @@ const METHOD_NONE: u8 = 0x00;
 const METHOD_PASSWORD: u8 = 0x02;
 const METHOD_NO_ACCEPTABLE: u8 = 0xff;
 const CMD_CONNECT: u8 = 0x01;
+const CMD_UDP_ASSOCIATE: u8 = 0x03;
 const ATYP_IPV4: u8 = 0x01;
 const ATYP_DOMAIN: u8 = 0x03;
 const ATYP_IPV6: u8 = 0x04;
@@ -79,7 +90,7 @@ impl TcpOutbound for SocksOutbound {
 
     fn connect<'a>(&'a self, target: &'a TargetAddr) -> BoxFuture<'a, io::Result<BoxStream>> {
         Box::pin(async move {
-            let request = connect_request(target)?;
+            let request = request(CMD_CONNECT, target)?;
             let mut stream = self.dialer.dial(&self.server, self.port).await?;
             negotiate(&mut stream, self.credentials.as_ref()).await?;
             stream.write_all(&request).await?;
@@ -87,6 +98,117 @@ impl TcpOutbound for SocksOutbound {
             Ok(stream)
         })
     }
+
+    fn open_udp<'a>(&'a self, target: &'a TargetAddr) -> BoxFuture<'a, io::Result<UdpFlow>> {
+        Box::pin(async move {
+            let mut header = vec![0, 0, 0];
+            write_address(&mut header, target)?;
+            let unspecified = TargetAddr::Ip((Ipv4Addr::UNSPECIFIED, 0).into());
+            let request = request(CMD_UDP_ASSOCIATE, &unspecified)?;
+            let mut control = self.dialer.dial(&self.server, self.port).await?;
+            negotiate(&mut control, self.credentials.as_ref()).await?;
+            control.write_all(&request).await?;
+            let relay = match read_reply(&mut control).await? {
+                TargetAddr::Ip(addr) if addr.ip().is_unspecified() => {
+                    SocketAddr::new(resolve(&self.server, self.port).await?.ip(), addr.port())
+                }
+                TargetAddr::Ip(addr) => addr,
+                TargetAddr::Domain(host, port) => resolve(&host, port).await?,
+            };
+            let bind: SocketAddr = if relay.is_ipv4() {
+                (Ipv4Addr::UNSPECIFIED, 0).into()
+            } else {
+                (Ipv6Addr::UNSPECIFIED, 0).into()
+            };
+            let socket = Arc::new(UdpSocket::bind(bind).await?);
+            socket.connect(relay).await?;
+            Ok(UdpFlow::new(
+                Box::new(UdpSend {
+                    socket: socket.clone(),
+                    header,
+                    packet: Vec::new(),
+                }),
+                Box::new(UdpRecv {
+                    socket,
+                    control,
+                    buf: vec![0u8; MAX_DATAGRAM],
+                }),
+            ))
+        })
+    }
+}
+
+async fn resolve(host: &str, port: u16) -> io::Result<SocketAddr> {
+    tokio::net::lookup_host((host, port))
+        .await?
+        .next()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "socks relay not found"))
+}
+
+/// Sends each datagram to the relay with the target's SOCKS UDP header.
+struct UdpSend {
+    socket: Arc<UdpSocket>,
+    /// `RSV RSV FRAG ATYP ADDR PORT` for the flow's target.
+    header: Vec<u8>,
+    packet: Vec<u8>,
+}
+
+impl DatagramSend for UdpSend {
+    fn send<'a>(&'a mut self, payload: &'a [u8]) -> BoxFuture<'a, io::Result<()>> {
+        Box::pin(async move {
+            self.packet.clear();
+            self.packet.extend_from_slice(&self.header);
+            self.packet.extend_from_slice(payload);
+            self.socket.send(&self.packet).await.map(|_| ())
+        })
+    }
+}
+
+/// Receives relay datagrams; ends when the server closes the association's
+/// TCP connection.
+struct UdpRecv {
+    socket: Arc<UdpSocket>,
+    control: BoxStream,
+    buf: Vec<u8>,
+}
+
+impl DatagramRecv for UdpRecv {
+    fn recv(&mut self) -> BoxFuture<'_, io::Result<Vec<u8>>> {
+        Box::pin(async move {
+            let mut probe = [0u8; 1];
+            loop {
+                tokio::select! {
+                    received = self.socket.recv(&mut self.buf) => {
+                        if let Some(payload) = udp_payload(&self.buf[..received?]) {
+                            return Ok(payload.to_vec());
+                        }
+                    }
+                    // The server sends nothing on the TCP connection; any
+                    // read result means the association is over.
+                    _ = self.control.read(&mut probe) => {
+                        return Err(io::Error::new(
+                            io::ErrorKind::UnexpectedEof,
+                            "socks server ended the udp association",
+                        ));
+                    }
+                }
+            }
+        })
+    }
+}
+
+/// The payload of an unfragmented SOCKS UDP datagram.
+fn udp_payload(packet: &[u8]) -> Option<&[u8]> {
+    if packet.len() < 4 || packet[2] != 0 {
+        return None;
+    }
+    let address_len = match packet[3] {
+        ATYP_IPV4 => 4,
+        ATYP_IPV6 => 16,
+        ATYP_DOMAIN => 1 + usize::from(*packet.get(4)?),
+        _ => return None,
+    };
+    packet.get(4 + address_len + 2..)
 }
 
 async fn negotiate(
@@ -131,9 +253,15 @@ async fn negotiate(
     }
 }
 
-fn connect_request(target: &TargetAddr) -> io::Result<Vec<u8>> {
+fn request(command: u8, target: &TargetAddr) -> io::Result<Vec<u8>> {
     let mut out = Vec::with_capacity(4 + 1 + 255 + 2);
-    out.extend_from_slice(&[VERSION, CMD_CONNECT, 0x00]);
+    out.extend_from_slice(&[VERSION, command, 0x00]);
+    write_address(&mut out, target)?;
+    Ok(out)
+}
+
+/// `ATYP ADDR PORT`.
+fn write_address(out: &mut Vec<u8>, target: &TargetAddr) -> io::Result<()> {
     match target {
         TargetAddr::Ip(addr) => match addr.ip() {
             IpAddr::V4(ip) => {
@@ -156,12 +284,12 @@ fn connect_request(target: &TargetAddr) -> io::Result<Vec<u8>> {
         }
     }
     out.extend_from_slice(&target.port().to_be_bytes());
-    Ok(out)
+    Ok(())
 }
 
 /// Reads the whole reply, bound address included, so no reply byte is left
-/// in front of the target's data.
-async fn read_reply<S: AsyncRead + Unpin>(stream: &mut S) -> io::Result<()> {
+/// in front of the target's data. Returns the bound address.
+async fn read_reply<S: AsyncRead + Unpin>(stream: &mut S) -> io::Result<TargetAddr> {
     let mut head = [0u8; 4];
     stream.read_exact(&mut head).await?;
     if head[0] != VERSION {
@@ -184,8 +312,21 @@ async fn read_reply<S: AsyncRead + Unpin>(stream: &mut S) -> io::Result<()> {
         _ => return Err(protocol_error("socks server sent an unknown address type")),
     };
     let mut bound = [0u8; 255 + 2];
-    stream.read_exact(&mut bound[..address_len + 2]).await?;
-    Ok(())
+    let bound = &mut bound[..address_len + 2];
+    stream.read_exact(bound).await?;
+    let (address, port) = bound.split_at(address_len);
+    let port = u16::from_be_bytes([port[0], port[1]]);
+    Ok(match head[3] {
+        ATYP_IPV4 => {
+            let octets: [u8; 4] = address.try_into().expect("4-byte address");
+            TargetAddr::Ip((IpAddr::from(octets), port).into())
+        }
+        ATYP_IPV6 => {
+            let octets: [u8; 16] = address.try_into().expect("16-byte address");
+            TargetAddr::Ip((IpAddr::from(octets), port).into())
+        }
+        _ => TargetAddr::Domain(String::from_utf8_lossy(address).into_owned(), port),
+    })
 }
 
 fn reply_error_kind(code: u8) -> io::ErrorKind {
