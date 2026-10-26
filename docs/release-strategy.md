@@ -4,9 +4,9 @@
 
 ## 当前发布状态
 
-- 当前最新已发布 Linux artifact 是 `v0.1.0` 正式版 stable CLI 四件套。
-- 最新已发布 prerelease 是 `v0.2.0-beta.4`（`v0.2.0-beta.3`、`v0.2.0-beta.4` 均为维护者授权的验收候选，未通过真实主机验收）。
-- 当前 Beta candidate 是 `v0.2.0-beta.5`，状态 `pending_manual_acceptance`。维护者已授权其 tag 用于生成候选工件，但在 Windows/Linux 真实系统验收完成前不得描述为 production-ready。
+- 当前最新 stable 是 `v0.2.0`（2026-10-26，tag 在 `a636b89`）：Linux CLI、Linux 图形客户端 tarball 与 `.deb`、Windows MSI 与 portable ZIP 四件套。上一个 stable 是 `v0.1.0`（Linux-only）。
+- `v0.2.0` 之前最后的 prerelease 是 `v0.2.0-rc.2`；更早的 `v0.2.0-beta.5` 与 `v0.2.0-beta.4`（`v0.2.0-beta.3`、`v0.2.0-beta.4` 均为维护者授权的验收候选，未通过真实主机验收）。
+- `v0.2.0-beta.5` 的真机验收没有完成，验收改在 `v0.2.0-rc.2` 上进行并已通过。
 - 每次 tag release 同时产出 Linux CLI 四件套、Linux 图形客户端 tarball 与 `.deb` 各一套四件套（自 `v0.2.0` 起）、Windows managed client MSI 四件套和 Windows portable ZIP 四件套（archive、sha256、manifest、manifest sha256）。MSI/portable ZIP 不捆绑或静默下载第三方 core。`workflow_dispatch` 只验证，不发布。
 - 没有本机打包或发布路径；用户可下载状态以同名 tag workflow 成功结果为准。
 
