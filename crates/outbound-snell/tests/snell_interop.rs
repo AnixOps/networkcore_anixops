@@ -255,3 +255,53 @@ async fn udp_datagrams_are_relayed() {
     }
     assert!(failures.is_empty(), "{failures:#?}");
 }
+
+/// A large datagram as the first one on a fresh session. snell-server
+/// v5.0.1 echoed it differently in early runs (while the stepped sizes above
+/// pass), so v5 is measured here and only v4/v6 are asserted until the spec
+/// settles v5 downstream datagram limits.
+#[tokio::test]
+#[ignore = "needs official snell-server binaries; run by the interop CI job"]
+async fn large_first_udp_datagram() {
+    let echo = target("NC_UDP_ECHO");
+    let mut failures = Vec::new();
+    for server in servers() {
+        if server.version < 3 {
+            continue;
+        }
+        let outbound = outbound(&server, false);
+        let (mut sender, mut receiver) = tokio::time::timeout(TIMEOUT, outbound.udp())
+            .await
+            .unwrap_or_else(|_| panic!("{}: timed out", server.name))
+            .unwrap_or_else(|err| panic!("{}: udp: {err}", server.name));
+        let payload: Vec<u8> = (0..8000).map(|i| (i % 256) as u8).collect();
+        assert!(sender.send_to(&echo, &payload).await.unwrap());
+        let mut received = Vec::new();
+        while let Ok(Ok((source, echoed))) =
+            tokio::time::timeout(Duration::from_secs(2), receiver.recv_from()).await
+        {
+            received.push((source, echoed));
+        }
+        let lengths: Vec<usize> = received.iter().map(|(_, data)| data.len()).collect();
+        let intact = received.len() == 1 && received[0].1 == payload;
+        println!(
+            "observed: {} first udp 8000: {} datagram(s) with lengths {lengths:?}, intact={intact}",
+            server.name,
+            received.len()
+        );
+        for (source, data) in received.iter().skip(1) {
+            println!(
+                "observed: {}   extra datagram from {source}, first bytes {:02x?}",
+                server.name,
+                &data[..data.len().min(8)]
+            );
+        }
+        if !intact && server.version != 5 {
+            failures.push(format!(
+                "{} first udp 8000: lengths {lengths:?}",
+                server.name
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
