@@ -322,16 +322,17 @@ iWAN 的"加密"不提供保密性或认证：
 
   ```
   [iwan0]
-  server=127.0.0.1      # IPv4 或主机名
-  port=4567             # 必填，没有默认值
+  server=127.0.0.1
+  port=4567
   username=plain
-  password=pw-plain     # 超过 16 字节会截断并警告
-  mtu=1400              # 46–1600
-  encrypt=0             # 1 = 请求 XOR
-  # 可选：up_script= / down_script=
+  password=pw-plain
+  mtu=1400
+  encrypt=0
   ```
 
-  `up_script` / `down_script` 用 execv 调用，参数依次为：事件（`up` / `down`）、TUN 名、地址、MTU、DNS0、DNS1。
+  `#` 只在行首才是注释，**不支持行尾注释**（会成为值的一部分）。`server` 可以是 IPv4 或主机名；`port` 必填，没有默认值；`password` 超过 16 字节会截断并警告；`mtu` 范围 46–1600；`encrypt=1` 请求 XOR。可选 `up_script=` / `down_script=`，用 execv 调用。
+
+  两个脚本的参数依次为：事件（`up` / `down`）、TUN 名、地址、MTU、DNS0、DNS1。
 - **TUN 与路由**：
   - 启动时自己打开 `/dev/net/tun` 创建 TUN（`IFF_TUN | IFF_NO_PI`）。
   - 收到 OPENACK 后，把下发地址以**固定的 /24 掩码**设到 TUN 上，拉起接口，设置有效 MTU。所以内核只会有该 /24 的直连路由。
