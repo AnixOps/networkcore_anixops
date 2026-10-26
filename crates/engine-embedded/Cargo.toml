@@ -66,6 +66,17 @@ tokio = { version = "1", default-features = false, features = ["rt", "net", "io-
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"], optional = true }
 transport-tls = { path = "../transport-tls", optional = true }
 
+# Desktop PROCESS-NAME lookup (src/process.rs).
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = [
+    "Win32_Foundation",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_System_Threading",
+] }
+
 [dev-dependencies]
 base64 = "0.22"
 boringtun = { version = "0.7", default-features = false }

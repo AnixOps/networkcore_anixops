@@ -212,3 +212,56 @@ fn delay_test_reports_non_http_unreachable_and_bad_input() {
         Err(DelayError::Config(_))
     ));
 }
+
+fn own_process_name() -> String {
+    std::env::current_exe()
+        .unwrap()
+        .file_name()
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string()
+}
+
+#[test]
+fn process_lookup_names_the_process_that_owns_a_connection() {
+    let listener = TcpListener::bind(loopback()).unwrap();
+    let server = listener.local_addr().unwrap();
+    let client = TcpStream::connect(server).unwrap();
+    let (_accepted, peer) = listener.accept().unwrap();
+    assert_eq!(peer, client.local_addr().unwrap());
+    assert_eq!(
+        engine_embedded::process::process_name(peer, server),
+        Some(own_process_name())
+    );
+    // No connection runs from `peer` to another port.
+    let elsewhere = SocketAddr::new(server.ip(), server.port().wrapping_add(1));
+    assert_eq!(
+        engine_embedded::process::process_name(peer, elsewhere),
+        None
+    );
+}
+
+#[test]
+fn process_name_rules_apply_to_local_proxy_connections() {
+    let echo = echo_server();
+    let own = own_process_name().to_uppercase();
+    let config = format!(
+        r#"{{"schema_version":1,"profile_id":"routed","routing":{{"outbounds":{{"node":{{"type":"direct"}}}},"rules":["PROCESS-NAME,other-app,node","AND,((PROCESS-NAME,{own}),(DST-PORT,{port})),REJECT","FINAL,node"]}}}}"#,
+        port = echo.port()
+    );
+    let proxy = LocalProxy::start(config.as_bytes(), loopback(), MixedSettings::default()).unwrap();
+    let (_stream, reply) = socks_connect(proxy.local_addr(), echo);
+    assert_eq!(reply, 0x01, "rejected by the PROCESS-NAME rule");
+    let listed = proxy.control_json(br#"{"cmd":"connections"}"#).unwrap();
+    let listed: serde_json::Value = serde_json::from_slice(&listed).unwrap();
+    let closed = &listed["closed"][0];
+    assert_eq!(closed["process"], own_process_name());
+    assert_eq!(closed["error"], "rejected");
+
+    // Another process name does not match.
+    let config = config.replace(&own, "other-app");
+    let proxy = LocalProxy::start(config.as_bytes(), loopback(), MixedSettings::default()).unwrap();
+    let (_stream, reply) = socks_connect(proxy.local_addr(), echo);
+    assert_eq!(reply, 0x00);
+}

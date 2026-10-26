@@ -4,7 +4,8 @@
 //! Applications (or the system proxy setting) send their connections to the
 //! listener, so routing rules see the requested domain instead of an IP. The
 //! proxy owns one current-thread tokio runtime on a dedicated thread, like
-//! [`crate::tunnel::Tunnel`].
+//! [`crate::tunnel::Tunnel`]. With `PROCESS-NAME` rules each connection's
+//! local process is looked up ([`crate::process`]) before it is routed.
 
 use std::io;
 use std::net::SocketAddr;
@@ -13,8 +14,8 @@ use std::thread;
 use std::time::Duration;
 
 use engine_outbound::registry::OutboundRegistry;
-use engine_outbound::{Dialer, TcpDialer, TcpOutbound};
-use inbound_mixed::{MixedSettings, MixedStats};
+use engine_outbound::{BoxFuture, BoxStream, Dialer, TargetAddr, TcpDialer, TcpOutbound};
+use inbound_mixed::{ClientAddrs, ClientConnector, MixedSettings, MixedStats};
 use tokio::sync::oneshot;
 
 use crate::config::RuntimeConfig;
@@ -60,7 +61,7 @@ impl LocalProxy {
         let routed = config.build_routed(registry, dialer.clone())?;
         let dispatcher = Arc::new(config.build_dispatcher(routed.clone(), registry, dialer)?);
         let protocol = dispatcher.protocol();
-        let outbound = dispatcher.clone() as Arc<dyn TcpOutbound>;
+        let connector = Arc::new(ProcessRouting(dispatcher.clone())) as Arc<dyn ClientConnector>;
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -96,7 +97,7 @@ impl LocalProxy {
                         }
                     };
                     tokio::select! {
-                        _ = inbound_mixed::serve(listener, outbound, settings, thread_stats) => {}
+                        _ = inbound_mixed::serve_clients(listener, connector, settings, thread_stats) => {}
                         _ = health_checks => {}
                         _ = shutdown_rx => {}
                     }
@@ -167,6 +168,34 @@ impl LocalProxy {
 impl Drop for LocalProxy {
     fn drop(&mut self) {
         self.stop();
+    }
+}
+
+/// Routes each client's connections, naming its local process when a
+/// `PROCESS-NAME` rule needs it.
+struct ProcessRouting(Arc<Dispatcher>);
+
+impl ClientConnector for ProcessRouting {
+    fn connect_client<'a>(
+        &'a self,
+        client: ClientAddrs,
+        target: &'a TargetAddr,
+    ) -> BoxFuture<'a, io::Result<BoxStream>> {
+        Box::pin(async move {
+            let process = if self.0.wants_process() {
+                tokio::task::spawn_blocking(move || {
+                    crate::process::process_name(client.peer, client.local)
+                })
+                .await
+                .ok()
+                .flatten()
+            } else {
+                None
+            };
+            self.0
+                .connect_process_flow(target, None, process.as_deref())
+                .await
+        })
     }
 }
 

@@ -44,6 +44,8 @@ pub mod local_proxy;
 #[cfg(feature = "mitm")]
 pub mod mitm;
 pub mod nodes;
+#[cfg(feature = "local-proxy")]
+pub mod process;
 pub mod profile;
 pub mod protocols;
 pub mod routing;
