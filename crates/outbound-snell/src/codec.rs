@@ -100,6 +100,16 @@ impl Framing {
         }
     }
 
+    /// Length of the salt (or v6 `default` salt block) that opens this
+    /// direction; 0 for `unsafe-raw`. Servers key replay protection on it.
+    pub fn salt_len(&self) -> usize {
+        match self {
+            Framing::V6Default(profile) => profile.salt_block_len(),
+            Framing::V6UnsafeRaw => 0,
+            _ => SALT_LEN,
+        }
+    }
+
     fn cipher_kind(&self) -> Option<CipherKind> {
         match self {
             Framing::Legacy(kind) => Some(*kind),

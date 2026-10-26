@@ -41,6 +41,8 @@ pub fn default_registry() -> InboundRegistry {
     registry.register(Arc::new(inbound_shadowsocks::ShadowsocksInboundFactory));
     #[cfg(feature = "trojan")]
     registry.register(Arc::new(inbound_trojan::TrojanInboundFactory));
+    #[cfg(feature = "snell")]
+    registry.register(Arc::new(inbound_snell::SnellInboundFactory));
     #[cfg(feature = "vless")]
     registry.register(Arc::new(inbound_vless::VlessInboundFactory));
     #[cfg(feature = "vmess")]
