@@ -8,7 +8,10 @@
 //! framing, so the proxy protocol above it sees a plain byte stream.
 //!
 //! Every [`GrpcConnector::connect`] uses its own HTTP/2 connection; the
-//! connection task ends with the call.
+//! connection task ends with the call. [`server::serve_connection`] is the
+//! server side: every call on a client connection becomes one stream.
+
+pub mod server;
 
 use std::future::Future;
 use std::io;
@@ -50,24 +53,7 @@ impl GrpcConnector {
     /// `default_authority` is used when `settings.authority` is empty.
     /// `tls` sets the `:scheme` (`https` or `http`); it does not add TLS.
     pub fn new(settings: &GrpcSettings, default_authority: &str, tls: bool) -> io::Result<Self> {
-        let path = if let Some(custom) = settings.service_name.strip_prefix('/') {
-            let tun = custom.split('|').next().unwrap_or_default();
-            format!("/{tun}")
-        } else if settings.service_name.contains('/') {
-            return Err(invalid("grpc service name is invalid"));
-        } else {
-            format!("/{}/Tun", settings.service_name)
-        };
-        if !path[1..].split('/').all(|segment| {
-            !segment.is_empty()
-                && segment != "."
-                && segment != ".."
-                && segment
-                    .bytes()
-                    .all(|byte| byte.is_ascii_alphanumeric() || b"-._~".contains(&byte))
-        }) {
-            return Err(invalid("grpc service name is invalid"));
-        }
+        let path = tun_path(&settings.service_name)?;
         let authority = if settings.authority.is_empty() {
             default_authority
         } else {
@@ -115,17 +101,32 @@ impl GrpcConnector {
         let (response, send) = send_request
             .send_request(request, false)
             .map_err(h2_error)?;
-        Ok(Box::new(GrpcStream {
-            response: Some(response),
-            recv: None,
-            send,
-            pending: BytesMut::new(),
-            frames: BytesMut::new(),
-            payload: Bytes::new(),
-            eof: false,
-            shut: false,
-        }))
+        Ok(Box::new(GrpcStream::new(Some(response), None, send, false)))
     }
+}
+
+/// The call path for `service_name`: `/<service_name>/Tun`, or the custom
+/// path of a name starting with `/` (Xray's form), up to an optional `|`.
+pub fn tun_path(service_name: &str) -> io::Result<String> {
+    let path = if let Some(custom) = service_name.strip_prefix('/') {
+        let tun = custom.split('|').next().unwrap_or_default();
+        format!("/{tun}")
+    } else if service_name.contains('/') {
+        return Err(invalid("grpc service name is invalid"));
+    } else {
+        format!("/{service_name}/Tun")
+    };
+    if !path[1..].split('/').all(|segment| {
+        !segment.is_empty()
+            && segment != "."
+            && segment != ".."
+            && segment
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || b"-._~".contains(&byte))
+    }) {
+        return Err(invalid("grpc service name is invalid"));
+    }
+    Ok(path)
 }
 
 /// One `Hunk` message in a gRPC frame.
@@ -224,9 +225,30 @@ struct GrpcStream {
     payload: Bytes,
     eof: bool,
     shut: bool,
+    /// Server side: the call ends with `grpc-status` trailers.
+    server: bool,
 }
 
 impl GrpcStream {
+    fn new(
+        response: Option<ResponseFuture>,
+        recv: Option<RecvStream>,
+        send: SendStream<Bytes>,
+        server: bool,
+    ) -> Self {
+        Self {
+            response,
+            recv,
+            send,
+            pending: BytesMut::new(),
+            frames: BytesMut::new(),
+            payload: Bytes::new(),
+            eof: false,
+            shut: false,
+            server,
+        }
+    }
+
     /// Hands `pending` to h2 as flow control allows.
     fn poll_send(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         while !self.pending.is_empty() {
@@ -348,7 +370,13 @@ impl AsyncWrite for GrpcStream {
         ready!(this.poll_send(cx))?;
         if !this.shut {
             this.shut = true;
-            this.send.send_data(Bytes::new(), true).map_err(h2_error)?;
+            if this.server {
+                let mut trailers = http::HeaderMap::new();
+                trailers.insert("grpc-status", http::HeaderValue::from_static("0"));
+                this.send.send_trailers(trailers).map_err(h2_error)?;
+            } else {
+                this.send.send_data(Bytes::new(), true).map_err(h2_error)?;
+            }
         }
         Poll::Ready(Ok(()))
     }

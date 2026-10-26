@@ -6,8 +6,16 @@
 //! an ACME client (anix-agent renews with lego) can replace them without a
 //! restart; a broken replacement keeps the previous certificate.
 //!
-//! Protocol factories parse a `"tls"` object into [`TlsServerSettings`] and
-//! call [`wrap`].
+//! [`WsInbound`] and [`GrpcInbound`] run the WebSocket or gRPC server side
+//! between TLS and the protocol, matching the outbound `transport` object;
+//! gRPC carries several client streams on one connection.
+//!
+//! Protocol factories parse a `"tls"` object into [`TlsServerSettings`] and a
+//! `"transport"` object into [`TransportSettings`], and call [`wrap_all`].
+
+mod transport;
+
+pub use transport::{wrap_transport, GrpcInbound, TransportSettings, WsInbound};
 
 use std::fmt;
 use std::net::SocketAddr;
@@ -16,6 +24,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
 use engine_inbound::registry::BuildError;
+use engine_inbound::server::ConnectionContext;
+use engine_inbound::udp::DatagramInbound;
 use engine_inbound::{Accepted, Rejected, StreamInbound, UserStore};
 use engine_outbound::{BoxFuture, BoxStream};
 use rustls::crypto::CryptoProvider;
@@ -59,6 +69,24 @@ pub fn wrap(
     }
 }
 
+/// Wraps `inner` in `transport`, then in TLS when `tls` is set. gRPC under
+/// TLS offers ALPN `h2` when no ALPN is configured.
+pub fn wrap_all(
+    inner: Arc<dyn StreamInbound>,
+    transport: Option<&TransportSettings>,
+    tls: Option<&TlsServerSettings>,
+) -> Result<Arc<dyn StreamInbound>, BuildError> {
+    let inner = wrap_transport(inner, transport)?;
+    match tls {
+        Some(tls) if tls.alpn.is_empty() && transport.is_some_and(TransportSettings::needs_h2) => {
+            let mut tls = tls.clone();
+            tls.alpn.push("h2".to_owned());
+            wrap(inner, Some(&tls))
+        }
+        tls => wrap(inner, tls),
+    }
+}
+
 /// A protocol inbound behind a TLS server handshake.
 pub struct TlsInbound {
     acceptor: tokio_rustls::TlsAcceptor,
@@ -98,6 +126,31 @@ impl StreamInbound for TlsInbound {
             };
             self.inner.accept(Box::new(tls), peer).await
         })
+    }
+
+    fn serves_connections(&self) -> bool {
+        self.inner.serves_connections()
+    }
+
+    fn serve_connection<'a>(
+        &'a self,
+        stream: BoxStream,
+        context: ConnectionContext<'a>,
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            let handshake = tokio::time::timeout(
+                context.settings.handshake_timeout,
+                self.acceptor.accept(stream),
+            );
+            match handshake.await {
+                Ok(Ok(tls)) => self.inner.serve_connection(Box::new(tls), context).await,
+                _ => context.handshake_failed(),
+            }
+        })
+    }
+
+    fn datagram(&self) -> Option<Arc<dyn DatagramInbound>> {
+        self.inner.datagram()
     }
 }
 

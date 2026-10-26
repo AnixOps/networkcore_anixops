@@ -2579,7 +2579,9 @@ dependencies = [
  "serde_json",
  "tokio",
  "tokio-rustls",
+ "transport-grpc",
  "transport-tls",
+ "transport-ws",
 ]
 
 [[package]]

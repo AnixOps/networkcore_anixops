@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use engine_inbound::registry::{parse_settings, BuildError, InboundFactory, Settings};
 use engine_inbound::{StreamInbound, User};
-use inbound_transport::TlsServerSettings;
+use inbound_transport::{TlsServerSettings, TransportSettings};
 use serde::Deserialize;
 
 use crate::VmessInbound;
@@ -19,6 +19,10 @@ struct VmessInboundSettings {
     users: Vec<User>,
     #[serde(default)]
     tls: Option<TlsServerSettings>,
+    /// `{"type": "ws", ...}` or `{"type": "grpc", ...}` between TLS and
+    /// the protocol.
+    #[serde(default)]
+    transport: Option<TransportSettings>,
 }
 
 pub struct VmessInboundFactory;
@@ -33,6 +37,10 @@ impl InboundFactory for VmessInboundFactory {
             parse_settings(settings, "vmess inbound settings are missing or invalid")?;
         let inbound = VmessInbound::new();
         inbound.users().add_all(settings.users)?;
-        inbound_transport::wrap(Arc::new(inbound), settings.tls.as_ref())
+        inbound_transport::wrap_all(
+            Arc::new(inbound),
+            settings.transport.as_ref(),
+            settings.tls.as_ref(),
+        )
     }
 }

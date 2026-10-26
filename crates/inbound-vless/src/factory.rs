@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use engine_inbound::registry::{parse_settings, BuildError, InboundFactory, Settings};
 use engine_inbound::{FallbackSettings, StreamInbound, User};
-use inbound_transport::TlsServerSettings;
+use inbound_transport::{TlsServerSettings, TransportSettings};
 use serde::Deserialize;
 
 use crate::{RealityInbound, RealitySettings, VlessInbound};
@@ -19,6 +19,10 @@ struct VlessInboundSettings {
     users: Vec<User>,
     #[serde(default)]
     tls: Option<TlsServerSettings>,
+    /// `{"type": "ws", ...}` or `{"type": "grpc", ...}` between TLS and
+    /// the protocol.
+    #[serde(default)]
+    transport: Option<TransportSettings>,
     #[serde(default)]
     reality: Option<RealitySettings>,
     #[serde(default)]
@@ -35,15 +39,25 @@ impl InboundFactory for VlessInboundFactory {
     fn build(&self, settings: &Settings) -> Result<Arc<dyn StreamInbound>, BuildError> {
         let settings: VlessInboundSettings =
             parse_settings(settings, "vless inbound settings are missing or invalid")?;
+        let transport = settings
+            .transport
+            .as_ref()
+            .filter(|transport| **transport != TransportSettings::Tcp);
+        // Vision needs the raw connection, so it comes with REALITY only.
         let inbound = VlessInbound::with_vision(
             settings.fallback.as_ref().map(FallbackSettings::target),
             settings.reality.is_some(),
         );
         inbound.users().add_all(settings.users)?;
-        match (&settings.tls, &settings.reality) {
-            (Some(_), Some(_)) => Err("vless inbound takes tls or reality, not both"),
-            (None, Some(reality)) => Ok(Arc::new(RealityInbound::new(Arc::new(inbound), reality)?)),
-            (tls, None) => inbound_transport::wrap(Arc::new(inbound), tls.as_ref()),
+        match (&settings.tls, &settings.reality, transport) {
+            (Some(_), Some(_), _) => Err("vless inbound takes tls or reality, not both"),
+            (_, Some(_), Some(_)) => Err("vless reality inbound does not take a transport"),
+            (None, Some(reality), None) => {
+                Ok(Arc::new(RealityInbound::new(Arc::new(inbound), reality)?))
+            }
+            (tls, None, transport) => {
+                inbound_transport::wrap_all(Arc::new(inbound), transport, tls.as_ref())
+            }
         }
     }
 }
