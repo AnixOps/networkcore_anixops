@@ -321,7 +321,7 @@ where
     hmac::verify(&key, &server_finished_hash, &client_finished[4..])
         .map_err(|_| invalid_data("TLS client Finished verification failed"))?;
 
-    TlsStream::new(io, suite, server_ap, client_ap, alpn)
+    TlsStream::from_secrets(io, suite, server_ap, client_ap, alpn)
 }
 
 fn server_hello(
