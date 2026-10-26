@@ -8183,8 +8183,8 @@ mod controlled_tls_session_tests {
             let (stream, _) = upstream_listener
                 .accept()
                 .expect("test upstream should accept proxy TLS connection");
-            let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
-            let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
+            let _ = stream.set_read_timeout(Some(Duration::from_secs(15)));
+            let _ = stream.set_write_timeout(Some(Duration::from_secs(15)));
             let connection = ServerConnection::new(upstream_server_config)
                 .expect("test upstream TLS connection should initialize");
             let mut tls_stream = StreamOwned::new(connection, stream);
@@ -8235,8 +8235,8 @@ mod controlled_tls_session_tests {
         let downstream_client = thread::spawn(move || {
             let stream = TcpStream::connect(proxy_address)
                 .expect("test TLS client should connect to controlled proxy session");
-            let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
-            let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
+            let _ = stream.set_read_timeout(Some(Duration::from_secs(15)));
+            let _ = stream.set_write_timeout(Some(Duration::from_secs(15)));
             let server_name = ServerName::try_from("example.com")
                 .expect("test server name should parse")
                 .to_owned();
@@ -8271,8 +8271,8 @@ mod controlled_tls_session_tests {
         let (proxy_stream, _) = proxy_listener
             .accept()
             .expect("test proxy should accept controlled TLS client connection");
-        let _ = proxy_stream.set_read_timeout(Some(Duration::from_secs(5)));
-        let _ = proxy_stream.set_write_timeout(Some(Duration::from_secs(5)));
+        let _ = proxy_stream.set_read_timeout(Some(Duration::from_secs(15)));
+        let _ = proxy_stream.set_write_timeout(Some(Duration::from_secs(15)));
         let outbound_stream = TcpStream::connect(upstream_address)
             .expect("test proxy should connect to upstream TLS server");
         let mut connect_request = Cursor::new(
@@ -8673,7 +8673,7 @@ mod controlled_tls_session_tests {
                     kind,
                     phase: http_event.phase,
                     requires_body: true,
-                    timeout_ms: 1000,
+                    timeout_ms: 5000,
                     max_size: 1024,
                     script_path: self.script_url.clone(),
                     tag: "controlled-tls-script".to_string(),

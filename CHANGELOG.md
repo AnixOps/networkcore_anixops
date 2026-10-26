@@ -33,7 +33,7 @@
 
 ### Fixed
 
-- `mitm_anixops` 子模块升级到 distribution release `v1.4.7`（`ee95223`）：Node 脚本运行器在 Windows 上替换持久化存储文件时，遇到 `EPERM`、`EACCES` 或 `EBUSY`（文件仍被其他进程占用）会短暂重试，修复 `engine-native` 脚本 MITM 测试在 Windows 上偶发未改写请求体的问题。
+- `mitm_anixops` 子模块升级到 distribution release `v1.4.7`（`ee95223`）：Node 脚本运行器在 Windows 上替换持久化存储文件时，遇到 `EPERM`、`EACCES` 或 `EBUSY`（文件仍被其他进程占用）会短暂重试。`engine-native` 的 `controlled_tls_connect_session_bounds_persistent_exchanges_over_live_sockets` 在 Windows 上偶发未改写请求体，根因是测试给脚本的 1 秒超时短于 Windows runner 上 Node 冷启动的时间：脚本超时改为 5 秒，测试套接字超时相应放宽到 15 秒。
 
 ## v0.2.0 - 2026-10-26
 
