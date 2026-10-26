@@ -57,6 +57,9 @@ download() {
   local snell_version snell_rows=""
   for snell_version in ${SNELL_VERSIONS:-v3.0.1 v4.1.1 v5.0.1 v6.0.0rc2}; do
     local zip="${work}/snell-server-${snell_version}.zip"
+    # No public v3.0.1 build is downloadable today (dl.nssurge.com and the
+    # surge-networks GitHub releases both return 404), so v3 is skipped with
+    # a warning until one is found.
     if curl -fsSL --retry 3 -o "${zip}" \
       "https://dl.nssurge.com/snell/snell-server-${snell_version}-linux-amd64.zip"; then
       mkdir -p "${work}/snell-${snell_version}"
