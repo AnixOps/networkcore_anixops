@@ -112,6 +112,6 @@ A WireGuard envelope replaces `outbound` with the fields of one `wg-quick` peer 
 }
 ```
 
-`dns` and `limits` are optional. The defaults keep the worst case near 128 flows × (2 × 64 KiB window + relay and cipher buffers), about 25 MiB, inside the roughly 50 MiB Network Extension limit. Real peak memory is measured on an iPhone during M1 acceptance.
+`dns` and `limits` are optional. `dns` may also list named `servers` (`tcp://`, DNS over TLS `tls://`, DNS over HTTPS `https://`, each `via` the proxy or `direct`), `hosts` answered locally and per-domain `rules`; see [docs/architecture/embedded-dns.md](../../docs/architecture/embedded-dns.md). The defaults keep the worst case near 128 flows × (2 × 64 KiB window + relay and cipher buffers), about 25 MiB, inside the roughly 50 MiB Network Extension limit. Real peak memory is measured on an iPhone during M1 acceptance.
 
 Tests: `crates/outbound-shadowsocks/tests/shadowsocks_interop.rs` and `aead_interop.rs` check the Shadowsocks-2022 and AEAD clients against the shadowsocks-rust server (Unix only, dev-dependency), `tests/tunnel_packets.rs` drives raw IP packets through the stack, `tests/wireguard_packets.rs` round-trips packets through an in-process boringtun peer, and `tests/ffi_contracts.rs` exercises the C ABI. All verification runs in GitHub Actions.

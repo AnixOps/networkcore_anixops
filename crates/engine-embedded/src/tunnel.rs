@@ -6,7 +6,8 @@
 //! callback on the tunnel thread. TCP flows are relayed through the
 //! [`Dispatcher`], which routes and tracks them; the host name sniffed from a
 //! flow's first bytes (TLS SNI or HTTP `Host`) goes along for domain rules.
-//! UDP/53 is forwarded as DNS-over-TCP, and other UDP goes through the
+//! UDP/53 is answered from the DNS hosts or forwarded to the upstream the DNS
+//! policy picks (over TCP, TLS or HTTPS), and other UDP goes through the
 //! outbound's UDP flows, one per app socket and destination. An outbound
 //! without UDP drops those datagrams, so QUIC falls back to TCP. A WireGuard
 //! tunnel (`Tunnel::start_wireguard`) skips the stack and seals packets
@@ -31,8 +32,10 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{mpsc, oneshot, Semaphore};
 
-use crate::connections::Dispatcher;
+use crate::config::DnsVia;
+use crate::connections::{Dispatcher, Mode};
 use crate::dns::{self, OutboundFailure};
+use crate::dns_policy::{DnsPolicy, Plan};
 use crate::sniff;
 #[cfg(feature = "wireguard")]
 use crate::wireguard::{self, WireGuardSettings};
@@ -87,8 +90,8 @@ pub struct TunnelSettings {
     pub max_dns_in_flight: usize,
     pub idle_timeout: Duration,
     pub connect_timeout: Duration,
-    pub dns_upstream: SocketAddr,
-    pub dns_timeout: Duration,
+    /// Hosts, per-domain servers and upstreams for UDP/53.
+    pub dns: Arc<DnsPolicy>,
 }
 
 /// Live counters. Snapshots are safe to expose: no addresses, no payloads.
@@ -422,20 +425,37 @@ fn spawn_tasks(
                 flows.forward(payload, src, dst, &dispatcher, &stats, &reply_tx, &settings);
                 continue;
             }
+            let rule_sets = dispatcher
+                .routed_outbound()
+                .map(|routed| routed.rule_sets().as_ref());
+            let server = match settings.dns.plan(&payload, rule_sets) {
+                Plan::Local(response) => {
+                    bump(&stats.dns_queries);
+                    if reply_tx.try_send((response, dst, src)).is_err() {
+                        bump(&stats.dns_failed);
+                    }
+                    continue;
+                }
+                Plan::Forward(server) => server,
+            };
             let Ok(permit) = dns_permits.clone().try_acquire_owned() else {
                 bump(&stats.dns_failed);
                 continue;
             };
             bump(&stats.dns_queries);
             // DNS queries are the tunnel's own traffic, not listed connections.
-            let outbound = dispatcher.outbound().clone();
+            let policy = settings.dns.clone();
+            let outbound = match policy.servers()[server].via {
+                DnsVia::Proxy if dispatcher.mode() != Mode::Direct => dispatcher.outbound(),
+                _ => dispatcher.direct(),
+            }
+            .clone();
             let stats = stats.clone();
             let reply_tx = reply_tx.clone();
-            let upstream = settings.dns_upstream;
-            let timeout = settings.dns_timeout;
             tokio::spawn(async move {
                 let _permit = permit;
-                match dns::query_over_tcp(outbound.as_ref(), upstream, &payload, timeout).await {
+                let upstream = &policy.servers()[server].upstream;
+                match dns::exchange(upstream, outbound.as_ref(), &payload, policy.timeout()).await {
                     // The reply goes back from the address the app queried.
                     Ok(response) => {
                         let _ = reply_tx.send((response, dst, src)).await;

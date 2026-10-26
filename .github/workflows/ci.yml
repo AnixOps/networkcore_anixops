@@ -2221,7 +2221,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for features in "" http hysteria2 mieru shadowsocks snell socks trojan tuic vless vmess wireguard local-proxy mitm scripts; do
+          for features in "" dns-tls http hysteria2 mieru shadowsocks snell socks trojan tuic vless vmess wireguard local-proxy mitm scripts; do
             echo "::group::engine-embedded features=[${features}]"
             cargo clippy --locked -p engine-embedded --no-default-features --features "${features}" --all-targets -- -D warnings
             cargo test --locked -p engine-embedded --no-default-features --features "${features}" --tests

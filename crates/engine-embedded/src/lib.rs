@@ -33,9 +33,12 @@ pub mod control;
 pub mod delay;
 pub mod direct;
 pub mod dns;
+pub mod dns_policy;
 #[cfg(feature = "local-proxy")]
 pub mod fetch;
 pub mod ffi;
+#[cfg(any(feature = "local-proxy", feature = "dns-tls"))]
+pub mod http1;
 #[cfg(feature = "local-proxy")]
 pub mod local_proxy;
 #[cfg(feature = "mitm")]
@@ -63,6 +66,7 @@ use serde::Serialize;
 
 use crate::config::{RuntimeConfig, TunnelMode};
 use crate::connections::Dispatcher;
+use crate::dns_policy::DnsPolicy;
 use crate::routing::RoutedOutbound;
 use crate::tunnel::{FlowInterceptor, PacketSink, Tunnel, TunnelSettings, TunnelStatsSnapshot};
 #[cfg(feature = "wireguard")]
@@ -225,6 +229,12 @@ impl EmbeddedRuntime {
                 "tunnel is already running",
             )));
         }
+        let dns = match DnsPolicy::from_config(&self.config.dns) {
+            Ok(policy) => policy,
+            Err(message) => {
+                return Err(self.fail(RuntimeError::new(RuntimeErrorCode::ConfigRejected, message)))
+            }
+        };
         let limits = &self.config.limits;
         let settings = TunnelSettings {
             mtu: self.config.mtu,
@@ -233,8 +243,7 @@ impl EmbeddedRuntime {
             max_dns_in_flight: limits.max_dns_in_flight,
             idle_timeout: Duration::from_secs(limits.idle_timeout_secs),
             connect_timeout: Duration::from_secs(limits.connect_timeout_secs),
-            dns_upstream: self.config.dns.upstream,
-            dns_timeout: Duration::from_millis(self.config.dns.timeout_ms),
+            dns: Arc::new(dns),
         };
         let started = match &self.engine {
             Engine::Stack(dispatcher) => Tunnel::start_with_dispatcher(
