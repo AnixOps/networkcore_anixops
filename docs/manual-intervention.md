@@ -511,6 +511,7 @@ CI 只验证托管配置、服务进程内启停和健康检查（`managed_runti
 - iOS TestFlight/App Store Connect upload workflow 仍为 pending；完成前不得执行 archive/export、
   TestFlight upload、App Store upload、App Review submission 或 iOS release asset。当前 release workflow 仅允许
   `ios-upload-readiness` blocked placeholder 读取这些 marker，输出 source tree preflight 和 safe summary。
+- `third_party/mitm_anixops` 只能固定在已发布的 release commit（当前 v1.4.6 / `6382f01`，CI policy 同时校验 tag object 与 manifest digest）。mitm_anixops main 上的 `6c71236`（脚本 runner 在 Windows 上替换 store 文件时对 EPERM/EACCES/EBUSY 重试，修复 Windows engine-native 偶发失败）需要维护者批准并发布 mitm_anixops 新版本后，再在独立 PR 中同步更新 submodule、`ci.yml` 与 `managed-sdwan-mitm-policy-gate-source-contract.md` 中的 release tag/commit/manifest 字段。
 ## Windows 去除第三方内核后真机验收（Phase 4A）
 
 在 Windows 真机上安装包含 Phase 4A 的构建后：

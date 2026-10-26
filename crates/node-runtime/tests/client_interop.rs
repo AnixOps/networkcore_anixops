@@ -1,6 +1,7 @@
 //! Our server inbounds against the reference clients: Xray-core, sing-box
 //! and the official Hysteria client each connect through a node built from
-//! anixcore inbound configs and relay TCP to an echo target.
+//! anixcore inbound configs and relay TCP (and, where the client speaks a
+//! UDP form our inbound takes, SOCKS5 UDP) to echo targets.
 //!
 //! The tests are `#[ignore]`d; the interop CI job runs them with
 //! `--ignored` after `.github/scripts/reality-interop.sh start` has written
@@ -13,7 +14,7 @@
 //! - `NC_REALITY_PRIVATE_KEY`, `NC_REALITY_PUBLIC_KEY`, `NC_REALITY_SHORT_ID`,
 //!   `NC_REALITY_SERVER_NAME`, `NC_REALITY_DEST`: REALITY settings and the
 //!   camouflage target
-//! - `NC_VLESS_UUID`, `NC_TCP_ECHO`
+//! - `NC_VLESS_UUID`, `NC_TCP_ECHO`, `NC_UDP_ECHO`
 
 use std::fmt::Write as _;
 use std::net::{SocketAddr, TcpListener as StdTcpListener};
@@ -48,6 +49,7 @@ struct Env {
     reality_dest: SocketAddr,
     uuid: String,
     echo: SocketAddr,
+    udp_echo: SocketAddr,
 }
 
 fn var(name: &str) -> String {
@@ -68,6 +70,7 @@ impl Env {
             reality_dest: var("NC_REALITY_DEST").parse().expect("NC_REALITY_DEST"),
             uuid: var("NC_VLESS_UUID"),
             echo: var("NC_TCP_ECHO").parse().expect("NC_TCP_ECHO"),
+            udp_echo: var("NC_UDP_ECHO").parse().expect("NC_UDP_ECHO"),
         }
     }
 
@@ -311,6 +314,18 @@ impl Client {
         }
     }
 
+    /// Whether the client relays SOCKS5 UDP to `case` in a form our inbound
+    /// takes. Xray sends VLESS and VMess UDP as XUDP (Mux.Cool) and sing-box
+    /// sends VLESS UDP as XUDP by default; our inbounds take the plain UDP
+    /// command, so those pairs are TCP only.
+    fn udp(self, case: &Case) -> bool {
+        match self {
+            Client::Xray => matches!(case.proto, Proto::Trojan | Proto::Shadowsocks),
+            Client::SingBox => !matches!(case.proto, Proto::VlessReality { .. } | Proto::Vless),
+            Client::Hysteria => true,
+        }
+    }
+
     /// Config file contents and the arguments that run it.
     fn config(
         self,
@@ -411,7 +426,7 @@ fn xray_config(env: &Env, case: &Case, server: SocketAddr, socks: u16) -> Value 
     json!({
         "log": {"loglevel": "debug"},
         "inbounds": [{"listen": "127.0.0.1", "port": socks, "protocol": "socks",
-            "settings": {"auth": "noauth", "udp": false}}],
+            "settings": {"auth": "noauth", "udp": true, "ip": "127.0.0.1"}}],
         "outbounds": [{"protocol": protocol, "settings": settings, "streamSettings": stream}],
     })
 }
@@ -655,6 +670,105 @@ async fn echo(socks: u16, target: SocketAddr, payload: &[u8]) -> Result<(), Stri
     Ok(())
 }
 
+/// SOCKS5 UDP ASSOCIATE through the client on `socks`, then datagrams to
+/// the UDP echo `target`. Returns the payload bytes echoed.
+async fn udp_echo(socks: u16, target: SocketAddr) -> Result<u64, String> {
+    let SocketAddr::V4(target) = target else {
+        return Err("the udp echo target must be IPv4".to_owned());
+    };
+    let associate = async {
+        let mut control = TcpStream::connect(("127.0.0.1", socks)).await?;
+        control.write_all(&[5, 1, 0]).await?;
+        let mut reply = [0u8; 2];
+        control.read_exact(&mut reply).await?;
+        if reply != [5, 0] {
+            return Err(std::io::Error::other(format!(
+                "socks greeting reply {reply:?}"
+            )));
+        }
+        control.write_all(&[5, 3, 0, 1, 0, 0, 0, 0, 0, 0]).await?;
+        let mut head = [0u8; 4];
+        control.read_exact(&mut head).await?;
+        if head[1] != 0 {
+            return Err(std::io::Error::other(format!(
+                "socks udp associate reply {}",
+                head[1]
+            )));
+        }
+        if head[3] != 1 {
+            return Err(std::io::Error::other(format!(
+                "socks relay address type {}",
+                head[3]
+            )));
+        }
+        let mut bound = [0u8; 6];
+        control.read_exact(&mut bound).await?;
+        let mut ip = std::net::Ipv4Addr::new(bound[0], bound[1], bound[2], bound[3]);
+        if ip.is_unspecified() {
+            ip = std::net::Ipv4Addr::LOCALHOST;
+        }
+        let relay = SocketAddr::from((ip, u16::from_be_bytes([bound[4], bound[5]])));
+        Ok((control, relay))
+    };
+    let (_control, relay) = tokio::time::timeout(TIMEOUT, associate)
+        .await
+        .map_err(|_| "socks udp associate timed out".to_owned())?
+        .map_err(|error| format!("socks udp associate: {error}"))?;
+    let socket = tokio::net::UdpSocket::bind("127.0.0.1:0")
+        .await
+        .map_err(|error| format!("udp bind: {error}"))?;
+    let mut header = vec![0, 0, 0, 1];
+    header.extend_from_slice(&target.ip().octets());
+    header.extend_from_slice(&target.port().to_be_bytes());
+    let mut echoed = 0u64;
+    for (index, size) in [64usize, 1200, 8].into_iter().enumerate() {
+        let payload: Vec<u8> = (0..size).map(|i| (i * 7 + index) as u8).collect();
+        let mut datagram = header.clone();
+        datagram.extend_from_slice(&payload);
+        let mut answered = false;
+        // The first datagram can race the relay's session setup; resend.
+        for _ in 0..5 {
+            socket
+                .send_to(&datagram, relay)
+                .await
+                .map_err(|error| format!("udp send: {error}"))?;
+            let mut buf = vec![0u8; 65536];
+            let Ok(received) =
+                tokio::time::timeout(Duration::from_secs(2), socket.recv_from(&mut buf)).await
+            else {
+                continue;
+            };
+            let (len, _) = received.map_err(|error| format!("udp recv: {error}"))?;
+            let reply = &buf[..len];
+            // RSV RSV FRAG ATYP, then the source address in any form.
+            let header_len = match reply.get(3) {
+                Some(1) => 4 + 4 + 2,
+                Some(4) => 4 + 16 + 2,
+                Some(3) => 4 + 1 + usize::from(reply.get(4).copied().unwrap_or(0)) + 2,
+                _ => usize::MAX,
+            };
+            if reply.len() < header_len || reply[..3] != [0, 0, 0] {
+                return Err(format!(
+                    "udp reply has a bad SOCKS5 header: {:?}",
+                    &reply[..len.min(10)]
+                ));
+            }
+            if reply[header_len..] != payload[..] {
+                return Err(format!(
+                    "udp echo of {size} bytes differs from what was sent"
+                ));
+            }
+            answered = true;
+            break;
+        }
+        if !answered {
+            return Err(format!("no udp echo for a {size} byte datagram"));
+        }
+        echoed += size as u64;
+    }
+    Ok(echoed)
+}
+
 async fn run_client(
     env: &Env,
     node: &Node,
@@ -680,10 +794,15 @@ async fn run_client(
         }
         echo(socks, env.echo, &payload).await?;
         echo(socks, env.echo, b"second connection").await?;
+        let udp = if client.udp(case) {
+            udp_echo(socks, env.udp_echo).await?
+        } else {
+            0
+        };
         // Relayed bytes are charged to the user once the relay sees them.
         tokio::time::sleep(Duration::from_millis(200)).await;
         let (up, down) = traffic(node, case.tag);
-        let expected = (payload.len() + "second connection".len()) as u64;
+        let expected = (payload.len() + "second connection".len()) as u64 + udp;
         if up - before.0 < expected || down - before.1 < expected {
             return Err(format!(
                 "user traffic up {} down {}, expected at least {expected} each way",
