@@ -1,0 +1,27 @@
+[package]
+name = "inbound-hysteria2"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Hysteria2 server inbound over QUIC with per-user passwords and Salamander."
+
+[dependencies]
+engine-inbound = { path = "../engine-inbound" }
+engine-outbound = { path = "../engine-outbound" }
+inbound-transport = { path = "../inbound-transport" }
+# Shares the request constants and QUIC varints with the client outbound.
+outbound-hysteria2 = { path = "../outbound-hysteria2" }
+ring = "0.17"
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", default-features = false, features = ["io-util", "rt", "time"] }
+transport-quic = { path = "../transport-quic" }
+
+[dev-dependencies]
+rcgen = "0.14.8"
+serde_json = "1"
+tokio = { version = "1", default-features = false, features = ["io-util", "net", "rt", "rt-multi-thread", "macros", "time"] }
+transport-tls = { path = "../transport-tls" }
+
+[lib]
+path = "src/lib.rs"

@@ -135,7 +135,46 @@ async fn run(
             return;
         }
     };
+    relay(
+        Accepted {
+            user,
+            target,
+            stream,
+        },
+        peer,
+        outbound,
+        settings,
+        stats,
+    )
+    .await;
+}
 
+/// Relays a stream whose protocol handshake is already done, such as a QUIC
+/// stream of an authenticated connection.
+pub async fn relay_accepted(
+    accepted: Accepted,
+    peer: SocketAddr,
+    outbound: &dyn TcpOutbound,
+    settings: &ServeSettings,
+    stats: &Arc<InboundStats>,
+) {
+    stats.active.fetch_add(1, Ordering::Relaxed);
+    relay(accepted, peer, outbound, settings, stats).await;
+    stats.active.fetch_sub(1, Ordering::Relaxed);
+}
+
+async fn relay(
+    accepted: Accepted,
+    peer: SocketAddr,
+    outbound: &dyn TcpOutbound,
+    settings: &ServeSettings,
+    stats: &Arc<InboundStats>,
+) {
+    let Accepted {
+        user,
+        target,
+        stream,
+    } = accepted;
     let _online = user.as_ref().map(|user| user.connect(peer.ip()));
     if user.as_ref().is_some_and(|user| user.is_revoked()) {
         stats.revoked.fetch_add(1, Ordering::Relaxed);

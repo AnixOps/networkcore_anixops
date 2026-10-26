@@ -29,7 +29,7 @@ use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use engine_outbound::{BoxFuture, BoxStream, TargetAddr};
+use engine_outbound::{BoxFuture, BoxStream, TargetAddr, TcpOutbound};
 use tokio::io::AsyncReadExt;
 
 use crate::stream::PrefixedStream;
@@ -94,6 +94,24 @@ pub trait StreamInbound: Send + Sync {
         stream: BoxStream,
         peer: SocketAddr,
     ) -> BoxFuture<'a, Result<Accepted, Rejected>>;
+}
+
+/// A server protocol that owns a UDP socket, such as the QUIC-based
+/// Hysteria2 and TUIC. Each proxied stream is relayed with
+/// [`server::relay_accepted`].
+pub trait PacketInbound: Send + Sync {
+    fn protocol(&self) -> &'static str;
+
+    fn users(&self) -> &Arc<UserStore>;
+
+    /// Serves on `socket` until the socket fails or the future is dropped.
+    fn serve(
+        self: Arc<Self>,
+        socket: std::net::UdpSocket,
+        outbound: Arc<dyn TcpOutbound>,
+        settings: server::ServeSettings,
+        stats: Arc<server::InboundStats>,
+    ) -> BoxFuture<'static, io::Result<()>>;
 }
 
 /// Largest first read a protocol inspects before deciding between its own

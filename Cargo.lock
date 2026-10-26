@@ -2530,6 +2530,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "inbound-hysteria2"
+version = "0.2.0"
+dependencies = [
+ "engine-inbound",
+ "engine-outbound",
+ "inbound-transport",
+ "outbound-hysteria2",
+ "rcgen",
+ "ring",
+ "serde",
+ "serde_json",
+ "tokio",
+ "transport-quic",
+ "transport-tls",
+]
+
+[[package]]
 name = "inbound-mixed"
 version = "0.2.0"
 dependencies = [
@@ -2581,6 +2598,22 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "transport-tls",
+]
+
+[[package]]
+name = "inbound-tuic"
+version = "0.2.0"
+dependencies = [
+ "engine-inbound",
+ "engine-outbound",
+ "inbound-transport",
+ "outbound-tuic",
+ "rcgen",
+ "serde",
+ "serde_json",
+ "tokio",
+ "transport-quic",
  "transport-tls",
 ]
 

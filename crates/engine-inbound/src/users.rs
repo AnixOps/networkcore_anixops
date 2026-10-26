@@ -369,12 +369,14 @@ fn add_totals(totals: &mut BTreeMap<String, (u64, u64)>, name: &str, (up, down):
     total.1 += down;
 }
 
+type IndexMap<K> = Arc<HashMap<K, Arc<UserEntry>>>;
+
 /// Lookup from a protocol credential to the user, cached per store
 /// generation.
 pub struct UserIndex<K> {
     store: Arc<UserStore>,
     key: fn(&User) -> Option<K>,
-    cache: Mutex<(u64, Arc<HashMap<K, Arc<UserEntry>>>)>,
+    cache: Mutex<(u64, IndexMap<K>)>,
 }
 
 impl<K: Eq + Hash> UserIndex<K> {
@@ -396,7 +398,7 @@ impl<K: Eq + Hash> UserIndex<K> {
         self.current().get(key).cloned()
     }
 
-    fn current(&self) -> Arc<HashMap<K, Arc<UserEntry>>> {
+    fn current(&self) -> IndexMap<K> {
         let generation = self.store.generation();
         let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
         if cache.0 != generation {
