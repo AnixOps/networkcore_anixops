@@ -14,7 +14,6 @@ docs=false
 governance=false
 go=false
 rust=false
-node=false
 windows=false
 linux=false
 ios=false
@@ -35,7 +34,6 @@ mark_full_validation() {
   governance=true
   go=true
   rust=true
-  node=true
   windows=true
   linux=true
   ios=true
@@ -122,13 +120,6 @@ else
         esac
 
         case "${path}" in
-          package.json|*/package.json|pnpm-lock.yaml|*/pnpm-lock.yaml|apps/windows-gui/ui/*)
-            mark node
-            recognized=true
-            ;;
-        esac
-
-        case "${path}" in
           go.mod|*/go.mod|go.sum|*/go.sum|*.go|*/go.work|go.work)
             mark go
             mark full_matrix
@@ -137,21 +128,21 @@ else
         esac
 
         case "${path}" in
-          apps/windows-cli/*|apps/windows-gui/*|apps/windows-service/*|crates/platform-windows/*|installer/windows/*)
+          apps/windows-cli/*|crates/platform-windows/*)
             mark windows
             recognized=true
             ;;
         esac
 
         case "${path}" in
-          apps/linux-cli/*|apps/linux-gui/*|crates/platform-linux/*|docs/architecture/linux-*|docs/release-strategy.md)
+          apps/linux-cli/*|crates/platform-linux/*|docs/architecture/linux-*|docs/release-strategy.md)
             mark linux
             recognized=true
             ;;
         esac
 
         case "${path}" in
-          apps/ios/*|crates/platform-ios/*|*.swift|*/Package.swift|Package.swift|*.xcodeproj/*|*.xcworkspace/*|*.entitlements|*/PrivacyInfo.xcprivacy|PrivacyInfo.xcprivacy|.github/workflows/*ios*|.github/workflows/*apple*)
+          crates/platform-ios/*|*.swift|*/Package.swift|Package.swift|*.xcodeproj/*|*.xcworkspace/*|*.entitlements|*/PrivacyInfo.xcprivacy|PrivacyInfo.xcprivacy|.github/workflows/*ios*|.github/workflows/*apple*)
             mark ios
             mark apple
             recognized=true
@@ -159,7 +150,7 @@ else
         esac
 
         case "${path}" in
-          .github/workflows/release.yml|docs/release-strategy.md|docs/manual-intervention.md|docs/architecture/*release*|docs/architecture/linux-package-*|installer/windows/*|LICENSE|Cargo.lock)
+          .github/workflows/release.yml|docs/release-strategy.md|docs/manual-intervention.md|docs/architecture/*release*|docs/architecture/linux-package-*|LICENSE|Cargo.lock)
             mark release_sensitive
             mark full_matrix
             recognized=true
@@ -220,7 +211,7 @@ fi
 validation_matrix="$(matrix_json "${run_ubuntu}" "${run_macos}" "${run_windows}")"
 
 groups=()
-for group in docs governance go rust node windows linux ios apple workflow release_sensitive full_matrix unknown; do
+for group in docs governance go rust windows linux ios apple workflow release_sensitive full_matrix unknown; do
   if [[ "${!group}" == true ]]; then
     groups+=("${group}")
   fi
@@ -235,7 +226,6 @@ group_list="$(IFS=,; echo "${groups[*]}")"
   echo "governance=${governance}"
   echo "go=${go}"
   echo "rust=${rust}"
-  echo "node=${node}"
   echo "windows=${windows}"
   echo "linux=${linux}"
   echo "ios=${ios}"

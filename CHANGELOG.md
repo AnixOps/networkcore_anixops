@@ -4,6 +4,15 @@
 
 ## Unreleased
 
+### Changed
+
+- 仓库拆分：客户端连同 git 历史迁到公开仓库 [AnixOps/anixops-net](https://github.com/AnixOps/anixops-net)，本仓库只保留 AnixOps Net 的网络内核（`crates/*`、`apps/anixcore`、`apps/linux-cli`、`apps/windows-cli`、`third_party/mitm_anixops` 与内核文档）。客户端仓库固定引用本仓库的一个内核 commit，并有自己的 CI（UI、Linux GUI、Windows 构建与 MSI、Swift、iOS/macOS Xcode）、`ios-testflight.yml` 和 `release.yml`（Windows MSI 与 portable ZIP，内含由固定内核 commit 构建的 `networkcore-windows` CLI；Linux 桌面 tarball 与 `.deb`）。
+  - 删除 `apps/windows-gui`、`apps/windows-service`、`apps/linux-gui`、`apps/ios`、`installer/windows`，workspace 去掉对应 member，`Cargo.lock` 只删去不再使用的依赖。
+  - 删除 `ios-testflight.yml`、`refresh-pnpm-lock.yml`、`refresh-windows-icon.yml` 以及 iOS 清单校验、iOS 合同字段、XCFramework 打包和 Windows `windres`/`rc` 兼容 shim 脚本。
+  - CI 去掉 Windows GUI 前端、Linux GUI、Windows MSI、Node、Swift、iOS Xcode 和 Apple project smoke 任务，以及对客户端文件的 policy 检查；路径分类器去掉 `node` 组和客户端路径。新增 macOS 任务 “iOS runtime static libraries”：为 `aarch64-apple-ios` 构建 `engine-embedded` 与 `node-import` 静态库并检查两个 C header，iOS/Apple 路径或完整矩阵变化时由 CI summary 要求通过。
+  - Release 只发布 Linux CLI 四件套；删除 Linux 桌面客户端、Windows 打包/attestation/release notes/publish eligibility 和 iOS upload readiness 任务，release body 注明客户端由 AnixOps/anixops-net 发布。
+  - 客户端文档（iOS App/扩展/上架合同、Windows GUI 日常可用性、Windows managed client 发布合同、Windows 真机冒烟）和客户端人工事项迁到客户端仓库；`ios-embedded-runtime-ffi-boundary-design.md` 作为内核 FFI 边界保留。
+
 ### Added
 
 - 反向互通 CI：`node-runtime` 新增 `client_interop` 测试（`#[ignore]`，由 REALITY interop 作业运行），用 `anixcore` 入站配置起节点，让 Xray-core、sing-box 和官方 Hysteria 客户端经 SOCKS5 连入并回显 256 KiB 数据，同时核对按用户计费。覆盖 VLESS REALITY（含 Vision）、VLESS TLS+WS/gRPC、VMess TCP/WS/TLS+gRPC、Trojan TLS/TLS+WS/TLS+gRPC、Shadowsocks-2022 多用户、Hysteria2（含 salamander）和 TUIC；客户端按名称校验自签证书，不使用 insecure 选项。UDP 也经 SOCKS5 UDP ASSOCIATE 回显（Xray 测 Trojan 与 Shadowsocks；sing-box 测除 VLESS 以外的协议；Hysteria 全测），VLESS 与 Xray VMess 的 UDP 走 XUDP，入站暂不支持，只测 TCP。

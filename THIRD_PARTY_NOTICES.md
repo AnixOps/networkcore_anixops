@@ -16,7 +16,7 @@ Clash、Surge、Loon、Quantumult X、V2Ray 等名称只用于描述兼容的订
 
 ## Rust 与前端依赖
 
-`Cargo.lock` 和 `apps/windows-gui/ui/pnpm-lock.yaml` 列出的开源依赖按各自许可证使用，发布产物的完整依赖许可证清单以 lockfile 为准。
+`Cargo.lock` 列出的开源依赖按各自许可证使用，发布产物的完整依赖许可证清单以 lockfile 为准。客户端前端的 pnpm 依赖随客户端迁到 [AnixOps/anixops-net](https://github.com/AnixOps/anixops-net)。
 
 Rust 依赖的许可证由 CI `rust-security-audit` job 中的 `cargo deny check licenses` 按根目录 `deny.toml` 白名单检查：只允许宽松许可证和文件级 copyleft 的 MPL-2.0，拒绝 GPL、AGPL、仅 LGPL、SSPL 以及源码可见类许可证。这样闭源的 App Store 客户端可以链接本仓库内核。
 

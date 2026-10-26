@@ -93,6 +93,15 @@ async fn handshake_site() -> (SocketAddr, Arc<Mutex<Vec<Vec<u8>>>>) {
                 let _ = stream
                     .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
                     .await;
+                // Close gracefully and drain what the relay still sends: on
+                // Windows, closing with unread bytes sends RST, which can
+                // discard the response before the relay has read it.
+                let _ = stream.shutdown().await;
+                let _ = tokio::time::timeout(
+                    Duration::from_millis(500),
+                    tokio::io::copy(&mut stream, &mut tokio::io::sink()),
+                )
+                .await;
             });
         }
     });

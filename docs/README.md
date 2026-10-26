@@ -2,13 +2,14 @@
 
 按主题列出 `docs/` 下全部文档。项目概览见 [README](../README.md)，阶段与计划见 [ROADMAP](../ROADMAP.md) 和 [TODO](../TODO.md)。
 
+客户端文档（Windows GUI 日常可用性、Windows managed client MSI 发布合同、Windows 真机冒烟、iOS/macOS App、TestFlight 与 App Review 合同）已随客户端迁到 [AnixOps/anixops-net](https://github.com/AnixOps/anixops-net)。
+
 ## 治理、发布与运维
 
 - [CI/CD Policy](ci-cd-policy.md)：本地与 GitHub Actions 的职责、按改动范围选择验证任务
 - [Release Strategy](release-strategy.md)：tag 发布门禁、产物矩阵与回滚
 - [Alpha Release Feature Matrix](alpha-release-feature-matrix.md)：每个 alpha/beta/rc/stable 版本的能力边界
 - [Manual Intervention List](manual-intervention.md)：需要人工处理的事项
-- [Alpha Windows Smoke Test](alpha-windows-smoke-test.md)：Windows 真机冒烟步骤
 - [P0 维护手册](MAINTENANCE_P0.md)、[交付证据](P4_EXECUTION_STATUS.md)、[维护事件 schema](contracts/maintenance-event.schema.json) 与 [fixture](contracts/maintenance-event.fixture.json)
 - [归档](archive/README.md)：已完成的历史计划与设计
 
@@ -67,28 +68,11 @@
 
 ## Windows
 
-- [Windows Managed Client Source Release Contract](architecture/windows-managed-client-source-release-contract.md)
-- [Windows GUI Daily Usability](architecture/windows-gui-daily-usability.md)
 - [Windows CLI Artifact Source Release Contract](architecture/windows-cli-artifact-source-release-contract.md)
 
-## iOS
+## iOS/macOS 运行时
 
-- [iOS Platform Risk Assessment](architecture/ios-platform-risk-assessment.md)
-- [iOS Network Extension Design](architecture/ios-network-extension-design.md)
-- [iOS Platform Adapter Source Contract](architecture/ios-platform-adapter-source-contract.md)
-- [iOS Swift Network Extension Bridge Design](architecture/ios-swift-network-extension-bridge-design.md)
-- [iOS Swift Xcode Bridge Source Contract](architecture/ios-swift-xcode-bridge-source-contract.md)
-- [iOS Embedded Runtime FFI Boundary Design](architecture/ios-embedded-runtime-ffi-boundary-design.md)
-- [iOS MITM Certificate Lifecycle Design](architecture/ios-mitm-certificate-lifecycle-design.md)
-- [iOS Entitlement Provisioning Source Contract](architecture/ios-entitlement-provisioning-source-contract.md)
-- [iOS App Review Privacy Release Readiness Design](architecture/ios-app-review-privacy-release-readiness-design.md)
-- [iOS Privacy Manifest Source Contract](architecture/ios-privacy-manifest-source-contract.md)
-- [iOS App Review Manual Confirmation Source Contract](architecture/ios-app-review-manual-confirmation-source-contract.md)
-- [iOS TestFlight App Store Connect Upload Workflow Source Contract](architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md)
-- [iOS Upload Workflow Activation Validation Contract](architecture/ios-upload-workflow-activation-validation-contract.md)
-- [iOS Swift Xcode Source Tree Activation Preflight Contract](architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md)
-- [iOS Package.swift Source Ownership Activation Preflight Contract](architecture/ios-package-swift-source-ownership-activation-preflight-contract.md)
-- [iOS Package.swift Manifest-Only Activation Validation Contract](architecture/ios-package-swift-manifest-only-activation-validation-contract.md)
+- [iOS Embedded Runtime FFI Boundary Design](architecture/ios-embedded-runtime-ffi-boundary-design.md)：`engine-embedded`/`node-import` 的 C ABI 静态库边界
 
 ## Linux 发布流水线合同
 
