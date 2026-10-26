@@ -1912,6 +1912,7 @@ fn render_sing_box_outbound(node: &NodeDescriptor) -> DomainResult<serde_json::V
         | Protocol::Hysteria
         | Protocol::WireGuard
         | Protocol::Mieru
+        | Protocol::Snell
         | Protocol::Other(_) => Err(DomainError::new(
             ENGINE_SINGBOX_CONFIG_NODE_UNSUPPORTED_CODE,
             format!(

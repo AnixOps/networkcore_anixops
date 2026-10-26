@@ -20,7 +20,10 @@ use control_domain::{
     NODE_METADATA_HYSTERIA2_OBFS_MIN_PACKET_SIZE, NODE_METADATA_HYSTERIA2_OBFS_PASSWORD,
     NODE_METADATA_HYSTERIA2_OBFS_TYPE, NODE_METADATA_HYSTERIA2_PASSWORD,
     NODE_METADATA_HYSTERIA2_SERVER_PORTS, NODE_METADATA_SHADOWSOCKS_METHOD,
-    NODE_METADATA_SHADOWSOCKS_PASSWORD, NODE_METADATA_SOURCE_FORMAT, NODE_METADATA_TLS_ALPN,
+    NODE_METADATA_SHADOWSOCKS_PASSWORD, NODE_METADATA_SNELL_MODE, NODE_METADATA_SNELL_OBFS,
+    NODE_METADATA_SNELL_OBFS_HOST, NODE_METADATA_SNELL_OBFS_URI, NODE_METADATA_SNELL_PSK,
+    NODE_METADATA_SNELL_REUSE, NODE_METADATA_SNELL_USER_KEY, NODE_METADATA_SNELL_VERSION,
+    NODE_METADATA_SOURCE_FORMAT, NODE_METADATA_TLS_ALPN,
     NODE_METADATA_TLS_CERTIFICATE_PUBLIC_KEY_SHA256, NODE_METADATA_TLS_ENABLED,
     NODE_METADATA_TLS_INSECURE, NODE_METADATA_TLS_REALITY_PUBLIC_KEY,
     NODE_METADATA_TLS_REALITY_SHORT_ID, NODE_METADATA_TLS_SERVER_NAME,
@@ -177,6 +180,16 @@ struct RawClashProxy {
     cipher: Option<RawClashScalar>,
     password: Option<RawClashScalar>,
     uuid: Option<RawClashScalar>,
+    psk: Option<RawClashScalar>,
+    version: Option<RawClashScalar>,
+    #[serde(rename = "obfs-opts")]
+    obfs_opts: Option<RawClashSnellObfs>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawClashSnellObfs {
+    mode: Option<RawClashScalar>,
+    host: Option<RawClashScalar>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -864,10 +877,37 @@ fn parse_clash_proxy(raw: RawClashProxy, source_id: &str) -> DomainResult<NodeDe
                 }],
             )
         }
+        "snell" => {
+            let psk = required_clash_scalar_field(raw.psk, "clash snell psk cannot be empty")?;
+            let obfs = raw.obfs_opts.unwrap_or(RawClashSnellObfs {
+                mode: None,
+                host: None,
+            });
+            let text = |value: Option<RawClashScalar>| {
+                value
+                    .map(RawClashScalar::into_text)
+                    .map(|value| value.trim().to_string())
+                    .filter(|value| !value.is_empty())
+            };
+            (
+                Protocol::Snell,
+                "snell",
+                snell_metadata(SnellFields {
+                    psk,
+                    version: text(raw.version),
+                    mode: None,
+                    obfs: text(obfs.mode),
+                    obfs_host: text(obfs.host),
+                    obfs_uri: None,
+                    reuse: None,
+                    user_key: None,
+                }),
+            )
+        }
         _ => {
             return Err(domain_error(
                 SUBSCRIPTION_CLASH_YAML_UNSUPPORTED_CODE,
-                "clash proxy type must be ss, trojan, vless, or vmess",
+                "clash proxy type must be ss, trojan, vless, vmess, or snell",
             ));
         }
     };
@@ -2199,10 +2239,29 @@ fn parse_surge_proxy_line(line: &str, source_id: &str) -> DomainResult<NodeDescr
                 }],
             )
         }
+        "snell" => {
+            let psk =
+                required_surge_proxy_option(&options, &["psk"], "surge snell psk cannot be empty")?;
+            let option = |key: &str| options.get(key).cloned();
+            (
+                Protocol::Snell,
+                "snell",
+                snell_metadata(SnellFields {
+                    psk,
+                    version: option("version"),
+                    mode: option("mode"),
+                    obfs: option("obfs"),
+                    obfs_host: option("obfs_host"),
+                    obfs_uri: option("obfs_uri"),
+                    reuse: option("reuse"),
+                    user_key: option("userkey"),
+                }),
+            )
+        }
         _ => {
             return Err(domain_error(
                 SUBSCRIPTION_SURGE_PROXY_LINE_UNSUPPORTED_CODE,
-                "surge proxy type must be ss, trojan, or vmess for catalog import",
+                "surge proxy type must be ss, trojan, vmess, or snell for catalog import",
             ));
         }
     };
@@ -2235,6 +2294,51 @@ fn parse_surge_proxy_line(line: &str, source_id: &str) -> DomainResult<NodeDescr
         ],
         metadata,
     })
+}
+
+/// Snell node options shared by the Surge and Clash parsers.
+struct SnellFields {
+    psk: String,
+    version: Option<String>,
+    mode: Option<String>,
+    obfs: Option<String>,
+    obfs_host: Option<String>,
+    obfs_uri: Option<String>,
+    reuse: Option<String>,
+    user_key: Option<String>,
+}
+
+fn snell_metadata(fields: SnellFields) -> Metadata {
+    let mut metadata = vec![MetadataEntry {
+        key: NODE_METADATA_SNELL_PSK.to_string(),
+        value: fields.psk,
+    }];
+    for (key, value) in [
+        (NODE_METADATA_SNELL_VERSION, fields.version),
+        (
+            NODE_METADATA_SNELL_MODE,
+            fields.mode.map(|v| v.to_ascii_lowercase()),
+        ),
+        (
+            NODE_METADATA_SNELL_OBFS,
+            fields.obfs.map(|v| v.to_ascii_lowercase()),
+        ),
+        (NODE_METADATA_SNELL_OBFS_HOST, fields.obfs_host),
+        (NODE_METADATA_SNELL_OBFS_URI, fields.obfs_uri),
+        (
+            NODE_METADATA_SNELL_REUSE,
+            fields.reuse.map(|v| v.to_ascii_lowercase()),
+        ),
+        (NODE_METADATA_SNELL_USER_KEY, fields.user_key),
+    ] {
+        if let Some(value) = value {
+            metadata.push(MetadataEntry {
+                key: key.to_string(),
+                value,
+            });
+        }
+    }
+    metadata
 }
 
 fn parse_surge_section_header(line: &str) -> Option<&str> {
@@ -3689,6 +3793,7 @@ fn parse_protocol(raw: String) -> DomainResult<Protocol> {
         "hysteria2" | "hy2" => Protocol::Hysteria2,
         "tuic" => Protocol::Tuic,
         "wireguard" => Protocol::WireGuard,
+        "snell" => Protocol::Snell,
         _ => Protocol::Other(protocol),
     })
 }

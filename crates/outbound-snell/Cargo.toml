@@ -1,0 +1,25 @@
+[package]
+name = "outbound-snell"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Snell (v1-v4, v6) TCP outbound and UDP-over-TCP client for the embedded engine, written from docs/protocols/snell.md."
+
+[dependencies]
+# Session keys only (Argon2id); AEAD sealing uses ring.
+argon2 = { version = "0.5", default-features = false, features = ["alloc"] }
+base64 = "0.22"
+# v6 profile secret (BLAKE2b-256).
+blake2 = "0.10"
+engine-outbound = { path = "../engine-outbound" }
+ring = "0.17"
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", default-features = false, features = ["io-util"] }
+
+[dev-dependencies]
+serde_json = "1"
+tokio = { version = "1", default-features = false, features = ["io-util", "net", "rt", "rt-multi-thread", "macros", "time"] }
+
+[lib]
+path = "src/lib.rs"

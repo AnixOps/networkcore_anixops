@@ -189,3 +189,62 @@ fn header_declares_every_symbol_and_code() {
         "#define NETWORKCORE_IMPORT_ABI_VERSION {NETWORKCORE_IMPORT_ABI_VERSION}u"
     )));
 }
+
+#[test]
+fn surge_and_clash_snell_nodes_become_snell_outbounds() {
+    let surge = "\
+[Proxy]
+Snell v4 = snell, snell.example.test, 8443, psk=snell-secret, version=4, obfs=http, obfs-host=cdn.example.test, reuse=true
+Snell v6 = snell, 192.0.2.6, 9443, psk=snell-secret-6, version=6, mode=unshaped
+Snell v1 = snell, 192.0.2.1, 1443, psk=snell-secret-1
+Snell tls = snell, 192.0.2.3, 3443, psk=snell-secret-3, version=3, obfs=tls
+";
+    let report = import_text(surge).unwrap();
+    assert_eq!(report.nodes.len(), 3);
+    let v4 = &report.nodes[0].outbound;
+    assert_eq!(v4["type"], "snell");
+    assert_eq!(v4["server"], "snell.example.test");
+    assert_eq!(v4["port"], 8443);
+    assert_eq!(v4["psk"], "snell-secret");
+    assert_eq!(v4["version"], 4);
+    assert_eq!(v4["obfs"], "http");
+    assert_eq!(v4["obfs_host"], "cdn.example.test");
+    assert_eq!(v4["reuse"], true);
+    let v6 = &report.nodes[1].outbound;
+    assert_eq!(
+        (v6["version"].as_u64(), v6["mode"].as_str()),
+        (Some(6), Some("unshaped"))
+    );
+    assert!(v6["obfs"].is_null());
+    // A missing version means 1.
+    assert_eq!(report.nodes[2].outbound["version"], 1);
+    assert_eq!(report.unsupported.len(), 1);
+    assert_eq!(report.unsupported[0].protocol, "snell");
+    assert_eq!(
+        report.unsupported[0].reason,
+        "snell tls obfs is not implemented yet"
+    );
+    let unsupported = serde_json::to_string(&report.unsupported).unwrap();
+    assert!(!unsupported.contains("secret"), "{unsupported}");
+
+    let clash = r#"
+proxies:
+  - name: Snell
+    type: snell
+    server: snell.example.test
+    port: 8443
+    psk: clash-snell-secret
+    version: 3
+    obfs-opts:
+      mode: http
+      host: bing.com
+"#;
+    let report = import_text(clash).unwrap();
+    assert_eq!(report.nodes.len(), 1);
+    let outbound = &report.nodes[0].outbound;
+    assert_eq!(report.nodes[0].protocol, "snell");
+    assert_eq!(outbound["psk"], "clash-snell-secret");
+    assert_eq!(outbound["version"], 3);
+    assert_eq!(outbound["obfs"], "http");
+    assert_eq!(outbound["obfs_host"], "bing.com");
+}

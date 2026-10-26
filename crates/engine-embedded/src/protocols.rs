@@ -8,6 +8,7 @@
 //! | `http`        | `http`         | `outbound-http`        |
 //! | `hysteria2`   | `hysteria2`    | `outbound-hysteria2`   |
 //! | `shadowsocks` | `shadowsocks`  | `outbound-shadowsocks` |
+//! | `snell`       | `snell`        | `outbound-snell`       |
 //! | `socks`       | `socks`        | `outbound-socks`       |
 //! | `trojan`      | `trojan`       | `outbound-trojan`      |
 //! | `tuic`        | `tuic`         | `outbound-tuic`        |
@@ -35,6 +36,8 @@ pub fn default_registry() -> OutboundRegistry {
     registry.register(Arc::new(outbound_hysteria2::Hysteria2Factory));
     #[cfg(feature = "shadowsocks")]
     registry.register(Arc::new(outbound_shadowsocks::ShadowsocksFactory));
+    #[cfg(feature = "snell")]
+    registry.register(Arc::new(outbound_snell::SnellFactory));
     #[cfg(feature = "socks")]
     registry.register(Arc::new(outbound_socks::SocksFactory));
     #[cfg(feature = "trojan")]
