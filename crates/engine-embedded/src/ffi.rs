@@ -31,9 +31,20 @@ pub const NETWORKCORE_IOS_ERR_PANIC_CAUGHT: i32 = 8;
 pub const NETWORKCORE_IOS_ERR_INTERNAL_ERROR: i32 = 9;
 /// Returned by `networkcore_ios_runtime_input_packet` when the packet was dropped.
 pub const NETWORKCORE_IOS_ERR_PACKET_DROPPED: i32 = 10;
+/// Returned by `networkcore_ios_measure_delay` when the URL did not answer in time.
+pub const NETWORKCORE_IOS_ERR_DELAY_TIMEOUT: i32 = 11;
+/// Returned by `networkcore_ios_measure_delay` when the outbound, TLS or HTTP
+/// exchange failed, or the answer was not HTTP.
+pub const NETWORKCORE_IOS_ERR_DELAY_FAILED: i32 = 12;
 
 /// Largest config envelope accepted across the boundary.
 const MAX_CONFIG_LEN: usize = 64 * 1024;
+/// Largest delay test URL accepted across the boundary.
+#[cfg(feature = "local-proxy")]
+const MAX_URL_LEN: usize = 2048;
+/// Longest delay test timeout accepted across the boundary.
+#[cfg(feature = "local-proxy")]
+const MAX_DELAY_TIMEOUT_MS: u32 = 60_000;
 /// Largest IP packet accepted from the TUN side.
 const MAX_PACKET_LEN: usize = 65_535;
 
@@ -273,6 +284,68 @@ pub unsafe extern "C" fn networkcore_ios_runtime_collect_status(
                 Err(_) => NETWORKCORE_IOS_ERR_INTERNAL_ERROR,
             }
         })
+    })
+}
+
+/// Measures an HTTP(S) `url` through the outbound of `config` (an engine
+/// envelope with one `outbound`) and writes the time to the first line of the
+/// response, in milliseconds, into `out_millis`. Blocks the calling thread for
+/// at most `timeout_ms`; needs no runtime handle, so the containing app can
+/// test nodes while the tunnel is down.
+///
+/// # Safety
+///
+/// `config` must point to `config_len` readable bytes, `url` to `url_len`
+/// readable UTF-8 bytes, and `out_millis` must be a valid pointer to writable
+/// storage for one `u32`.
+#[cfg(feature = "local-proxy")]
+#[no_mangle]
+pub unsafe extern "C" fn networkcore_ios_measure_delay(
+    config: *const u8,
+    config_len: usize,
+    url: *const u8,
+    url_len: usize,
+    timeout_ms: u32,
+    out_millis: *mut u32,
+) -> i32 {
+    use crate::delay::{measure_delay, DelayError};
+
+    guarded(|| {
+        if out_millis.is_null() {
+            return NETWORKCORE_IOS_ERR_INVALID_ARGUMENT;
+        }
+        // SAFETY: checked non-null above; the caller provides writable storage.
+        unsafe { *out_millis = 0 };
+        if config.is_null()
+            || config_len == 0
+            || config_len > MAX_CONFIG_LEN
+            || url.is_null()
+            || url_len == 0
+            || url_len > MAX_URL_LEN
+            || timeout_ms == 0
+            || timeout_ms > MAX_DELAY_TIMEOUT_MS
+        {
+            return NETWORKCORE_IOS_ERR_INVALID_ARGUMENT;
+        }
+        // SAFETY: the caller guarantees `config_len` and `url_len` readable bytes.
+        let config = unsafe { std::slice::from_raw_parts(config, config_len) };
+        let url = unsafe { std::slice::from_raw_parts(url, url_len) };
+        let Ok(url) = std::str::from_utf8(url) else {
+            return NETWORKCORE_IOS_ERR_INVALID_ARGUMENT;
+        };
+        let timeout = std::time::Duration::from_millis(u64::from(timeout_ms));
+        match measure_delay(config, url, timeout) {
+            Ok(delay) => {
+                let millis = u32::try_from(delay.as_millis()).unwrap_or(u32::MAX).max(1);
+                // SAFETY: as above.
+                unsafe { *out_millis = millis };
+                NETWORKCORE_IOS_OK
+            }
+            Err(DelayError::Config(err)) => code_for(err.code),
+            Err(DelayError::InvalidUrl) => NETWORKCORE_IOS_ERR_INVALID_ARGUMENT,
+            Err(DelayError::Timeout) => NETWORKCORE_IOS_ERR_DELAY_TIMEOUT,
+            Err(DelayError::Failed(_) | DelayError::NotHttp) => NETWORKCORE_IOS_ERR_DELAY_FAILED,
+        }
     })
 }
 

@@ -9,6 +9,8 @@
  *   - NetworkCoreBuffer values are owned by the library; release each one once with
  *     networkcore_ios_runtime_free_buffer.
  *   - The runtime handle is released with networkcore_ios_runtime_free_handle.
+ *   - networkcore_ios_measure_delay is also linked into the containing app, which tests
+ *     nodes with it without starting a tunnel.
  *   - The packet writer runs on the tunnel thread until stop_tunnel returns and must
  *     not call back into the library.
  */
@@ -35,6 +37,8 @@ extern "C" {
 #define NETWORKCORE_IOS_ERR_PANIC_CAUGHT 8
 #define NETWORKCORE_IOS_ERR_INTERNAL_ERROR 9
 #define NETWORKCORE_IOS_ERR_PACKET_DROPPED 10
+#define NETWORKCORE_IOS_ERR_DELAY_TIMEOUT 11
+#define NETWORKCORE_IOS_ERR_DELAY_FAILED 12
 
 typedef struct NetworkCoreRuntime NetworkCoreRuntime;
 
@@ -55,6 +59,12 @@ int32_t networkcore_ios_runtime_start_tunnel(NetworkCoreRuntime *handle, Network
 int32_t networkcore_ios_runtime_input_packet(NetworkCoreRuntime *handle, const uint8_t *packet, size_t len);
 int32_t networkcore_ios_runtime_stop_tunnel(NetworkCoreRuntime *handle);
 int32_t networkcore_ios_runtime_collect_status(NetworkCoreRuntime *handle, NetworkCoreBuffer *out);
+/* Delay test: time to the first HTTP response line of `url` through the outbound of `config`,
+ * in milliseconds. Needs no runtime handle and blocks the calling thread up to timeout_ms
+ * (1...60000). Returns NETWORKCORE_IOS_ERR_DELAY_TIMEOUT or NETWORKCORE_IOS_ERR_DELAY_FAILED when
+ * the node did not answer. */
+int32_t networkcore_ios_measure_delay(const uint8_t *config, size_t config_len, const uint8_t *url, size_t url_len,
+                                      uint32_t timeout_ms, uint32_t *out_millis);
 void networkcore_ios_runtime_free_buffer(NetworkCoreBuffer buffer);
 void networkcore_ios_runtime_free_handle(NetworkCoreRuntime *handle);
 
