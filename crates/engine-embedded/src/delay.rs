@@ -89,7 +89,7 @@ pub async fn probe(
     timed_fetch(outbound, tls.as_ref(), &url, timeout).await
 }
 
-fn tls_for(url: &ProbeUrl) -> Result<Option<TlsConnector>, DelayError> {
+pub(crate) fn tls_for(url: &ProbeUrl) -> Result<Option<TlsConnector>, DelayError> {
     if !url.tls {
         return Ok(None);
     }
@@ -150,16 +150,16 @@ async fn fetch_status_line(
 }
 
 #[derive(Debug, PartialEq, Eq)]
-struct ProbeUrl {
-    tls: bool,
-    host: String,
-    port: u16,
+pub(crate) struct ProbeUrl {
+    pub(crate) tls: bool,
+    pub(crate) host: String,
+    pub(crate) port: u16,
     /// Path and query, starting with `/`.
-    path: String,
+    pub(crate) path: String,
 }
 
 impl ProbeUrl {
-    fn parse(url: &str) -> Option<Self> {
+    pub(crate) fn parse(url: &str) -> Option<Self> {
         let url = url.trim();
         let (tls, rest) = if let Some(rest) = url.strip_prefix("https://") {
             (true, rest)
@@ -209,14 +209,14 @@ impl ProbeUrl {
         })
     }
 
-    fn target(&self) -> TargetAddr {
+    pub(crate) fn target(&self) -> TargetAddr {
         match self.host.parse::<IpAddr>() {
             Ok(ip) => TargetAddr::Ip(SocketAddr::new(ip, self.port)),
             Err(_) => TargetAddr::Domain(self.host.clone(), self.port),
         }
     }
 
-    fn host_header(&self) -> String {
+    pub(crate) fn host_header(&self) -> String {
         let host = if self.host.contains(':') {
             format!("[{}]", self.host)
         } else {

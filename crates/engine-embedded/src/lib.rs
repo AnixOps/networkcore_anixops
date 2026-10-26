@@ -33,6 +33,8 @@ pub mod control;
 pub mod delay;
 pub mod direct;
 pub mod dns;
+#[cfg(feature = "local-proxy")]
+pub mod fetch;
 pub mod ffi;
 #[cfg(feature = "local-proxy")]
 pub mod local_proxy;
@@ -42,6 +44,7 @@ pub mod nodes;
 pub mod profile;
 pub mod protocols;
 pub mod routing;
+pub mod rule_sets;
 pub mod sniff;
 pub mod tunnel;
 #[cfg(feature = "wireguard")]
@@ -257,13 +260,18 @@ impl EmbeddedRuntime {
         }
     }
 
-    /// The url-test and fallback health checks of a routed config. They probe
-    /// through the outbounds like the delay test, which the `local-proxy`
-    /// feature builds.
+    /// The url-test and fallback health checks and the remote rule set
+    /// updates of a routed config. They go through the outbounds like the
+    /// delay test, which the `local-proxy` feature builds.
     #[cfg(feature = "local-proxy")]
     fn health_checks(&self) -> Option<engine_outbound::BoxFuture<'static, ()>> {
         let routed = self.routed.clone()?;
-        Some(Box::pin(routed.run_health_checks()))
+        Some(Box::pin(async move {
+            tokio::join!(
+                routed.clone().run_health_checks(),
+                routed.run_rule_set_updates()
+            );
+        }))
     }
 
     #[cfg(not(feature = "local-proxy"))]

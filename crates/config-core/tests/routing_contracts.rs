@@ -129,6 +129,7 @@ fn routing_snapshot_decisions_match_fixture() {
         let query = RouteQuery {
             domain: case["domain"].as_str().map(str::to_string),
             ip: case["ip"].as_str().map(|ip| ip.parse::<IpAddr>().unwrap()),
+            ..RouteQuery::default()
         };
         let environment: &dyn RoutingEnvironment = if case["live"].as_bool().unwrap_or(false) {
             &live_environment
@@ -562,4 +563,130 @@ strategy = "round-robin"
     .unwrap_err();
 
     assert_eq!(error.code, config_core::CONFIG_PARSE_FAILED_CODE);
+}
+
+/// Answers GeoSite lookups from a fixed table and a fixed address.
+struct GeoEnvironment;
+
+impl RoutingEnvironment for GeoEnvironment {
+    fn geosite_matches(&self, category: &str, domain: &str) -> bool {
+        category == "google" && (domain == "google.com" || domain.ends_with(".google.com"))
+    }
+
+    fn resolve(&self, _domain: &str) -> Option<IpAddr> {
+        Some("203.0.113.9".parse().unwrap())
+    }
+}
+
+#[test]
+fn port_process_geosite_and_logical_rules_route() {
+    let spec = RoutingSpec {
+        rules: vec![
+            "AND,((DOMAIN-SUFFIX,example.com),(DST-PORT,443)),hk".to_string(),
+            "OR,((DOMAIN-KEYWORD,ads),(NOT,((DST-PORT,1-1024)))),REJECT".to_string(),
+            "GEOSITE,Google,hk".to_string(),
+            "PROCESS-NAME,Telegram.exe,hk".to_string(),
+            "DEST-PORT,53,DIRECT".to_string(),
+            "AND,((IP-CIDR,203.0.113.0/24),(DST-PORT,80)),hk,no-resolve".to_string(),
+            "FINAL,DIRECT".to_string(),
+        ],
+        groups: Vec::new(),
+    };
+    let model = RoutingModel::from_spec(&spec, &BTreeSet::from(["hk".to_string()])).unwrap();
+    let route = |query: RouteQuery| model.decide(&query, &GeoEnvironment);
+    let hk = RouteOutcome::Node("hk".to_string());
+
+    let secure = route(RouteQuery::domain("www.example.com").with_port(443));
+    assert_eq!(
+        (secure.matched, secure.outcome),
+        (RouteMatch::Rule(0), hk.clone())
+    );
+    let plain = route(RouteQuery::domain("www.example.com").with_port(80));
+    assert_eq!(plain.matched, RouteMatch::Final);
+    assert_eq!(
+        route(RouteQuery::domain("ads.test").with_port(80)).outcome,
+        RouteOutcome::Reject
+    );
+    assert_eq!(
+        route(RouteQuery::domain("other.test").with_port(8443)).matched,
+        RouteMatch::Rule(1)
+    );
+    assert_eq!(
+        route(RouteQuery::domain("mail.google.com").with_port(443)).matched,
+        RouteMatch::Rule(2)
+    );
+    let mut telegram = RouteQuery::ip("192.0.2.1".parse().unwrap()).with_port(443);
+    telegram.process = Some("telegram.EXE".to_string());
+    assert_eq!(route(telegram).matched, RouteMatch::Rule(3));
+    assert_eq!(
+        route(RouteQuery::ip("192.0.2.1".parse().unwrap()).with_port(53)).matched,
+        RouteMatch::Rule(4)
+    );
+    // no-resolve on the logical rule: a domain is not resolved for it.
+    let named = route(RouteQuery::domain("site.test").with_port(80));
+    assert_eq!(
+        (named.matched, named.resolved_ip),
+        (RouteMatch::Final, None)
+    );
+    assert_eq!(
+        route(RouteQuery::ip("203.0.113.5".parse().unwrap()).with_port(80)).matched,
+        RouteMatch::Rule(5)
+    );
+
+    let texts = model
+        .rules
+        .iter()
+        .map(|rule| rule.matcher.to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        texts,
+        [
+            "AND,((DOMAIN-SUFFIX,example.com),(DST-PORT,443))",
+            "OR,((DOMAIN-KEYWORD,ads),(NOT,((DST-PORT,1-1024))))",
+            "GEOSITE,google",
+            "PROCESS-NAME,telegram.exe",
+            "DST-PORT,53",
+            "AND,((IP-CIDR,203.0.113.0/24),(DST-PORT,80))",
+        ]
+    );
+    for text in &texts {
+        let line = format!("{text},DIRECT");
+        let RuleLine::Rule { matcher, .. } = parse_rule_line(&line).unwrap() else {
+            panic!("{line} should parse as a rule");
+        };
+        assert_eq!(&matcher.to_string(), text);
+    }
+}
+
+#[test]
+fn malformed_logical_and_port_rules_are_rejected() {
+    for line in [
+        "AND,(DOMAIN,a.com),DIRECT",
+        "AND,((DOMAIN,a.com),DIRECT",
+        "AND,((DOMAIN,a.com))",
+        "NOT,((DOMAIN,a.com),(DOMAIN,b.com)),DIRECT",
+        "OR,(),DIRECT",
+        "AND,((DOMAIN,a.com)(DOMAIN,b.com)),DIRECT",
+        "AND,((DOMAIN,a.com,DIRECT)),DIRECT",
+        "AND,((DOMAIN)),DIRECT",
+        "AND,((USER-AGENT,curl)),DIRECT",
+        "DST-PORT,99999,DIRECT",
+        "DST-PORT,500-400,DIRECT",
+        "GEOSITE,bad category,DIRECT",
+        "DST-PORT,443,DIRECT,no-resolve",
+        "AND,((((((((((((((((((DOMAIN,a.com)))))))))))))))))),DIRECT",
+    ] {
+        assert!(parse_rule_line(line).is_err(), "{line}");
+    }
+    let nested = "AND,((NOT,((AND,((DOMAIN,a.com),(DST-PORT,1)))))),DIRECT";
+    assert!(parse_rule_line(nested).is_ok());
+    let nest = |levels: usize| {
+        format!(
+            "{}DOMAIN,a.com{},DIRECT",
+            "NOT,((".repeat(levels),
+            "))".repeat(levels)
+        )
+    };
+    assert!(parse_rule_line(&nest(8)).is_ok());
+    assert!(parse_rule_line(&nest(9)).is_err());
 }

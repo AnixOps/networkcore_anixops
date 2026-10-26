@@ -14,7 +14,7 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 
 use config_core::routing::{PolicyGroupSpec, RoutingSpec};
-use config_core::rule_set::RuleSet;
+use config_core::rule_set::{BareDomain, RuleSet, RuleSetEntries, MAX_RULE_SET_ENTRIES};
 use engine_outbound::registry::{OutboundRegistry, Settings};
 use engine_outbound::{Dialer, TcpOutbound};
 use serde::Deserialize;
@@ -22,6 +22,9 @@ use serde::Deserialize;
 use crate::connections::{Dispatcher, Mode};
 use crate::direct::DirectOutbound;
 use crate::routing::RoutedOutbound;
+use crate::rule_sets::{
+    RemoteRuleSet, RuleSetStore, DEFAULT_UPDATE_INTERVAL_SECS, MIN_UPDATE_INTERVAL_SECS,
+};
 #[cfg(feature = "wireguard")]
 use crate::wireguard::{self, WireGuardSettings};
 use crate::{RuntimeError, RuntimeErrorCode};
@@ -33,9 +36,7 @@ const MAX_MTU: u16 = 9000;
 const MAX_PROFILE_ID_LEN: usize = 128;
 // Shared with the importer, which only offers routing that fits.
 use node_import::{MAX_POLICY_GROUPS, MAX_ROUTED_OUTBOUNDS, MAX_ROUTING_RULES};
-const MAX_RULE_SETS: usize = 16;
-/// Room for the mainland China domain and network lists with headroom.
-const MAX_RULE_SET_ENTRIES: usize = 500_000;
+const MAX_RULE_SETS: usize = 32;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -131,14 +132,89 @@ pub struct RoutingConfig {
     pub global: Option<String>,
 }
 
+/// One rule set. `RULE-SET,<name>` rules match it by name; the sets named
+/// `geosite-<category>` and `geoip-<cc>` back `GEOSITE` and `GEOIP` rules.
+/// With a `url` the engine downloads the list itself every `interval_secs`
+/// (see [`crate::rule_sets`]); the inline entries are its starting content.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RuleSetConfig {
     #[serde(default)]
+    pub domain: Vec<String>,
+    #[serde(default)]
     pub domain_suffix: Vec<String>,
+    #[serde(default)]
+    pub domain_keyword: Vec<String>,
     /// Networks or bare addresses.
     #[serde(default)]
     pub ip_cidr: Vec<String>,
+    /// An http(s) list in any common text shape: Surge/Loon/Clash classical
+    /// lines, Clash `payload:` YAML, or one domain or network per line.
+    #[serde(default)]
+    pub url: Option<String>,
+    /// How a bare domain line of the downloaded list matches: `suffix` (the
+    /// domain and its subdomains, the default) or `domain` (that domain
+    /// only, as Clash `behavior: domain` lists mean it).
+    #[serde(default)]
+    pub format: Option<String>,
+    /// Refresh interval, at least 600 seconds; one day by default.
+    #[serde(default)]
+    pub interval_secs: Option<u32>,
+    /// The policy group, node or `DIRECT` the download goes through;
+    /// `DIRECT` by default.
+    #[serde(default)]
+    pub via: Option<String>,
+}
+
+impl RuleSetConfig {
+    fn entries(&self) -> RuleSetEntries {
+        RuleSetEntries {
+            domain: self.domain.clone(),
+            domain_suffix: self.domain_suffix.clone(),
+            domain_keyword: self.domain_keyword.clone(),
+            ip_cidr: self.ip_cidr.clone(),
+        }
+    }
+
+    fn entry_count(&self) -> usize {
+        self.domain.len()
+            + self.domain_suffix.len()
+            + self.domain_keyword.len()
+            + self.ip_cidr.len()
+    }
+
+    /// The download settings of a remote set, validated.
+    fn remote(&self, name: &str) -> Result<Option<RemoteRuleSet>, RuntimeError> {
+        let Some(url) = &self.url else {
+            if self.format.is_some() || self.interval_secs.is_some() || self.via.is_some() {
+                return Err(rejected("rule set download settings need a url"));
+            }
+            return Ok(None);
+        };
+        if !cfg!(feature = "local-proxy") {
+            return Err(rejected("remote rule sets are not supported by this build"));
+        }
+        let url = url.trim();
+        if !(url.starts_with("https://") || url.starts_with("http://")) || url.len() > 2048 {
+            return Err(rejected("rule set url must be an http or https URL"));
+        }
+        let bare = match self.format.as_deref() {
+            None | Some("suffix") => BareDomain::Suffix,
+            Some("domain") => BareDomain::Exact,
+            Some(_) => return Err(rejected("rule set format must be suffix or domain")),
+        };
+        let interval_secs = self.interval_secs.unwrap_or(DEFAULT_UPDATE_INTERVAL_SECS);
+        if interval_secs < MIN_UPDATE_INTERVAL_SECS {
+            return Err(rejected("rule set interval_secs must be at least 600"));
+        }
+        Ok(Some(RemoteRuleSet {
+            name: name.to_string(),
+            url: url.to_string(),
+            interval_secs,
+            bare,
+            via: self.via.clone().unwrap_or_else(|| "DIRECT".to_string()),
+        }))
+    }
 }
 
 #[derive(Deserialize)]
@@ -281,7 +357,7 @@ impl RuntimeConfig {
                 let rule_set_entries: usize = routing
                     .rule_sets
                     .values()
-                    .map(|set| set.domain_suffix.len() + set.ip_cidr.len())
+                    .map(RuleSetConfig::entry_count)
                     .sum();
                 if routing.outbounds.is_empty()
                     || routing.outbounds.len() > MAX_ROUTED_OUTBOUNDS
@@ -407,16 +483,22 @@ impl RuntimeConfig {
             .rule_sets
             .iter()
             .map(|(name, set)| {
-                RuleSet::new(
-                    set.domain_suffix.iter().map(String::as_str),
-                    set.ip_cidr.iter().map(String::as_str),
-                )
-                .map(|set| (name.clone(), set))
-                .map_err(|_| rejected("rule set entries are invalid"))
+                RuleSet::from_entries(&set.entries())
+                    .map(|set| (name.clone(), set))
+                    .map_err(|_| rejected("rule set entries are invalid"))
             })
             .collect::<Result<BTreeMap<_, _>, _>>()?;
+        let mut remotes = Vec::new();
+        for (name, set) in &routing.rule_sets {
+            remotes.extend(set.remote(name)?);
+        }
         let direct = Arc::new(DirectOutbound::new(dialer));
-        let mut routed = RoutedOutbound::with_rule_sets(&spec, direct, nodes, rule_sets)?;
+        let mut routed = RoutedOutbound::with_rule_set_store(
+            &spec,
+            direct,
+            nodes,
+            RuleSetStore::new(rule_sets, remotes),
+        )?;
         if let Some(global) = &routing.global {
             routed = routed.with_global(global)?;
         }
