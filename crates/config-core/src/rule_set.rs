@@ -58,7 +58,6 @@ impl RuleSet {
         let domain_suffixes = entries
             .domain_suffix
             .iter()
-            .into_iter()
             .map(|suffix| normalize_rule_domain(suffix.trim().trim_start_matches('.')))
             .collect::<DomainResult<HashSet<_>>>()?;
         let mut v4 = Vec::new();
