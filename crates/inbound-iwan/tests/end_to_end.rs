@@ -19,7 +19,7 @@ use engine_inbound::PacketInbound;
 use engine_outbound::{BoxFuture, BoxStream, TargetAddr, TcpOutbound};
 use inbound_iwan::IwanInboundFactory;
 use outbound_iwan::crypto::XorKey;
-use outbound_iwan::packet::{self, kind, EchoRequest, Header, OpenRequest, HEADER_LEN};
+use outbound_iwan::packet::{self, kind, reject, EchoRequest, Header, OpenRequest, HEADER_LEN};
 use outbound_iwan::{IwanConfig, IwanOutbound};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
@@ -40,7 +40,7 @@ struct Fixture {
 }
 
 async fn start(client_to_client: bool) -> Fixture {
-    let json = serde_json::json!({
+    start_with(serde_json::json!({
         "pool": "10.66.0.0/24",
         "mtu": 1400,
         "dns_upstream": UPSTREAM_DNS,
@@ -49,7 +49,11 @@ async fn start(client_to_client: bool) -> Fixture {
             {"name": "1001", "username": "alice", "password": "pw-alice"},
             {"name": "1002", "username": "bob", "password": "pw-bob", "address": BOB_ADDRESS.to_string()},
         ],
-    });
+    }))
+    .await
+}
+
+async fn start_with(json: serde_json::Value) -> Fixture {
     let settings: Settings = serde_json::from_value(json).unwrap();
     let inbound = IwanInboundFactory.build(&settings).ok().unwrap();
 
@@ -303,14 +307,39 @@ async fn wrong_password_is_rejected() {
     let target = TargetAddr::Ip("203.0.113.9:443".parse().unwrap());
     let error = eve.connect(&target).await.err().unwrap();
     assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+    assert!(error.to_string().contains("INVPASS"), "{error}");
 
+    // Rejections carry Panabit's reason text.
+    let invalid = packet::encode_open_rej_with(reject::INVALID_PASSWORD.as_bytes());
     let raw = Raw::new(fixture.port).await;
     raw.send(&open("mallory", "pw-alice", 1400, false)).await;
-    let reply = raw.recv().await.unwrap();
-    assert_eq!(reply, packet::encode_open_rej());
+    assert_eq!(raw.recv().await.unwrap(), invalid);
     // MTU out of range.
     raw.send(&open("alice", "pw-alice", 45, false)).await;
-    assert_eq!(raw.recv().await.unwrap(), packet::encode_open_rej());
+    assert_eq!(raw.recv().await.unwrap(), invalid);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_exhausted_pool_is_reported() {
+    // A /30 has one user address.
+    let fixture = start_with(serde_json::json!({
+        "pool": "10.66.0.0/30",
+        "dns_upstream": UPSTREAM_DNS,
+        "users": [
+            {"name": "1001", "username": "alice", "password": "pw-alice"},
+            {"name": "1002", "username": "bob", "password": "pw-bob"},
+        ],
+    }))
+    .await;
+    let alice = Raw::new(fixture.port).await;
+    let login = alice.login("alice", "pw-alice", 1400, false).await;
+    assert_eq!(login.address, Ipv4Addr::new(10, 66, 0, 2));
+
+    let bob = client(fixture.port, "bob", "pw-bob", false);
+    let target = TargetAddr::Ip("203.0.113.9:443".parse().unwrap());
+    let error = bob.connect(&target).await.err().unwrap();
+    assert_eq!(error.kind(), io::ErrorKind::AddrNotAvailable);
+    assert!(error.to_string().contains("NO_FREEIP_INPOOL"), "{error}");
 }
 
 /// A client speaking datagrams directly.

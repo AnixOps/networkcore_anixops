@@ -31,6 +31,17 @@ pub mod kind {
     pub const SEGRT: u8 = 0x27;
 }
 
+/// OPENREJ reasons seen from Panabit servers.
+pub mod reject {
+    /// Wrong user name or password.
+    pub const INVALID_PASSWORD: &str = "INVPASS";
+    /// The login was accepted but the server's address pool is exhausted.
+    pub const NO_FREE_ADDRESS: &str = "NO_FREEIP_INPOOL";
+}
+
+/// Longest OPENREJ reason kept.
+const MAX_REJECT_REASON: usize = 64;
+
 /// TLV types of OPEN and OPENACK (spec §4.1, §4.3).
 pub mod tlv {
     pub const USERNAME: u8 = 1;
@@ -323,9 +334,30 @@ pub fn encode_open_ack(session: Session, encrypt: u8, tlvs: &[(u8, &[u8])]) -> V
     signed(Header::new(kind::OPENACK, encrypt, session), &payload)
 }
 
-/// OPENREJ: header and signature, zero session.
+/// OPENREJ: header and signature, zero session, no reason.
 pub fn encode_open_rej() -> Vec<u8> {
-    signed(Header::new(kind::OPENREJ, 0, Session::default()), &[])
+    encode_open_rej_with(&[])
+}
+
+/// OPENREJ with an ASCII reason after the signature, as Panabit sends.
+pub fn encode_open_rej_with(reason: &[u8]) -> Vec<u8> {
+    signed(Header::new(kind::OPENREJ, 0, Session::default()), reason)
+}
+
+/// The reason text of an OPENREJ: printable ASCII after the signature, up
+/// to the first NUL; `None` when there is none.
+pub fn open_rej_reason(datagram: &[u8]) -> Option<String> {
+    let text = datagram.get(SIGNED_LEN..)?;
+    let text = text.split(|byte| *byte == 0).next().unwrap_or_default();
+    let text = &text[..text.len().min(MAX_REJECT_REASON)];
+    if text.is_empty()
+        || !text
+            .iter()
+            .all(|byte| byte.is_ascii_graphic() || *byte == b' ')
+    {
+        return None;
+    }
+    String::from_utf8(text.to_vec()).ok()
 }
 
 /// DATA (0x14) or, when `xor` is set, DATA_ENC (0x18) with the masked packet.
@@ -465,6 +497,19 @@ mod tests {
         assert_eq!(close.len(), 24);
         assert_eq!(hex(&close[..8]), "1700abcd01020304");
         assert_eq!(hex(&close[8..]), "1aa88885639088ec0792b6a48ba62c69");
+    }
+
+    #[test]
+    fn open_rej_reasons() {
+        assert_eq!(open_rej_reason(&encode_open_rej()), None);
+        let rej = encode_open_rej_with(reject::NO_FREE_ADDRESS.as_bytes());
+        assert_eq!(rej[0], kind::OPENREJ);
+        assert!(verify_signed(&rej).is_some());
+        assert_eq!(open_rej_reason(&rej).as_deref(), Some("NO_FREEIP_INPOOL"));
+        let padded = encode_open_rej_with(b"INVPASS\0\0\0");
+        assert_eq!(open_rej_reason(&padded).as_deref(), Some("INVPASS"));
+        assert_eq!(open_rej_reason(&encode_open_rej_with(&[0xff, b'x'])), None);
+        assert_eq!(open_rej_reason(&rej[..8]), None);
     }
 
     #[test]

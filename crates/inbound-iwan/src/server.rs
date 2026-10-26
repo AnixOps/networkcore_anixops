@@ -29,7 +29,7 @@ use futures::{SinkExt, StreamExt};
 use netstack_smoltcp::udp::UdpMsg;
 use netstack_smoltcp::StackBuilder;
 use outbound_iwan::crypto::{self, XorKey, PASSWORD_BLOCK};
-use outbound_iwan::packet::{self, kind, tlv, Header, HEADER_LEN};
+use outbound_iwan::packet::{self, kind, reject, tlv, Header, HEADER_LEN};
 use ring::rand::{SecureRandom, SystemRandom};
 use tokio::net::UdpSocket;
 use tokio::sync::{mpsc, Semaphore};
@@ -281,10 +281,10 @@ impl Server {
         match header.kind {
             kind::OPEN => {
                 let reply = match self.open(datagram, peer) {
-                    Some(ack) => ack,
-                    None => {
+                    Ok(ack) => ack,
+                    Err(reason) => {
                         self.stats.handshake_failed.fetch_add(1, Ordering::Relaxed);
-                        packet::encode_open_rej()
+                        packet::encode_open_rej_with(reason.as_bytes())
                     }
                 };
                 let _ = self.socket.send_to(&reply, peer).await;
@@ -313,29 +313,32 @@ impl Server {
         }
     }
 
-    /// Authenticates an OPEN and starts its session; the OPENACK, or `None`
-    /// for an OPENREJ.
-    fn open(&self, datagram: &[u8], peer: SocketAddr) -> Option<Vec<u8>> {
-        let open = packet::decode_open(datagram)?;
-        let login = open.username?;
-        let block = open.password_block?;
+    /// Authenticates an OPEN and starts its session; the OPENACK, or the
+    /// reason sent in the OPENREJ.
+    fn open(&self, datagram: &[u8], peer: SocketAddr) -> Result<Vec<u8>, &'static str> {
+        // Malformed requests get the same answer as a wrong password, like
+        // the Panabit server.
+        let invalid = reject::INVALID_PASSWORD;
+        let open = packet::decode_open(datagram).ok_or(invalid)?;
+        let login = open.username.ok_or(invalid)?;
+        let block = open.password_block.ok_or(invalid)?;
         let client_mtu = match open.mtu {
             None => DEFAULT_CLIENT_MTU,
             Some(mtu) if (MIN_CLIENT_MTU..=MAX_CLIENT_MTU).contains(&mtu) => mtu,
-            Some(_) => return None,
+            Some(_) => return Err(invalid),
         };
-        let user = self.inbound.logins.get(&login)?;
-        let password = user.user().password.as_deref()?.as_bytes();
+        let user = self.inbound.logins.get(&login).ok_or(invalid)?;
+        let password = user.user().password.as_deref().ok_or(invalid)?.as_bytes();
         if !same_block(&crypto::encrypt_password(&login, password), &block) {
-            return None;
+            return Err(invalid);
         }
         let encrypt = (open.flags != 0 || open.encrypt.unwrap_or(0) != 0)
             && self.inbound.config.allow_encrypt;
         let xor = encrypt.then(|| XorKey::new(&login, password));
         let mut token = [0u8; 2];
         let mut id = [0u8; 4];
-        self.random.fill(&mut token).ok()?;
-        self.random.fill(&mut id).ok()?;
+        self.random.fill(&mut token).map_err(|_| invalid)?;
+        self.random.fill(&mut id).map_err(|_| invalid)?;
         let header = packet::Session { token, id };
         let mtu = client_mtu.min(self.inbound.config.mtu);
         let fixed = match user.user().address {
@@ -354,12 +357,15 @@ impl Server {
             state.remove(previous, now);
         }
         let fixed_index = &self.inbound.fixed;
-        let (address, evicted) = state.pool.acquire(
-            &name,
-            fixed,
-            |candidate| fixed_index.get(&candidate).is_some(),
-            now,
-        )?;
+        let (address, evicted) = state
+            .pool
+            .acquire(
+                &name,
+                fixed,
+                |candidate| fixed_index.get(&candidate).is_some(),
+                now,
+            )
+            .ok_or(reject::NO_FREE_ADDRESS)?;
         if let Some(evicted) = evicted {
             if let Some(holder) = state.by_user.get(&evicted).copied() {
                 state.remove(holder, now);
@@ -404,7 +410,7 @@ impl Server {
         self.stats.accepted.fetch_add(1, Ordering::Relaxed);
 
         let encrypt = u8::from(encrypt);
-        Some(packet::encode_open_ack(
+        Ok(packet::encode_open_ack(
             header,
             encrypt,
             &[

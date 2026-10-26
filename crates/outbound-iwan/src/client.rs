@@ -77,8 +77,9 @@ pub enum Output {
     Deliver(Vec<u8>),
     /// A session is up with these settings.
     Established(Network),
-    /// The server answered OPEN with OPENREJ (wrong user or password).
-    Rejected,
+    /// The server answered OPEN with OPENREJ, with its reason text when it
+    /// sent one (Panabit: `INVPASS`, `NO_FREEIP_INPOOL`).
+    Rejected { reason: Option<String> },
     /// An established session ended; a new one is being set up.
     Disconnected,
     /// An ECHO round trip finished.
@@ -207,7 +208,9 @@ impl Client {
                 // Not signature-checked and not counted as activity.
                 if datagram.len() >= packet::HEADER_LEN {
                     self.state = State::Closed;
-                    out.push(Output::Rejected);
+                    out.push(Output::Rejected {
+                        reason: packet::open_rej_reason(datagram),
+                    });
                 }
             }
             kind::DATA | kind::DATA_ENC if self.state == State::Established => {
@@ -524,7 +527,7 @@ mod tests {
         client.start(now, &mut out);
         out.clear();
         client.receive(now, &packet::encode_open_rej(), &mut out);
-        assert_eq!(out, vec![Output::Rejected]);
+        assert_eq!(out, vec![Output::Rejected { reason: None }]);
         assert_eq!(client.state(), State::Closed);
         out.clear();
         client.tick(now + Duration::from_secs(1), &mut out);

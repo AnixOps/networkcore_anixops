@@ -26,7 +26,7 @@ use tokio::sync::{watch, Notify};
 use crate::client::{Client, Network, Output};
 use crate::config::IwanSettings;
 use crate::dns;
-use crate::packet::MAX_DATAGRAM;
+use crate::packet::{reject, MAX_DATAGRAM};
 
 /// Timer granularity of the session state machine (spec §5).
 const TICK: Duration = Duration::from_secs(1);
@@ -234,6 +234,8 @@ pub(crate) struct Node {
     phase: watch::Sender<Phase>,
     epoch: Instant,
     rtt_us: AtomicU32,
+    /// The reason text of the last OPENREJ.
+    reject_reason: Mutex<Option<String>>,
 }
 
 impl Node {
@@ -259,6 +261,7 @@ impl Node {
             phase: watch::channel(Phase::Idle).0,
             epoch: now,
             rtt_us: AtomicU32::new(0),
+            reject_reason: Mutex::new(None),
         })
     }
 
@@ -309,14 +312,38 @@ impl Node {
         };
         match phase {
             Phase::Up { generation } => Ok(generation),
-            Phase::Rejected => Err(io::Error::new(
-                io::ErrorKind::PermissionDenied,
-                "iwan server rejected the login",
-            )),
+            Phase::Rejected => Err(self.rejection()),
             _ => Err(io::Error::new(
                 io::ErrorKind::AddrNotAvailable,
                 "iwan server assigned an unusable address",
             )),
+        }
+    }
+
+    /// The error for a rejected login, by the server's reason.
+    fn rejection(&self) -> io::Error {
+        let reason = self
+            .reject_reason
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
+        match reason.as_deref() {
+            Some(reject::NO_FREE_ADDRESS) => io::Error::new(
+                io::ErrorKind::AddrNotAvailable,
+                "iwan server has no free address in its pool (NO_FREEIP_INPOOL)",
+            ),
+            Some(reject::INVALID_PASSWORD) => io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "iwan server rejected the user name or password (INVPASS)",
+            ),
+            Some(other) => io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                format!("iwan server rejected the login ({other})"),
+            ),
+            None => io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "iwan server rejected the login",
+            ),
         }
     }
 
@@ -550,7 +577,11 @@ impl Node {
                 Output::Disconnected => {
                     self.phase.send_replace(Phase::Connecting);
                 }
-                Output::Rejected => {
+                Output::Rejected { reason } => {
+                    *self
+                        .reject_reason
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner()) = reason;
                     self.phase.send_replace(Phase::Rejected);
                 }
                 Output::Rtt { current_us } => self.rtt_us.store(current_us, Ordering::Relaxed),
