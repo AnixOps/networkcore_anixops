@@ -7,6 +7,15 @@
 ### Added
 
 - 节点服务端入站（第一步）：新增 `engine-inbound`（服务端入站接口 `StreamInbound`、按名称管理的用户表 `UserStore`、`server::serve` 服务循环和入站 `registry`）和 `inbound-shadowsocks`（Shadowsocks-2022 TCP 服务端）。用户可在运行中增删，删除或替换用户会断开其现有连接；`traffic(reset)` 按用户报告上下行字节（已删除用户未取走的流量保留到下次读取），`online()` 按用户和来源 IP 报告在线连接数，供 anix-agent 这类节点代理驱动。SS-2022 支持三种 2022 方法、单密钥和多用户（iPSK:uPSK 身份头，仅 AES），30 秒时间戳窗口、60 秒盐值防重放，握手失败的连接保持打开并丢弃输入而不是立即关闭。测试用自研客户端和 shadowsocks-rust 客户端连接服务端。同时新增 `inbound-transport`（服务端 TLS，证书文件变化时自动重新加载，坏证书保留旧的）、`inbound-trojan` 和 `inbound-vless`（按用户密码哈希 / UUID 认证，认证失败转给 `fallback` 网站或保持丢弃），以及 `inbound-vmess`（VMess AEAD，aes-128-gcm / chacha20-poly1305 / none，支持 ChunkMasking 和 GlobalPadding，AuthID 120 秒窗口与防重放）。防重放缓存移到 `engine_inbound::replay`。新增 QUIC 类入站接口 `PacketInbound`（registry 按 `Inbound::Stream` / `Inbound::Packet` 区分）、`server::relay_accepted` 和 `transport_quic::server_endpoint`，并新增 `inbound-hysteria2`（自带最小 HTTP/3 与 QPACK 静态表实现处理 `/auth`，认证失败返回 404 伪装成网站，可选 Salamander 混淆）与 `inbound-tuic`（TUIC v5，按 UUID 和 TLS 导出密钥令牌认证，cubic / new_reno / bbr 拥塞控制），删除用户会关闭其 QUIC 连接。`inbound-vless` 新增 REALITY 服务端（`tls-mimic` 新增最小 TLS 1.3 服务端 `tls_mimic::server`）：校验 ClientHello 会话 ID 中的 REALITY 标记（私钥、short id、SNI、时间窗口），通过的客户端拿到绑定认证密钥的临时 Ed25519 证书，其余连接（包括非 TLS 探测）原样转发到伪装站点。新增 `node-runtime` 与节点内核程序 `apps/anixcore`（`anixcore run|check -c config.json`）：按 tag 运行和增删入站，提供带 Bearer 令牌的本地 HTTP/JSON 管理接口（增删入站、增删用户、按用户流量含清零、在线 IP），供 anix-agent 驱动；直连出站默认拒绝回环、内网、CGNAT 和链路本地目标（入站自己的 fallback / REALITY 伪装站点除外），可用 `allow_private_targets` 放开。UDP 转发、VLESS Vision 后续提供。
+- 新增 Snell 出站 `outbound-snell`（cargo feature `snell`，配置 `"type": "snell"`），只依据 `docs/protocols/snell.md` 净室实现：支持 v1–v4 与 v6（v5 按 v4 运行，不实现 QUIC 代理模式），v6 的 `default`（PSK 派生画像整形、salt 块、填充混排）、`unshaped`、`unsafe-raw` 三种模式，v4 首包整形与比特配平，v1–v4 的 `obfs = http`，CONNECTv2 连接复用（最多 10 条空闲、180 秒），以及 crate API 里的 UDP over TCP（v3+）和 PING。帧编解码与请求解析与方向无关，供后续 `inbound-snell` 复用。导入支持 Surge `snell` 节点行和 Clash `type: snell`（`psk`、`version`、`obfs-opts`；缺省 version 为 1），`obfs = tls` 暂报不支持。互通 CI 下载官方 snell-server v3.0.1、v4.1.1、v5.0.1、v6.0.0rc2（只在 CI 中运行，不随产物分发）做 TCP、复用、UDP、错误回复和 PING 黑盒测试。
+- Linux 图形客户端支持分流模式、订阅规则和策略组：新增共享模块 `engine_embedded::profile`，包含五种分流模式（绕过大陆、GFW 列表、回国、直连、规则）、公共规则列表的地址和解析，以及策略组的当前选择、select 组切换和“节点切换落到主策略组”。订阅带规则和策略组、且全部节点都能运行时，Linux 版用全部节点加订阅规则启动，规则页和首页列出策略组并可切换 select 组成员（连接中会重启引擎）；切换节点会改主策略组的选择，选择按订阅保存。分流模式的规则列表在切换模式或连接前下载到 `$XDG_CONFIG_HOME/anixops-net/rules/`，“刷新规则资源”重新下载。规则页、首页分流模式和策略组卡片不再对 Linux 隐藏；默认模式为“规则”，与之前全部流量走所选节点的行为一致。
+
+### Removed
+
+- Windows 客户端移除第三方内核：服务、托管配置和图形界面不再启动、安装或校验兼容内核和 Mieru 外部内核，节点、策略组、分流模式和 DNS 只走内置引擎。HTTPS 解密改为把本机 MITM（`127.0.0.1:7890`，系统代理指向它）的上游接到内置引擎的本地代理（`127.0.0.1:7891`）。设置页去掉“兼容内核”和“附加协议内核”卡片，规则页去掉策略组 JSON 编辑和 DNS JSON（DNS 卡片固定说明系统 DNS 行为），旧的 Win32 窗口代码一并删除。托管配置和状态文件里的旧字段会被忽略；用兼容内核导入的旧配置需要重新导入订阅。Linux 图形客户端同步去掉对应的占位命令。
+- Linux 命令行移除第三方内核：删除 `install-sing-box`/`sing-box install`、`core install|start|stop|status mieru`，以及依赖兼容内核控制接口的 `node switch` 和 `node health`。`run-url` 和 `run-catalog` 只用内置引擎（去掉 `--engine`、`--install-dir`、`--force`、`--binary`、`--sha256`），内置引擎不支持的节点直接报错，不再退回外部内核；`core list` 只列出原生适配器。`mitm browser-capture session-plan` 直接从订阅取第一个节点，不再生成兼容内核配置。
+- 删除 `engine-singbox` 和 `engine-mieru` crate、控制域的 `PublicEngineKind`/`PublicEngineRunPlan` 以及 `ProxyEngineKind` 里的第三方内核名称，CI 去掉“Routing equivalence (sing-box)”任务和针对这两个 crate 的守卫；路由行为仍由 `testdata/routing-snapshot/decisions.json` 快照固定。订阅里的 sing-box JSON 和 `mierus://` 链接仍可作为格式导入。
+- 文档不再把第三方内核写成当前能力：README、ROADMAP、TODO、功能矩阵、Windows 安装与发布合约、Windows GUI 日常可用性合约和各 crate README 改为描述内置引擎；两份第三方内核 adapter 合约移到 `docs/archive/2026-10-removed-engines/`，对应 CI 文档检查改为新的内置引擎标记。
 
 ## v0.2.0 - 2026-10-26
 
@@ -20,8 +29,6 @@
 
 ### Added
 
-- 新增 Snell 出站 `outbound-snell`（cargo feature `snell`，配置 `"type": "snell"`），只依据 `docs/protocols/snell.md` 净室实现：支持 v1–v4 与 v6（v5 按 v4 运行，不实现 QUIC 代理模式），v6 的 `default`（PSK 派生画像整形、salt 块、填充混排）、`unshaped`、`unsafe-raw` 三种模式，v4 首包整形与比特配平，v1–v4 的 `obfs = http`，CONNECTv2 连接复用（最多 10 条空闲、180 秒），以及 crate API 里的 UDP over TCP（v3+）和 PING。帧编解码与请求解析与方向无关，供后续 `inbound-snell` 复用。导入支持 Surge `snell` 节点行和 Clash `type: snell`（`psk`、`version`、`obfs-opts`；缺省 version 为 1），`obfs = tls` 暂报不支持。互通 CI 下载官方 snell-server v3.0.1、v4.1.1、v5.0.1、v6.0.0rc2（只在 CI 中运行，不随产物分发）做 TCP、复用、UDP、错误回复和 PING 黑盒测试。
-- Linux 图形客户端支持分流模式、订阅规则和策略组：新增共享模块 `engine_embedded::profile`，包含五种分流模式（绕过大陆、GFW 列表、回国、直连、规则）、公共规则列表的地址和解析，以及策略组的当前选择、select 组切换和“节点切换落到主策略组”。订阅带规则和策略组、且全部节点都能运行时，Linux 版用全部节点加订阅规则启动，规则页和首页列出策略组并可切换 select 组成员（连接中会重启引擎）；切换节点会改主策略组的选择，选择按订阅保存。分流模式的规则列表在切换模式或连接前下载到 `$XDG_CONFIG_HOME/anixops-net/rules/`，“刷新规则资源”重新下载。规则页、首页分流模式和策略组卡片不再对 Linux 隐藏；默认模式为“规则”，与之前全部流量走所选节点的行为一致。
 - iOS/macOS 包隧道也运行 url-test 和 fallback 策略组的健康检查：`EmbeddedRuntime` 对 `routing` 配置保留规则出站，`Tunnel::start_with_background` 在隧道的运行时里跑 `run_health_checks`，测速和本地代理相同（逐成员经各自出站请求组的 URL，最短间隔 30 秒），隧道停止时一起结束。之前隧道里的这类组没有测速结果，一直用第一个成员。
 - iOS 隧道支持订阅规则和策略组：`node-import` 的导入结果新增 `routing`（订阅的规则和 select/url-test/fallback 策略组，节点按 id 引用）。只有全部节点都能运行、节点 id 合法、数量不超过引擎上限时才提供；上限常量移到 `node-import`，由引擎共用，`engine_embedded::nodes::routing_envelope` 也改用 `node_import::routing_json`。App 把规则和策略组跟节点列表一起存在钥匙串里，隧道配置里只有一个“按规则分流”的标记。扩展启动时从钥匙串读取节点列表，生成带全部节点的 `routing` 配置；读不到节点列表或运行时拒绝这份配置时，退回只用所选节点，原因记入诊断。新的“规则”页可以开关按订阅规则分流，也可以切换 select 策略组的成员（连接中会自动重连）。按规则分流时，代理页的节点不可点选。刷新订阅时保留规则开关和仍然有效的策略组选择。
 - 发布流程加入 Linux 图形客户端：tag 发布新增 `package-linux-gui` 与 `attest-linux-gui` 任务，在 Ubuntu 上构建共用界面和 `anixops-net`，产出 tarball（`bin/`、桌面入口、图标、LICENSE、CHANGELOG、INSTALL.md）和 Debian 包（`/usr/bin/anixops-net`、菜单项与图标，依赖 `libwebkit2gtk-4.1-0`），各带 manifest 与 sha256，统一做 GitHub artifact attestation 后随 Release 发布。`gui` feature 现在包含 `tauri/custom-protocol`，直接 `cargo build --release` 得到的窗口也内嵌界面而不是去连开发服务器。
@@ -118,13 +125,6 @@ current-main-cross-platform-run-plan=public-engine-run-plan-active
   managed Mieru configuration. Failures are redacted, stable, and retain the
   prior configured core.
 ```
-
-### Removed
-
-- Windows 客户端移除第三方内核：服务、托管配置和图形界面不再启动、安装或校验兼容内核和 Mieru 外部内核，节点、策略组、分流模式和 DNS 只走内置引擎。HTTPS 解密改为把本机 MITM（`127.0.0.1:7890`，系统代理指向它）的上游接到内置引擎的本地代理（`127.0.0.1:7891`）。设置页去掉“兼容内核”和“附加协议内核”卡片，规则页去掉策略组 JSON 编辑和 DNS JSON（DNS 卡片固定说明系统 DNS 行为），旧的 Win32 窗口代码一并删除。托管配置和状态文件里的旧字段会被忽略；用兼容内核导入的旧配置需要重新导入订阅。Linux 图形客户端同步去掉对应的占位命令。
-- Linux 命令行移除第三方内核：删除 `install-sing-box`/`sing-box install`、`core install|start|stop|status mieru`，以及依赖兼容内核控制接口的 `node switch` 和 `node health`。`run-url` 和 `run-catalog` 只用内置引擎（去掉 `--engine`、`--install-dir`、`--force`、`--binary`、`--sha256`），内置引擎不支持的节点直接报错，不再退回外部内核；`core list` 只列出原生适配器。`mitm browser-capture session-plan` 直接从订阅取第一个节点，不再生成兼容内核配置。
-- 删除 `engine-singbox` 和 `engine-mieru` crate、控制域的 `PublicEngineKind`/`PublicEngineRunPlan` 以及 `ProxyEngineKind` 里的第三方内核名称，CI 去掉“Routing equivalence (sing-box)”任务和针对这两个 crate 的守卫；路由行为仍由 `testdata/routing-snapshot/decisions.json` 快照固定。订阅里的 sing-box JSON 和 `mierus://` 链接仍可作为格式导入。
-- 文档不再把第三方内核写成当前能力：README、ROADMAP、TODO、功能矩阵、Windows 安装与发布合约、Windows GUI 日常可用性合约和各 crate README 改为描述内置引擎；两份第三方内核 adapter 合约移到 `docs/archive/2026-10-removed-engines/`，对应 CI 文档检查改为新的内置引擎标记。
 
 ### Changed
 
