@@ -387,6 +387,9 @@ mod reference_client {
             .await
             .expect("reference client connects");
         let mut stream = Box::pin(stream);
+        // The reference client expects its first write (address header plus
+        // payload) to fit one SIP022 chunk, so start small.
+        echo(&mut stream, b"hello").await.unwrap();
         echo(&mut stream, &payload(70 * 1024)).await.unwrap();
     }
 
