@@ -135,6 +135,9 @@ async fn both_securities_round_trip_and_charge_the_user() {
         echo(&mut stream, &payload).await.unwrap();
         echo(&mut stream, b"again").await.unwrap();
     }
+    // The relay charges a write just after handing it to the socket, so the
+    // client can see the echo a moment before it is counted.
+    tokio::time::sleep(Duration::from_millis(50)).await;
     let traffic = server.inbound.users().traffic(true);
     assert_eq!(traffic.len(), 1);
     assert_eq!(traffic[0].name, "alice");

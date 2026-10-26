@@ -127,6 +127,9 @@ async fn charges_traffic_and_reports_online_ips() {
     assert_eq!(online[0].name, "alice");
     assert!(online[0].ip.is_loopback());
 
+    // The relay charges a write just after handing it to the socket, so the
+    // client can see the echo a moment before it is counted.
+    tokio::time::sleep(Duration::from_millis(50)).await;
     let traffic = users.traffic(true);
     assert_eq!(traffic.len(), 1);
     assert_eq!((traffic[0].up, traffic[0].down), (11, 11));

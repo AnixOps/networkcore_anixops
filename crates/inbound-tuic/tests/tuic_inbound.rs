@@ -135,6 +135,9 @@ async fn relays_streams_and_charges_the_user() {
     echo(&mut first, &payload).await;
     echo(&mut second, b"second").await;
 
+    // The relay charges a write just after handing it to the socket, so the
+    // client can see the echo a moment before it is counted.
+    tokio::time::sleep(Duration::from_millis(50)).await;
     let traffic = server.inbound.users().traffic(true);
     assert_eq!(traffic.len(), 1);
     assert_eq!(traffic[0].name, "alice");

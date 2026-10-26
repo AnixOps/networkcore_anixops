@@ -159,6 +159,9 @@ async fn agent_workflow() {
         .iter()
         .any(|entry| entry["name"] == "1002" && entry["ip"] == "127.0.0.1"));
 
+    // The relay charges a write just after handing it to the socket, so the
+    // client can see the echo a moment before it is counted.
+    tokio::time::sleep(Duration::from_millis(50)).await;
     let (_, body) = call(api, "GET", "/v1/inbounds/ss/traffic?reset=true", None).await;
     let mut traffic: Vec<(String, u64, u64)> = body["traffic"]
         .as_array()
