@@ -8,9 +8,11 @@ description = "In-process engine for the iOS Network Extension: userspace TCP/IP
 
 # One feature per protocol; see src/protocols.rs. `direct` is always built in.
 [features]
-default = ["http", "hysteria2", "local-proxy", "mieru", "mitm", "scripts", "shadowsocks", "snell", "socks", "trojan", "tuic", "vless", "vmess", "wireguard"]
+default = ["http", "hysteria2", "iwan", "local-proxy", "mieru", "mitm", "scripts", "shadowsocks", "snell", "socks", "trojan", "tuic", "vless", "vmess", "wireguard"]
 http = ["dep:outbound-http"]
 hysteria2 = ["dep:outbound-hysteria2"]
+# Panabit iWAN: a layer-3 tunnel used as a routable outbound with its own stack.
+iwan = ["dep:outbound-iwan"]
 # Desktop local proxy (SOCKS5/HTTP listener) and URL delay tests; the iOS
 # tunnel does not use them.
 local-proxy = ["dep:inbound-mixed", "dep:transport-tls"]
@@ -43,6 +45,7 @@ netstack-smoltcp = "0.2"
 node-import = { path = "../node-import" }
 outbound-http = { path = "../outbound-http", optional = true }
 outbound-hysteria2 = { path = "../outbound-hysteria2", optional = true }
+outbound-iwan = { path = "../outbound-iwan", optional = true }
 outbound-mieru = { path = "../outbound-mieru", optional = true }
 outbound-shadowsocks = { path = "../outbound-shadowsocks", optional = true }
 outbound-snell = { path = "../outbound-snell", optional = true }
