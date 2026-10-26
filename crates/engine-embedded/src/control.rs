@@ -11,11 +11,19 @@
 //! | `connections` | | [`crate::connections::ConnectionsSnapshot`] |
 //! | `close_connection` | `id` | `{"closed": bool}` |
 //! | `close_all` | | `{"closed": count}` |
+//! | `mode` | | `{"mode": "rule" \| "global" \| "direct"}` |
+//! | `set_mode` | `mode` | `{"mode": ...}` |
+//! | `groups` | | `{"groups": [`[`crate::routing::GroupView`]`]}` |
+//! | `select` | `group`, `member` | `{"now": member}` |
+//!
+//! Mode and group choices last until the engine stops; the client keeps
+//! them in its profile (`mode`, a select group's `default`) for the next
+//! start.
 
 use serde::Deserialize;
 use serde_json::json;
 
-use crate::connections::Dispatcher;
+use crate::connections::{Dispatcher, Mode};
 use crate::{RuntimeError, RuntimeErrorCode};
 
 /// Largest request accepted.
@@ -28,6 +36,10 @@ enum ControlRequest {
     Connections,
     CloseConnection { id: u64 },
     CloseAll,
+    Mode,
+    SetMode { mode: Mode },
+    Groups,
+    Select { group: String, member: String },
 }
 
 /// Runs one JSON request against the flows of `dispatcher`.
@@ -43,6 +55,24 @@ pub fn handle(dispatcher: &Dispatcher, request: &[u8]) -> Result<Vec<u8>, Runtim
         ControlRequest::Connections => serde_json::to_value(tracker.connections()),
         ControlRequest::CloseConnection { id } => Ok(json!({ "closed": tracker.close(id) })),
         ControlRequest::CloseAll => Ok(json!({ "closed": tracker.close_all() })),
+        ControlRequest::Mode => Ok(json!({ "mode": dispatcher.mode() })),
+        ControlRequest::SetMode { mode } => {
+            dispatcher.set_mode(mode);
+            Ok(json!({ "mode": dispatcher.mode() }))
+        }
+        ControlRequest::Groups => {
+            let groups = dispatcher
+                .routed_outbound()
+                .map(|routed| routed.groups())
+                .unwrap_or_default();
+            Ok(json!({ "groups": groups }))
+        }
+        ControlRequest::Select { group, member } => {
+            let routed = dispatcher
+                .routed_outbound()
+                .ok_or_else(|| invalid("this config has no policy groups"))?;
+            Ok(json!({ "now": routed.select(&group, &member)? }))
+        }
     };
     answer
         .and_then(|answer| serde_json::to_vec(&answer))

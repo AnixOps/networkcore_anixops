@@ -172,10 +172,17 @@ impl EmbeddedRuntime {
         let interceptor = build_interceptor(&config)?;
         let routed = config.build_routed(registry, dialer.clone())?;
         let engine = match &routed {
-            Some(routed) => Engine::Stack(Arc::new(Dispatcher::routed(routed.clone()))),
-            None => match config.build_mode(registry, dialer)? {
+            Some(routed) => Engine::Stack(Arc::new(config.build_dispatcher(
+                Some(routed.clone()),
+                registry,
+                dialer,
+            )?)),
+            None => match config.build_mode(registry, dialer.clone())? {
                 TunnelMode::Stack(outbound) => {
-                    Engine::Stack(Arc::new(Dispatcher::single(outbound)))
+                    let dispatcher = Dispatcher::single(outbound)
+                        .with_direct(Arc::new(direct::DirectOutbound::new(dialer)));
+                    dispatcher.set_mode(config.mode);
+                    Engine::Stack(Arc::new(dispatcher))
                 }
                 #[cfg(feature = "wireguard")]
                 TunnelMode::WireGuard(settings) => Engine::WireGuard(settings),

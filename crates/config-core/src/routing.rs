@@ -192,6 +192,17 @@ pub enum PolicyGroupKind {
     Fallback,
 }
 
+impl PolicyGroupKind {
+    /// The configuration name: `select`, `url-test` or `fallback`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Select => "select",
+            Self::UrlTest => "url-test",
+            Self::Fallback => "fallback",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HealthCheck {
     pub url: String,
@@ -403,6 +414,45 @@ impl RoutingModel {
             resolved_ip,
             environment,
         )
+    }
+
+    /// Sends a connection straight to `target`, skipping the rules, as a
+    /// global mode does. The result reports [`RouteMatch::Final`].
+    pub fn route_to(
+        &self,
+        target: &PolicyTarget,
+        environment: &dyn RoutingEnvironment,
+    ) -> RouteResolution {
+        self.resolution(RouteMatch::Final, target, None, environment)
+    }
+
+    /// The member a group currently picks: the selected or default member of
+    /// a select group, the fastest of a url-test group, the first healthy
+    /// member of a fallback group.
+    pub fn group_member(
+        &self,
+        group_id: &str,
+        environment: &dyn RoutingEnvironment,
+    ) -> Option<PolicyTarget> {
+        self.group(group_id)
+            .map(|group| select_group_member(group, environment))
+    }
+
+    /// Looks up a configuration name the way rule targets are resolved:
+    /// DIRECT, REJECT, a policy group id or a node id.
+    pub fn target_named(&self, name: &str, node_ids: &BTreeSet<String>) -> Option<PolicyTarget> {
+        let name = name.trim();
+        if name.eq_ignore_ascii_case(RESERVED_DIRECT) {
+            Some(PolicyTarget::Direct)
+        } else if name.eq_ignore_ascii_case(RESERVED_REJECT) {
+            Some(PolicyTarget::Reject)
+        } else if self.group(name).is_some() {
+            Some(PolicyTarget::Group(name.to_string()))
+        } else if node_ids.contains(name) {
+            Some(PolicyTarget::Node(name.to_string()))
+        } else {
+            None
+        }
     }
 
     fn resolution(

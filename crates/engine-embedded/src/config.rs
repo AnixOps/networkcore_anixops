@@ -19,6 +19,7 @@ use engine_outbound::registry::{OutboundRegistry, Settings};
 use engine_outbound::{Dialer, TcpOutbound};
 use serde::Deserialize;
 
+use crate::connections::{Dispatcher, Mode};
 use crate::direct::DirectOutbound;
 use crate::routing::RoutedOutbound;
 #[cfg(feature = "wireguard")]
@@ -49,6 +50,10 @@ pub struct RuntimeConfig {
     pub outbound: Option<OutboundConfig>,
     #[serde(default)]
     pub routing: Option<RoutingConfig>,
+    /// The mode the engine starts in (`rule`, `global` or `direct`); the
+    /// client switches it later with a `set_mode` control request.
+    #[serde(default)]
+    pub mode: Mode,
     #[serde(default)]
     pub dns: DnsConfig,
     #[serde(default)]
@@ -120,6 +125,10 @@ pub struct RoutingConfig {
     /// Lists named by `RULE-SET,<name>,<target>` rules.
     #[serde(default)]
     pub rule_sets: BTreeMap<String, RuleSetConfig>,
+    /// Where the global mode sends every connection: a policy group id, a
+    /// node id or `DIRECT`. Defaults to the first group, else the first node.
+    #[serde(default)]
+    pub global: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -343,6 +352,24 @@ impl RuntimeConfig {
         }
     }
 
+    /// The dispatcher for a config's flows, in the config's mode: routed by
+    /// `routed` when given, else through the one outbound. The direct mode
+    /// dials with `dialer`.
+    pub fn build_dispatcher(
+        &self,
+        routed: Option<Arc<RoutedOutbound>>,
+        registry: &OutboundRegistry,
+        dialer: Arc<dyn Dialer>,
+    ) -> Result<Dispatcher, RuntimeError> {
+        let dispatcher = match routed {
+            Some(routed) => Dispatcher::routed(routed),
+            None => Dispatcher::single(self.build_outbound(registry, dialer.clone())?)
+                .with_direct(Arc::new(DirectOutbound::new(dialer))),
+        };
+        dispatcher.set_mode(self.mode);
+        Ok(dispatcher)
+    }
+
     /// The rule-based outbound of a `routing` config, or `None` for a single
     /// outbound. The desktop local proxy keeps it to run group health checks.
     pub fn build_routed(
@@ -389,9 +416,11 @@ impl RuntimeConfig {
             })
             .collect::<Result<BTreeMap<_, _>, _>>()?;
         let direct = Arc::new(DirectOutbound::new(dialer));
-        Ok(Some(Arc::new(RoutedOutbound::with_rule_sets(
-            &spec, direct, nodes, rule_sets,
-        )?)))
+        let mut routed = RoutedOutbound::with_rule_sets(&spec, direct, nodes, rule_sets)?;
+        if let Some(global) = &routing.global {
+            routed = routed.with_global(global)?;
+        }
+        Ok(Some(Arc::new(routed)))
     }
 }
 

@@ -58,10 +58,7 @@ impl LocalProxy {
         let config = RuntimeConfig::from_json(config)?;
         // A routing config keeps its routed outbound to run group health checks.
         let routed = config.build_routed(registry, dialer.clone())?;
-        let dispatcher = Arc::new(match &routed {
-            Some(routed) => Dispatcher::routed(routed.clone()),
-            None => Dispatcher::single(config.build_outbound(registry, dialer)?),
-        });
+        let dispatcher = Arc::new(config.build_dispatcher(routed.clone(), registry, dialer)?);
         let protocol = dispatcher.protocol();
         let outbound = dispatcher.clone() as Arc<dyn TcpOutbound>;
         let runtime = tokio::runtime::Builder::new_current_thread()
