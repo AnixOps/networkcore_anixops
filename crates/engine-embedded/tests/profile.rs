@@ -99,13 +99,13 @@ fn rule_mode_keeps_the_profile_and_list_modes_replace_its_rules() {
         json!(["RULE-SET,china,Proxy", "FINAL,DIRECT"])
     );
 
-    let single = render(&single(), RoutingMode::GfwList);
-    assert!(single.get("outbound").is_none());
+    let gfw = render(&single(), RoutingMode::GfwList);
+    assert!(gfw.get("outbound").is_none());
     assert_eq!(
-        single["routing"]["rules"],
+        gfw["routing"]["rules"],
         json!([format!("RULE-SET,gfw,{PROXY_OUTBOUND}"), "FINAL,DIRECT"])
     );
-    assert!(single["routing"]["outbounds"][PROXY_OUTBOUND].is_object());
+    assert!(gfw["routing"]["outbounds"][PROXY_OUTBOUND].is_object());
 
     let direct = render(&single(), RoutingMode::Direct);
     assert_eq!(direct["routing"]["rules"], json!(["FINAL,DIRECT"]));
