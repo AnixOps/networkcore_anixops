@@ -20,7 +20,9 @@ XTLS Vision (`xtls-rprx-vision`).
 
 Inputs use the share-link encodings: UUID in hyphenated hex, REALITY public key
 in base64 (URL-safe or standard, padding optional) and short id in hex. UDP
-(VLESS command 2, XUDP) is not implemented yet. Credentials are redacted from
+uses VLESS command 2 (`open_udp`): one connection per flow, no flow addon even
+for Vision users, each datagram a big-endian `u16` length plus payload. XUDP
+(Mux.Cool) is not implemented. Credentials are redacted from
 `Debug` output and never placed in error messages.
 
 The `reality_interop` tests are ignored by default and run in the

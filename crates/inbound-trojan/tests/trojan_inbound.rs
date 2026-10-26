@@ -319,3 +319,21 @@ async fn udp_associate_relays_datagrams() {
     let total = payloads.iter().map(Vec::len).sum::<usize>() as u64;
     assert_eq!((alice.up, alice.down), (total, total));
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn client_udp_flow_round_trips() {
+    let server = start(None).await;
+    let echo = udp_echo_server().await;
+    let mut flow = client(server.addr, "alice-secret")
+        .open_udp(&TargetAddr::Ip(echo))
+        .await
+        .unwrap();
+    for payload in [b"first".to_vec(), vec![7u8; 1200]] {
+        flow.send.send(&payload).await.unwrap();
+        let reply = tokio::time::timeout(TIMEOUT, flow.recv.recv())
+            .await
+            .expect("udp reply timed out")
+            .unwrap();
+        assert_eq!(reply, payload);
+    }
+}

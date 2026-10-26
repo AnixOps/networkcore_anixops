@@ -1,6 +1,6 @@
 //! VLESS without REALITY: over plain TCP or standard TLS, optionally inside a
 //! WebSocket. No Vision flow; the stream carries the VLESS header and then
-//! the payload unchanged.
+//! the payload unchanged (or length-prefixed datagrams for UDP).
 
 use std::fmt;
 use std::io;
@@ -8,13 +8,14 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{ready, Context, Poll};
 
-use engine_outbound::{BoxFuture, BoxStream, Dialer, TargetAddr, TcpOutbound};
+use engine_outbound::{BoxFuture, BoxStream, Dialer, TargetAddr, TcpOutbound, UdpFlow};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use transport_grpc::GrpcConnector;
 use transport_tls::TlsConnector;
 use transport_ws::WsConnector;
 
-use crate::protocol::{encode_request_header, Flow};
+use crate::protocol::{encode_request_header, encode_udp_request_header, Flow};
+use crate::udp;
 
 /// VLESS over TCP or TLS, optionally inside a WebSocket.
 pub struct VlessTlsOutbound {
@@ -78,6 +79,29 @@ impl VlessTlsOutbound {
         self.grpc = Some(grpc);
         self
     }
+
+    async fn open(&self, header: Vec<u8>) -> io::Result<BoxStream> {
+        let mut stream = self.dialer.dial(&self.server, self.port).await?;
+        if let Some(tls) = &self.tls {
+            stream = tls.connect(stream).await?;
+        }
+        if let Some(websocket) = &self.websocket {
+            stream = websocket.connect(stream).await?;
+        }
+        if let Some(grpc) = &self.grpc {
+            stream = grpc.connect(stream).await?;
+        }
+        Ok(Box::new(PlainVlessStream {
+            inner: stream,
+            pending: header,
+            written: 0,
+            merged: false,
+            response: ResponseState::Head {
+                have: 0,
+                head: [0; 2],
+            },
+        }))
+    }
 }
 
 impl TcpOutbound for VlessTlsOutbound {
@@ -88,26 +112,14 @@ impl TcpOutbound for VlessTlsOutbound {
     fn connect<'a>(&'a self, target: &'a TargetAddr) -> BoxFuture<'a, io::Result<BoxStream>> {
         Box::pin(async move {
             let header = encode_request_header(&self.uuid, Flow::None, target)?;
-            let mut stream = self.dialer.dial(&self.server, self.port).await?;
-            if let Some(tls) = &self.tls {
-                stream = tls.connect(stream).await?;
-            }
-            if let Some(websocket) = &self.websocket {
-                stream = websocket.connect(stream).await?;
-            }
-            if let Some(grpc) = &self.grpc {
-                stream = grpc.connect(stream).await?;
-            }
-            Ok(Box::new(PlainVlessStream {
-                inner: stream,
-                pending: header,
-                written: 0,
-                merged: false,
-                response: ResponseState::Head {
-                    have: 0,
-                    head: [0; 2],
-                },
-            }) as BoxStream)
+            self.open(header).await
+        })
+    }
+
+    fn open_udp<'a>(&'a self, target: &'a TargetAddr) -> BoxFuture<'a, io::Result<UdpFlow>> {
+        Box::pin(async move {
+            let header = encode_udp_request_header(&self.uuid, target)?;
+            Ok(udp::flow(self.open(header).await?))
         })
     }
 }

@@ -6,6 +6,10 @@
 //! is held back and written together with the first payload so it leaves in
 //! the same TLS record, like other Trojan clients do.
 //!
+//! UDP ([`TcpOutbound::open_udp`]) uses `UDP ASSOCIATE` (CMD 3): one Trojan
+//! connection per flow, each packet `ATYP ADDR PORT LENGTH CRLF PAYLOAD` in
+//! both directions.
+//!
 //! With [`TrojanOutbound::with_websocket`] the Trojan stream runs inside a
 //! WebSocket over the TLS connection (the `ws` transport of Trojan-Go and
 //! Xray).
@@ -19,9 +23,13 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{ready, Context, Poll};
 
-use engine_outbound::{BoxFuture, BoxStream, Dialer, TargetAddr, TcpOutbound};
+use engine_outbound::{
+    BoxFuture, BoxStream, DatagramRecv, DatagramSend, Dialer, TargetAddr, TcpOutbound, UdpFlow,
+};
 use sha2::{Digest, Sha224};
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use tokio::io::{
+    AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader, ReadBuf, ReadHalf, WriteHalf,
+};
 use transport_grpc::GrpcConnector;
 use transport_tls::{TlsConnector, TlsSettings};
 use transport_ws::WsConnector;
@@ -31,6 +39,7 @@ pub use factory::{TrojanFactory, TYPE_NAME};
 pub const PROTOCOL: &str = "trojan";
 
 const CMD_CONNECT: u8 = 0x01;
+const CMD_UDP_ASSOCIATE: u8 = 0x03;
 const ATYP_IPV4: u8 = 0x01;
 const ATYP_DOMAIN: u8 = 0x03;
 const ATYP_IPV6: u8 = 0x04;
@@ -83,6 +92,24 @@ impl TrojanOutbound {
         self.grpc = Some(grpc);
         self
     }
+
+    async fn open(&self, command: u8, target: &TargetAddr) -> io::Result<TrojanStream> {
+        let request = request_header(&self.password_hash, command, target)?;
+        let transport = self.dialer.dial(&self.server, self.port).await?;
+        let mut tls = self.tls.connect(transport).await?;
+        if let Some(websocket) = &self.websocket {
+            tls = websocket.connect(tls).await?;
+        }
+        if let Some(grpc) = &self.grpc {
+            tls = grpc.connect(tls).await?;
+        }
+        Ok(TrojanStream {
+            inner: tls,
+            pending: request,
+            written: 0,
+            merged: false,
+        })
+    }
 }
 
 impl TcpOutbound for TrojanOutbound {
@@ -92,21 +119,27 @@ impl TcpOutbound for TrojanOutbound {
 
     fn connect<'a>(&'a self, target: &'a TargetAddr) -> BoxFuture<'a, io::Result<BoxStream>> {
         Box::pin(async move {
-            let request = request_header(&self.password_hash, target)?;
-            let transport = self.dialer.dial(&self.server, self.port).await?;
-            let mut tls = self.tls.connect(transport).await?;
-            if let Some(websocket) = &self.websocket {
-                tls = websocket.connect(tls).await?;
-            }
-            if let Some(grpc) = &self.grpc {
-                tls = grpc.connect(tls).await?;
-            }
-            Ok(Box::new(TrojanStream {
-                inner: tls,
-                pending: request,
-                written: 0,
-                merged: false,
-            }) as BoxStream)
+            let stream = self.open(CMD_CONNECT, target).await?;
+            Ok(Box::new(stream) as BoxStream)
+        })
+    }
+
+    fn open_udp<'a>(&'a self, target: &'a TargetAddr) -> BoxFuture<'a, io::Result<UdpFlow>> {
+        Box::pin(async move {
+            // The packet header encodes the target, so check it up front.
+            write_target(&mut Vec::new(), target)?;
+            let stream = self.open(CMD_UDP_ASSOCIATE, target).await?;
+            let (reader, writer) = tokio::io::split(Box::new(stream) as BoxStream);
+            Ok(UdpFlow::new(
+                Box::new(UdpSend {
+                    writer,
+                    target: target.clone(),
+                    packet: Vec::new(),
+                }),
+                Box::new(UdpRecv {
+                    reader: BufReader::new(reader),
+                }),
+            ))
         })
     }
 }
@@ -123,11 +156,22 @@ pub fn password_hash(password: &str) -> [u8; 56] {
     out
 }
 
-fn request_header(password_hash: &[u8; 56], target: &TargetAddr) -> io::Result<Vec<u8>> {
+fn request_header(
+    password_hash: &[u8; 56],
+    command: u8,
+    target: &TargetAddr,
+) -> io::Result<Vec<u8>> {
     let mut out = Vec::with_capacity(56 + 2 + 4 + 256 + 2 + 2);
     out.extend_from_slice(password_hash);
     out.extend_from_slice(b"\r\n");
-    out.push(CMD_CONNECT);
+    out.push(command);
+    write_target(&mut out, target)?;
+    out.extend_from_slice(b"\r\n");
+    Ok(out)
+}
+
+/// `ATYP DST.ADDR DST.PORT`, as in SOCKS5.
+fn write_target(out: &mut Vec<u8>, target: &TargetAddr) -> io::Result<()> {
     match target {
         TargetAddr::Ip(addr) => match addr.ip() {
             std::net::IpAddr::V4(ip) => {
@@ -150,8 +194,65 @@ fn request_header(password_hash: &[u8; 56], target: &TargetAddr) -> io::Result<V
         }
     }
     out.extend_from_slice(&target.port().to_be_bytes());
-    out.extend_from_slice(b"\r\n");
-    Ok(out)
+    Ok(())
+}
+
+/// Writes each datagram as one Trojan UDP packet to the flow's target.
+struct UdpSend {
+    writer: WriteHalf<BoxStream>,
+    target: TargetAddr,
+    packet: Vec<u8>,
+}
+
+impl DatagramSend for UdpSend {
+    fn send<'a>(&'a mut self, payload: &'a [u8]) -> BoxFuture<'a, io::Result<()>> {
+        Box::pin(async move {
+            let len = u16::try_from(payload.len())
+                .map_err(|_| invalid("trojan udp payload is too large"))?;
+            self.packet.clear();
+            write_target(&mut self.packet, &self.target)?;
+            self.packet.extend_from_slice(&len.to_be_bytes());
+            self.packet.extend_from_slice(b"\r\n");
+            self.packet.extend_from_slice(payload);
+            self.writer.write_all(&self.packet).await?;
+            self.writer.flush().await
+        })
+    }
+}
+
+/// Reads Trojan UDP packets; the source address is dropped because the flow
+/// has one destination.
+struct UdpRecv {
+    reader: BufReader<ReadHalf<BoxStream>>,
+}
+
+impl DatagramRecv for UdpRecv {
+    fn recv(&mut self) -> BoxFuture<'_, io::Result<Vec<u8>>> {
+        Box::pin(async move {
+            let address_len = match self.reader.read_u8().await? {
+                ATYP_IPV4 => 4,
+                ATYP_IPV6 => 16,
+                ATYP_DOMAIN => usize::from(self.reader.read_u8().await?),
+                _ => return Err(malformed()),
+            };
+            // Address and port.
+            let mut skip = [0u8; 255 + 2];
+            self.reader.read_exact(&mut skip[..address_len + 2]).await?;
+            let len = usize::from(self.reader.read_u16().await?);
+            let mut crlf = [0u8; 2];
+            self.reader.read_exact(&mut crlf).await?;
+            if &crlf != b"\r\n" {
+                return Err(malformed());
+            }
+            let mut payload = vec![0u8; len];
+            self.reader.read_exact(&mut payload).await?;
+            Ok(payload)
+        })
+    }
+}
+
+fn malformed() -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidData, "trojan udp packet is malformed")
 }
 
 /// The TLS stream with the request header written ahead of the first payload,

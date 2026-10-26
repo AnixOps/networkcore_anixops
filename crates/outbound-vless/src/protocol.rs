@@ -7,6 +7,7 @@ use engine_outbound::TargetAddr;
 
 pub const FLOW_VISION: &str = "xtls-rprx-vision";
 const COMMAND_TCP: u8 = 1;
+const COMMAND_UDP: u8 = 2;
 
 /// VLESS flow control.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -34,6 +35,21 @@ pub fn encode_request_header(
     flow: Flow,
     target: &TargetAddr,
 ) -> io::Result<Vec<u8>> {
+    encode_header(uuid, flow, COMMAND_TCP, target)
+}
+
+/// Encodes the request header for a UDP flow to `target`. UDP never takes a
+/// flow, also for Vision users, as in Xray.
+pub fn encode_udp_request_header(uuid: &[u8; 16], target: &TargetAddr) -> io::Result<Vec<u8>> {
+    encode_header(uuid, Flow::None, COMMAND_UDP, target)
+}
+
+fn encode_header(
+    uuid: &[u8; 16],
+    flow: Flow,
+    command: u8,
+    target: &TargetAddr,
+) -> io::Result<Vec<u8>> {
     let mut out = Vec::with_capacity(64);
     out.push(0);
     out.extend_from_slice(uuid);
@@ -47,7 +63,7 @@ pub fn encode_request_header(
             out.extend_from_slice(FLOW_VISION.as_bytes());
         }
     }
-    out.push(COMMAND_TCP);
+    out.push(command);
     out.extend_from_slice(&target.port().to_be_bytes());
     match target {
         TargetAddr::Ip(SocketAddr::V4(addr)) => {
