@@ -1,0 +1,28 @@
+[package]
+name = "inbound-vless"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "VLESS server inbound with per-user UUIDs, fallback and REALITY."
+
+[dependencies]
+engine-inbound = { path = "../engine-inbound" }
+engine-outbound = { path = "../engine-outbound" }
+inbound-transport = { path = "../inbound-transport" }
+# Shares UUID parsing and flow names with the client outbound.
+outbound-vless = { path = "../outbound-vless" }
+ring = "0.17.14"
+serde = { version = "1", features = ["derive"] }
+tls-mimic = { path = "../tls-mimic" }
+tokio = { version = "1", default-features = false, features = ["io-util"] }
+x25519-dalek = { version = "2.0.1", features = ["static_secrets"] }
+
+[dev-dependencies]
+rcgen = "0.14.8"
+serde_json = "1"
+tokio = { version = "1", default-features = false, features = ["io-util", "net", "rt", "rt-multi-thread", "macros", "time"] }
+transport-tls = { path = "../transport-tls" }
+
+[lib]
+path = "src/lib.rs"

@@ -1,0 +1,25 @@
+[package]
+name = "inbound-trojan"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Trojan server inbound with per-user passwords and fallback."
+
+[dependencies]
+engine-inbound = { path = "../engine-inbound" }
+engine-outbound = { path = "../engine-outbound" }
+inbound-transport = { path = "../inbound-transport" }
+# Shares the password hash with the client outbound.
+outbound-trojan = { path = "../outbound-trojan" }
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", default-features = false, features = ["io-util"] }
+
+[dev-dependencies]
+rcgen = "0.14.8"
+serde_json = "1"
+tokio = { version = "1", default-features = false, features = ["io-util", "net", "rt", "rt-multi-thread", "macros", "time"] }
+transport-tls = { path = "../transport-tls" }
+
+[lib]
+path = "src/lib.rs"

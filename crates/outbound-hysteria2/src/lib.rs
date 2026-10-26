@@ -142,10 +142,10 @@ impl Hysteria2Outbound {
             .send_request(request)
             .await
             .map_err(|_| other("hysteria2 auth request failed"))?;
-        stream
-            .finish()
-            .await
-            .map_err(|_| other("hysteria2 auth request failed"))?;
+        // A server may answer and stop reading before our FIN lands (sing-box
+        // does when refusing), so a failed finish is not yet a failure: the
+        // response decides.
+        let _ = stream.finish().await;
         let response = stream
             .recv_response()
             .await

@@ -4,6 +4,10 @@
 
 ## Unreleased
 
+### Added
+
+- 节点服务端入站（第一步）：新增 `engine-inbound`（服务端入站接口 `StreamInbound`、按名称管理的用户表 `UserStore`、`server::serve` 服务循环和入站 `registry`）和 `inbound-shadowsocks`（Shadowsocks-2022 TCP 服务端）。用户可在运行中增删，删除或替换用户会断开其现有连接；`traffic(reset)` 按用户报告上下行字节（已删除用户未取走的流量保留到下次读取），`online()` 按用户和来源 IP 报告在线连接数，供 anix-agent 这类节点代理驱动。SS-2022 支持三种 2022 方法、单密钥和多用户（iPSK:uPSK 身份头，仅 AES），30 秒时间戳窗口、60 秒盐值防重放，握手失败的连接保持打开并丢弃输入而不是立即关闭。测试用自研客户端和 shadowsocks-rust 客户端连接服务端。同时新增 `inbound-transport`（服务端 TLS，证书文件变化时自动重新加载，坏证书保留旧的）、`inbound-trojan` 和 `inbound-vless`（按用户密码哈希 / UUID 认证，认证失败转给 `fallback` 网站或保持丢弃），以及 `inbound-vmess`（VMess AEAD，aes-128-gcm / chacha20-poly1305 / none，支持 ChunkMasking 和 GlobalPadding，AuthID 120 秒窗口与防重放）。防重放缓存移到 `engine_inbound::replay`。新增 QUIC 类入站接口 `PacketInbound`（registry 按 `Inbound::Stream` / `Inbound::Packet` 区分）、`server::relay_accepted` 和 `transport_quic::server_endpoint`，并新增 `inbound-hysteria2`（自带最小 HTTP/3 与 QPACK 静态表实现处理 `/auth`，认证失败返回 404 伪装成网站，可选 Salamander 混淆）与 `inbound-tuic`（TUIC v5，按 UUID 和 TLS 导出密钥令牌认证，cubic / new_reno / bbr 拥塞控制），删除用户会关闭其 QUIC 连接。`inbound-vless` 新增 REALITY 服务端（`tls-mimic` 新增最小 TLS 1.3 服务端 `tls_mimic::server`）：校验 ClientHello 会话 ID 中的 REALITY 标记（私钥、short id、SNI、时间窗口），通过的客户端拿到绑定认证密钥的临时 Ed25519 证书，其余连接（包括非 TLS 探测）原样转发到伪装站点。新增 `node-runtime` 与节点内核程序 `apps/anixcore`（`anixcore run|check -c config.json`）：按 tag 运行和增删入站，提供带 Bearer 令牌的本地 HTTP/JSON 管理接口（增删入站、增删用户、按用户流量含清零、在线 IP），供 anix-agent 驱动；直连出站默认拒绝回环、内网、CGNAT 和链路本地目标（入站自己的 fallback / REALITY 伪装站点除外），可用 `allow_private_targets` 放开。UDP 转发、VLESS Vision 后续提供。
+
 ## v0.2.0 - 2026-10-26
 
 正式版，tag 在 `a636b89`，与通过 Windows/Linux 真机验收的 `v0.2.0-rc.2` 同一提交（`v0.2.0-rc.1` 在 `54adc04`）。以下为自 `v0.2.0-alpha.21` 以来的全部变更。

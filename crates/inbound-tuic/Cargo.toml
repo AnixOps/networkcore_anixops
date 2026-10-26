@@ -1,0 +1,26 @@
+[package]
+name = "inbound-tuic"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "TUIC v5 server inbound over QUIC with per-user UUIDs and passwords."
+
+[dependencies]
+engine-inbound = { path = "../engine-inbound" }
+engine-outbound = { path = "../engine-outbound" }
+inbound-transport = { path = "../inbound-transport" }
+# Shares the command constants and the token derivation with the client.
+outbound-tuic = { path = "../outbound-tuic" }
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", default-features = false, features = ["io-util", "rt", "sync", "time"] }
+transport-quic = { path = "../transport-quic" }
+
+[dev-dependencies]
+rcgen = "0.14.8"
+serde_json = "1"
+tokio = { version = "1", default-features = false, features = ["io-util", "net", "rt", "rt-multi-thread", "macros", "sync", "time"] }
+transport-tls = { path = "../transport-tls" }
+
+[lib]
+path = "src/lib.rs"

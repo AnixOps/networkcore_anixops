@@ -106,6 +106,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "anixcore"
+version = "0.2.0"
+dependencies = [
+ "node-runtime",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "annotate-snippets"
 version = "0.12.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1465,6 +1474,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "engine-inbound"
+version = "0.2.0"
+dependencies = [
+ "engine-outbound",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "engine-mieru"
 version = "0.2.0"
 dependencies = [
@@ -2539,10 +2558,124 @@ dependencies = [
 ]
 
 [[package]]
+name = "inbound-hysteria2"
+version = "0.2.0"
+dependencies = [
+ "engine-inbound",
+ "engine-outbound",
+ "inbound-transport",
+ "outbound-hysteria2",
+ "rcgen",
+ "ring",
+ "serde",
+ "serde_json",
+ "tokio",
+ "transport-quic",
+ "transport-tls",
+]
+
+[[package]]
 name = "inbound-mixed"
 version = "0.2.0"
 dependencies = [
  "engine-outbound",
+ "tokio",
+]
+
+[[package]]
+name = "inbound-shadowsocks"
+version = "0.2.0"
+dependencies = [
+ "aes",
+ "base64 0.22.1",
+ "blake3",
+ "engine-inbound",
+ "engine-outbound",
+ "outbound-shadowsocks",
+ "ring",
+ "serde",
+ "serde_json",
+ "shadowsocks",
+ "tokio",
+]
+
+[[package]]
+name = "inbound-transport"
+version = "0.2.0"
+dependencies = [
+ "engine-inbound",
+ "engine-outbound",
+ "rcgen",
+ "rustls",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-rustls",
+ "transport-tls",
+]
+
+[[package]]
+name = "inbound-trojan"
+version = "0.2.0"
+dependencies = [
+ "engine-inbound",
+ "engine-outbound",
+ "inbound-transport",
+ "outbound-trojan",
+ "rcgen",
+ "serde",
+ "serde_json",
+ "tokio",
+ "transport-tls",
+]
+
+[[package]]
+name = "inbound-tuic"
+version = "0.2.0"
+dependencies = [
+ "engine-inbound",
+ "engine-outbound",
+ "inbound-transport",
+ "outbound-tuic",
+ "rcgen",
+ "serde",
+ "serde_json",
+ "tokio",
+ "transport-quic",
+ "transport-tls",
+]
+
+[[package]]
+name = "inbound-vless"
+version = "0.2.0"
+dependencies = [
+ "engine-inbound",
+ "engine-outbound",
+ "inbound-transport",
+ "outbound-vless",
+ "rcgen",
+ "ring",
+ "serde",
+ "serde_json",
+ "tls-mimic",
+ "tokio",
+ "transport-tls",
+ "x25519-dalek",
+]
+
+[[package]]
+name = "inbound-vmess"
+version = "0.2.0"
+dependencies = [
+ "aes",
+ "crc32fast",
+ "engine-inbound",
+ "engine-outbound",
+ "inbound-transport",
+ "outbound-vmess",
+ "ring",
+ "serde",
+ "serde_json",
  "tokio",
 ]
 
@@ -3163,6 +3296,24 @@ dependencies = [
  "control-domain",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "node-runtime"
+version = "0.2.0"
+dependencies = [
+ "engine-inbound",
+ "engine-outbound",
+ "inbound-hysteria2",
+ "inbound-shadowsocks",
+ "inbound-trojan",
+ "inbound-tuic",
+ "inbound-vless",
+ "inbound-vmess",
+ "outbound-shadowsocks",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

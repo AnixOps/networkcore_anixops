@@ -1,6 +1,7 @@
-//! QUIC client transport for QUIC-based outbounds (Hysteria2, TUIC, ...):
-//! quinn over rustls, with TLS settings, roots and the `insecure` verifier
-//! from `transport-tls`.
+//! QUIC transport for QUIC-based protocols (Hysteria2, TUIC, ...): quinn
+//! over rustls, with TLS settings, roots and the `insecure` verifier from
+//! `transport-tls` on the client side, and [`server_endpoint`] for server
+//! inbounds.
 //!
 //! [`QuicConnector`] resolves the server, binds a UDP socket of the matching
 //! family and returns an established [`QuicConnection`]; the protocol crate
@@ -162,6 +163,39 @@ impl QuicConnector {
             _endpoint: endpoint,
         })
     }
+}
+
+/// A server endpoint on `socket` with the transport settings clients use,
+/// optionally obfuscating every datagram with Salamander.
+pub fn server_endpoint(
+    socket: std::net::UdpSocket,
+    crypto: Arc<quinn::crypto::rustls::QuicServerConfig>,
+    congestion: Congestion,
+    salamander: Option<salamander::Salamander>,
+) -> io::Result<quinn::Endpoint> {
+    let overhead = if salamander.is_some() {
+        salamander::SALT_LEN as u16
+    } else {
+        0
+    };
+    let mut server_config = quinn::ServerConfig::with_crypto(crypto);
+    server_config.transport_config(Arc::new(transport_config(congestion, overhead)?));
+    let runtime =
+        quinn::default_runtime().ok_or_else(|| io::Error::other("no async runtime for quic"))?;
+    socket.set_nonblocking(true)?;
+    let socket = runtime.wrap_udp_socket(socket)?;
+    let socket: Arc<dyn quinn::AsyncUdpSocket> = match salamander {
+        Some(salamander) => {
+            salamander::SalamanderSocket::new(socket, salamander) as Arc<dyn quinn::AsyncUdpSocket>
+        }
+        None => socket,
+    };
+    quinn::Endpoint::new_with_abstract_socket(
+        quinn::EndpointConfig::default(),
+        Some(server_config),
+        socket,
+        runtime,
+    )
 }
 
 /// Windows, keep-alive, idle timeout and congestion control; `overhead` bytes
