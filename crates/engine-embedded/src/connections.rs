@@ -530,6 +530,12 @@ impl Dispatcher {
         &self.tracker
     }
 
+    /// The untracked outbound of the direct mode, for DNS servers reached
+    /// directly.
+    pub fn direct(&self) -> &Arc<dyn TcpOutbound> {
+        &self.direct
+    }
+
     /// The untracked outbound, for the tunnel's own DNS queries.
     pub fn outbound(&self) -> &Arc<dyn TcpOutbound> {
         &self.outbound
