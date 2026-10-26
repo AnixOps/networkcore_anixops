@@ -27,7 +27,7 @@ use config_core::routing::{
     RoutingModel, RoutingSpec, RuleMatcher,
 };
 use config_core::rule_set::RuleSet;
-use engine_outbound::{BoxFuture, BoxStream, TargetAddr, TcpOutbound};
+use engine_outbound::{BoxFuture, BoxStream, TargetAddr, TcpOutbound, UdpFlow};
 
 use crate::{RuntimeError, RuntimeErrorCode};
 
@@ -269,20 +269,26 @@ impl TcpOutbound for RoutedOutbound {
     }
 
     fn connect<'a>(&'a self, target: &'a TargetAddr) -> BoxFuture<'a, io::Result<BoxStream>> {
-        Box::pin(async move {
-            let outbound = match self.route_resolving(target).await {
-                RouteOutcome::Reject => {
-                    return Err(io::Error::new(
-                        io::ErrorKind::PermissionDenied,
-                        "connection rejected by routing rule",
-                    ))
-                }
-                RouteOutcome::Direct => &self.direct,
-                RouteOutcome::Node(id) => self.nodes.get(&id).ok_or_else(|| {
-                    io::Error::new(io::ErrorKind::NotFound, "routed node is not configured")
-                })?,
-            };
-            outbound.connect(target).await
-        })
+        Box::pin(async move { self.outbound_for(target).await?.connect(target).await })
+    }
+
+    /// UDP follows the same rules as TCP, decided once per flow.
+    fn open_udp<'a>(&'a self, target: &'a TargetAddr) -> BoxFuture<'a, io::Result<UdpFlow>> {
+        Box::pin(async move { self.outbound_for(target).await?.open_udp(target).await })
+    }
+}
+
+impl RoutedOutbound {
+    async fn outbound_for(&self, target: &TargetAddr) -> io::Result<&Arc<dyn TcpOutbound>> {
+        match self.route_resolving(target).await {
+            RouteOutcome::Reject => Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "connection rejected by routing rule",
+            )),
+            RouteOutcome::Direct => Ok(&self.direct),
+            RouteOutcome::Node(id) => self.nodes.get(&id).ok_or_else(|| {
+                io::Error::new(io::ErrorKind::NotFound, "routed node is not configured")
+            }),
+        }
     }
 }

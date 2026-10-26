@@ -18,7 +18,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use engine_outbound::{BoxFuture, BoxStream, Dialer, TargetAddr, TcpOutbound};
+use engine_outbound::{BoxFuture, BoxStream, Dialer, TargetAddr, TcpOutbound, UdpFlow};
 use ring::aead::{self, LessSafeKey, UnboundKey};
 use ring::rand::{SecureRandom, SystemRandom};
 use transport_grpc::GrpcConnector;
@@ -269,5 +269,9 @@ impl TcpOutbound for VmessOutbound {
 
     fn connect<'a>(&'a self, target: &'a TargetAddr) -> BoxFuture<'a, io::Result<BoxStream>> {
         Box::pin(self.open(target, COMMAND_TCP))
+    }
+
+    fn open_udp<'a>(&'a self, target: &'a TargetAddr) -> BoxFuture<'a, io::Result<UdpFlow>> {
+        Box::pin(async move { Ok(UdpFlow::message_stream(self.connect_udp(target).await?)) })
     }
 }

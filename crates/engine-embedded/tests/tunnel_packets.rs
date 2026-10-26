@@ -1,14 +1,16 @@
 //! Packet-level tunnel tests: raw IP packets in, raw IP packets out.
 
 use std::io::{self, Read, Write};
-use std::net::{Ipv4Addr, SocketAddr, TcpListener};
+use std::net::{Ipv4Addr, SocketAddr, TcpListener, UdpSocket};
 use std::sync::mpsc::{self, Receiver};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use engine_embedded::tunnel::{PacketSink, Tunnel, TunnelSettings};
-use engine_outbound::{BoxFuture, BoxStream, TargetAddr, TcpOutbound};
+use engine_outbound::{
+    BoxFuture, BoxStream, DatagramRecv, DatagramSend, TargetAddr, TcpOutbound, UdpFlow,
+};
 use etherparse::{PacketBuilder, SlicedPacket, TransportSlice};
 
 const APP: [u8; 4] = [10, 0, 0, 2];
@@ -30,6 +32,66 @@ impl TcpOutbound for Redirect {
             Ok(Box::new(stream) as BoxStream)
         })
     }
+}
+
+/// Test outbound whose UDP flows all go to one local UDP server.
+struct UdpRedirect(SocketAddr);
+
+impl TcpOutbound for UdpRedirect {
+    fn protocol(&self) -> &'static str {
+        "test-udp-redirect"
+    }
+
+    fn connect<'a>(&'a self, _target: &'a TargetAddr) -> BoxFuture<'a, io::Result<BoxStream>> {
+        Box::pin(async { Err(io::Error::other("test outbound carries udp only")) })
+    }
+
+    fn open_udp<'a>(&'a self, _target: &'a TargetAddr) -> BoxFuture<'a, io::Result<UdpFlow>> {
+        Box::pin(async move {
+            let socket = Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await?);
+            socket.connect(self.0).await?;
+            Ok(UdpFlow::new(
+                Box::new(SocketSend(socket.clone())),
+                Box::new(SocketRecv(socket)),
+            ))
+        })
+    }
+}
+
+struct SocketSend(Arc<tokio::net::UdpSocket>);
+
+impl DatagramSend for SocketSend {
+    fn send<'a>(&'a mut self, payload: &'a [u8]) -> BoxFuture<'a, io::Result<()>> {
+        Box::pin(async move { self.0.send(payload).await.map(|_| ()) })
+    }
+}
+
+struct SocketRecv(Arc<tokio::net::UdpSocket>);
+
+impl DatagramRecv for SocketRecv {
+    fn recv(&mut self) -> BoxFuture<'_, io::Result<Vec<u8>>> {
+        Box::pin(async move {
+            let mut buf = vec![0u8; 2048];
+            let n = self.0.recv(&mut buf).await?;
+            buf.truncate(n);
+            Ok(buf)
+        })
+    }
+}
+
+/// Answers every datagram with `echo:` and the payload.
+fn start_udp_echo_server() -> SocketAddr {
+    let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+    let addr = socket.local_addr().unwrap();
+    thread::spawn(move || {
+        let mut buf = [0u8; 2048];
+        while let Ok((n, peer)) = socket.recv_from(&mut buf) {
+            let mut reply = b"echo:".to_vec();
+            reply.extend_from_slice(&buf[..n]);
+            let _ = socket.send_to(&reply, peer);
+        }
+    });
+    addr
 }
 
 fn settings() -> TunnelSettings {
@@ -191,7 +253,7 @@ fn dns_failure_reports_its_stage() {
 }
 
 #[test]
-fn non_dns_udp_is_dropped() {
+fn udp_is_dropped_when_the_outbound_has_no_udp() {
     let (sink, _rx) = capture();
     let mut tunnel =
         Tunnel::start(settings(), Arc::new(Redirect(start_echo_server())), sink).unwrap();
@@ -210,6 +272,43 @@ fn non_dns_udp_is_dropped() {
         );
         thread::sleep(Duration::from_millis(20));
     }
+    assert_eq!(tunnel.stats().udp_failed, 1);
+    assert_eq!(tunnel.stats().udp_flows, 0);
+    tunnel.stop();
+}
+
+#[test]
+fn udp_flow_is_relayed_through_the_outbound() {
+    let echo = start_udp_echo_server();
+    let (sink, rx) = capture();
+    let mut tunnel = Tunnel::start(settings(), Arc::new(UdpRedirect(echo)), sink).unwrap();
+
+    for payload in [&b"first"[..], &b"second"[..]] {
+        let mut packet = Vec::new();
+        PacketBuilder::ipv4(APP, REMOTE, 64)
+            .udp(40001, 443)
+            .write(&mut packet, payload)
+            .unwrap();
+        assert!(tunnel.input_packet(&packet));
+
+        let mut expected = b"echo:".to_vec();
+        expected.extend_from_slice(payload);
+        wait_for(&rx, |sliced| match (&sliced.net, &sliced.transport) {
+            (Some(etherparse::NetSlice::Ipv4(ip)), Some(TransportSlice::Udp(udp)))
+                if udp.source_port() == 443
+                    && udp.destination_port() == 40001
+                    && udp.payload() == expected.as_slice() =>
+            {
+                assert_eq!(ip.header().source(), REMOTE);
+                assert_eq!(ip.header().destination(), APP);
+                Some(())
+            }
+            _ => None,
+        });
+    }
+    // Both datagrams shared one flow.
+    assert_eq!(tunnel.stats().udp_flows, 1);
+    assert_eq!(tunnel.stats().udp_dropped, 0);
     tunnel.stop();
 }
 

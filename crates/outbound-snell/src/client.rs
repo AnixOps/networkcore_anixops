@@ -8,7 +8,9 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
 use std::time::{Duration, Instant};
 
-use engine_outbound::{BoxFuture, BoxStream, Dialer, TargetAddr, TcpOutbound};
+use engine_outbound::{
+    BoxFuture, BoxStream, DatagramRecv, DatagramSend, Dialer, TargetAddr, TcpOutbound, UdpFlow,
+};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf, ReadHalf, WriteHalf};
 
 use crate::codec::{Decoder, Encoder, Frame, Framing, V6Mode};
@@ -210,6 +212,37 @@ impl TcpOutbound for SnellOutbound {
 
     fn connect<'a>(&'a self, target: &'a TargetAddr) -> BoxFuture<'a, io::Result<BoxStream>> {
         Box::pin(async move { Ok(Box::new(self.connect_stream(target).await?) as BoxStream) })
+    }
+
+    fn open_udp<'a>(&'a self, target: &'a TargetAddr) -> BoxFuture<'a, io::Result<UdpFlow>> {
+        Box::pin(async move {
+            let (sender, receiver) = self.udp().await?;
+            Ok(UdpFlow::new(
+                Box::new(FlowSend {
+                    sender,
+                    target: target.clone(),
+                }),
+                Box::new(receiver),
+            ))
+        })
+    }
+}
+
+struct FlowSend {
+    sender: SnellUdpSender,
+    target: TargetAddr,
+}
+
+impl DatagramSend for FlowSend {
+    fn send<'a>(&'a mut self, payload: &'a [u8]) -> BoxFuture<'a, io::Result<()>> {
+        // A datagram too large for one frame is dropped, as UDP would.
+        Box::pin(async move { self.sender.send_to(&self.target, payload).await.map(|_| ()) })
+    }
+}
+
+impl DatagramRecv for SnellUdpReceiver {
+    fn recv(&mut self) -> BoxFuture<'_, io::Result<Vec<u8>>> {
+        Box::pin(async move { Ok(self.recv_from().await?.1) })
     }
 }
 
