@@ -33,7 +33,10 @@ use std::io;
 use std::net::IpAddr;
 use std::sync::{Arc, OnceLock};
 
-use engine_outbound::{BoxFuture, BoxStream, TargetAddr, TcpOutbound};
+use engine_outbound::{
+    BoxFuture, BoxStream, DatagramRecv, DatagramSend, TargetAddr, TcpOutbound, UdpFlow,
+    MAX_DATAGRAM,
+};
 use tokio::sync::Mutex;
 use transport_quic::{quic_error, quinn, Congestion, QuicConnection, QuicConnector, QuicStream};
 use transport_tls::TlsSettings;
@@ -168,6 +171,47 @@ impl TcpOutbound for TuicOutbound {
             let (mut send, recv) = connection.open_bi().await.map_err(quic_error)?;
             send.write_all(&header).await?;
             Ok(QuicStream::boxed(send, recv))
+        })
+    }
+
+    fn open_udp<'a>(&'a self, target: &'a TargetAddr) -> BoxFuture<'a, io::Result<UdpFlow>> {
+        Box::pin(async move {
+            let session = Arc::new(self.udp_session().await?);
+            Ok(UdpFlow::new(
+                Box::new(FlowSend {
+                    session: session.clone(),
+                    target: target.clone(),
+                }),
+                Box::new(FlowRecv {
+                    session,
+                    buf: vec![0u8; MAX_DATAGRAM],
+                }),
+            ))
+        })
+    }
+}
+
+struct FlowSend {
+    session: Arc<TuicUdpSession>,
+    target: TargetAddr,
+}
+
+impl DatagramSend for FlowSend {
+    fn send<'a>(&'a mut self, payload: &'a [u8]) -> BoxFuture<'a, io::Result<()>> {
+        Box::pin(async move { self.session.send_to(&self.target, payload) })
+    }
+}
+
+struct FlowRecv {
+    session: Arc<TuicUdpSession>,
+    buf: Vec<u8>,
+}
+
+impl DatagramRecv for FlowRecv {
+    fn recv(&mut self) -> BoxFuture<'_, io::Result<Vec<u8>>> {
+        Box::pin(async move {
+            let (n, _source) = self.session.recv_from(&mut self.buf).await?;
+            Ok(self.buf[..n].to_vec())
         })
     }
 }

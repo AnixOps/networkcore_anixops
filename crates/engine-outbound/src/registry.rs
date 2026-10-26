@@ -163,4 +163,14 @@ mod tests {
         assert!(registry.unregister("null"));
         assert!(!registry.contains("null"));
     }
+
+    #[tokio::test]
+    async fn udp_defaults_to_unsupported() {
+        let target = TargetAddr::Domain("example.com".into(), 443);
+        let result = Null.open_udp(&target).await;
+        assert_eq!(
+            result.err().map(|err| err.kind()),
+            Some(io::ErrorKind::Unsupported)
+        );
+    }
 }

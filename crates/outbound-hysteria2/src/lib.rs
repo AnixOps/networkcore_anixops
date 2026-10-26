@@ -31,7 +31,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::Bytes;
-use engine_outbound::{BoxFuture, BoxStream, TargetAddr, TcpOutbound};
+use engine_outbound::{
+    BoxFuture, BoxStream, DatagramRecv, DatagramSend, TargetAddr, TcpOutbound, UdpFlow,
+    MAX_DATAGRAM,
+};
 use ring::rand::{SecureRandom, SystemRandom};
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::sync::Mutex;
@@ -206,6 +209,47 @@ impl TcpOutbound for Hysteria2Outbound {
             send.write_all(&request).await?;
             read_tcp_response(&mut recv).await?;
             Ok(QuicStream::boxed(send, recv))
+        })
+    }
+
+    fn open_udp<'a>(&'a self, target: &'a TargetAddr) -> BoxFuture<'a, io::Result<UdpFlow>> {
+        Box::pin(async move {
+            let session = Arc::new(self.udp_session().await?);
+            Ok(UdpFlow::new(
+                Box::new(FlowSend {
+                    session: session.clone(),
+                    target: target.clone(),
+                }),
+                Box::new(FlowRecv {
+                    session,
+                    buf: vec![0u8; MAX_DATAGRAM],
+                }),
+            ))
+        })
+    }
+}
+
+struct FlowSend {
+    session: Arc<Hysteria2UdpSession>,
+    target: TargetAddr,
+}
+
+impl DatagramSend for FlowSend {
+    fn send<'a>(&'a mut self, payload: &'a [u8]) -> BoxFuture<'a, io::Result<()>> {
+        Box::pin(async move { self.session.send_to(&self.target, payload) })
+    }
+}
+
+struct FlowRecv {
+    session: Arc<Hysteria2UdpSession>,
+    buf: Vec<u8>,
+}
+
+impl DatagramRecv for FlowRecv {
+    fn recv(&mut self) -> BoxFuture<'_, io::Result<Vec<u8>>> {
+        Box::pin(async move {
+            let (n, _source) = self.session.recv_from(&mut self.buf).await?;
+            Ok(self.buf[..n].to_vec())
         })
     }
 }

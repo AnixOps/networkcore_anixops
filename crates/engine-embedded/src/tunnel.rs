@@ -4,10 +4,12 @@
 //! packets from the TUN side enter through [`Tunnel::input_packet`]; packets
 //! produced by the userspace TCP/IP stack leave through the [`PacketSink`]
 //! callback on the tunnel thread. TCP flows are relayed through the outbound,
-//! UDP/53 is forwarded as DNS-over-TCP, and other UDP is dropped so QUIC falls
-//! back to TCP. A WireGuard tunnel (`Tunnel::start_wireguard`) skips the
+//! UDP/53 is forwarded as DNS-over-TCP, and other UDP goes through the
+//! outbound's UDP flows, one per app socket and destination. An outbound
+//! without UDP drops those datagrams, so QUIC falls back to TCP. A WireGuard tunnel (`Tunnel::start_wireguard`) skips the
 //! stack and seals packets straight to its peer.
 
+use std::collections::HashMap;
 use std::io;
 use std::net::SocketAddr;
 use std::pin::Pin;
@@ -17,12 +19,13 @@ use std::task::{Context, Poll};
 use std::thread;
 use std::time::Duration;
 
-use engine_outbound::{BoxFuture, BoxStream, TargetAddr, TcpOutbound};
+use engine_outbound::{BoxFuture, BoxStream, TargetAddr, TcpOutbound, UdpFlow};
 use futures::{SinkExt, StreamExt};
 use netstack_smoltcp::udp::UdpMsg;
 use netstack_smoltcp::StackBuilder;
 use serde::Serialize;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
+use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{mpsc, oneshot, Semaphore};
 
 use crate::dns::{self, OutboundFailure};
@@ -64,6 +67,12 @@ const FIRST_PAYLOAD_WAIT: Duration = Duration::from_millis(100);
 const FIRST_PAYLOAD_MAX: usize = 4096;
 const RELAY_BUFFER_BYTES: usize = 8 * 1024;
 const DNS_PORT: u16 = 53;
+/// UDP flows open at once; datagrams for a new flow beyond this are dropped.
+const MAX_UDP_FLOWS: usize = 256;
+/// Datagrams queued per flow while it connects or sends.
+const UDP_FLOW_QUEUE: usize = 64;
+/// A UDP flow without traffic in either direction for this long is closed.
+const UDP_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Clone, Debug)]
 pub struct TunnelSettings {
@@ -88,6 +97,8 @@ pub struct TunnelStats {
     pub(crate) tcp_rejected: AtomicU64,
     pub(crate) tcp_connect_failed: AtomicU64,
     pub(crate) udp_dropped: AtomicU64,
+    pub(crate) udp_flows: AtomicU64,
+    pub(crate) udp_failed: AtomicU64,
     pub(crate) dns_queries: AtomicU64,
     pub(crate) dns_failed: AtomicU64,
     pub(crate) bytes_up: AtomicU64,
@@ -109,6 +120,10 @@ pub struct TunnelStatsSnapshot {
     pub tcp_rejected: u64,
     pub tcp_connect_failed: u64,
     pub udp_dropped: u64,
+    /// UDP flows opened through the outbound.
+    pub udp_flows: u64,
+    /// UDP flows the outbound could not open, including outbounds without UDP.
+    pub udp_failed: u64,
     pub dns_queries: u64,
     pub dns_failed: u64,
     pub bytes_up: u64,
@@ -131,6 +146,8 @@ impl TunnelStats {
             tcp_rejected: get(&self.tcp_rejected),
             tcp_connect_failed: get(&self.tcp_connect_failed),
             udp_dropped: get(&self.udp_dropped),
+            udp_flows: get(&self.udp_flows),
+            udp_failed: get(&self.udp_failed),
             dns_queries: get(&self.dns_queries),
             dns_failed: get(&self.dns_failed),
             bytes_up: get(&self.bytes_up),
@@ -380,7 +397,7 @@ fn spawn_tasks(
         }
     });
 
-    // UDP: DNS only.
+    // UDP: DNS over TCP, everything else through the outbound's UDP flows.
     let (mut udp_rx, mut udp_tx) = udp_socket.split();
     let (reply_tx, mut reply_rx) = mpsc::channel::<UdpMsg>(64);
     tokio::spawn(async move {
@@ -391,10 +408,11 @@ fn spawn_tasks(
         }
     });
     let dns_permits = Arc::new(Semaphore::new(settings.max_dns_in_flight));
+    let mut flows = UdpFlows::default();
     tokio::spawn(async move {
         while let Some((payload, src, dst)) = udp_rx.next().await {
             if dst.port() != DNS_PORT {
-                bump(&stats.udp_dropped);
+                flows.forward(payload, src, dst, &outbound, &stats, &reply_tx, &settings);
                 continue;
             }
             let Ok(permit) = dns_permits.clone().try_acquire_owned() else {
@@ -424,6 +442,108 @@ fn spawn_tasks(
     });
 
     Ok(())
+}
+
+/// Open UDP flows keyed by (app socket, destination). Owned by the task that
+/// reads datagrams from the stack.
+#[derive(Default)]
+struct UdpFlows(HashMap<(SocketAddr, SocketAddr), mpsc::Sender<Vec<u8>>>);
+
+impl UdpFlows {
+    #[allow(clippy::too_many_arguments)]
+    fn forward(
+        &mut self,
+        payload: Vec<u8>,
+        src: SocketAddr,
+        dst: SocketAddr,
+        outbound: &Arc<dyn TcpOutbound>,
+        stats: &Arc<TunnelStats>,
+        replies: &mpsc::Sender<UdpMsg>,
+        settings: &TunnelSettings,
+    ) {
+        let key = (src, dst);
+        let payload = if let Some(flow) = self.0.get(&key) {
+            match flow.try_send(payload) {
+                Ok(()) => return,
+                Err(TrySendError::Full(_)) => {
+                    bump(&stats.udp_dropped);
+                    return;
+                }
+                // The flow ended; open a new one for this datagram.
+                Err(TrySendError::Closed(payload)) => payload,
+            }
+        } else {
+            payload
+        };
+        self.0.remove(&key);
+        if self.0.len() >= MAX_UDP_FLOWS {
+            self.0.retain(|_, flow| !flow.is_closed());
+            if self.0.len() >= MAX_UDP_FLOWS {
+                bump(&stats.udp_dropped);
+                return;
+            }
+        }
+        let (flow, packets) = mpsc::channel(UDP_FLOW_QUEUE);
+        let _ = flow.try_send(payload);
+        self.0.insert(key, flow);
+        tokio::spawn(run_udp_flow(
+            packets,
+            src,
+            dst,
+            outbound.clone(),
+            stats.clone(),
+            replies.clone(),
+            settings.connect_timeout,
+        ));
+    }
+}
+
+/// Relays one UDP flow until it idles out or either side ends. Replies go
+/// back to the app from the destination it sent to.
+async fn run_udp_flow(
+    mut packets: mpsc::Receiver<Vec<u8>>,
+    app: SocketAddr,
+    destination: SocketAddr,
+    outbound: Arc<dyn TcpOutbound>,
+    stats: Arc<TunnelStats>,
+    replies: mpsc::Sender<UdpMsg>,
+    connect_timeout: Duration,
+) {
+    let target = TargetAddr::Ip(destination);
+    let opened = tokio::time::timeout(connect_timeout, outbound.open_udp(&target)).await;
+    let Ok(Ok(UdpFlow { mut send, mut recv })) = opened else {
+        bump(&stats.udp_failed);
+        // Stay mapped and drop this flow's datagrams until it goes quiet, so
+        // an outbound without UDP is not asked again for every packet.
+        while let Ok(Some(_)) = tokio::time::timeout(UDP_IDLE_TIMEOUT, packets.recv()).await {
+            bump(&stats.udp_dropped);
+        }
+        return;
+    };
+    bump(&stats.udp_flows);
+    let idle = tokio::time::sleep(UDP_IDLE_TIMEOUT);
+    tokio::pin!(idle);
+    loop {
+        tokio::select! {
+            packet = packets.recv() => {
+                let Some(packet) = packet else { return };
+                if send.send(&packet).await.is_err() {
+                    return;
+                }
+                stats.bytes_up.fetch_add(packet.len() as u64, Ordering::Relaxed);
+            }
+            reply = recv.recv() => {
+                let Ok(reply) = reply else { return };
+                stats.bytes_down.fetch_add(reply.len() as u64, Ordering::Relaxed);
+                if replies.send((reply, destination, app)).await.is_err() {
+                    return;
+                }
+            }
+            _ = &mut idle => return,
+        }
+        idle.as_mut()
+            .reset(tokio::time::Instant::now() + UDP_IDLE_TIMEOUT);
+    }
 }
 
 async fn handle_tcp(

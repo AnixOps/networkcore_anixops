@@ -14,9 +14,12 @@ It contains interfaces only, plus the default `TcpDialer`:
 - `Dialer`: opens the transport connection to a proxy server. Outbounds receive
   an `Arc<dyn Dialer>` when they are constructed, so the Network Extension can
   inject a dialer bound to the physical interface.
-- `TcpOutbound`: `protocol()` tag and `connect(&TargetAddr)`.
+- `TcpOutbound`: `protocol()` tag, `connect(&TargetAddr)` and
+  `open_udp(&TargetAddr)`, which returns a `UdpFlow` (a `DatagramSend` and a
+  `DatagramRecv` half) to one destination. Protocols without UDP keep the
+  default `open_udp`, which fails with `ErrorKind::Unsupported`.
+  `UdpFlow::message_stream` adapts a stream that carries one datagram per
+  write and read.
 
 Errors are `std::io::Error`; implementations must not put credentials in error
-messages. UDP is not modelled yet: M1a carries DNS over TCP and drops other UDP
-so QUIC falls back to TCP. A `UdpOutbound` trait will be added when a protocol
-and the TUN layer both need it.
+messages.
