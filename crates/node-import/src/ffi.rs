@@ -10,7 +10,7 @@
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
-use crate::{import_text, ImportError};
+use crate::{import_text, share_link, ImportError};
 
 pub const NETWORKCORE_IMPORT_ABI_VERSION: u32 = 1;
 
@@ -21,6 +21,11 @@ pub const NETWORKCORE_IMPORT_ERR_TOO_LARGE: i32 = 3;
 pub const NETWORKCORE_IMPORT_ERR_UNRECOGNIZED: i32 = 4;
 pub const NETWORKCORE_IMPORT_ERR_PANIC_CAUGHT: i32 = 5;
 pub const NETWORKCORE_IMPORT_ERR_INTERNAL_ERROR: i32 = 6;
+/// The node's protocol has no share link format, or its entry lacks a field.
+pub const NETWORKCORE_IMPORT_ERR_UNSUPPORTED: i32 = 7;
+
+/// Largest node entry [`networkcore_import_share_link`] accepts.
+pub const MAX_SHARE_LINK_INPUT_LEN: usize = 64 * 1024;
 
 /// Rust-owned byte buffer handed to Swift.
 #[repr(C)]
@@ -94,6 +99,53 @@ pub unsafe extern "C" fn networkcore_import_nodes(
                 NETWORKCORE_IMPORT_OK
             }
             Err(_) => NETWORKCORE_IMPORT_ERR_INTERNAL_ERROR,
+        }
+    }))
+    .unwrap_or(NETWORKCORE_IMPORT_ERR_PANIC_CAUGHT)
+}
+
+/// Writes the share link of one node as UTF-8 text (see
+/// [`crate::share_link`]). `node` is JSON `{"name": ..., "outbound": {...}}`
+/// with an outbound entry as `networkcore_import_nodes` returns it.
+///
+/// # Safety
+///
+/// As for [`networkcore_import_nodes`], with `node`/`node_len` in place of
+/// the text.
+#[no_mangle]
+pub unsafe extern "C" fn networkcore_import_share_link(
+    node: *const u8,
+    node_len: usize,
+    out: *mut NetworkCoreImportBuffer,
+) -> i32 {
+    catch_unwind(AssertUnwindSafe(|| {
+        if out.is_null() || (node.is_null() && node_len > 0) {
+            return NETWORKCORE_IMPORT_ERR_INVALID_ARGUMENT;
+        }
+        // SAFETY: checked non-null above.
+        unsafe { out.write(NetworkCoreImportBuffer::from_vec(Vec::new())) };
+        if node_len == 0 {
+            return NETWORKCORE_IMPORT_ERR_EMPTY;
+        }
+        if node_len > MAX_SHARE_LINK_INPUT_LEN {
+            return NETWORKCORE_IMPORT_ERR_TOO_LARGE;
+        }
+        // SAFETY: the caller guarantees `node_len` readable bytes.
+        let bytes = unsafe { std::slice::from_raw_parts(node, node_len) };
+        let Ok(entry) = serde_json::from_slice::<serde_json::Value>(bytes) else {
+            return NETWORKCORE_IMPORT_ERR_INVALID_ARGUMENT;
+        };
+        if !entry["outbound"].is_object() {
+            return NETWORKCORE_IMPORT_ERR_INVALID_ARGUMENT;
+        }
+        let name = entry["name"].as_str().unwrap_or_default();
+        match share_link(name, &entry["outbound"]) {
+            Ok(link) => {
+                // SAFETY: checked non-null above; the empty placeholder owns no memory.
+                unsafe { out.write(NetworkCoreImportBuffer::from_vec(link.into_bytes())) };
+                NETWORKCORE_IMPORT_OK
+            }
+            Err(_) => NETWORKCORE_IMPORT_ERR_UNSUPPORTED,
         }
     }))
     .unwrap_or(NETWORKCORE_IMPORT_ERR_PANIC_CAUGHT)

@@ -4,12 +4,17 @@
 //! list of them, with the subscription's rules and policy groups when the
 //! engine can run them.
 //!
+//! [`share_link`] goes the other way, from an outbound entry to a share link.
+//!
 //! This crate carries no protocol code and no runtime, so the iOS app can link
 //! it (see [`ffi`]) to import nodes without linking the packet tunnel engine.
 //! A node whose protocol or options cannot be carried is reported with a fixed
 //! reason, never with its credentials.
 
 pub mod ffi;
+pub mod share_link;
+
+pub use share_link::share_link;
 
 use config_core::routing::RoutingSpec;
 use config_core::routing_import::import_subscription_routing;

@@ -28,6 +28,7 @@ extern "C" {
 #define NETWORKCORE_IMPORT_ERR_UNRECOGNIZED 4
 #define NETWORKCORE_IMPORT_ERR_PANIC_CAUGHT 5
 #define NETWORKCORE_IMPORT_ERR_INTERNAL_ERROR 6
+#define NETWORKCORE_IMPORT_ERR_UNSUPPORTED 7
 
 typedef struct NetworkCoreImportBuffer {
     uint8_t *ptr;
@@ -37,6 +38,8 @@ typedef struct NetworkCoreImportBuffer {
 
 uint32_t networkcore_import_abi_version(void);
 int32_t networkcore_import_nodes(const uint8_t *text, size_t text_len, NetworkCoreImportBuffer *out);
+/* node: JSON {"name": ..., "outbound": {...}}; out: the share link as UTF-8 text. */
+int32_t networkcore_import_share_link(const uint8_t *node, size_t node_len, NetworkCoreImportBuffer *out);
 void networkcore_import_free_buffer(NetworkCoreImportBuffer buffer);
 
 #ifdef __cplusplus
