@@ -220,7 +220,7 @@ async fn users_added_and_removed_at_runtime() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn udp_sessions_relay_and_fragment_datagrams() {
-    let server = start_with(true, true).await;
+    let server = start_with(false, true).await;
     let echo_addr = udp_echo_server().await;
     let client = client(server.addr, "alice-secret", false);
     let session = client.udp_session().await.unwrap();
