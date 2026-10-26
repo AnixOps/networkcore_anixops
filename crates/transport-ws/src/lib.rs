@@ -1,11 +1,14 @@
-//! WebSocket client transport (RFC 6455) for outbound protocol crates.
+//! WebSocket transport (RFC 6455) for outbound and inbound protocol crates.
 //!
 //! [`WsConnector::connect`] runs the opening handshake over an existing
 //! stream (plain TCP or TLS) and returns a byte stream: each write becomes one
 //! masked binary frame, and reads return the payload of data frames in order.
 //! Pings are answered, a close frame reads as end of stream, and the stream
 //! never surfaces message boundaries, which is what V2Ray-style `ws`
-//! transports expect.
+//! transports expect. [`server::WsAcceptor`] is the server side of the same
+//! stream.
+
+pub mod server;
 
 use std::io;
 use std::pin::Pin;
@@ -112,11 +115,16 @@ impl WsConnector {
         self.random
             .fill(&mut seed)
             .map_err(|_| io::Error::other("system random source failed"))?;
-        Ok(Box::new(WsStream::new(transport, u64::from_le_bytes(seed))))
+        Ok(Box::new(WsStream::new(
+            transport,
+            Role::Client {
+                mask_state: u64::from_le_bytes(seed) | 1,
+            },
+        )))
     }
 }
 
-fn is_header_safe(value: &str) -> bool {
+pub(crate) fn is_header_safe(value: &str) -> bool {
     value
         .bytes()
         .all(|byte| byte == b' ' || byte.is_ascii_graphic())
@@ -190,8 +198,21 @@ enum ReadState {
     Closed,
 }
 
+/// Clients mask their frames; servers do not.
+enum Role {
+    /// xorshift64* state for frame masks.
+    Client {
+        mask_state: u64,
+    },
+    Server,
+}
+
 struct WsStream {
     inner: BoxStream,
+    role: Role,
+    /// Payload to return before any frame, such as early data a server got
+    /// in the handshake.
+    early: Vec<u8>,
     /// Bytes read from `inner` and not parsed yet: `rbuf[rpos..]`.
     rbuf: Vec<u8>,
     rpos: usize,
@@ -200,55 +221,63 @@ struct WsStream {
     wbuf: Vec<u8>,
     wpos: usize,
     close_sent: bool,
-    /// xorshift64* state for frame masks.
-    mask_state: u64,
 }
 
 impl WsStream {
-    fn new(inner: BoxStream, seed: u64) -> Self {
+    fn new(inner: BoxStream, role: Role) -> Self {
         Self {
             inner,
+            role,
+            early: Vec::new(),
             rbuf: Vec::new(),
             rpos: 0,
             state: ReadState::Header,
             wbuf: Vec::new(),
             wpos: 0,
             close_sent: false,
-            mask_state: seed | 1,
         }
     }
 
-    fn next_mask(&mut self) -> [u8; 4] {
-        let mut x = self.mask_state;
+    fn next_mask(&mut self) -> Option<[u8; 4]> {
+        let Role::Client { mask_state } = &mut self.role else {
+            return None;
+        };
+        let mut x = *mask_state;
         x ^= x >> 12;
         x ^= x << 25;
         x ^= x >> 27;
-        self.mask_state = x;
+        *mask_state = x;
         let value = x.wrapping_mul(0x2545_f491_4f6c_dd1d);
         let bytes = value.to_le_bytes();
-        [bytes[0], bytes[1], bytes[2], bytes[3]]
+        Some([bytes[0], bytes[1], bytes[2], bytes[3]])
     }
 
     fn push_frame(&mut self, opcode: u8, payload: &[u8]) {
         let mask = self.next_mask();
+        let mask_bit = if mask.is_some() { 0x80 } else { 0 };
         self.wbuf.push(0x80 | opcode);
         let len = payload.len();
         if len < 126 {
-            self.wbuf.push(0x80 | len as u8);
+            self.wbuf.push(mask_bit | len as u8);
         } else if len <= usize::from(u16::MAX) {
-            self.wbuf.push(0x80 | 126);
+            self.wbuf.push(mask_bit | 126);
             self.wbuf.extend_from_slice(&(len as u16).to_be_bytes());
         } else {
-            self.wbuf.push(0x80 | 127);
+            self.wbuf.push(mask_bit | 127);
             self.wbuf.extend_from_slice(&(len as u64).to_be_bytes());
         }
-        self.wbuf.extend_from_slice(&mask);
-        self.wbuf.extend(
-            payload
-                .iter()
-                .enumerate()
-                .map(|(i, byte)| byte ^ mask[i % 4]),
-        );
+        match mask {
+            Some(mask) => {
+                self.wbuf.extend_from_slice(&mask);
+                self.wbuf.extend(
+                    payload
+                        .iter()
+                        .enumerate()
+                        .map(|(i, byte)| byte ^ mask[i % 4]),
+                );
+            }
+            None => self.wbuf.extend_from_slice(payload),
+        }
     }
 
     fn poll_drain(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
@@ -376,6 +405,12 @@ impl AsyncRead for WsStream {
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
         let this = &mut *self;
+        if !this.early.is_empty() {
+            let n = this.early.len().min(buf.remaining());
+            buf.put_slice(&this.early[..n]);
+            this.early.drain(..n);
+            return Poll::Ready(Ok(()));
+        }
         loop {
             // Pongs queued by the parser go out without blocking the reader.
             if this.wpos < this.wbuf.len() {

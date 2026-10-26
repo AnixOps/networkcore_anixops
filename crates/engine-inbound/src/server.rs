@@ -255,6 +255,7 @@ async fn discard(mut stream: BoxStream, hold: Duration) {
 
 /// What a [`StreamInbound::serve_connection`] implementation gets from the
 /// serve loop: the outbounds, the limits and the counters.
+#[derive(Clone, Copy)]
 pub struct ConnectionContext<'a> {
     pub peer: SocketAddr,
     pub settings: &'a ServeSettings,
@@ -290,6 +291,22 @@ impl<'a> ConnectionContext<'a> {
             self.stats.connect_failed.fetch_add(1, Ordering::Relaxed);
         }
         connected
+    }
+
+    /// Runs `stream` through `inbound` as if the serve loop had accepted it:
+    /// for transports that carry several client streams on one connection,
+    /// such as gRPC.
+    pub async fn handle(self, stream: BoxStream, inbound: &dyn StreamInbound) {
+        run(
+            stream,
+            self.peer,
+            inbound,
+            self.outbound,
+            self.udp,
+            self.settings,
+            self.stats,
+        )
+        .await;
     }
 
     /// UDP egress, when the node provides one.

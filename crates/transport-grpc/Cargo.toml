@@ -11,7 +11,7 @@ bytes = "1"
 engine-outbound = { path = "../engine-outbound" }
 h2 = "0.4"
 http = "1"
-tokio = { version = "1", default-features = false, features = ["io-util", "rt"] }
+tokio = { version = "1", default-features = false, features = ["io-util", "rt", "time"] }
 
 [dev-dependencies]
 tokio = { version = "1", default-features = false, features = ["io-util", "net", "rt", "rt-multi-thread", "macros", "time"] }
