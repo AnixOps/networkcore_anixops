@@ -238,15 +238,23 @@ pub enum PolicyGroupKind {
     UrlTest,
     /// First healthy member in declaration order.
     Fallback,
+    /// Healthy members chosen by a hash of the destination host, so one
+    /// site keeps one member (Clash `consistent-hashing`).
+    LoadBalance,
+    /// Healthy members in turn, one connection each.
+    RoundRobin,
 }
 
 impl PolicyGroupKind {
-    /// The configuration name: `select`, `url-test` or `fallback`.
+    /// The configuration name: `select`, `url-test`, `fallback`,
+    /// `load-balance` or `round-robin`.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Select => "select",
             Self::UrlTest => "url-test",
             Self::Fallback => "fallback",
+            Self::LoadBalance => "load-balance",
+            Self::RoundRobin => "round-robin",
         }
     }
 }
@@ -616,6 +624,7 @@ impl RoutingModel {
         let mut ip = query.ip;
         let mut resolved_ip = None;
         let mut resolve_attempted = false;
+        let balance_key = domain.clone().or_else(|| query.ip.map(|ip| ip.to_string()));
 
         for (index, rule) in self.rules.iter().enumerate() {
             if rule.matcher.matches_ip() && ip.is_none() && !rule.no_resolve && !resolve_attempted {
@@ -645,6 +654,7 @@ impl RoutingModel {
                     RouteMatch::Rule(index),
                     &rule.target,
                     resolved_ip,
+                    balance_key.as_deref(),
                     environment,
                 );
             }
@@ -654,6 +664,7 @@ impl RoutingModel {
             RouteMatch::Final,
             &self.final_target,
             resolved_ip,
+            balance_key.as_deref(),
             environment,
         )
     }
@@ -665,19 +676,20 @@ impl RoutingModel {
         target: &PolicyTarget,
         environment: &dyn RoutingEnvironment,
     ) -> RouteResolution {
-        self.resolution(RouteMatch::Final, target, None, environment)
+        self.resolution(RouteMatch::Final, target, None, None, environment)
     }
 
     /// The member a group currently picks: the selected or default member of
     /// a select group, the fastest of a url-test group, the first healthy
-    /// member of a fallback group.
+    /// member of a fallback, load-balance or round-robin group (which pick
+    /// per connection when routing).
     pub fn group_member(
         &self,
         group_id: &str,
         environment: &dyn RoutingEnvironment,
     ) -> Option<PolicyTarget> {
         self.group(group_id)
-            .map(|group| select_group_member(group, environment))
+            .map(|group| select_group_member(group, None, environment))
     }
 
     /// Looks up a configuration name the way rule targets are resolved:
@@ -697,11 +709,14 @@ impl RoutingModel {
         }
     }
 
+    /// `balance_key` is the destination host of a routed connection, which
+    /// load-balance and round-robin groups pick a member for.
     fn resolution(
         &self,
         matched: RouteMatch,
         target: &PolicyTarget,
         resolved_ip: Option<IpAddr>,
+        balance_key: Option<&str>,
         environment: &dyn RoutingEnvironment,
     ) -> RouteResolution {
         let mut group_path = Vec::new();
@@ -712,7 +727,7 @@ impl RoutingModel {
                 break;
             }
             group_path.push(group.id.clone());
-            current = select_group_member(group, environment);
+            current = select_group_member(group, balance_key, environment);
         }
 
         let outcome = match current {
@@ -805,6 +820,12 @@ pub trait RoutingEnvironment {
         None
     }
 
+    /// A counter that grows by one per call, for the round-robin group
+    /// `group_id`; called once for each connection the group routes.
+    fn round_robin(&self, _group_id: &str) -> usize {
+        0
+    }
+
     /// Whether the named rule set holds the destination; an unknown set
     /// matches nothing.
     fn rule_set_matches(&self, _name: &str, _domain: Option<&str>, _ip: Option<IpAddr>) -> bool {
@@ -892,7 +913,11 @@ fn rule_matches(
     }
 }
 
-fn select_group_member(group: &PolicyGroup, environment: &dyn RoutingEnvironment) -> PolicyTarget {
+fn select_group_member(
+    group: &PolicyGroup,
+    balance_key: Option<&str>,
+    environment: &dyn RoutingEnvironment,
+) -> PolicyTarget {
     let first = group.members[0].clone();
     match group.kind {
         PolicyGroupKind::Select => environment
@@ -923,7 +948,43 @@ fn select_group_member(group: &PolicyGroup, environment: &dyn RoutingEnvironment
             .find(|member| environment.member_latency_ms(&group.id, member).is_some())
             .cloned()
             .unwrap_or(first),
+        PolicyGroupKind::LoadBalance | PolicyGroupKind::RoundRobin => {
+            // Members that passed their last check; every member until the
+            // first checks finish or when all of them fail.
+            let healthy: Vec<&PolicyTarget> = group
+                .members
+                .iter()
+                .filter(|member| environment.member_latency_ms(&group.id, member).is_some())
+                .collect();
+            let candidates = if healthy.is_empty() {
+                group.members.iter().collect()
+            } else {
+                healthy
+            };
+            let Some(key) = balance_key else {
+                return candidates[0].clone();
+            };
+            if group.kind == PolicyGroupKind::RoundRobin {
+                return candidates[environment.round_robin(&group.id) % candidates.len()].clone();
+            }
+            // Rendezvous hashing: a host moves only when its member goes away.
+            candidates
+                .into_iter()
+                .max_by_key(|member| fnv1a(&[key.as_bytes(), b"\0", member.name().as_bytes()]))
+                .cloned()
+                .unwrap_or(first)
+        }
     }
+}
+
+/// 64-bit FNV-1a over `parts`, stable across runs and platforms.
+fn fnv1a(parts: &[&[u8]]) -> u64 {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in parts.iter().flat_map(|part| part.iter()) {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
 }
 
 struct TargetNames<'a> {
@@ -989,10 +1050,14 @@ fn normalize_group(spec: &PolicyGroupSpec, names: &TargetNames) -> DomainResult<
         "select" => PolicyGroupKind::Select,
         "url-test" | "urltest" => PolicyGroupKind::UrlTest,
         "fallback" => PolicyGroupKind::Fallback,
+        "load-balance" | "loadbalance" => PolicyGroupKind::LoadBalance,
+        "round-robin" | "roundrobin" => PolicyGroupKind::RoundRobin,
         _ => {
             return Err(routing_error(
                 ROUTING_GROUP_TYPE_UNSUPPORTED_CODE,
-                format!("policy group {id} type must be select, url-test, or fallback"),
+                format!(
+                    "policy group {id} type must be select, url-test, fallback, load-balance, or round-robin"
+                ),
             ))
         }
     };
@@ -1056,11 +1121,17 @@ fn normalize_group(spec: &PolicyGroupSpec, names: &TargetNames) -> DomainResult<
             }
             None
         }
-        PolicyGroupKind::UrlTest | PolicyGroupKind::Fallback => {
-            if kind == PolicyGroupKind::Fallback && spec.tolerance_ms.is_some() {
+        PolicyGroupKind::UrlTest
+        | PolicyGroupKind::Fallback
+        | PolicyGroupKind::LoadBalance
+        | PolicyGroupKind::RoundRobin => {
+            if kind != PolicyGroupKind::UrlTest && spec.tolerance_ms.is_some() {
                 return Err(routing_error(
                     ROUTING_GROUP_HEALTH_CHECK_INVALID_CODE,
-                    format!("policy group {id} is fallback and cannot have a tolerance"),
+                    format!(
+                        "policy group {id} is {} and cannot have a tolerance",
+                        kind.as_str()
+                    ),
                 ));
             }
             let url = spec

@@ -135,6 +135,11 @@ fn surge_profile_imports_supported_rules_and_groups() {
                 false
             ),
             (
+                RuleMatcher::DomainSuffix("balance.example".to_string()),
+                PolicyTarget::Group("Balance".to_string()),
+                false
+            ),
+            (
                 RuleMatcher::IpCidr(config_core::routing::IpCidr::parse("192.168.0.0/16").unwrap()),
                 PolicyTarget::Direct,
                 true
@@ -153,7 +158,16 @@ fn surge_profile_imports_supported_rules_and_groups() {
         .iter()
         .map(|group| group.id.as_str())
         .collect::<Vec<_>>();
-    assert_eq!(ids, vec!["Proxy", "Auto", "Backup"]);
+    assert_eq!(ids, vec!["Proxy", "Auto", "Backup", "Balance"]);
+    let balance = model.group("Balance").unwrap();
+    assert_eq!(balance.kind, PolicyGroupKind::LoadBalance);
+    assert_eq!(
+        balance.members,
+        vec![
+            PolicyTarget::Node(hk.clone()),
+            PolicyTarget::Node(jp.clone())
+        ]
+    );
     let proxy = model.group("Proxy").unwrap();
     assert_eq!(proxy.kind, PolicyGroupKind::Select);
     assert_eq!(
@@ -197,12 +211,10 @@ fn surge_profile_imports_supported_rules_and_groups() {
         .map(|diagnostic| diagnostic.message.as_str())
         .collect::<Vec<_>>()
         .join("\n");
-    assert!(messages.contains("load-balance"));
     assert!(messages.contains("Blocked"));
     assert!(messages.contains("Backup member Auto was skipped"));
     assert!(messages.contains("PROCESS-NAME x1"));
     assert!(messages.contains("URL-REGEX x1"));
-    assert!(messages.contains("target Balance was not imported"));
     assert!(!messages.contains("f43c0eee"));
 }
 
@@ -282,4 +294,98 @@ DOMAIN-SUFFIX,google.com,A
     assert_eq!(imported.routing, None);
     let codes = diagnostic_codes(&imported);
     assert_eq!(codes, vec![ROUTING_IMPORT_INVALID_CODE]);
+}
+
+const FILTER_PROFILE: &str = r#"
+[General]
+loglevel = notify
+
+[Proxy]
+HK 01 = ss, 82.47.34.99, 11111, encrypt-method=aes-256-gcm, password=f43c0eee-13b9-4f07-bec9-d4b744141503
+HK 02 = ss, 82.47.34.98, 11111, encrypt-method=aes-256-gcm, password=f43c0eee-13b9-4f07-bec9-d4b744141503
+JP 01 = ss, 82.47.34.100, 11112, encrypt-method=aes-256-gcm, password=f43c0eee-13b9-4f07-bec9-d4b744141504
+HK Expired = ss, 82.47.34.97, 11111, encrypt-method=aes-256-gcm, password=f43c0eee-13b9-4f07-bec9-d4b744141503
+
+[Proxy Group]
+HongKong = url-test, include-all-proxies=1, policy-regex-filter=^HK \d+$
+Spread = load-balance, policy-regex-filter=HK|JP, url=http://www.gstatic.com/generate_204, algorithm=round-robin
+Manual = select, JP 01, policy-regex-filter=HK
+Broken = select, include-all-proxies=true, policy-regex-filter=(HK
+
+[Rule]
+FINAL,HongKong
+"#;
+
+#[test]
+fn surge_name_filters_pick_group_members() {
+    let nodes = parse_nodes(FILTER_PROFILE);
+    let id = |name| PolicyTarget::Node(node_id(&nodes, name));
+    let imported = import_subscription_routing(FILTER_PROFILE, &nodes);
+    let model = imported
+        .routing
+        .clone()
+        .expect("filter profile should import");
+
+    assert_eq!(
+        model.group("HongKong").unwrap().members,
+        vec![id("HK 01"), id("HK 02")]
+    );
+    let spread = model.group("Spread").unwrap();
+    assert_eq!(spread.kind, PolicyGroupKind::RoundRobin);
+    assert_eq!(
+        spread.members,
+        vec![id("HK 01"), id("HK 02"), id("JP 01"), id("HK Expired")]
+    );
+    // A filter on a group with members and without include-all is ignored.
+    assert_eq!(model.group("Manual").unwrap().members, vec![id("JP 01")]);
+    // An invalid filter adds nothing, so the group is skipped.
+    assert!(model.group("Broken").is_none());
+    let messages = imported
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.message.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(messages.contains("Manual name filter was ignored"));
+    assert!(messages.contains("Broken name filter is not a supported regular expression"));
+}
+
+#[test]
+fn clash_filters_and_strategies_import() {
+    let profile = r#"
+proxies:
+  - { name: HK 01, type: ss, server: 82.47.34.99, port: 11111, cipher: aes-256-gcm, password: f43c0eee-13b9-4f07-bec9-d4b744141503 }
+  - { name: JP 01, type: ss, server: 82.47.34.100, port: 11112, cipher: aes-256-gcm, password: f43c0eee-13b9-4f07-bec9-d4b744141504 }
+  - { name: US 01, type: ss, server: 82.47.34.101, port: 11113, cipher: aes-256-gcm, password: f43c0eee-13b9-4f07-bec9-d4b744141505 }
+proxy-groups:
+  - name: Asia
+    type: load-balance
+    strategy: consistent-hashing
+    include-all: true
+    filter: "HK`JP"
+    exclude-filter: "JP"
+  - name: Turns
+    type: load-balance
+    strategy: round-robin
+    proxies: [US 01]
+rules:
+  - MATCH,Asia
+"#;
+    let nodes = parse_nodes(profile);
+    let id = |name| PolicyTarget::Node(node_id(&nodes, name));
+    let imported = import_subscription_routing(profile, &nodes);
+    let model = imported
+        .routing
+        .clone()
+        .expect("clash routing should import");
+    let asia = model.group("Asia").unwrap();
+    assert_eq!(asia.kind, PolicyGroupKind::LoadBalance);
+    assert_eq!(asia.members, vec![id("HK 01")]);
+    let turns = model.group("Turns").unwrap();
+    assert_eq!(turns.kind, PolicyGroupKind::RoundRobin);
+    assert_eq!(turns.members, vec![id("US 01")]);
+    assert!(!imported
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.message.contains("options were ignored")));
 }
