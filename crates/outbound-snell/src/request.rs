@@ -75,6 +75,9 @@ pub fn encode_request(
     out.push(REQUEST_VERSION);
     out.push(command.code());
     if command == Command::Ping {
+        // Official servers reject a bare two-byte PING; an empty user key
+        // length byte follows (observed in interop CI).
+        out.push(0);
         return Ok(());
     }
     out.push(client_id.len() as u8);
@@ -266,7 +269,8 @@ pub fn parse_udp_downstream(frame: &[u8]) -> io::Result<Option<(SocketAddr, &[u8
     let (ip, rest) = read_ip(frame).ok_or_else(malformed)?;
     let port = rest.get(..2).ok_or_else(malformed)?;
     let port = u16::from_be_bytes([port[0], port[1]]);
-    Ok(Some((SocketAddr::new(ip, port), &rest[2..])))
+    // Servers may report IPv4 sources as IPv4-mapped IPv6 addresses.
+    Ok(Some((SocketAddr::new(ip.to_canonical(), port), &rest[2..])))
 }
 
 fn push_ip(out: &mut Vec<u8>, ip: IpAddr) {
@@ -331,7 +335,7 @@ mod tests {
 
         let mut ping = Vec::new();
         encode_request(&mut ping, Command::Ping, b"ignored", None).unwrap();
-        assert_eq!(ping, [1, 0]);
+        assert_eq!(ping, [1, 0, 0]);
         let mut udp = Vec::new();
         encode_request(&mut udp, Command::Udp, b"", None).unwrap();
         assert_eq!(udp, [1, 6, 0]);
