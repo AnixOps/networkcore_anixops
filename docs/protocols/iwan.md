@@ -308,12 +308,13 @@ iWAN 的"加密"不提供保密性或认证：
   - 出站适配：实现 `engine_outbound::TcpOutbound`（`connect` 和 `open_udp`），类型名 `iwan`，在 `engine_outbound` 注册表和 `engine-embedded` 的 `protocols.rs` 表中登记；`engine-embedded` 增加 cargo feature `iwan`（默认开启）。
 - 每个 iWAN 节点实例持有：一个 UDP 会话（§5 状态机，惰性建立：第一条连接到来时握手，空闲一段时间后可发 CLOSE 释放）和一个**节点私有的用户态 TCP/IP 栈**（smoltcp；仓库已经通过 `netstack-smoltcp` 依赖它）。栈的本机地址 = OPENACK 下发的隧道地址，MTU = 有效 MTU，默认路由指向隧道。
 - `connect(target)`：在私有栈里主动发起 TCP 连接，返回的流即为 `BoxStream`。`open_udp(target)`：在私有栈里绑定一个临时 UDP 端口，收发数据报。栈输出的 IP 包按 §6 封装成 DATA / DATA_ENC 发出；收到的 DATA、IPFRAG 重组结果交给栈。
-- 目标是域名时，用 OPENACK 下发的 DNS 通过私有栈（UDP 53）解析；没有下发 DNS 时用配置项 `dns`（可选）；都没有则报错。分配的地址和 DNS 只在节点内部使用，**不修改平台的网络设置**。
-- 重连（§5 重置）后，若新分配的隧道地址变了，私有栈换地址，已有连接全部以错误结束（上层按普通断线处理）。
+- 目标是域名时，通过私有栈（UDP 53）解析：配置了 `dns` 就始终用配置值（覆盖下发的 DNS），否则用 OPENACK 下发的 DNS；都没有则报错。分配的地址和 DNS 只在节点内部使用，**不修改平台的网络设置**。
+- 会话惰性建立：没有任何连接满 60 秒后发 CLOSE 释放会话。
+- 重连（§5 重置）后，若分配的隧道地址和有效 MTU 都没变，保留私有栈和现有连接；否则换新栈，已有连接全部以错误结束（上层按普通断线处理）。
 - 多个 iWAN 节点互相独立，可以和其他协议的节点一起放进策略组，按规则、手动选择或测速选择。节点测速可直接用 §6.4 的 ECHO RTT。
-- 资源：iOS Network Extension 内存很紧，私有栈的 TCP 收发缓冲区要设上限（建议每连接各 64 KiB 以内，可配置），且只在有连接时创建栈。
+- 资源：iOS Network Extension 内存很紧，私有栈的 TCP 收发缓冲区要设上限（`tcp_buffer_bytes`，默认每连接每方向 64 KiB），且只在有连接时创建栈。
 - 不支持的流量：ICMP（ping）等非 TCP/UDP 流量不经过逐连接出站，因此不会走 iWAN 节点。
-- 配置字段：`server`（域名或 IPv4）、`port`、`username`、`password`（由 Keychain 注入，与其他协议一致）、`mtu`（默认 1400，46–1600）、`encrypt`（bool，默认 false）、`pipe_id`（默认 0）、`pipe_idx`（默认 0）、`dns`（可选 IPv4 列表，覆盖下发的 DNS）。
+- 配置字段：`server`（域名或 IPv4）、`port`、`username`、`password`（由 Keychain 注入，与其他协议一致）、`mtu`（默认 1400，46–1600）、`encrypt`（bool，默认 false）、`pipe_id`（默认 0）、`pipe_idx`（默认 0）、`dns`（可选，最多 2 个 IPv4，设置后覆盖下发的 DNS）、`tcp_buffer_bytes`（可选，每连接每方向的 TCP 缓冲，默认 65536，范围 4096–1048576）。
 - 节点导入（anixops-net）和 UI 在内核合并后另行进行。
 
 ## 12. 服务端（`inbound-iwan`，节点内核 anixcore）
