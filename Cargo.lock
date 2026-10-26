@@ -1446,6 +1446,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "engine-inbound"
+version = "0.2.0"
+dependencies = [
+ "engine-outbound",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "engine-mieru"
 version = "0.2.0"
 dependencies = [
@@ -2524,6 +2534,23 @@ name = "inbound-mixed"
 version = "0.2.0"
 dependencies = [
  "engine-outbound",
+ "tokio",
+]
+
+[[package]]
+name = "inbound-shadowsocks"
+version = "0.2.0"
+dependencies = [
+ "aes",
+ "base64 0.22.1",
+ "blake3",
+ "engine-inbound",
+ "engine-outbound",
+ "outbound-shadowsocks",
+ "ring",
+ "serde",
+ "serde_json",
+ "shadowsocks",
  "tokio",
 ]
 
