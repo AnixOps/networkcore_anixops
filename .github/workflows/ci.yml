@@ -2404,10 +2404,23 @@ jobs:
           cargo test --locked -p outbound-iwan --test iwan_interop -- --ignored --test-threads=1 --nocapture
           cargo test --locked -p node-runtime --test client_interop -- --ignored --test-threads=1 --nocapture
 
+      # The iwand client (docs/protocols/iwan.md §10.2) logs in to anixcore's
+      # iWAN inbound from a network namespace over a TUN device.
+      - name: iWAN TUN interop (iwand client against inbound-iwan)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --locked -p anixcore
+          sudo env "RUNNER_TEMP=${RUNNER_TEMP}" "GITHUB_STEP_SUMMARY=${GITHUB_STEP_SUMMARY}" \
+            "ANIXCORE=${GITHUB_WORKSPACE}/target/debug/anixcore" \
+            bash .github/scripts/iwan-tun-interop.sh run
+
       - name: Server logs
         if: ${{ always() }}
         shell: bash
-        run: bash .github/scripts/reality-interop.sh logs
+        run: |
+          bash .github/scripts/reality-interop.sh logs
+          sudo env "RUNNER_TEMP=${RUNNER_TEMP}" bash .github/scripts/iwan-tun-interop.sh logs
 
   rust-h2-mitm-fuzz:
     name: HTTP/2 MITM fuzz

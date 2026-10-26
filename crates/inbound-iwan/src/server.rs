@@ -32,7 +32,7 @@ use outbound_iwan::crypto::{self, XorKey, PASSWORD_BLOCK};
 use outbound_iwan::packet::{self, kind, reject, tlv, Header, HEADER_LEN};
 use ring::rand::{SecureRandom, SystemRandom};
 use tokio::net::UdpSocket;
-use tokio::sync::{mpsc, Semaphore};
+use tokio::sync::{mpsc, watch, Semaphore};
 use tokio::task::{JoinHandle, JoinSet};
 
 use crate::ip::{self, Ipv4};
@@ -158,10 +158,17 @@ pub(crate) async fn serve(
                 };
                 let (outbound, settings, stats) =
                     (outbound.clone(), settings.clone(), stats.clone());
+                // The connection ends with its session (CLOSE, idle, a new
+                // login); it holds no reference that keeps the session.
+                let peer = session.peer;
+                let mut ended = session.ended.subscribe();
+                drop(session);
                 tokio::spawn(async move {
                     let _permit = permit;
-                    relay_accepted(accepted, session.peer, outbound.as_ref(), &settings, &stats)
-                        .await;
+                    tokio::select! {
+                        () = relay_accepted(accepted, peer, outbound.as_ref(), &settings, &stats) => {}
+                        _ = ended.wait_for(|ended| *ended) => {}
+                    }
                 });
             }
         }
@@ -200,6 +207,8 @@ struct Session {
     /// Milliseconds since the server started.
     last_seen: AtomicU64,
     udp: Option<UdpSide>,
+    /// Set when the session ends; its TCP connections watch it.
+    ended: watch::Sender<bool>,
     _online: OnlineGuard,
 }
 
@@ -211,6 +220,7 @@ struct UdpSide {
 
 impl Session {
     fn close(&self) {
+        self.ended.send_replace(true);
         if let Some(udp) = &self.udp {
             udp.worker.abort();
             udp.relay.close();
@@ -395,6 +405,7 @@ impl Server {
         let session = Arc::new(Session {
             peer,
             header,
+            ended: watch::Sender::new(false),
             _online: user.connect(peer.ip()),
             user,
             address,
