@@ -308,6 +308,46 @@ iWAN 的"加密"不提供保密性或认证：
 - ECHOREQ：校验签名并找到会话后，把载荷原样放进 ECHORESP 回给该会话。
 - CLOSE：校验签名后移除会话，不回包。
 
+### 10.2 测试客户端 `iwand` 的运行事实（来自 S1 9f6a0e3，仅用于搭建 CI）
+
+只用于在 runner 上把参考客户端当黑盒拉起来，对我们的 `inbound-iwan` 做第三方互通。只构建和运行，不链接、不分发。
+
+- **构建**：C 程序，不是 Go。在仓库根目录执行 `make`，得到 `./iwand`。只需要 `cc` 和 libc，没有其他依赖，也不涉及 CGO。`make static` 构建静态版。仓库里的 Go 代码（`cmd/`、`server/`）是 §10.1 的服务端，和客户端无关。
+- **命令行**：`iwand -f <配置文件> [-l <日志文件>] [-F]`。
+  - `-F` 前台运行。不加时会 daemonize 并 chdir 到 `/`，CI 必须加 `-F`。
+  - 不给 `-l` 时日志写到 stderr，每行以本地时间 `YYYY-MM-DD HH:MM:SS ` 开头。
+  - 默认配置路径 `/etc/iwan/iwan.conf`。
+  - 退出：SIGINT / SIGTERM 退出，SIGUSR1 触发重连。
+- **配置文件**：INI 风格。`[名字]` 一节给出 TUN 接口名，然后是 `key=value`，`#` 开头为注释：
+
+  ```
+  [iwan0]
+  server=127.0.0.1
+  port=4567
+  username=plain
+  password=pw-plain
+  mtu=1400
+  encrypt=0
+  ```
+
+  `#` 只在行首才是注释，**不支持行尾注释**（会成为值的一部分）。`server` 可以是 IPv4 或主机名；`port` 必填，没有默认值；`password` 超过 16 字节会截断并警告；`mtu` 范围 46–1600；`encrypt=1` 请求 XOR。可选 `up_script=` / `down_script=`，用 execv 调用。
+
+  两个脚本的参数依次为：事件（`up` / `down`）、TUN 名、地址、MTU、DNS0、DNS1。
+- **TUN 与路由**：
+  - 启动时自己打开 `/dev/net/tun` 创建 TUN（`IFF_TUN | IFF_NO_PI`）。
+  - 收到 OPENACK 后，把下发地址以**固定的 /24 掩码**设到 TUN 上，拉起接口，设置有效 MTU。所以内核只会有该 /24 的直连路由。
+  - **不加默认路由，也不加其他路由，不修改 `/etc/resolv.conf`**。需要的路由和 DNS 由 CI 自己用 `ip route` 配置，或者交给 `up_script`。
+  - 隧道 DNS 的地址只出现在日志和 `up_script` 的参数里。
+- **权限**：需要 root 或 CAP_NET_ADMIN（创建 TUN、ioctl 设地址、MTU 和 UP）。
+- **可等待的日志字样**：
+  - 启动成功：`SD-WAN client started successfully`。
+  - 每次发 OPEN：`sending OPEN (N bytes)`。
+  - 认证成功：`ESTABLISHED: ip=<地址> mtu=<MTU> encrypt=<Y|N> session=<token>`。
+  - 被拒：`peer AUTH REJECTED`，之后在下一个计时点重置并无限重试，不会退出。
+  - 等不到回应：`AUTH timeout`。
+  - 配置错误时打印 `config error: ...`，退出码 1。
+- **退出清理**：若处于已建立状态，会发 CLOSE（日志 `sent CLOSE to server`）并调用 `down_script`。之后关闭 socket 和 TUN fd；TUN 随进程消失，路由随之消失。
+
 ## 11. 内核集成（本仓库架构约定，非协议内容）
 
 用户要求 iWAN 节点能像普通代理节点一样参与分流（2026-10-26），所以 iWAN 做成**逐连接出站**，不做整隧道模式。
