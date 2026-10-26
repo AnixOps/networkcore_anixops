@@ -89,7 +89,7 @@ impl TuicOutbound {
     pub async fn udp_session(&self) -> io::Result<TuicUdpSession> {
         let (connection, dispatch) = {
             let mut session = self.session.lock().await;
-            let current = self.live(&mut *session).await?;
+            let current = self.live(&mut session).await?;
             let connection = current.quic.connection.clone();
             let dispatch = current
                 .udp
@@ -103,7 +103,7 @@ impl TuicOutbound {
     /// The live QUIC connection, authenticating a new one if needed.
     async fn connection(&self) -> io::Result<quinn::Connection> {
         let mut session = self.session.lock().await;
-        Ok(self.live(&mut *session).await?.quic.connection.clone())
+        Ok(self.live(&mut session).await?.quic.connection.clone())
     }
 
     async fn live<'a>(&self, session: &'a mut Option<Session>) -> io::Result<&'a Session> {

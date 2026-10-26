@@ -259,7 +259,9 @@ fn parse_address(data: &[u8]) -> Option<(Option<TargetAddr>, &[u8])> {
     Some((Some(address), &rest[2..]))
 }
 
-type Replies = mpsc::Sender<(TargetAddr, Vec<u8>)>;
+/// A reply datagram: its source and payload.
+type Reply = (TargetAddr, Vec<u8>);
+type Replies = mpsc::Sender<Reply>;
 
 /// Routes the server's packet datagrams on one connection to associations.
 pub(crate) struct Dispatch {
@@ -300,7 +302,7 @@ impl Dispatch {
         }
     }
 
-    fn register(&self) -> io::Result<(u16, mpsc::Receiver<(TargetAddr, Vec<u8>)>)> {
+    fn register(&self) -> io::Result<(u16, mpsc::Receiver<Reply>)> {
         let rng = SystemRandom::new();
         let (sender, receiver) = mpsc::channel(SESSION_QUEUE);
         let mut sessions = lock(&self.sessions);
@@ -341,7 +343,7 @@ pub struct TuicUdpSession {
     id: u16,
     connection: quinn::Connection,
     dispatch: Arc<Dispatch>,
-    replies: tokio::sync::Mutex<mpsc::Receiver<(TargetAddr, Vec<u8>)>>,
+    replies: tokio::sync::Mutex<mpsc::Receiver<Reply>>,
     next_packet_id: AtomicU16,
 }
 

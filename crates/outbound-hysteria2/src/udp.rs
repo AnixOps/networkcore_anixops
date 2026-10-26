@@ -167,7 +167,9 @@ pub fn random_packet_id() -> u16 {
     u16::from_be_bytes(id).max(1)
 }
 
-type Replies = mpsc::Sender<(String, Vec<u8>)>;
+/// A reply datagram: its source and payload.
+type Reply = (String, Vec<u8>);
+type Replies = mpsc::Sender<Reply>;
 
 /// Routes the server's datagrams on one connection to client sessions.
 pub(crate) struct Dispatch {
@@ -207,7 +209,7 @@ impl Dispatch {
     }
 
     /// Registers a new session under a random unused id.
-    fn register(&self) -> io::Result<(u32, mpsc::Receiver<(String, Vec<u8>)>)> {
+    fn register(&self) -> io::Result<(u32, mpsc::Receiver<Reply>)> {
         let rng = SystemRandom::new();
         let (sender, receiver) = mpsc::channel(SESSION_QUEUE);
         let mut sessions = lock(&self.sessions);
@@ -245,7 +247,7 @@ pub struct Hysteria2UdpSession {
     id: u32,
     connection: quinn::Connection,
     dispatch: Arc<Dispatch>,
-    replies: tokio::sync::Mutex<mpsc::Receiver<(String, Vec<u8>)>>,
+    replies: tokio::sync::Mutex<mpsc::Receiver<Reply>>,
     next_packet_id: AtomicU16,
 }
 
