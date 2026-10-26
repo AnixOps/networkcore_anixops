@@ -31,6 +31,10 @@
 - 文档不再把第三方内核写成当前能力：README、ROADMAP、TODO、功能矩阵、Windows 安装与发布合约、Windows GUI 日常可用性合约和各 crate README 改为描述内置引擎；两份第三方内核 adapter 合约移到 `docs/archive/2026-10-removed-engines/`，对应 CI 文档检查改为新的内置引擎标记。
 - Windows 删除前台隧道和外部组网程序适配：`networkcore-windows tunnel prepare-storage|start|status|stop` 命令、托管配置的 `tunnel` 字段和状态的 `tunnel_running`、服务里的隧道启动/停止/回滚、GUI 设置页的 TUN 配置，以及 `platform-windows` 的隧道运行时、安全存储和 `config-core::windows_tunnel` 规划器都已移除；SD-WAN 下发校验只接受 `ikev2` 传输。旧配置里的 `tunnel` 字段会被忽略，旧版本拉起的隧道进程需先用旧版本停止。SD-WAN 组网等 ANX 私有协议重新提供；对应的人工验收计划移到 `docs/archive/2026-10-removed-engines/`。
 
+### Fixed
+
+- `mitm_anixops` 子模块升级到 distribution release `v1.4.7`（`ee95223`）：Node 脚本运行器在 Windows 上替换持久化存储文件时，遇到 `EPERM`、`EACCES` 或 `EBUSY`（文件仍被其他进程占用）会短暂重试，修复 `engine-native` 脚本 MITM 测试在 Windows 上偶发未改写请求体的问题。
+
 ## v0.2.0 - 2026-10-26
 
 正式版，tag 在 `a636b89`，与通过 Windows/Linux 真机验收的 `v0.2.0-rc.2` 同一提交（`v0.2.0-rc.1` 在 `54adc04`）。以下为自 `v0.2.0-alpha.21` 以来的全部变更。

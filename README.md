@@ -63,9 +63,9 @@ current-main-cross-platform-run-plan=public-engine-run-plan-active
 
 ## MITM
 
-`mitm_anixops` Git submodule 固定到 upstream distribution release `v1.4.6` 的 source commit
-`6382f0147e02a8653343571791ef61b8cc885cb1`（manifest digest
-`sha256:3922e70f15fd0882b0617507a49ab34e223616937027718d862ba7a764c568fa`，linked C core 版本 `0.45.10`）。
+`mitm_anixops` Git submodule 固定到 upstream distribution release `v1.4.7` 的 source commit
+`ee952234c35ddf36f2c63f8aa20f28ad744bd054`（manifest digest
+`sha256:3e224e94ae08bfc1a99cde886f84577ecbd5f246775b984ae477ee80dc9b3aac`，linked C core 版本 `0.45.10`）。
 `mitm-anixops-sys` 提供低层 FFI，`mitm-policy` 提供 safe wrapper、`AnixOpsMitmPluginService`、内置 `networkcore.adblock`
 去广告插件包和 `ManagedSdwanMitmPolicyGate`。第三方 plugin、parser、script runtime 或兼容核心必须先走
 [Third-Party Plugin Onboarding Process](docs/architecture/third-party-plugin-onboarding-process.md)。
