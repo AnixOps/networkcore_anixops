@@ -2,11 +2,8 @@
 //!
 //! This module owns the platform-neutral routing model: ordered
 //! DOMAIN/DOMAIN-SUFFIX/DOMAIN-KEYWORD/IP-CIDR/GEOIP/RULE-SET rules, a mandatory FINAL target, and
-//! select/url-test/fallback policy groups. Adapters translate the model into
-//! engine configuration (for example `engine-singbox` renders a sing-box
-//! `route`), while in-process engines call [`RoutingModel::decide`] directly.
-//! Both paths share the same model so routing results can be compared by
-//! snapshot tests. The module performs no DNS, GeoIP database, health check,
+//! select/url-test/fallback policy groups. In-process engines call
+//! [`RoutingModel::decide`] directly, and snapshot tests pin its results. The module performs no DNS, GeoIP database, health check,
 //! or network work; those inputs come from a [`RoutingEnvironment`].
 
 use control_domain::{DomainError, DomainResult};

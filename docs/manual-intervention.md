@@ -518,6 +518,15 @@ CI 只验证托管配置、服务进程内启停和健康检查（`managed_runti
   Do not mark the foreground tunnel production-ready until its positive, negative, and cleanup
   proofs are all recorded.
 
+## Windows 去除第三方内核后真机验收（Phase 4A）
+
+在 Windows 真机上安装包含 Phase 4A 的构建后：
+
+- 用旧版本（兼容内核导入）留下的配置启动，记录连接时的提示；重新导入订阅后能连接，节点切换、延迟测试、策略组切换和五种分流模式都可用。
+- 服务模式下开启 HTTPS 解密：系统代理指向 `127.0.0.1:7890`，内置引擎监听 `127.0.0.1:7891`，浏览器经解密访问 HTTPS 站点正常；关闭解密后系统代理回到 `127.0.0.1:7890` 的内置引擎，且 7891 不再监听。
+- 设置页不再出现兼容内核和附加协议内核卡片，规则页不再出现 JSON 编辑和 DNS JSON。
+- 诊断报告里只有内置引擎和 MITM 的状态字段。
+
 ## Windows Foreground Tunnel Manual Acceptance
 
 The following elevated-Windows record is required before the foreground EasyTier tunnel can be
@@ -799,6 +808,10 @@ and `cargo build --release -p networkcore-linux-gui --features gui` (WebKitGTK 4
 4. Toggle "登录后启动", log out and back in, and check the window opens; toggle it off and check
    `~/.config/autostart/anixops-net.desktop` is gone.
 5. Switch the language to English and the appearance to dark and OLED black.
+6. Import a Clash subscription with `proxy-groups` and `rules`: the Rules page lists its groups, switching a select
+   group while connected reconnects through the new member, and a node switch on the Proxies page changes the main
+   group. Switch to 绕过大陆, GFW 列表, 回国 and 直连 and check a mainland site and a blocked site take the expected path;
+   the first switch downloads the rule lists into `~/.config/anixops-net/rules/`.
 
 Confirmed by the maintainer on 2026-10-24. From v0.2.0 the tag release also publishes the window as a tarball
 (`anixops-net-linux-<version>-x86_64-unknown-linux-gnu.tar.gz`) and a Debian package (`anixops-net_<version>_amd64.deb`),

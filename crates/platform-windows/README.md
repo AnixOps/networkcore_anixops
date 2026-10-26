@@ -11,30 +11,15 @@ Current status:
 - Windows service, signed INF driver package lifecycle, WiX MSI installer,
   system proxy mutation, system trust store mutation, and managed daemon
   lifecycle are active.
-- The managed schema now has an optional `sing_box` block. The service owns a
-  configured `sing-box.exe` child, runs `check -c` before `run -c`, persists
-  its PID/exit status, and appends core stdout/stderr to the configured log path.
-- The managed schema also has an optional `mieru` block. The service verifies
-  the explicitly supplied Mieru executable digest, then uses the official
-  `apply config`, `start`, and `stop` command contract. Mieru is a background
-  client controlled by its CLI, so the service records command-backed state and
-  does not invent a child PID or claim process supervision it does not own.
-  During health polling it also executes the official `status` command and
-  routes a failed status check through failed-state cleanup and proxy rollback.
-- The Windows GUI Settings page exposes explicit Mieru release installation and
-  local digest checking. It runs these operations off the UI thread and does
-  not download without a user-supplied official release URL and digest.
-- NodeCatalog import consumes the shared `PublicEngineRunPlan`: supported public
-  protocols route to sing-box, while `mierus://` routes only to an enabled
-  managed Mieru block with an explicit executable, digest, config path, and
-  loopback listener. Import failures leave the previous managed core intact.
+- The managed schema has an optional `embedded` block: an engine-embedded
+  configuration envelope path and a loopback listener. The service runs that
+  engine in-process, polls it, and routes a failure through failed-state
+  cleanup and proxy rollback. No third-party proxy core is started.
 - `root_certificate_path` remains a generic trust-store installation only. The
   separate `native_mitm` block powers the explicit GUI-controlled loopback HTTP
-  listener, service-owned CA lifecycle, controlled TLS termination, and local
-  sing-box SOCKS outbound. It handles one bounded HTTP/1.1 exchange only; it
+  listener, service-owned CA lifecycle, controlled TLS termination, and the
+  embedded engine as its local SOCKS upstream. It handles one bounded HTTP/1.1 exchange only; it
   does not provide HTTP/2, QUIC, streaming, or transparent capture.
-- When the `sing_box` block is removed or disabled, the service uses the persisted
-  core log path to stop the previous service-owned child before rollback.
 - JavaScript script dispatch remains blocked.
 
 `managed` owns the schema-versioned ProgramData configuration and state records.

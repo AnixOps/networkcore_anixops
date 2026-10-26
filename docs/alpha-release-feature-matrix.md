@@ -22,7 +22,7 @@ current-main-release-state=released
 current-main-source-candidate=v0.2.0
 current-main-latest-published-tag=v0.2.0
 current-main-latest-stable-tag=v0.2.0
-current-main-subscription-foreground=public-engine-run-plan-mieru-and-sing-box-active
+current-main-subscription-foreground=embedded-engine-run-url-and-run-catalog-active
 current-main-subscription-background=linux-systemd-oneshot-timer-and-windows-opt-in-single-source-active
 ```
 

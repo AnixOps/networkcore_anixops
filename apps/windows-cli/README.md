@@ -20,17 +20,12 @@ Surge proxy lines, Loon proxy lines, and Quantumult X proxy/server lines in
 `config-core`.
 The companion GUI and service activate Windows service control, signed INF
 driver package lifecycle, the MSI installer, `system-proxy-mutation`,
-`system-trust-store-mutation`, managed daemon lifecycle, and the optional
-service-owned sing-box process configured in `managed-config.json`. The service
-validates the native sing-box JSON with `check -c` before starting it and writes
-core stdout/stderr to the configured log. The GUI now explicitly installs the
-verified official Windows core and imports a selected local profile into a
-service-ready config using Shadowsocks, Trojan, VLESS, VMess, Hysteria2, or
-TUIC output. Trojan/VLESS/VMess retain the documented V2Ray TLS/REALITY/uTLS/
-transport subset; Hysteria2, TUIC, and V2Ray QUIC transport are direct proxy-core
-paths and do not enable HTTP/3 MITM.
+`system-trust-store-mutation`, managed daemon lifecycle, and the embedded
+engine configured in `managed-config.json`, which runs in-process for
+Shadowsocks, Trojan, VLESS, VMess, Hysteria2, and TUIC nodes. No third-party
+proxy core is installed or started.
 The CLI itself has no core-install or subscription-run command. The GUI/service
 provide explicit controlled HTTP/1.1 HTTPS MITM with a service-owned CA and
-local sing-box SOCKS upstream. Remote subscription fetch, generic XHTTP/ECH/
-multiplex transport rendering, HTTP/2 or QUIC MITM, streaming, JavaScript script
+the embedded engine as its local SOCKS upstream. Generic XHTTP/ECH/
+multiplex transports, HTTP/2 or QUIC MITM, streaming, JavaScript script
 dispatch, and CLI MITM configuration remain unavailable.

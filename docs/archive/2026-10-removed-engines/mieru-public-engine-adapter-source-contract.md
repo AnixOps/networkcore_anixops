@@ -1,5 +1,7 @@
 # Mieru Public Engine Adapter Source Contract
 
+> **Archived 2026-10-26.** The adapter crate this contract described was removed; all platforms now run the in-repo embedded engine (`engine-embedded`). Kept for history only; not a current requirement.
+
 This contract defines the external-core boundary for Mieru. NetworkCore does
 not copy Mieru source, statically link GPL-3.0 Mieru code, bundle a Mieru
 binary, or silently download one.

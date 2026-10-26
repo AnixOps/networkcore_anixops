@@ -22,8 +22,8 @@ file, one Ubuntu-style CA trust file, and operator-selected certificate/PAC/poli
 |---|---|
 | Basics | `help`, `version`, `capabilities`, `status`, `diagnostics`, `prepare-config` |
 | Foreground runtime | `start`, `stop`, `connect`, `disconnect`, `restart`, `reload`, `rollback` |
-| Public engines | `install-sing-box` / `sing-box install`, `run-url`, `run-catalog`, `core list`, `core install/start/stop/status mieru` |
-| Nodes | `node list`, `node select`, `node switch`, `node health` |
+| Engines | `run-url`, `run-catalog`, `core list` |
+| Nodes | `node list`, `node select`, `node rollback` |
 | Subscriptions | `subscription add/list/remove/select/update/rollback`, `subscription refresh start/status/stop`, `subscription refresh schedule install/status/stop/uninstall` |
 | systemd | `install-service`, `uninstall-service`, `service start|stop|restart|status`, `service reload` |
 | Environment proxy | `proxy apply/status/rollback` |
@@ -55,29 +55,20 @@ creates the socket without replacing an existing path, applies owner-only `0600`
 No default socket, PID lookup, or non-Unix fallback exists; see
 `docs/architecture/linux-managed-runtime-health-source-contract.md`.
 
-## Public engines and subscriptions
+## Engine and subscriptions
 
-`install-sing-box` uses the `engine-singbox` latest release installer. `run-url <share-link-or-file-uri-or-https-url> [--node-id <id>]`
-and `run-catalog <catalog-path> <source-id>` parse input with `config-core` and first create a `PublicEngineRunPlan`:
+`run-url <share-link-or-file-uri-or-https-url> [--node-id <id>]` and `run-catalog <catalog-path> <source-id>` parse
+input with `config-core` and run it on the embedded engine (`engine-embedded` local proxy, SOCKS5/HTTP on
+`--listen-host`/`--listen-port`) in this process, with no external binary to download or start:
 
 - Direct `ss://`, `trojan://`, `vless://`, `vmess://`, `hysteria2://`/`hy2://`, and `tuic://` links, supported Clash
-  YAML, sing-box JSON, and Surge/Loon/Quantumult X catalog payloads, one explicit absolute `file://` UTF-8 subscription
+  YAML, JSON outbound, and Surge/Loon/Quantumult X catalog payloads, one explicit absolute `file://` UTF-8 subscription
   file, or one bounded HTTP(S) subscription fetch are accepted.
-- Shadowsocks, Trojan, VLESS, VMess, Hysteria2, and TUIC run through the foreground sing-box flow.
-- A `mierus://` node uses engine-mieru and requires `--binary <local-path> --sha256 <digest>`; the CLI renders an
-  atomic local config with rollback snapshot, invokes official apply/start, and requires a reachable loopback SOCKS5
-  listener. Failures return a stable redacted error and do not replace an existing config or running core.
-- `--node-id <id>` selects one normalized catalog node; otherwise the first node is used.
-- `run-url --engine auto|embedded|sing-box` picks the engine (default `auto`). The embedded engine
-  (`engine-embedded` local proxy, SOCKS5/HTTP on `--listen-host`/`--listen-port`) runs in this process with no download;
-  it carries Shadowsocks-2022, VLESS + REALITY and Trojan (TCP) today and applies subscription rules and policy groups when every node
-  is supported. `auto` uses it whenever it can run the subscription and otherwise falls back to the sing-box flow;
-  `embedded` never falls back and reports the unsupported node. SIGINT exits 130, SIGTERM exits 0.
+- Without `--node-id`, subscription rules and policy groups drive the route when every node is supported; otherwise
+  the first node runs alone. `--node-id <id>` runs that node alone.
+- A node the embedded engine cannot run is reported with a stable redacted error. SIGINT exits 130, SIGTERM exits 0.
 
-`core list` reports registered public engine descriptors. `core install mieru --binary <path> --sha256 <digest>` only
-verifies an operator-provided executable. `core start|stop|status mieru --binary <path> --sha256 <digest> --config <path>`
-drive the official client's `apply config`, `start`, `stop`, and `status` with a regular absolute config file, never
-echoing the client's stdout/stderr.
+`core list` reports registered engine descriptors.
 
 **Persistent catalog.** `CommandSubscriptionCatalogStore` keeps a local schema version 1 JSON catalog:
 `CommandSubscriptionCatalogStore::add_source`, `CommandSubscriptionCatalogStore::list_sources`,

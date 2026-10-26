@@ -1,12 +1,15 @@
 //! What the client keeps between runs: subscription sources and their cached content, the selected node,
-//! preferences and the system proxy settings to restore. Everything lives under
+//! preferences, the routing mode with policy group choices, the cached public rule lists and the system proxy
+//! settings to restore. Everything lives under
 //! `$XDG_CONFIG_HOME/anixops-net` (or `~/.config/anixops-net`); files that can hold node credentials are
 //! written owner-only.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
+use engine_embedded::profile::{RoutingMode, RuleList};
 use serde::{Deserialize, Serialize};
 
 use super::system_proxy::ProxyBackup;
@@ -20,6 +23,9 @@ pub struct SavedState {
     pub selected_node: Option<String>,
     pub preferences: Preferences,
     pub listen_port: u16,
+    pub routing_mode: RoutingMode,
+    /// The member picked in each select policy group of the selected source, by group id.
+    pub group_choices: BTreeMap<String, String>,
     /// Set while the client has changed the desktop's proxy settings; cleared once they are restored.
     pub proxy_backup: Option<ProxyBackup>,
     next_source: u32,
@@ -32,6 +38,8 @@ impl Default for SavedState {
             selected_node: None,
             preferences: Preferences::default(),
             listen_port: DEFAULT_LISTEN_PORT,
+            routing_mode: RoutingMode::default(),
+            group_choices: BTreeMap::new(),
             proxy_backup: None,
             next_source: 1,
         }
@@ -174,6 +182,27 @@ impl Store {
     pub fn write_report(&self, name: &str, content: &str) -> io::Result<PathBuf> {
         self.write_private(name, content.as_bytes())?;
         Ok(self.dir.join(name))
+    }
+
+    /// The cached entries of a public rule list, one per line; `None` before its first download.
+    pub fn read_rule_list(&self, list: RuleList) -> Option<Vec<String>> {
+        let content = fs::read_to_string(self.rule_list_path(list)).ok()?;
+        Some(content.lines().map(str::to_string).collect())
+    }
+
+    pub fn has_rule_list(&self, list: RuleList) -> bool {
+        self.rule_list_path(list).is_file()
+    }
+
+    pub fn write_rule_list(&self, list: RuleList, entries: &[String]) -> io::Result<()> {
+        self.write_private(
+            &format!("rules/{}", list.file_name()),
+            entries.join("\n").as_bytes(),
+        )
+    }
+
+    fn rule_list_path(&self, list: RuleList) -> PathBuf {
+        self.dir.join("rules").join(list.file_name())
     }
 
     fn source_path(&self, id: &str) -> PathBuf {

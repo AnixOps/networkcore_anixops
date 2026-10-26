@@ -62,7 +62,7 @@ export function HomePage({ snapshot, nodes, phase, busy, run, toggle, goTo }: {
           <div className="hero-title">{connectionTitle(snapshot?.connection, phase)}</div>
           <div className="hero-subtitle">{subtitle}</div>
         </div>
-        {!linux && <div className="hero-modes" role="radiogroup" aria-label={t("分流模式")}>
+        <div className="hero-modes" role="radiogroup" aria-label={t("分流模式")}>
           {availableRoutingModes(snapshot).map((mode) => (
             <button
               key={mode.value}
@@ -76,7 +76,7 @@ export function HomePage({ snapshot, nodes, phase, busy, run, toggle, goTo }: {
               {t(mode.label)}
             </button>
           ))}
-        </div>}
+        </div>
       </section>
 
       <div className="fact-grid">
@@ -89,7 +89,7 @@ export function HomePage({ snapshot, nodes, phase, busy, run, toggle, goTo }: {
       </div>
 
       <div className="two-column">
-        {!linux && <Card title={t("策略组")} actions={<button className="link-button" onClick={() => goTo("rules")}>{t("管理")}<ChevronRight size={15} /></button>}>
+        <Card title={t("策略组")} actions={<button className="link-button" onClick={() => goTo("rules")}>{t("管理")}<ChevronRight size={15} /></button>}>
           {groups.length === 0
             ? <p className="muted">{t("当前配置里没有策略组。")}</p>
             : <ul className="list">{groups.slice(0, 4).map((group) => (
@@ -99,7 +99,7 @@ export function HomePage({ snapshot, nodes, phase, busy, run, toggle, goTo }: {
                 {group.selected && <span className="chip">{groupMemberLabel(group, group.selected)}</span>}
               </li>
             ))}</ul>}
-        </Card>}
+        </Card>
         <Card title={t("订阅")} actions={<button className="link-button" onClick={() => goTo("proxies")}>{t("管理")}<ChevronRight size={15} /></button>}>
           {snapshot?.subscription
             ? <ul className="list">

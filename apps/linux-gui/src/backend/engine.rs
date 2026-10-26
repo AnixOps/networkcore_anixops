@@ -1,16 +1,19 @@
-//! Subscription parsing and the in-process engine: the selected node runs behind a local SOCKS5/HTTP listener,
-//! as in the Windows desktop mode, with no external engine binary.
+//! Subscription parsing and the in-process engine: the selected node, or every node with the subscription's
+//! rules and policy groups, runs behind a local SOCKS5/HTTP listener, as in the Windows desktop mode, with no
+//! external engine binary.
 
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
+use config_core::routing_import::import_subscription_routing;
 use config_core::CoreSubscriptionService;
 use control_domain::{NodeDescriptor, Protocol, RawSubscription, SubscriptionService};
+use engine_embedded::config::RuntimeConfig;
 use engine_embedded::delay::measure_delay;
 use engine_embedded::local_proxy::LocalProxy;
-use engine_embedded::nodes::{outbound_for_node, single_node_envelope};
+use engine_embedded::nodes::{outbound_for_node, routing_envelope, single_node_envelope};
 use inbound_mixed::MixedSettings;
 
 const PROFILE_ID: &str = "linux-gui";
@@ -67,6 +70,15 @@ pub fn envelope(nodes: &[NodeDescriptor], node_id: &str) -> Result<String, Strin
     single_node_envelope(PROFILE_ID, nodes, Some(node_id))
         .map(|(envelope, _)| envelope)
         .map_err(str::to_string)
+}
+
+/// The envelope with every node and the subscription's rules and policy groups, when `content` carries them,
+/// every node can run on the engine and the engine accepts the result. Otherwise one node runs at a time.
+pub fn subscription_routing(content: &str, nodes: &[NodeDescriptor]) -> Option<String> {
+    let spec = import_subscription_routing(content, nodes).spec?;
+    routing_envelope(PROFILE_ID, nodes, &spec)
+        .ok()
+        .filter(|envelope| RuntimeConfig::from_json(envelope.as_bytes()).is_ok())
 }
 
 /// The running local proxy, if any.
