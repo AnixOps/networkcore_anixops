@@ -54,6 +54,9 @@ pub struct RoutedOutbound {
     global: PolicyTarget,
     /// Connections routed by round-robin groups so far.
     round_robin: AtomicUsize,
+    /// Whether a rule matches the local process, so callers that can look
+    /// it up should.
+    uses_process: bool,
 }
 
 /// Last measured latency per url-test or fallback group, keyed by member name.
@@ -199,6 +202,10 @@ impl RoutedOutbound {
         for rule in &model.rules {
             named_sets(&rule.matcher, &mut named);
         }
+        let uses_process = model
+            .rules
+            .iter()
+            .any(|rule| matches_process(&rule.matcher));
         let unknown_set = named.iter().any(|name| !rule_sets.contains(name));
         if unknown_set {
             return Err(RuntimeError::new(
@@ -235,7 +242,13 @@ impl RoutedOutbound {
             selected: RwLock::default(),
             global,
             round_robin: AtomicUsize::new(0),
+            uses_process,
         })
+    }
+
+    /// Whether a `PROCESS-NAME` rule exists, alone or inside a logical rule.
+    pub fn uses_process(&self) -> bool {
+        self.uses_process
     }
 
     /// Sets where the global mode sends connections: a policy group, a node
@@ -491,16 +504,19 @@ impl RoutedOutbound {
     /// Routes a flow to `target` and says why. For an address target,
     /// `sniffed` (a TLS SNI or HTTP `Host`) is matched by the domain rules
     /// while IP rules keep matching the address; the flow still connects to
-    /// the address. A rejected flow gets no outbound.
+    /// the address. `process` is the name of the local process that opened
+    /// the flow, for `PROCESS-NAME` rules. A rejected flow gets no outbound.
     pub async fn route_flow(
         &self,
         target: &TargetAddr,
         sniffed: Option<&str>,
+        process: Option<&str>,
     ) -> (RouteInfo, Option<Arc<dyn TcpOutbound>>) {
         let mut query = query(target);
         if query.domain.is_none() {
             query.domain = sniffed.map(str::to_string);
         }
+        query.process = process.map(str::to_string);
         let resolution = self.resolve_query(&query).await;
         let outbound = self.outbound_of(&resolution.outcome);
         (self.describe(&resolution), outbound)
@@ -605,6 +621,15 @@ fn query(target: &TargetAddr) -> RouteQuery {
         TargetAddr::Domain(domain, _) => RouteQuery::domain(domain.clone()),
     }
     .with_port(target.port())
+}
+
+fn matches_process(matcher: &RuleMatcher) -> bool {
+    match matcher {
+        RuleMatcher::ProcessName(_) => true,
+        RuleMatcher::And(rules) | RuleMatcher::Or(rules) => rules.iter().any(matches_process),
+        RuleMatcher::Not(rule) => matches_process(rule),
+        _ => false,
+    }
 }
 
 /// The rule sets a rule needs: `RULE-SET` names and `geosite-<category>`.
