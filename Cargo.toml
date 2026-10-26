@@ -13,8 +13,6 @@ members = [
     "crates/engine-inbound",
     "crates/engine-native",
     "crates/engine-outbound",
-    "crates/engine-mieru",
-    "crates/engine-singbox",
     "crates/inbound-hysteria2",
     "crates/inbound-mixed",
     "crates/inbound-shadowsocks",

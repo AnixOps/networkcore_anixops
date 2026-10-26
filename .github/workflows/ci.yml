@@ -415,10 +415,6 @@ jobs:
             crates/control-domain/README.md
             crates/control-runtime/README.md
             crates/engine-native/README.md
-            crates/engine-singbox/Cargo.toml
-            crates/engine-singbox/README.md
-            crates/engine-singbox/src/lib.rs
-            crates/engine-singbox/tests/engine_singbox_contracts.rs
             crates/mitm-anixops-sys/Cargo.toml
             crates/mitm-anixops-sys/README.md
             crates/mitm-anixops-sys/build.rs
@@ -707,28 +703,8 @@ jobs:
           grep -q "private protocol implementation is deferred" docs/architecture/adr-0002-public-engine-adapter-first.md
           grep -q "sing-box" docs/architecture/adr-0002-public-engine-adapter-first.md
           grep -q "Runtime Baseline Priority" docs/architecture/proxy-engine-adapter.md
-          grep -q '"crates/engine-singbox"' Cargo.toml
-          grep -q '^name = "engine-singbox"$' crates/engine-singbox/Cargo.toml
           grep -q "sing-box public engine adapter source contract" docs/architecture/sing-box-public-engine-adapter-source-contract.md
-          grep -q '"crates/engine-mieru"' Cargo.toml
-          grep -q '^name = "engine-mieru"$' crates/engine-mieru/Cargo.toml
           grep -q "Mieru Public Engine Adapter Source Contract" docs/architecture/mieru-public-engine-adapter-source-contract.md
-          grep -q "mierus://" crates/engine-mieru/src/lib.rs
-          grep -q "verify_local_mieru_binary" crates/engine-mieru/src/lib.rs
-          grep -q "MieruManagedProcessSupervisor" crates/engine-mieru/src/lib.rs
-          grep -q "local_binary_verification_requires_explicit_digest" crates/engine-mieru/tests/engine_mieru_contracts.rs
-          grep -q "managed_supervisor_starts_stopped" crates/engine-mieru/tests/engine_mieru_contracts.rs
-          grep -q "render_mieru_client_config" crates/engine-mieru/src/lib.rs
-          grep -q "write_mieru_client_config" crates/engine-mieru/src/lib.rs
-          grep -q "renders_official_shape_with_loopback_socks5" crates/engine-mieru/tests/engine_mieru_contracts.rs
-          grep -q "config_write_snapshots_existing_credentials" crates/engine-mieru/tests/engine_mieru_contracts.rs
-          grep -q "readiness_does_not_promote_a_stopped_process" crates/engine-mieru/tests/engine_mieru_contracts.rs
-          grep -q "official_client_control_commands_are_explicit" crates/engine-mieru/tests/engine_mieru_contracts.rs
-          grep -q "status_mieru_client" crates/engine-mieru/src/lib.rs
-          grep -q "wait_for_mieru_listener" crates/engine-mieru/src/lib.rs
-          grep -q "listener_probe_rejects_missing_endpoint" crates/engine-mieru/tests/engine_mieru_contracts.rs
-          grep -q "parses_official_simple_link_query_ports" crates/engine-mieru/tests/engine_mieru_contracts.rs
-          grep -q "rejects_udp_binding_until_real_udp_contract_exists" crates/engine-mieru/tests/engine_mieru_contracts.rs
           grep -q "parses_mieru_share_links" crates/config-core/tests/config_core_contracts.rs
           grep -q "linux-managed-service-unit-source-contract" docs/architecture/linux-managed-service-unit-source-contract.md
           grep -q "render_systemd_unit" crates/platform-linux/src/systemd.rs
@@ -773,21 +749,8 @@ jobs:
           grep -q "read_only_status_does_not_require_confirmation" crates/platform-linux/tests/systemd_unit_contracts.rs
           grep -q "validate_proxy_engine_transition" crates/control-runtime/src/lib.rs
           grep -q "runtime_rollback_rejects_a_non_recovering_lifecycle_jump" crates/control-runtime/tests/runtime_contracts.rs
-          grep -q "SING_BOX_LATEST_RELEASE_API_URL" crates/engine-singbox/src/lib.rs
-          grep -q "ENGINE_SINGBOX_DOWNLOAD_CHECKSUM_VERIFIED_CODE" crates/engine-singbox/src/lib.rs
-          grep -q "GithubSingBoxReleaseInstaller" crates/engine-singbox/src/lib.rs
           grep -q "run-url" apps/linux-cli/src/lib.rs
-          grep -q "PublicEngineRunPlan" crates/control-domain/src/lib.rs
           grep -q "hysteria2://.*tuic://" apps/linux-cli/README.md
-          grep -q "render_sing_box_local_proxy_config" crates/engine-singbox/src/lib.rs
-          grep -q "ENGINE_SINGBOX_CONFIG_RENDERED_CODE" crates/engine-singbox/src/lib.rs
-          grep -q "SingBoxProcessRunner" crates/engine-singbox/src/lib.rs
-          grep -q "SingBoxManagedProcessSupervisor" crates/engine-singbox/src/lib.rs
-          grep -q "pub fn check_configuration" crates/engine-singbox/src/lib.rs
-          grep -q "official status command should succeed" crates/engine-mieru/tests/engine_mieru_contracts.rs
-          grep -q "download_mieru_release" crates/engine-mieru/src/lib.rs
-          grep -q "MIERU_RELEASE_MAX_BYTES" crates/engine-mieru/src/lib.rs
-          grep -q "listener_config_rejects_lan_binding" crates/engine-mieru/tests/engine_mieru_contracts.rs
           grep -q "pub fn poll_health" apps/windows-service/src/lib.rs
           grep -q "pub fn stop_after_runtime_failure" apps/windows-service/src/lib.rs
           grep -q "runtime_error=" apps/windows-gui/src/main.rs
@@ -844,13 +807,6 @@ jobs:
           grep -q "write_diagnostic_report" apps/windows-gui/src/main.rs
           grep -q "apply_proxy_after_readiness" apps/windows-gui/src/gui/actions/connection.rs
           ! grep -q "apply_user_proxy_from_config" apps/windows-gui/src/main.rs
-          grep -q "render_sing_box_local_proxy_selector_config" crates/engine-singbox/src/lib.rs
-          grep -q "select_sing_box_clash_api_outbound" crates/engine-singbox/src/lib.rs
-          grep -q "measure_sing_box_clash_api_outbound_delay" crates/engine-singbox/src/lib.rs
-          grep -q "read_sing_box_clash_api_selector" crates/engine-singbox/src/lib.rs
-          grep -q "renders_loopback_clash_selector_for_explicit_runtime_node_switching" crates/engine-singbox/tests/engine_singbox_contracts.rs
-          grep -q "measures_one_generated_outbound_through_the_loopback_clash_api" crates/engine-singbox/tests/engine_singbox_contracts.rs
-          grep -q "reads_generated_selector_state_through_the_loopback_clash_api" crates/engine-singbox/tests/engine_singbox_contracts.rs
           grep -q "public-core-client-reference" README.md
           grep -q "NODE_METADATA_SHADOWSOCKS_METHOD" crates/control-domain/src/lib.rs
           grep -q "SUBSCRIPTION_SHADOWSOCKS_LINK_INVALID_CODE" crates/config-core/src/lib.rs
@@ -876,8 +832,6 @@ jobs:
           grep -q "parses_v2ray_share_links_with_tls_reality_and_transports" crates/config-core/tests/config_core_contracts.rs
           grep -q "parses_v2ray_http_and_quic_share_link_transports" crates/config-core/tests/config_core_contracts.rs
           grep -q "parses_v2ray_family_sing_box_outbounds_with_tls_reality_and_transport" crates/config-core/tests/config_core_contracts.rs
-          grep -q "renders_v2ray_tls_reality_and_transport_options" crates/engine-singbox/tests/engine_singbox_contracts.rs
-          grep -q "renders_v2ray_http_and_quic_transport_options" crates/engine-singbox/tests/engine_singbox_contracts.rs
           grep -q "Supported direct links are" docs/architecture/subscription-url-to-sing-box-run-source-contract.md
           grep -q "Hysteria2/TUIC share-link parser gate" README.md
           grep -q "Hysteria2/TUIC share-link parser gate" ROADMAP.md
@@ -2528,43 +2482,6 @@ jobs:
       - name: Validate diagnostic adaptation and secret minimization
         run: cargo test --locked -p control-runtime --test maintenance_adapter_contracts
 
-  routing-equivalence:
-    name: Routing equivalence (sing-box)
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    needs:
-      - detect-projects
-    if: ${{ needs.detect-projects.outputs.rust == 'true' }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Setup Rust
-        run: |
-          rustup toolchain install stable --profile minimal
-          rustup default stable
-
-      - name: Download latest sing-box and GeoIP rule set
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          tool_dir="${RUNNER_TEMP}/sing-box"
-          mkdir -p "${tool_dir}/rule-set"
-          gh release download --repo SagerNet/sing-box --pattern 'sing-box-*-linux-amd64.tar.gz' --dir "${tool_dir}"
-          tar -xzf "${tool_dir}"/sing-box-*-linux-amd64.tar.gz -C "${tool_dir}" --strip-components=1
-          "${tool_dir}/sing-box" version
-          curl -fsSL --retry 3 -o "${tool_dir}/rule-set/geoip-cn.srs" \
-            https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs
-          echo "NETWORKCORE_SING_BOX_BIN=${tool_dir}/sing-box" >> "${GITHUB_ENV}"
-          echo "NETWORKCORE_SING_BOX_RULE_SET_DIR=${tool_dir}/rule-set" >> "${GITHUB_ENV}"
-
-      - name: Compare sing-box routing with the decision snapshot
-        env:
-          NETWORKCORE_REQUIRE_SING_BOX_EQUIVALENCE: "1"
-        run: cargo test --locked -p engine-singbox --test route_equivalence -- --nocapture
-
   protocol-features:
     name: Protocol feature matrix
     runs-on: ubuntu-latest
@@ -3533,7 +3450,6 @@ jobs:
       - reality-interop
       - rust-h2-mitm-fuzz
       - maintenance-contracts
-      - routing-equivalence
       - protocol-features
       - script-runtime-jsc
       - linux-gui
@@ -3584,7 +3500,6 @@ jobs:
           RESULT_RUST_H2_FUZZ: ${{ needs.rust-h2-mitm-fuzz.result }}
           RESULT_MAINTENANCE: ${{ needs.maintenance-contracts.result }}
           RESULT_REALITY_INTEROP: ${{ needs.reality-interop.result }}
-          RESULT_ROUTING_EQUIVALENCE: ${{ needs.routing-equivalence.result }}
           RESULT_PROTOCOL_FEATURES: ${{ needs.protocol-features.result }}
           RESULT_SCRIPT_RUNTIME_JSC: ${{ needs.script-runtime-jsc.result }}
           RESULT_LINUX_GUI: ${{ needs.linux-gui.result }}
@@ -3706,7 +3621,6 @@ jobs:
           record_job "HTTP/2 MITM fuzz" "${RESULT_RUST_H2_FUZZ}" "${rust_required}"
           record_job "Maintenance diagnostic contract" "${RESULT_MAINTENANCE}" "${rust_required}"
           record_job "REALITY interop (Linux)" "${RESULT_REALITY_INTEROP}" "${reality_interop_required}"
-          record_job "Routing equivalence (sing-box)" "${RESULT_ROUTING_EQUIVALENCE}" "${rust_required}"
           record_job "Protocol feature matrix" "${RESULT_PROTOCOL_FEATURES}" "${rust_required}"
           record_job "JavaScriptCore script conformance" "${RESULT_SCRIPT_RUNTIME_JSC}" "${rust_required}"
           record_job "Linux GUI build" "${RESULT_LINUX_GUI}" "${linux_gui_required}"
