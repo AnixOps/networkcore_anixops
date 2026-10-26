@@ -1,11 +1,10 @@
 use platform_windows::managed::{
     read_managed_config, WindowsDriverPackageConfig, WindowsManagedConfig,
-    WindowsManagedEmbeddedConfig, WindowsManagedMieruConfig, WindowsManagedNativeMitmConfig,
-    WindowsManagedNativeMitmScriptRuntimeConfig, WindowsManagedSingBoxConfig, WindowsManagedState,
-    WindowsManagedTunnelConfig, WindowsProxySettings, WindowsProxySnapshot,
-    WindowsSystemProxyOwner, WINDOWS_MANAGED_CONFIG_INVALID_CODE,
-    WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION, WINDOWS_MANAGED_EMBEDDED_CONFIG_INVALID_CODE,
-    WINDOWS_MANAGED_STATE_SCHEMA_VERSION,
+    WindowsManagedEmbeddedConfig, WindowsManagedNativeMitmConfig,
+    WindowsManagedNativeMitmScriptRuntimeConfig, WindowsManagedState, WindowsManagedTunnelConfig,
+    WindowsProxySettings, WindowsProxySnapshot, WindowsSystemProxyOwner,
+    WINDOWS_MANAGED_CONFIG_INVALID_CODE, WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION,
+    WINDOWS_MANAGED_EMBEDDED_CONFIG_INVALID_CODE, WINDOWS_MANAGED_STATE_SCHEMA_VERSION,
 };
 use platform_windows::system_integration::{WindowsServiceState, NETWORKCORE_WINDOWS_SERVICE_NAME};
 use std::collections::BTreeMap;
@@ -50,8 +49,6 @@ fn managed_configuration_activates_proxy_certificate_driver_and_tunnel() {
             inf_path: PathBuf::from(r"C:\Program Files\AnixOps\NetworkCore\driver\netcore.inf"),
         }),
         tunnel: Some(fixture_tunnel()),
-        sing_box: None,
-        mieru: None,
         native_mitm: None,
         embedded: None,
     };
@@ -91,98 +88,6 @@ fn managed_tunnel_renders_existing_cli_start_and_stop_contracts() {
 }
 
 #[test]
-fn managed_configuration_accepts_explicit_sing_box_process_paths() {
-    let config = WindowsManagedConfig {
-        schema_version: WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION,
-        system_proxy: None,
-        system_proxy_owner: WindowsSystemProxyOwner::Service,
-        root_certificate_path: None,
-        driver_package: None,
-        tunnel: None,
-        sing_box: Some(WindowsManagedSingBoxConfig {
-            enabled: true,
-            executable_path: PathBuf::from(
-                r"C:\Program Files\AnixOps\NetworkCore\bin\sing-box.exe",
-            ),
-            config_path: PathBuf::from(r"C:\ProgramData\AnixOps\NetworkCore\sing-box\config.json"),
-            working_directory: Some(PathBuf::from(
-                r"C:\ProgramData\AnixOps\NetworkCore\sing-box",
-            )),
-            log_path: PathBuf::from(r"C:\ProgramData\AnixOps\NetworkCore\logs\sing-box.log"),
-        }),
-        mieru: None,
-        native_mitm: None,
-        embedded: None,
-    };
-
-    config.validate().expect("sing-box process paths are valid");
-    let json = serde_json::to_value(&config).expect("sing-box config serializes");
-    assert_eq!(json["sing_box"]["enabled"], true);
-    assert_eq!(
-        json["sing_box"]["executable_path"],
-        r"C:\Program Files\AnixOps\NetworkCore\bin\sing-box.exe"
-    );
-}
-
-#[test]
-fn managed_configuration_accepts_explicit_mieru_control_paths_and_digest() {
-    let config = WindowsManagedMieruConfig {
-        enabled: true,
-        executable_path: PathBuf::from(r"C:\Program Files\AnixOps\NetworkCore\bin\mieru.exe"),
-        expected_sha256: "a".repeat(64),
-        config_path: PathBuf::from(r"C:\ProgramData\AnixOps\NetworkCore\mieru\client.json"),
-        socks5_host: "127.0.0.1".to_string(),
-        socks5_port: 7892,
-    };
-
-    config.validate().expect("Mieru control config is valid");
-    assert!(config
-        .expected_sha256
-        .chars()
-        .all(|value| value.is_ascii_hexdigit()));
-
-    let mut invalid = config;
-    invalid.expected_sha256 = "not-a-digest".to_string();
-    assert!(invalid.validate().is_err());
-}
-
-#[test]
-fn managed_configuration_rejects_two_enabled_public_engine_plans() {
-    let config = WindowsManagedConfig {
-        schema_version: WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION,
-        system_proxy: None,
-        system_proxy_owner: WindowsSystemProxyOwner::Service,
-        root_certificate_path: None,
-        driver_package: None,
-        tunnel: None,
-        sing_box: Some(WindowsManagedSingBoxConfig {
-            enabled: true,
-            executable_path: PathBuf::from("sing-box.exe"),
-            config_path: PathBuf::from("sing-box.json"),
-            working_directory: None,
-            log_path: PathBuf::from("sing-box.log"),
-        }),
-        mieru: Some(WindowsManagedMieruConfig {
-            enabled: true,
-            executable_path: PathBuf::from("mieru.exe"),
-            expected_sha256: "a".repeat(64),
-            config_path: PathBuf::from("mieru.json"),
-            socks5_host: "127.0.0.1".to_string(),
-            socks5_port: 7892,
-        }),
-        native_mitm: None,
-        embedded: None,
-    };
-    assert_eq!(
-        config
-            .validate()
-            .expect_err("one managed plan must select one public engine")
-            .code,
-        WINDOWS_MANAGED_CONFIG_INVALID_CODE
-    );
-}
-
-#[test]
 fn managed_configuration_runs_the_embedded_engine_as_the_only_core() {
     let embedded = WindowsManagedEmbeddedConfig {
         enabled: true,
@@ -201,8 +106,6 @@ fn managed_configuration_runs_the_embedded_engine_as_the_only_core() {
         root_certificate_path: None,
         driver_package: None,
         tunnel: None,
-        sing_box: None,
-        mieru: None,
         native_mitm: None,
         embedded: Some(embedded.clone()),
     };
@@ -214,19 +117,6 @@ fn managed_configuration_runs_the_embedded_engine_as_the_only_core() {
     json.as_object_mut().unwrap().remove("embedded");
     let legacy: WindowsManagedConfig = serde_json::from_value(json).unwrap();
     assert!(legacy.embedded.is_none());
-
-    config.sing_box = Some(WindowsManagedSingBoxConfig {
-        enabled: true,
-        executable_path: PathBuf::from("sing-box.exe"),
-        config_path: PathBuf::from("sing-box.json"),
-        working_directory: None,
-        log_path: PathBuf::from("sing-box.log"),
-    });
-    assert_eq!(
-        config.validate().expect_err("only one core runs").code,
-        WINDOWS_MANAGED_CONFIG_INVALID_CODE
-    );
-    config.sing_box = None;
 
     for (host, port) in [("0.0.0.0", 7890), ("localhost", 7890), ("127.0.0.1", 0)] {
         config.embedded = Some(WindowsManagedEmbeddedConfig {
@@ -257,8 +147,6 @@ fn managed_configuration_rejects_enabled_proxy_without_endpoint() {
         root_certificate_path: None,
         driver_package: None,
         tunnel: None,
-        sing_box: None,
-        mieru: None,
         native_mitm: None,
         embedded: None,
     };
@@ -283,16 +171,6 @@ fn managed_state_retains_rollback_material_for_system_mutations() {
         driver_inf_path: Some(PathBuf::from(r"C:\driver\netcore.inf")),
         driver_reboot_required: false,
         tunnel_running: true,
-        sing_box_running: false,
-        sing_box_config_validated: false,
-        sing_box_listener_reachable: false,
-        sing_box_control_api_readable: false,
-        sing_box_process_id: None,
-        sing_box_exit_code: None,
-        sing_box_log_path: None,
-        mieru_running: false,
-        mieru_last_error: None,
-        mieru_listener: None,
         native_mitm_running: true,
         native_mitm_listener: Some("127.0.0.1:7890".to_string()),
         native_mitm_certificate_sha1: Some("102132435465768798A9BACBDCEDFE0F10213243".to_string()),
@@ -308,9 +186,6 @@ fn managed_state_retains_rollback_material_for_system_mutations() {
     assert_eq!(json["last_transition"], "running");
     assert_eq!(json["tunnel_running"], true);
     assert!(json["proxy_snapshot"].is_object());
-    assert_eq!(json["sing_box_config_validated"], false);
-    assert_eq!(json["sing_box_listener_reachable"], false);
-    assert_eq!(json["sing_box_control_api_readable"], false);
     assert_eq!(json["native_mitm_listener"], "127.0.0.1:7890");
     assert!(json["last_error"].is_null());
 }
@@ -328,8 +203,6 @@ fn managed_configuration_accepts_native_https_mitm_with_explicit_socks_upstream(
         root_certificate_path: None,
         driver_package: None,
         tunnel: None,
-        sing_box: None,
-        mieru: None,
         native_mitm: Some(WindowsManagedNativeMitmConfig {
             enabled: true,
             listen_host: "127.0.0.1".to_string(),
@@ -343,9 +216,6 @@ fn managed_configuration_accepts_native_https_mitm_with_explicit_socks_upstream(
                 r"C:\ProgramData\AnixOps\NetworkCore\mitm\root-ca-key.pem",
             ),
             log_path: PathBuf::from(r"C:\ProgramData\AnixOps\NetworkCore\logs\native-mitm.log"),
-            sing_box_config_snapshot_path: Some(PathBuf::from(
-                r"C:\ProgramData\AnixOps\NetworkCore\mitm\sing-box-config.before-mitm.json",
-            )),
             bilibili_web_ad_block_enabled: false,
             script_runtime: Some(WindowsManagedNativeMitmScriptRuntimeConfig {
                 policy_source_path: PathBuf::from(
@@ -377,27 +247,12 @@ fn managed_configuration_accepts_native_https_mitm_with_explicit_socks_upstream(
         json["native_mitm"]["script_runtime"]["policy_source_path"],
         r"C:\ProgramData\AnixOps\NetworkCore\scripts\policy.conf"
     );
-    assert_eq!(
-        json["native_mitm"]["sing_box_config_snapshot_path"],
-        r"C:\ProgramData\AnixOps\NetworkCore\mitm\sing-box-config.before-mitm.json"
-    );
-    json["native_mitm"]
-        .as_object_mut()
-        .expect("native MITM config serializes as an object")
-        .remove("sing_box_config_snapshot_path");
     json["native_mitm"]
         .as_object_mut()
         .expect("native MITM config serializes as an object")
         .remove("bilibili_web_ad_block_enabled");
     let legacy: WindowsManagedConfig =
         serde_json::from_value(json).expect("pre-snapshot native MITM config remains readable");
-    assert_eq!(
-        legacy
-            .native_mitm
-            .as_ref()
-            .and_then(|native_mitm| native_mitm.sing_box_config_snapshot_path.as_ref()),
-        None
-    );
     assert!(
         !legacy
             .native_mitm

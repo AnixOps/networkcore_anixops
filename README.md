@@ -5,7 +5,7 @@
 ## 目标
 
 - 构建 Linux、macOS、Windows、iOS 可用的统一网络控制内核。
-- 维护三层运行架构：NetworkCore 控制层、执行内核 adapter 层、公有执行内核层；runtime baseline 已优先接入 `sing-box` 等公有内核，自研私有协议栈暂缓。
+- 维护三层运行架构：NetworkCore 控制层、执行内核 adapter 层、公有执行内核层；桌面与 iOS 都运行自研的嵌入式引擎（`engine-embedded`），协议按 crate 模块化增减，不再托管第三方内核。
 - 支持类似 Loon、Quantumult X 的 MITM 插件系统，优先兼容 Loon 插件格式的高频子集。
 - 建设全平台客户端，重点验证 iOS Network Extension、MITM、插件脚本、App Review 的可操作性。
 
@@ -29,7 +29,7 @@ current-main-release-state=released
 current-main-source-candidate=v0.2.0
 current-main-latest-published-tag=v0.2.0
 current-main-latest-stable-tag=v0.2.0
-current-main-subscription-foreground=public-engine-run-plan-mieru-and-sing-box-active
+current-main-subscription-foreground=embedded-engine-run-url-and-run-catalog-active
 current-main-managed-reload=explicit-foreground-control-socket-active
 current-main-linux-node-switch=explicit-loopback-selector-active
 current-main-subscription-background=linux-systemd-oneshot-timer-and-windows-opt-in-single-source-active
@@ -51,12 +51,12 @@ current-main-cross-platform-run-plan=public-engine-run-plan-active
 | 领域 | 当前 main |
 |---|---|
 | 订阅解析 | `CoreSubscriptionService` 归一化到 `SubscriptionDocument`/`NodeCatalog`：`ss://`、Trojan/VLESS/VMess、Hysteria2/TUIC share-link parser gate、Clash YAML parser gate、sing-box JSON parser gate、Surge proxy line parser gate、Loon proxy line parser gate、Quantumult X proxy/server line parser gate、明文/base64 链接列表。`rules`/`policy_groups` 可解析，但 beta.5 客户端运行时忽略。 |
-| 前台运行 | 平台无关 `PublicEngineRunPlan` 把 SS/Trojan/VLESS/VMess/Hysteria2/TUIC 路由到 sing-box，`mierus://` 路由到 Mieru（需显式 binary 与 SHA-256）。Linux `run-url`/`run-catalog` 前台启动本地代理，默认 `127.0.0.1:7890`。 |
+| 前台运行 | Linux `run-url`/`run-catalog` 在进程内用嵌入式引擎前台启动 SOCKS5/HTTP 本地代理，默认 `127.0.0.1:7890`；订阅带规则和策略组且节点都受支持时按订阅分流。 |
 | 订阅持久化与刷新 | 显式本地 JSON catalog（v0.1.2-alpha.1 起）：add/list/remove/select/update/rollback，写前 snapshot、失败保留旧 catalog。Linux `subscription refresh schedule` 生成 systemd oneshot service + timer；Windows GUI 可 opt-in 单 HTTP(S) source 小时级刷新。不扫描默认路径。 |
-| 节点选择 | Linux `node list/switch/health` 与 Windows GUI 通过仅回环 Clash API 对 NetworkCore 生成的 selector 做 PATCH/readback；不提供 `urltest` 或自动选择。 |
+| 节点选择 | Windows 与 Linux 图形客户端切换节点或 select 策略组时重写嵌入式引擎配置并重启；url-test/fallback 组由引擎后台测速。Linux CLI `node list/select/rollback` 管理显式选择文件。 |
 | managed session 记录 | `managed-status`、`managed-event`（含 `networkcore-linux managed-event list` 有界分页查询）、`managed-log` 只读写显式 schema v1 记录，固定 `liveness_verified=false`。 |
 | Linux 系统集成 | 显式确认下安装/卸载命名 systemd unit；`proxy apply/status/rollback` 写显式环境代理文件；`mitm certificate trust-apply/trust-rollback` 管理 Ubuntu-style CA trust-file。安装 tarball 本身不创建 daemon，也不改 TUN/DNS/firewall/trust store。 |
-| Windows 客户端 | 原生 GUI（概览/代理/规则/扩展/活动/设置，AnixOps Net 品牌界面，支持跟随系统、浅色、深色和纯黑主题）+ SCM service + per-machine WiX MSI + portable ZIP。服务托管 EasyTier、`sing-box.exe` 和 Mieru，可回滚系统代理与 LocalMachine ROOT CA；MSI 不捆绑或静默下载 core。见 [Windows Managed Client Source Release Contract](docs/architecture/windows-managed-client-source-release-contract.md) 与 [Windows GUI Daily Usability](docs/architecture/windows-gui-daily-usability.md)。 |
+| Windows 客户端 | 原生 GUI（概览/代理/规则/扩展/活动/设置，AnixOps Net 品牌界面，支持跟随系统、浅色、深色和纯黑主题）+ SCM service + per-machine WiX MSI + portable ZIP。服务和桌面模式在进程内运行嵌入式引擎，服务另托管 EasyTier 隧道，可回滚系统代理与 LocalMachine ROOT CA；不下载或启动第三方内核。见 [Windows Managed Client Source Release Contract](docs/architecture/windows-managed-client-source-release-contract.md) 与 [Windows GUI Daily Usability](docs/architecture/windows-gui-daily-usability.md)。 |
 | iOS | `apps/ios` 已有 Swift package、XcodeGen spec 和 `NetworkCorePacketTunnel` extension target（`swift-source-gate-active`），嵌入式 Rust runtime 尚未链接；签名、archive/export、TestFlight/App Store upload 和 iOS release asset 仍 blocked。 |
 | macOS | `apps/ios/project.yml` 中的 `NetworkCoreMac` SwiftUI App（概览/代理/规则/扩展/活动/设置 + 菜单栏开关）和 `NetworkCoreMacTunnel` 包隧道扩展，复用 iOS 隧道与导入流程，CI 无签名构建；签名与 Mac TestFlight 待人工配置。 |
 | MITM | 见下节。 |
@@ -98,11 +98,10 @@ HTTP/2、HTTP/3/QUIC、pinning bypass、streaming、无界 CONNECT session 和 b
 | 命令 | 作用 |
 |---|---|
 | `help` | 输出命令表 |
-| `install-sing-box` / `sing-box install` | 从官方 GitHub latest release 下载、校验 `sha256:` digest 并缓存 `sing-box`；不打进 release artifact |
-| `run-url <share-link>`、`run-catalog` | 前台本地代理，输出 `sing_box_run` |
+| `run-url <share-link>`、`run-catalog` | 嵌入式引擎前台本地代理 |
 | `start` / `stop` / `status` | 原生 engine 前台 lifecycle；`SIGINT`/`SIGTERM` 退出码 130；无 daemon/control socket |
-| `node list/select/switch/health` | 节点列表、选择，以及回环 selector 切换/读回 |
-| `core list`、`core install mieru`、`core start mieru` | 外部 core 管理，Mieru 需显式 binary 与 digest |
+| `node list/select/rollback` | 节点列表与显式选择文件 |
+| `core list` | 列出已注册的引擎描述 |
 | `proxy apply/status/rollback` | 显式环境代理文件（Unix `0600`） |
 | `install-service` 等 systemd 命令 | 显式安装/控制/卸载一个命名 NetworkCore systemd unit |
 | `subscription add/list/remove/select/update/rollback/refresh` | 持久 catalog 与刷新 |
@@ -147,8 +146,6 @@ HTTP/2、HTTP/3/QUIC、pinning bypass、streaming、无界 CONNECT session 和 b
 | [crates/control-domain](crates/control-domain) | 领域类型与端口 trait（含维护事件契约） |
 | [crates/control-runtime](crates/control-runtime) | 纯运行层编排（含 subscription catalog runtime gate） |
 | [crates/config-core](crates/config-core) | 配置/订阅解析与归一化、规则与策略组模型 |
-| [crates/engine-singbox](crates/engine-singbox) | sing-box public engine adapter：下载校验、配置渲染、前台与 managed 进程 |
-| [crates/engine-mieru](crates/engine-mieru) | Mieru public engine adapter：`mierus://`、配置渲染、binary 校验、子进程监督 |
 | [crates/engine-native](crates/engine-native) | 原生 SOCKS5/HTTP 执行内核：回环 listener、CONNECT relay、MITM hook、受控 TLS 数据面 |
 | [crates/engine-outbound](crates/engine-outbound) | 嵌入式引擎与协议 crate 共用的出站接口 |
 | [crates/mitm-anixops-sys](crates/mitm-anixops-sys)、[crates/mitm-policy](crates/mitm-policy) | `mitm_anixops` FFI 与 safe wrapper / 插件 adapter |

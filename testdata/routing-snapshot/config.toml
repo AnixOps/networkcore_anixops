@@ -1,7 +1,6 @@
 # Shared routing snapshot fixture.
-# config-core checks decisions.json against RoutingModel::decide, and
-# engine-singbox checks sing-box-route.json against render_sing_box_route.
-# Both snapshots must change together when routing semantics change.
+# config-core checks decisions.json against RoutingModel::decide; the
+# snapshot must change together with routing semantics.
 schema_version = 1
 profile = "default"
 rules = [

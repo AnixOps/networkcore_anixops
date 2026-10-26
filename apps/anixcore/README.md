@@ -1,9 +1,9 @@
 # anixcore
 
 The AnixOps node kernel: protocol server inbounds (Shadowsocks-2022, Trojan,
-VLESS with REALITY, VMess, Hysteria2, TUIC) in one process, driven by a local
-management API so that a node agent such as anix-agent can add and remove
-inbounds and users and collect per-user traffic and online IPs.
+VLESS with REALITY, VMess, Hysteria2, TUIC, Snell) in one process, driven by
+a local management API so that a node agent such as anix-agent can add and
+remove inbounds and users and collect per-user traffic and online IPs.
 
 ```text
 anixcore run -c config.json

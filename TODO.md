@@ -11,8 +11,8 @@ current-main-release-state=released
 current-main-source-candidate=v0.2.0
 current-main-latest-published-tag=v0.2.0
 current-main-latest-stable-tag=v0.2.0
-current-main-subscription-run-url=public-engine-run-plan-mieru-and-sing-box-foreground-active
-current-main-subscription-foreground=public-engine-run-plan-mieru-and-sing-box-active
+current-main-subscription-run-url=embedded-engine-foreground-active
+current-main-subscription-foreground=embedded-engine-run-url-and-run-catalog-active
 current-main-subscription-background=linux-systemd-oneshot-timer-and-windows-opt-in-single-source-active
 current-main-managed-reload=explicit-foreground-control-socket-active
 current-main-linux-node-switch=explicit-loopback-selector-active
@@ -24,8 +24,8 @@ current-main-cross-platform-run-plan=public-engine-run-plan-active
 - Linux `run-url` 在显式前台路径中支持 direct share links（`ss://`、Trojan、VLESS、VMess，以及 Hysteria2/TUIC share-link parser gate 覆盖的链接）、显式绝对 `file://` 订阅、一次前台 HTTP(S) fetch、`--node-id` 单次节点选择，以及 Clash YAML parser gate、sing-box JSON parser gate、Surge proxy line parser gate、Loon proxy line parser gate、Quantumult X proxy/server line parser gate 支持的 catalog payload。`run-catalog <catalog-path> <source-id>` 运行一个保存 source。
 - 持久订阅：v0.1.2-alpha.1 完成 `CommandSubscriptionCatalogStore::add_source`、`CommandSubscriptionCatalogStore::list_sources`、`CommandSubscriptionCatalogStore::remove_source`、`CommandSubscriptionCatalogStore::select_source`、`CommandSubscriptionCatalogStore::update_source` 和 `CommandSubscriptionCatalogStore::rollback_catalog`。`subscription refresh start/status/stop` 处理单个已保存 HTTP(S) source（最小 300 秒间隔、先验证后原子替换、失败保留 catalog）；Linux `subscription refresh schedule install/status/stop/uninstall` 生成不含 URL/凭据的 oneshot unit + persistent timer。
 - managed 记录（v0.1.2-alpha.2）：`CommandManagedForegroundSessionStore::read_status`、`CommandManagedForegroundSessionStore::write_status`、`CommandManagedForegroundSessionStore::transition_status`、`rollback_status`；`CommandManagedForegroundSessionEventStore::read_event`、`CommandManagedForegroundSessionEventStore::write_event`、`CommandManagedForegroundSessionEventStore::list_events`、`CommandManagedForegroundSessionEventStore::list_event_history`；`CommandManagedForegroundSessionLogStore::read_tail`。CLI：`networkcore-linux managed-status`（含 `networkcore-linux managed-status init`、`networkcore-linux managed-status transition`、`rollback`）、`networkcore-linux managed-event`（含 `networkcore-linux managed-event init`、`networkcore-linux managed-event list`）和 `networkcore-linux managed-log`。全部固定 `liveness_verified=false`。`start --managed-status --managed-snapshot --managed-events` 记录 foreground lifecycle；`--managed-control-socket <absolute-path>` 支持确认式跨进程 foreground stop。
-- 外部 core：`core list`、`core install mieru --binary <path> --sha256 <digest>`、`core start/stop/status mieru`。
-- Windows：`v0.2.0-beta.5` Tauri/React GUI 覆盖 Home、Nodes、Subscriptions、Settings、Diagnostics、Advanced；服务托管 sing-box/Mieru/EasyTier，维护唯一 runtime proxy snapshot，监督 sing-box 子进程并在异常退出时回滚。native explicit HTTP/1.1 支持有界 chunked 解码。Windows GUI/service 在具备等价 no-network sandbox 前拒绝 MITM 脚本。
+- 引擎：`run-url`/`run-catalog` 只用嵌入式引擎；`core list` 只列出原生适配器。第三方内核命令已移除。
+- Windows：`v0.2.0-beta.5` Tauri/React GUI 覆盖 Home、Nodes、Subscriptions、Settings、Diagnostics、Advanced；服务在进程内运行嵌入式引擎并托管 EasyTier 隧道，维护唯一 runtime proxy snapshot，引擎异常停止时回滚。native explicit HTTP/1.1 支持有界 chunked 解码。Windows GUI/service 在具备等价 no-network sandbox 前拒绝 MITM 脚本。
 - MITM：`mitm-cli-command-gate-status=partial-active`。Linux `start --enable-https-mitm` 提供受控 HTTP/1.1 TLS 数据面和 sandbox 本地脚本；`mitm certificate trust-apply/trust-rollback` 管理显式 Ubuntu-style trust-file（见 `docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md`）。
 
 ## 进行中

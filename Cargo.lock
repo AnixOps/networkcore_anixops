@@ -1484,17 +1484,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "engine-mieru"
-version = "0.2.0"
-dependencies = [
- "control-domain",
- "reqwest 0.12.28",
- "serde_json",
- "sha2",
- "url",
-]
-
-[[package]]
 name = "engine-native"
 version = "0.2.0"
 dependencies = [
@@ -1520,21 +1509,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
-]
-
-[[package]]
-name = "engine-singbox"
-version = "0.2.0"
-dependencies = [
- "config-core",
- "control-domain",
- "flate2",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "sha2",
- "tar",
- "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1644,16 +1618,6 @@ checksum = "38e2275cc4e4fc009b0669731a1e5ab7ebf11f469eaede2bab9309a5b4d6057f"
 dependencies = [
  "memoffset",
  "rustc_version",
-]
-
-[[package]]
-name = "filetime"
-version = "0.2.29"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c287a33c7f0a620c38e641e7f60827713987b3c0f26e8ddc9462cc69cf75759"
-dependencies = [
- "cfg-if",
- "libc",
 ]
 
 [[package]]
@@ -2600,6 +2564,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "inbound-snell"
+version = "0.2.0"
+dependencies = [
+ "engine-inbound",
+ "engine-outbound",
+ "outbound-snell",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "inbound-transport"
 version = "0.2.0"
 dependencies = [
@@ -3189,9 +3165,7 @@ dependencies = [
  "control-domain",
  "control-runtime",
  "engine-embedded",
- "engine-mieru",
  "engine-native",
- "engine-singbox",
  "inbound-mixed",
  "mitm-policy",
  "platform-linux",
@@ -3238,8 +3212,6 @@ dependencies = [
  "config-core",
  "control-domain",
  "engine-embedded",
- "engine-mieru",
- "engine-singbox",
  "inbound-mixed",
  "platform-windows",
  "rcgen",
@@ -3258,9 +3230,7 @@ version = "0.2.0"
 dependencies = [
  "control-domain",
  "engine-embedded",
- "engine-mieru",
  "engine-native",
- "engine-singbox",
  "inbound-mixed",
  "mitm-policy",
  "networkcore-windows",
@@ -3306,6 +3276,7 @@ dependencies = [
  "engine-outbound",
  "inbound-hysteria2",
  "inbound-shadowsocks",
+ "inbound-snell",
  "inbound-trojan",
  "inbound-tuic",
  "inbound-vless",
@@ -5312,17 +5283,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tar"
-version = "0.4.46"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3f6221d9a6003c78398e3b239969f352578258df48c8eb051caadae0015bc840"
-dependencies = [
- "filetime",
- "libc",
- "xattr",
-]
-
-[[package]]
 name = "target-lexicon"
 version = "0.12.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7049,16 +7009,6 @@ dependencies = [
  "rusticata-macros",
  "thiserror 2.0.19",
  "time",
-]
-
-[[package]]
-name = "xattr"
-version = "1.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32e45ad4206f6d2479085147f02bc2ef834ac85886624a23575ae137c8aa8156"
-dependencies = [
- "libc",
- "rustix",
 ]
 
 [[package]]

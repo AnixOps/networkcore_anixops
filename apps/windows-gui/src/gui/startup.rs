@@ -67,16 +67,12 @@ pub struct DesktopState {
     #[serde(default)]
     pub routing_mode: DesktopRoutingMode,
     #[serde(default)]
-    pub routing_proxy_outbound: Option<String>,
-    #[serde(default)]
     pub bilibili_web_ad_block_enabled: bool,
     pub proxy_snapshot: Option<WindowsProxySnapshot>,
     #[serde(default)]
     pub applied_proxy: Option<WindowsProxySettings>,
     pub certificate_sha1: Option<String>,
     pub driver_inf_path: Option<PathBuf>,
-    #[serde(default)]
-    pub sing_box_executable_path: Option<PathBuf>,
     #[serde(default)]
     pub profile_source_path: Option<PathBuf>,
     #[serde(default)]
@@ -85,8 +81,6 @@ pub struct DesktopState {
     pub profile_node_id: Option<String>,
     #[serde(default)]
     pub profile_node_catalog: Vec<DesktopProfileNode>,
-    #[serde(default)]
-    pub profile_config_sha256: Option<String>,
     #[serde(default)]
     pub delay_test_url: Option<String>,
     #[serde(default)]
@@ -178,19 +172,17 @@ mod tests {
         assert!(!state.bilibili_web_ad_block_enabled);
         assert!(state.applied_proxy.is_none());
         assert!(state.profile_node_catalog.is_empty());
-        assert!(state.profile_config_sha256.is_none());
     }
 
     #[test]
-    fn desktop_state_round_trips_generated_selector_catalog_identity() {
+    fn desktop_state_round_trips_the_node_catalog() {
         let state = DesktopState {
             profile_node_catalog: vec![DesktopProfileNode {
                 id: "primary".to_string(),
                 label: "Primary [primary] (Shadowsocks)".to_string(),
                 protocol: "Shadowsocks".to_string(),
-                outbound_tag: "networkcore-node-0".to_string(),
+                outbound_tag: "primary".to_string(),
             }],
-            profile_config_sha256: Some("a1b2".to_string()),
             ..DesktopState::default()
         };
 
@@ -200,7 +192,6 @@ mod tests {
         .expect("desktop state should deserialize");
 
         assert_eq!(decoded.profile_node_catalog, state.profile_node_catalog);
-        assert_eq!(decoded.profile_config_sha256, state.profile_config_sha256);
     }
 
     #[test]

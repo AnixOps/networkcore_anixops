@@ -27,10 +27,8 @@
 
 - [Snell 协议规格（净室实现用）](protocols/snell.md)：v1–v6 线上格式、复用、UDP、v4 整形与 v6 画像派生
 
-## 公有执行内核与订阅
+## 订阅
 
-- [sing-box Public Engine Adapter Source Contract](architecture/sing-box-public-engine-adapter-source-contract.md)
-- [Mieru Public Engine Adapter Source Contract](architecture/mieru-public-engine-adapter-source-contract.md)
 - [Subscription URL To sing-box Run Source Contract](architecture/subscription-url-to-sing-box-run-source-contract.md)
 - [Subscription Catalog Runtime Orchestration Design](architecture/subscription-catalog-runtime-orchestration.md)
 - [Persistent Subscription Catalog Source Contract](architecture/subscription-catalog-persistence-source-contract.md)

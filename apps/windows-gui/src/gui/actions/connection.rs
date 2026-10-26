@@ -5,10 +5,6 @@ use crate::gui::{
     ui_state::ConnectionState,
 };
 use engine_embedded::local_proxy::LocalProxy;
-use engine_singbox::{
-    inspect_sing_box_local_selector_controller, read_sing_box_clash_api_selector_with_timeout,
-    SingBoxLocalControllerConfig, SingBoxManagedProcessRequest, SingBoxManagedProcessSupervisor,
-};
 use inbound_mixed::MixedSettings;
 use platform_windows::managed::{
     windows_managed_config_path, WindowsManagedConfig, WindowsManagedEmbeddedConfig,
@@ -37,30 +33,19 @@ pub enum RestartedService {
 
 struct DesktopConnectionPlan {
     proxy: WindowsProxySettings,
-    selector_controller: Option<SingBoxLocalControllerConfig>,
-    sing_box: Option<SingBoxManagedProcessRequest>,
     embedded: Option<WindowsManagedEmbeddedConfig>,
 }
 
-/// The core the GUI runs itself in desktop mode: a sing-box child process, or
-/// the embedded engine inside the GUI process.
+/// The core the GUI runs itself in desktop mode: the embedded engine inside
+/// the GUI process.
 #[derive(Default)]
 pub struct DesktopCore {
-    sing_box: SingBoxManagedProcessSupervisor,
     embedded: Option<LocalProxy>,
 }
 
 impl DesktopCore {
     pub fn is_running(&mut self) -> Result<bool, String> {
-        if self.embedded.as_ref().is_some_and(LocalProxy::is_running) {
-            return Ok(true);
-        }
-        Ok(self
-            .sing_box
-            .status()
-            .map_err(|error| error.to_string())?
-            .state
-            == engine_singbox::SingBoxManagedProcessState::Running)
+        Ok(self.embedded.as_ref().is_some_and(LocalProxy::is_running))
     }
 
     /// The listener is bound when this returns.
@@ -83,15 +68,8 @@ impl DesktopCore {
         }
     }
 
-    /// Stops the embedded engine and, given its log path, sing-box.
-    fn stop(&mut self, sing_box_log_path: Option<&Path>) -> Result<(), String> {
+    fn stop(&mut self) {
         self.stop_embedded();
-        if let Some(log_path) = sing_box_log_path {
-            self.sing_box
-                .stop(log_path)
-                .map_err(|error| error.to_string())?;
-        }
-        Ok(())
     }
 }
 
@@ -136,12 +114,7 @@ pub fn should_restore_abandoned_owned_proxy(
         )
         && matches!(
             core,
-            ManagedCoreStatus::NotConfigured
-                | ManagedCoreStatus::Exited { .. }
-                | ManagedCoreStatus::Unavailable {
-                    process_id: None,
-                    ..
-                }
+            ManagedCoreStatus::NotConfigured | ManagedCoreStatus::Failed { .. }
         )
 }
 
@@ -156,57 +129,11 @@ pub fn connect_direct(
     core: &mut DesktopCore,
 ) -> Result<ConnectedProxy, String> {
     let plan = load_desktop_connection_plan(&config_path)?;
-    if let Some(embedded) = plan.embedded.as_ref() {
-        core.start_embedded(embedded)?;
-        return apply_proxy_after_direct_readiness(&plan.proxy, desktop, core, None);
-    }
-    let request = plan.sing_box.clone().ok_or_else(|| {
-        "Desktop mode requires an enabled sing-box configuration. Install sing-box and import a compatible profile first."
-            .to_string()
+    let embedded = plan.embedded.as_ref().ok_or_else(|| {
+        "Desktop mode requires an imported profile. Import a subscription first.".to_string()
     })?;
-    core.sing_box
-        .start(&request)
-        .map_err(|error| error.to_string())?;
-
-    let deadline = Instant::now() + Duration::from_secs(30);
-    loop {
-        let listener_ready = managed_proxy_listener_ready(&plan.proxy, Duration::from_millis(500))
-            .map_err(|error| error.to_string())?;
-        let selector_ready = match plan.selector_controller.as_ref() {
-            Some(controller) => read_sing_box_clash_api_selector_with_timeout(
-                controller,
-                Duration::from_millis(750),
-            )
-            .is_ok(),
-            None => true,
-        };
-        if listener_ready && selector_ready {
-            return apply_proxy_after_direct_readiness(
-                &plan.proxy,
-                desktop,
-                core,
-                Some(&request.log_path),
-            );
-        }
-        if core
-            .sing_box
-            .status()
-            .map_err(|error| error.to_string())?
-            .state
-            != engine_singbox::SingBoxManagedProcessState::Running
-        {
-            let _ = core.sing_box.stop(&request.log_path);
-            return Err("Desktop sing-box process exited before it became ready.".to_string());
-        }
-        if Instant::now() >= deadline {
-            let _ = core.sing_box.stop(&request.log_path);
-            return Err(
-                "Timed out waiting for the desktop sing-box proxy and selector controller."
-                    .to_string(),
-            );
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    }
+    core.start_embedded(embedded)?;
+    apply_proxy_after_direct_readiness(&plan.proxy, desktop, core)
 }
 
 pub fn disconnect_direct(
@@ -214,7 +141,7 @@ pub fn disconnect_direct(
     desktop: DesktopState,
     core: &mut DesktopCore,
 ) -> Result<String, String> {
-    let managed = load_validated_daily_managed_configuration(&config_path)?;
+    load_validated_daily_managed_configuration(&config_path)?;
     let integration = NativeWindowsSystemIntegration::new();
     let mut proxy_restored = false;
     if let Some(snapshot) = desktop.proxy_snapshot.as_ref() {
@@ -226,12 +153,7 @@ pub fn disconnect_direct(
             proxy_restored = true;
         }
     }
-    core.stop(
-        managed
-            .sing_box
-            .as_ref()
-            .map(|sing_box| sing_box.log_path.as_path()),
-    )?;
+    core.stop();
     Ok(if proxy_restored {
         "Desktop core stopped and the GUI-owned proxy snapshot was restored.".to_string()
     } else {
@@ -277,30 +199,16 @@ fn desktop_connection_plan(managed: WindowsManagedConfig) -> Result<DesktopConne
         );
     }
     if managed.tunnel.is_some()
-        || managed.mieru.as_ref().is_some_and(|mieru| mieru.enabled)
         || managed
             .native_mitm
             .as_ref()
             .is_some_and(|mitm| mitm.enabled)
     {
         return Err(
-            "This profile enables a tunnel, Mieru, or HTTPS MITM and must run in Windows service mode."
+            "This profile enables a tunnel or HTTPS MITM and must run in Windows service mode."
                 .to_string(),
         );
     }
-    let selector_controller = managed
-        .sing_box
-        .as_ref()
-        .filter(|sing_box| sing_box.enabled)
-        .map(|sing_box| {
-            fs::read_to_string(&sing_box.config_path)
-                .map_err(|error| {
-                    format!("managed sing-box configuration could not be read: {error}")
-                })
-                .map(|content| inspect_sing_box_local_selector_controller(&content))
-        })
-        .transpose()?
-        .flatten();
     let proxy = managed
         .system_proxy
         .filter(|proxy| proxy.enabled)
@@ -308,30 +216,14 @@ fn desktop_connection_plan(managed: WindowsManagedConfig) -> Result<DesktopConne
             "Connection requires an enabled managed system proxy. Import a profile or configure one first."
                 .to_string()
         })?;
-    let sing_box = managed
-        .sing_box
-        .as_ref()
-        .filter(|sing_box| sing_box.enabled)
-        .map(|sing_box| SingBoxManagedProcessRequest {
-            executable_path: sing_box.executable_path.clone(),
-            config_path: sing_box.config_path.clone(),
-            working_directory: sing_box.working_directory.clone(),
-            log_path: sing_box.log_path.clone(),
-        });
     let embedded = managed.embedded.filter(|embedded| embedded.enabled);
-    Ok(DesktopConnectionPlan {
-        proxy,
-        selector_controller,
-        sing_box,
-        embedded,
-    })
+    Ok(DesktopConnectionPlan { proxy, embedded })
 }
 
 fn apply_proxy_after_direct_readiness(
     proxy: &WindowsProxySettings,
     mut desktop: DesktopState,
     core: &mut DesktopCore,
-    sing_box_log_path: Option<&Path>,
 ) -> Result<ConnectedProxy, String> {
     let integration = NativeWindowsSystemIntegration::new();
     let current = read_current_user_system_proxy().map_err(|error| error.to_string())?;
@@ -341,7 +233,7 @@ fn apply_proxy_after_direct_readiness(
     let applied_snapshot = match integration.apply_system_proxy(proxy) {
         Ok(snapshot) => snapshot,
         Err(error) => {
-            let _ = core.stop(sing_box_log_path);
+            core.stop();
             return Err(error.to_string());
         }
     };
@@ -350,7 +242,7 @@ fn apply_proxy_after_direct_readiness(
     desktop.applied_proxy = Some(proxy.clone());
     if let Err(error) = save_desktop_state(&desktop) {
         let _ = integration.restore_system_proxy(&snapshot);
-        let _ = core.stop(sing_box_log_path);
+        core.stop();
         return Err(format!(
             "desktop proxy ownership could not be saved after connection: {error}"
         ));
@@ -365,17 +257,13 @@ fn start_desktop_connection(
     plan: DesktopConnectionPlan,
     desktop: DesktopState,
 ) -> Result<ConnectedProxy, String> {
-    let DesktopConnectionPlan {
-        proxy,
-        selector_controller,
-        ..
-    } = plan;
+    let DesktopConnectionPlan { proxy, .. } = plan;
     let integration = NativeWindowsSystemIntegration::new();
     integration
         .start_service()
         .map_err(|error| rollback_failed_connection(&integration, &desktop, error.to_string()))?;
     let deadline = Instant::now() + Duration::from_secs(30);
-    let mut waiting_for = format!("local proxy listener at {}", proxy.server);
+    let waiting_for = format!("local proxy listener at {}", proxy.server);
     loop {
         let runtime = read_runtime_status();
         if runtime.service_state == WindowsServiceState::Running
@@ -385,22 +273,7 @@ fn start_desktop_connection(
                 .map_err(|error| {
                 rollback_failed_connection(&integration, &desktop, error.to_string())
             })?;
-            if !listener_ready {
-                waiting_for = format!("local proxy listener at {}", proxy.server);
-            } else if let Some(controller) = selector_controller.as_ref() {
-                match read_sing_box_clash_api_selector_with_timeout(
-                    controller,
-                    Duration::from_millis(750),
-                ) {
-                    Ok(_) => return apply_proxy_after_readiness(&integration, proxy, desktop),
-                    Err(error) => {
-                        waiting_for = format!(
-                            "sing-box selector controller at {}: {error}",
-                            controller.endpoint()
-                        );
-                    }
-                }
-            } else {
+            if listener_ready {
                 return apply_proxy_after_readiness(&integration, proxy, desktop);
             }
         }
@@ -535,8 +408,6 @@ mod tests {
             root_certificate_path: None,
             driver_package: None,
             tunnel: None,
-            sing_box: None,
-            mieru: None,
             native_mitm: None,
             embedded: None,
         }
@@ -579,25 +450,25 @@ mod tests {
         assert!(should_restore_abandoned_owned_proxy(
             true,
             WindowsServiceState::Stopped,
-            &ManagedCoreStatus::Exited {
-                process_id: 42,
-                exit_code: Some(1),
+            &ManagedCoreStatus::Failed {
+                reason: "listener failed".to_string(),
             },
             false,
         ));
         assert!(!should_restore_abandoned_owned_proxy(
             true,
             WindowsServiceState::Stopped,
-            &ManagedCoreStatus::Exited {
-                process_id: 42,
-                exit_code: Some(1),
+            &ManagedCoreStatus::Failed {
+                reason: "listener failed".to_string(),
             },
             true,
         ));
         assert!(!should_restore_abandoned_owned_proxy(
             true,
             WindowsServiceState::Running,
-            &ManagedCoreStatus::Running { process_id: 42 },
+            &ManagedCoreStatus::EmbeddedRunning {
+                endpoint: "127.0.0.1:7890".to_string(),
+            },
             false,
         ));
     }
