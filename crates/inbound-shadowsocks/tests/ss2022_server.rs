@@ -364,7 +364,7 @@ async fn replayed_requests_are_refused() {
 #[cfg(unix)]
 mod reference_client {
     use super::*;
-    use engine_inbound::udp::{BoundUdpOutbound, DatagramInbound};
+    use engine_inbound::udp::BoundUdpOutbound;
     use shadowsocks::config::{ServerConfig, ServerType};
     use shadowsocks::context::Context;
     use shadowsocks::crypto::CipherKind;
