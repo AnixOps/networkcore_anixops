@@ -17,6 +17,13 @@ iWAN 是 Panabit 的 SD-WAN 私有隧道协议，没有公开文档。本仓库�
 - [S2] 同仓库的 Go 原型服务端（`server/`），作者明确说是本地兼容性测试用的原型，不是官方服务端行为。
 - [S3] 黑盒互通 CI：PR #109 run [40381164071](https://github.com/AnixOps/networkcore_anixops/actions/runs/40381164071)（head d50592e），`outbound-iwan` 对 iwand-server（9f6a0e3）通过：握手与下发、错误口令 OPENREJ、明文 / XOR / 用户不允许加密时的回显、ECHO RTT、CLOSE 后会话移除、两个节点之间 200 KB 以上的 TCP 与 UDP。这只证明与 S2 原型一致；真实 Panabit 设备的结果由 anx 仓库的 `panabit-interop.yml` 补测。
   - 2026-10-26，Panabit 标准版（PanabitFREE_TANGr7p5_20250827）的 iWAN 服务，用 OPEN 探针逐项验证：§4.1 的 OPEN 构造与 §4.2 的口令加密（0x00 右补齐，密钥 `MD5("mw" ‖ username)`）被接受。换成 PKCS#7 补齐或 `MD5(username ‖ "mw")` 都回 `INVPASS`；不带 MTU TLV 的 OPEN 不回应；OPENREJ 带原因文本（§4.4）。
+  - 2026-10-26，同一台 Panabit 配好用户组地址池（172.30.0.10–100）后，`outbound-iwan` 的外部互通测试全部通过（anx `panabit-interop` run 40399401329，networkcore main 550c9c7）。验证了以下几项：
+    - 明文账号握手。OPENACK 下发地址 172.30.0.18、DNS 1.1.1.1、MTU 1300，MTU 取客户端 MTU 与服务端 MTU 的较小值。
+    - XOR 账号协商出掩码（DATA_ENC）。
+    - ECHO 往返时间。
+    - 错误口令收到 OPENREJ。
+    - Panabit 的地址池是用户组的属性（「对象管理 → 账号管理 → 组织架构」），iWAN 服务页面上没有单独的地址池设置。
+  - 尚未在 Panabit 上验证：经隧道的真实数据面（`IWAN_FETCH`，需要一个 Panabit 隧道内可达的 HTTP 服务）、IPFRAG、服务端是否解析 ECHO 载荷。
 
 凡标注 **[待实测]** 的条目必须在互通 CI 或真实 Panabit 设备上确认后才能去掉标注。标注 **[S1 推测]** 的条目连参考实现自己都写明是简化或猜测，不进入第一版实现。
 
