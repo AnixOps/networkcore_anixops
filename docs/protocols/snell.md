@@ -175,7 +175,7 @@ obfs 套在加密流外层，只影响 TCP 首个读写：
 - 载荷上限 `limit`：
   - 首帧：`FRAME − 55 − PAD0`（首包恰好落在一个 1460 字节的 MSS 内）。
   - 之后：若距上次写入不足 31 秒且已有记录的上限，就用该上限；否则用 `FRAME − 39`。
-  - 每次应用层写调用开始时取一次 limit，并立刻把下次的上限更新为 `min(limit + 1421, MAXP)`；本次调用内的所有分帧都用同一个 limit。写零块时同样推进一次。
+  - 每次应用层写调用开始时取一次 limit，并立刻把下次的上限更新为 `min(limit + 1421, MAXP)`（limit 已达 MAXP 时保持 MAXP）；本次调用内的所有分帧都用同一个 limit。写零块时同样推进一次。例：首次调用 limit = 1460 − 55 − PAD0，则下一次调用的上限为 min(1460 − 55 − PAD0 + 1421, MAXP)，前提是两次调用间隔不足 31 秒。
 - **填充内容（比特配平）**：设密文 C（含 tag）中 1 的个数为 ones（只统计长度向下取整到 4 字节倍数的部分），zeros = 8·|C| − ones。
   - 若 zeros ≤ 0，或 ratio = ones/zeros ∉ (0.5, 1.6)：填充用随机字节。
   - 否则选目标比例 `T = base + r/10`，r 为 [0, 1) 均匀随机；base 在 zeros ≥ ones 时取 1.6，否则取 0.4。
@@ -302,7 +302,9 @@ PRF 标签（label）及其所属命名空间 `ns(label)`：
 | 38 | chunk-size | chunk |
 | 39 | chunk-jitter-v | chunk |
 
-注意：salt 命名空间只在 §7.4.4 中直接使用，不经过上表映射；label 3 经上表映射到 mix 命名空间。
+`ns(label)` 的求法：先按上表找到命名空间名，再用前一张表中该命名空间那一行的 (label, seed) 计算 NS。例如 `ns(7) = NS(5, 0xb46c2e7d9a1538f1)`（profile），`ns(33) = NS(0, 0x5d9217c083e64ab9)`（prefix）。每个命名空间对一个 PSK 只算一次。
+
+注意：salt 命名空间 nsSalt = NS(3, 0x3e8a91b52740f6cd) 只在 §7.4.4 中直接使用，不经过上表映射；label 3 经上表映射到 mix 命名空间。
 
 域常数：`HS = 0x7053`、`MIXHS = 0x51a7`、`CHUNK0 = 0xf17c`、`EXTRA = 0x2da`。
 
@@ -478,6 +480,23 @@ Surge 节点行示例：`name = snell, host, port, psk=xxx, version=6, mode=defa
 | snell-server v6.0.0rc2 | version=6，三种 mode | TCP、复用、UDP、错误回复、PING |
 
 服务端入站：用本仓库的 `outbound-snell` 覆盖以上配置，并补一个官方客户端（Surge for Mac）的手工验收项。
+
+### 10.1 官方服务端的获取与配置（互通 CI 用）
+
+- 下载地址模式：`https://dl.nssurge.com/snell/snell-server-<版本>-linux-amd64.zip`，zip 内可执行文件名为 `snell-server`。v6.0.0rc2 的地址已由第三方安装脚本的 CI 持续验证；`v3.0.1`、`v4.1.1`、`v5.0.1` 按同一模式推断 **[待实测]**。
+- 启动：`snell-server -l info -c <配置文件>`；`-v` 打印版本。
+- 配置为 INI，节名 `[snell-server]`。v6 示例：
+
+  ```
+  [snell-server]
+  mode = default
+  listen = 0.0.0.0:<端口>
+  psk = <12–255 字节>
+  dns-ip-preference = default
+  ```
+
+  `mode` 取值 `default` / `unshaped` / `unsafe-raw`；`listen` 可写多个地址，逗号分隔；`dns-ip-preference` 有 `default`、`prefer-ipv4`、`prefer-ipv6`、`ipv4-only`、`ipv6-only`，别名 `ipv-preference`。v1–v4 的 obfs 用 `obfs = http|tls`。v4.1+ 有 `dns`，v5 有 `egress-interface`。v3–v5 是否有 UDP / 复用开关、旧版 `ipv6 = true|false` 的语义 **[待实测]**。
+- 回环目标：官方 v6.0.0rc2 服务端可以中转到 `127.0.0.1` 和 `::1` 上的 TCP / UDP 目标（第三方安装脚本的 CI 正是这样测的）。旧版本 **[待实测]**。
 
 ## 附录 A：generator 0 的 TABLE（128 字节，按行 16 字节）
 
