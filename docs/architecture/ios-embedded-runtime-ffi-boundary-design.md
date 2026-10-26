@@ -85,6 +85,7 @@ XCFramework 只能由 GitHub Actions `macos-26` runner 从同一 commit 的受�
 | `networkcore_ios_runtime_collect_status` | Swift -> Rust | 返回去敏 status/diagnostic buffer |
 | `networkcore_ios_runtime_free_buffer` | Swift -> Rust | 释放 Rust-owned output buffer |
 | `networkcore_ios_runtime_free_handle` | Swift -> Rust | 释放 opaque runtime handle |
+| `networkcore_ios_measure_delay` | Swift -> Rust | 节点 HTTP 真连接延迟：经节点出站请求测试 URL，返回到首个响应行的毫秒数；不需要 handle，主 App 在隧道未启动时也可调用 |
 
 所有 exported symbol 必须使用明确前缀 `networkcore_ios_`，避免和 Apple SDK、系统库或第三方内核冲突。所有 ABI
 struct 必须采用 C-compatible layout，字段必须固定大小、对齐和 ownership；Swift-only object layout 不得作为 ABI。

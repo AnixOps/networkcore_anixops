@@ -283,6 +283,7 @@ fn header_declares_every_exported_symbol() {
         "networkcore_ios_runtime_input_packet",
         "networkcore_ios_runtime_stop_tunnel",
         "networkcore_ios_runtime_collect_status",
+        "networkcore_ios_measure_delay",
         "networkcore_ios_runtime_free_buffer",
         "networkcore_ios_runtime_free_handle",
     ] {
@@ -312,6 +313,14 @@ fn header_declares_every_exported_symbol() {
         (
             "NETWORKCORE_IOS_ERR_PACKET_DROPPED",
             NETWORKCORE_IOS_ERR_PACKET_DROPPED,
+        ),
+        (
+            "NETWORKCORE_IOS_ERR_DELAY_TIMEOUT",
+            NETWORKCORE_IOS_ERR_DELAY_TIMEOUT,
+        ),
+        (
+            "NETWORKCORE_IOS_ERR_DELAY_FAILED",
+            NETWORKCORE_IOS_ERR_DELAY_FAILED,
         ),
     ] {
         // Compare whole lines: Windows checkouts may use CRLF.
@@ -369,4 +378,114 @@ fn routing_config_rejects_ambiguous_or_invalid_sections() {
         r#"{"schema_version":1,"profile_id":"p","routing":{"outbounds":{"bad id":{"type":"direct"}},"rules":["FINAL,DIRECT"]}}"#,
     );
     assert_eq!(code, NETWORKCORE_IOS_ERR_CONFIG_REJECTED);
+}
+
+#[cfg(feature = "local-proxy")]
+fn measure_delay(config: &str, url: &str, timeout_ms: u32) -> (i32, u32) {
+    let mut millis = u32::MAX;
+    let code = unsafe {
+        networkcore_ios_measure_delay(
+            config.as_ptr(),
+            config.len(),
+            url.as_ptr(),
+            url.len(),
+            timeout_ms,
+            &mut millis,
+        )
+    };
+    (code, millis)
+}
+
+/// Serves one fixed reply to every request on loopback.
+#[cfg(feature = "local-proxy")]
+fn http_server(reply: &'static [u8]) -> std::net::SocketAddr {
+    use std::io::{Read, Write};
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { break };
+            std::thread::spawn(move || {
+                let mut head = Vec::new();
+                let mut byte = [0u8; 1];
+                while !head.ends_with(b"\r\n\r\n") {
+                    if stream.read(&mut byte).unwrap_or(0) == 0 {
+                        return;
+                    }
+                    head.push(byte[0]);
+                }
+                let _ = stream.write_all(reply);
+                let _ = stream.read(&mut byte);
+            });
+        }
+    });
+    addr
+}
+
+#[cfg(feature = "local-proxy")]
+#[test]
+fn measure_delay_reports_milliseconds_through_the_outbound() {
+    let server = http_server(b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n");
+    let (code, millis) = measure_delay(
+        DIRECT_CONFIG,
+        &format!("http://{server}/generate_204"),
+        10_000,
+    );
+    assert_eq!(code, NETWORKCORE_IOS_OK);
+    assert!((1..10_000).contains(&millis));
+}
+
+#[cfg(feature = "local-proxy")]
+#[test]
+fn measure_delay_maps_failures_to_stable_codes() {
+    let not_http = http_server(b"SSH-2.0-OpenSSH_9.6\r\n");
+    assert_eq!(
+        measure_delay(DIRECT_CONFIG, &format!("http://{not_http}/"), 10_000),
+        (NETWORKCORE_IOS_ERR_DELAY_FAILED, 0)
+    );
+
+    let closed = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap();
+    assert_eq!(
+        measure_delay(DIRECT_CONFIG, &format!("http://{closed}/"), 10_000),
+        (NETWORKCORE_IOS_ERR_DELAY_FAILED, 0)
+    );
+
+    // Accepts but never answers.
+    let silent = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let silent_addr = silent.local_addr().unwrap();
+    assert_eq!(
+        measure_delay(DIRECT_CONFIG, &format!("http://{silent_addr}/"), 200),
+        (NETWORKCORE_IOS_ERR_DELAY_TIMEOUT, 0)
+    );
+    drop(silent);
+
+    assert_eq!(
+        measure_delay(DIRECT_CONFIG, "ftp://example.com/", 1_000).0,
+        NETWORKCORE_IOS_ERR_INVALID_ARGUMENT
+    );
+    assert_eq!(
+        measure_delay(DIRECT_CONFIG, "http://example.com/", 0).0,
+        NETWORKCORE_IOS_ERR_INVALID_ARGUMENT
+    );
+    assert_eq!(
+        measure_delay("{}", "http://example.com/", 1_000).0,
+        NETWORKCORE_IOS_ERR_CONFIG_REJECTED
+    );
+    assert_eq!(
+        unsafe {
+            networkcore_ios_measure_delay(
+                DIRECT_CONFIG.as_ptr(),
+                DIRECT_CONFIG.len(),
+                "http://example.com/".as_ptr(),
+                19,
+                1_000,
+                ptr::null_mut(),
+            )
+        },
+        NETWORKCORE_IOS_ERR_INVALID_ARGUMENT
+    );
 }
