@@ -40,8 +40,10 @@ pub const NETWORKCORE_IOS_ERR_DELAY_FAILED: i32 = 12;
 /// Largest config envelope accepted across the boundary.
 const MAX_CONFIG_LEN: usize = 64 * 1024;
 /// Largest delay test URL accepted across the boundary.
+#[cfg(feature = "local-proxy")]
 const MAX_URL_LEN: usize = 2048;
 /// Longest delay test timeout accepted across the boundary.
+#[cfg(feature = "local-proxy")]
 const MAX_DELAY_TIMEOUT_MS: u32 = 60_000;
 /// Largest IP packet accepted from the TUN side.
 const MAX_PACKET_LEN: usize = 65_535;
