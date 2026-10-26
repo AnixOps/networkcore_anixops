@@ -22,7 +22,7 @@ iWAN 是 Panabit 的 SD-WAN 私有隧道协议，没有公开文档。本仓库�
 ## 1. 协议概览
 
 - 传输：UDP，单个服务端 `IPv4:port`。参考实现只用 IPv4 套接字；服务端是否接受 IPv6 **[待实测]**。默认端口无约定，必须由配置给出（常见值 4567）。
-- 形态：**三层隧道**。数据面载荷就是一个完整的 IP 包（参考实现只见过 IPv4），没有 TCP/UDP 代理语义，也没有目标地址字段。服务端在握手时给客户端分配一个隧道 IPv4 地址和 DNS。
+- 形态：**三层隧道**（我们的内核把它包装成逐连接出站，见 §11）。数据面载荷就是一个完整的 IP 包（参考实现只见过 IPv4），没有 TCP/UDP 代理语义，也没有目标地址字段。服务端在握手时给客户端分配一个隧道 IPv4 地址和 DNS。
 - 一次会话：客户端反复发 OPEN 直到收到 OPENACK（或 OPENREJ），之后双向发 DATA，并定时发 ECHOREQ 保活和测延迟，结束时发 CLOSE。
 
 ## 2. 通用约定
@@ -301,8 +301,17 @@ iWAN 的"加密"不提供保密性或认证：
 
 ## 11. 内核集成（本仓库架构约定，非协议内容）
 
-- iWAN 与 WireGuard 一样是三层隧道，走 `engine-embedded` 的整隧道模式（参照 `Tunnel::start_wireguard`），不经过用户态 TCP/IP 栈和逐连接出站。
-- 新 crate `crates/outbound-iwan`：无 I/O 的编解码和客户端状态机（便于单元测试）。`engine-embedded` 增加 cargo feature `iwan`（默认开启），提供 `Tunnel::start_iwan`，配置 `type` 名为 `iwan`，并在 `protocols.rs` 表中登记。
-- 配置字段：`server`（域名或 IPv4）、`port`、`username`、`password`（由 Keychain 注入，与其他协议一致）、`mtu`（默认 1400，46–1600）、`encrypt`（bool，默认 false）、`pipe_id`（默认 0）、`pipe_idx`（默认 0）。
-- 与 WireGuard 不同，隧道地址、DNS 和 MTU 是握手后由服务端下发的：`start_iwan` 必须在首次 OPENACK 后才返回，并把"地址、DNS 列表、有效 MTU"交给平台层（iOS 用于 `NEPacketTunnelNetworkSettings`，接口地址按 /32 配置，路由由平台层决定）。重连后若下发的地址或 DNS 变化，需要通知平台层重新应用设置。
+用户要求 iWAN 节点能像普通代理节点一样参与分流（2026-10-26），所以 iWAN 做成**逐连接出站**，不做整隧道模式。
+
+- 新 crate `crates/outbound-iwan`，分两层：
+  - 无 I/O 的编解码和客户端状态机（§3–§8），便于单元测试；
+  - 出站适配：实现 `engine_outbound::TcpOutbound`（`connect` 和 `open_udp`），类型名 `iwan`，在 `engine_outbound` 注册表和 `engine-embedded` 的 `protocols.rs` 表中登记；`engine-embedded` 增加 cargo feature `iwan`（默认开启）。
+- 每个 iWAN 节点实例持有：一个 UDP 会话（§5 状态机，惰性建立：第一条连接到来时握手，空闲一段时间后可发 CLOSE 释放）和一个**节点私有的用户态 TCP/IP 栈**（smoltcp；仓库已经通过 `netstack-smoltcp` 依赖它）。栈的本机地址 = OPENACK 下发的隧道地址，MTU = 有效 MTU，默认路由指向隧道。
+- `connect(target)`：在私有栈里主动发起 TCP 连接，返回的流即为 `BoxStream`。`open_udp(target)`：在私有栈里绑定一个临时 UDP 端口，收发数据报。栈输出的 IP 包按 §6 封装成 DATA / DATA_ENC 发出；收到的 DATA、IPFRAG 重组结果交给栈。
+- 目标是域名时，用 OPENACK 下发的 DNS 通过私有栈（UDP 53）解析；没有下发 DNS 时用配置项 `dns`（可选）；都没有则报错。分配的地址和 DNS 只在节点内部使用，**不修改平台的网络设置**。
+- 重连（§5 重置）后，若新分配的隧道地址变了，私有栈换地址，已有连接全部以错误结束（上层按普通断线处理）。
+- 多个 iWAN 节点互相独立，可以和其他协议的节点一起放进策略组，按规则、手动选择或测速选择。节点测速可直接用 §6.4 的 ECHO RTT。
+- 资源：iOS Network Extension 内存很紧，私有栈的 TCP 收发缓冲区要设上限（建议每连接各 64 KiB 以内，可配置），且只在有连接时创建栈。
+- 不支持的流量：ICMP（ping）等非 TCP/UDP 流量不经过逐连接出站，因此不会走 iWAN 节点。
+- 配置字段：`server`（域名或 IPv4）、`port`、`username`、`password`（由 Keychain 注入，与其他协议一致）、`mtu`（默认 1400，46–1600）、`encrypt`（bool，默认 false）、`pipe_id`（默认 0）、`pipe_idx`（默认 0）、`dns`（可选 IPv4 列表，覆盖下发的 DNS）。
 - 节点导入（anixops-net）和 UI 在内核合并后另行进行。
