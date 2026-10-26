@@ -35,6 +35,8 @@ use tls_mimic::server::{
 use tls_mimic::SESSION_ID_OFFSET;
 use x25519_dalek::{PublicKey, StaticSecret};
 
+use crate::VlessInbound;
+
 /// `"reality"` in inbound settings. Has no `Debug`: holds the private key.
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -56,9 +58,9 @@ pub struct RealitySettings {
 /// ALPN offered to authenticated clients, like a typical web server.
 const ALPN: [&[u8]; 2] = [b"h2", b"http/1.1"];
 
-/// A protocol inbound behind a REALITY server handshake.
+/// The VLESS inbound behind a REALITY server handshake.
 pub struct RealityInbound {
-    inner: Arc<dyn StreamInbound>,
+    inner: Arc<VlessInbound>,
     private_key: StaticSecret,
     short_ids: HashSet<[u8; 8]>,
     server_names: HashSet<String>,
@@ -70,10 +72,7 @@ pub struct RealityInbound {
 }
 
 impl RealityInbound {
-    pub fn new(
-        inner: Arc<dyn StreamInbound>,
-        settings: &RealitySettings,
-    ) -> Result<Self, BuildError> {
+    pub fn new(inner: Arc<VlessInbound>, settings: &RealitySettings) -> Result<Self, BuildError> {
         let private_key = parse_public_key(&settings.private_key)
             .map_err(|_| "reality private_key is invalid")?;
         if settings.short_ids.is_empty() {
@@ -190,7 +189,7 @@ impl StreamInbound for RealityInbound {
     fn accept<'a>(
         &'a self,
         mut stream: BoxStream,
-        peer: SocketAddr,
+        _peer: SocketAddr,
     ) -> BoxFuture<'a, Result<Accepted, Rejected>> {
         Box::pin(async move {
             let mut consumed = Vec::new();
@@ -223,7 +222,7 @@ impl StreamInbound for RealityInbound {
                 Ok(tls) => tls,
                 Err(_) => return Err(Rejected::close("reality tls handshake failed")),
             };
-            self.inner.accept(Box::new(tls), peer).await
+            self.inner.handshake_reality(tls).await
         })
     }
 }

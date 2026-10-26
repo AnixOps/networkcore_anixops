@@ -35,7 +35,10 @@ impl InboundFactory for VlessInboundFactory {
     fn build(&self, settings: &Settings) -> Result<Arc<dyn StreamInbound>, BuildError> {
         let settings: VlessInboundSettings =
             parse_settings(settings, "vless inbound settings are missing or invalid")?;
-        let inbound = VlessInbound::new(settings.fallback.as_ref().map(FallbackSettings::target));
+        let inbound = VlessInbound::with_vision(
+            settings.fallback.as_ref().map(FallbackSettings::target),
+            settings.reality.is_some(),
+        );
         inbound.users().add_all(settings.users)?;
         match (&settings.tls, &settings.reality) {
             (Some(_), Some(_)) => Err("vless inbound takes tls or reality, not both"),
