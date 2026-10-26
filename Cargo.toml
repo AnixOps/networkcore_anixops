@@ -28,6 +28,7 @@ members = [
     "crates/node-runtime",
     "crates/outbound-http",
     "crates/outbound-hysteria2",
+    "crates/outbound-mieru",
     "crates/outbound-shadowsocks",
     "crates/outbound-snell",
     "crates/outbound-socks",

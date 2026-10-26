@@ -2514,7 +2514,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for features in "" http hysteria2 shadowsocks snell socks trojan tuic vless vmess wireguard local-proxy mitm; do
+          for features in "" http hysteria2 mieru shadowsocks snell socks trojan tuic vless vmess wireguard local-proxy mitm; do
             echo "::group::engine-embedded features=[${features}]"
             cargo clippy --locked -p engine-embedded --no-default-features --features "${features}" --all-targets -- -D warnings
             cargo test --locked -p engine-embedded --no-default-features --features "${features}" --tests
@@ -3027,8 +3027,9 @@ jobs:
           cargo test --locked -p outbound-hysteria2 --test hysteria2_interop --no-run
           cargo test --locked -p outbound-tuic --test tuic_interop --no-run
           cargo test --locked -p outbound-snell --test snell_interop --no-run
+          cargo test --locked -p outbound-mieru --test mieru_interop --no-run
 
-      - name: Download Xray-core, sing-box, Hysteria and snell-server
+      - name: Download Xray-core, sing-box, Hysteria, snell-server and mita
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -3050,6 +3051,7 @@ jobs:
           cargo test --locked -p outbound-hysteria2 --test hysteria2_interop -- --ignored --test-threads=1 --nocapture
           cargo test --locked -p outbound-tuic --test tuic_interop -- --ignored --test-threads=1 --nocapture
           cargo test --locked -p outbound-snell --test snell_interop -- --ignored --test-threads=1 --nocapture
+          cargo test --locked -p outbound-mieru --test mieru_interop -- --ignored --test-threads=1 --nocapture
 
       - name: Server logs
         if: ${{ always() }}

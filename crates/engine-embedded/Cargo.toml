@@ -8,12 +8,13 @@ description = "In-process engine for the iOS Network Extension: userspace TCP/IP
 
 # One feature per protocol; see src/protocols.rs. `direct` is always built in.
 [features]
-default = ["http", "hysteria2", "local-proxy", "mitm", "shadowsocks", "snell", "socks", "trojan", "tuic", "vless", "vmess", "wireguard"]
+default = ["http", "hysteria2", "local-proxy", "mieru", "mitm", "shadowsocks", "snell", "socks", "trojan", "tuic", "vless", "vmess", "wireguard"]
 http = ["dep:outbound-http"]
 hysteria2 = ["dep:outbound-hysteria2"]
 # Desktop local proxy (SOCKS5/HTTP listener) and URL delay tests; the iOS
 # tunnel does not use them.
 local-proxy = ["dep:inbound-mixed", "dep:transport-tls"]
+mieru = ["dep:outbound-mieru"]
 # HTTPS decryption with the shared mitm-policy rewrite engine (src/mitm).
 mitm = ["dep:base64", "dep:engine-native", "dep:mitm-policy", "dep:rcgen", "dep:rustls", "dep:time", "dep:tokio-rustls", "dep:transport-tls"]
 shadowsocks = ["dep:outbound-shadowsocks"]
@@ -40,6 +41,7 @@ netstack-smoltcp = "0.2"
 node-import = { path = "../node-import" }
 outbound-http = { path = "../outbound-http", optional = true }
 outbound-hysteria2 = { path = "../outbound-hysteria2", optional = true }
+outbound-mieru = { path = "../outbound-mieru", optional = true }
 outbound-shadowsocks = { path = "../outbound-shadowsocks", optional = true }
 outbound-snell = { path = "../outbound-snell", optional = true }
 outbound-socks = { path = "../outbound-socks", optional = true }
