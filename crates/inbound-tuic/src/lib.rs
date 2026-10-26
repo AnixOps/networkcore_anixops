@@ -297,6 +297,7 @@ async fn stream(
             target,
             stream: Box::new(stream),
             udp: None,
+            mux: false,
         },
         peer,
         outbound.as_ref(),

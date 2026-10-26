@@ -98,6 +98,7 @@ impl TrojanInbound {
             stream: Box::new(reader),
             udp: (command == CMD_UDP_ASSOCIATE)
                 .then(|| Box::new(TrojanDatagrams) as Box<dyn DatagramCodec>),
+            mux: false,
         })
     }
 }

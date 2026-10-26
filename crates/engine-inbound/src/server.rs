@@ -190,10 +190,15 @@ async fn relay(
         target,
         stream,
         udp,
+        mux,
     } = accepted;
     let _online = user.as_ref().map(|user| user.connect(peer.ip()));
     if user.as_ref().is_some_and(|user| user.is_revoked()) {
         stats.revoked.fetch_add(1, Ordering::Relaxed);
+        return;
+    }
+    if mux {
+        crate::mux::relay_mux(stream, user, outbound, udp_outbound, settings, stats).await;
         return;
     }
     if let Some(codec) = udp {

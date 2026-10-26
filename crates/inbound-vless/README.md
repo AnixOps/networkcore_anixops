@@ -20,8 +20,11 @@ VLESS server inbound for the node kernel, built on `engine-inbound`.
   ["..."], "handshake": {"server": "www.example.com", "server_port": 443},
   "max_time_difference_secs": 60}`.
 
+UDP: the UDP command (`LENGTH PAYLOAD` datagrams to the request target) and
+the mux command (Mux.Cool, which Xray and sing-box use for XUDP; no flow or
+the user's flow) are supported.
+
 Not yet: Vision over standard `tls` (users with a Vision flow need
-`reality`), mux/XUDP (the UDP command, `LENGTH PAYLOAD` datagrams to the
-request target, is supported); REALITY does not mirror the handshake site's record
+`reality`); REALITY does not mirror the handshake site's record
 sizes. `tests/vless_inbound.rs` and `tests/vless_reality.rs` run the engine's
 VLESS clients against the server.

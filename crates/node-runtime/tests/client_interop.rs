@@ -1,7 +1,7 @@
 //! Our server inbounds against the reference clients: Xray-core, sing-box
 //! and the official Hysteria client each connect through a node built from
-//! anixcore inbound configs and relay TCP (and, where the client speaks a
-//! UDP form our inbound takes, SOCKS5 UDP) to echo targets.
+//! anixcore inbound configs and relay TCP and SOCKS5 UDP to echo targets
+//! (UDP in each protocol's own form, or XUDP where the client uses it).
 //!
 //! The tests are `#[ignore]`d; the interop CI job runs them with
 //! `--ignored` after `.github/scripts/reality-interop.sh start` has written
@@ -311,18 +311,6 @@ impl Client {
             Client::Xray => !matches!(case.proto, Proto::Hysteria2 { .. } | Proto::Tuic),
             Client::SingBox => true,
             Client::Hysteria => matches!(case.proto, Proto::Hysteria2 { .. }),
-        }
-    }
-
-    /// Whether the client relays SOCKS5 UDP to `case` in a form our inbound
-    /// takes. Xray sends VLESS and VMess UDP as XUDP (Mux.Cool) and sing-box
-    /// sends VLESS UDP as XUDP by default; our inbounds take the plain UDP
-    /// command, so those pairs are TCP only.
-    fn udp(self, case: &Case) -> bool {
-        match self {
-            Client::Xray => matches!(case.proto, Proto::Trojan | Proto::Shadowsocks),
-            Client::SingBox => !matches!(case.proto, Proto::VlessReality { .. } | Proto::Vless),
-            Client::Hysteria => true,
         }
     }
 
@@ -794,11 +782,9 @@ async fn run_client(
         }
         echo(socks, env.echo, &payload).await?;
         echo(socks, env.echo, b"second connection").await?;
-        let udp = if client.udp(case) {
-            udp_echo(socks, env.udp_echo).await?
-        } else {
-            0
-        };
+        // Xray sends VLESS and VMess UDP as XUDP (Mux.Cool), as does
+        // sing-box for VLESS; the others use each protocol's UDP form.
+        let udp = udp_echo(socks, env.udp_echo).await?;
         // Relayed bytes are charged to the user once the relay sees them.
         tokio::time::sleep(Duration::from_millis(200)).await;
         let (up, down) = traffic(node, case.tag);

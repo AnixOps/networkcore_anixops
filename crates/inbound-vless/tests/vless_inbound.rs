@@ -331,3 +331,50 @@ async fn client_udp_flow_round_trips() {
         assert_eq!(reply, payload);
     }
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn mux_command_carries_xudp() {
+    let server = start(None).await;
+    let echo = udp_echo_server().await;
+    let tcp = TcpStream::connect(server.addr).await.unwrap();
+    let mut stream = TlsConnector::new(&tls())
+        .unwrap()
+        .connect(Box::new(tcp))
+        .await
+        .unwrap();
+    // VLESS header with the mux command and no address, then an XUDP New
+    // frame (UDP, target, global id) carrying the first datagram.
+    let mut request = vec![0u8];
+    request.extend_from_slice(&parse_uuid(ALICE).unwrap());
+    request.extend_from_slice(&[0, 3]);
+    let mut meta = vec![0, 0, 1, 1, 2];
+    write_port_addr(&mut meta, echo, VMESS);
+    meta.extend_from_slice(&[0u8; 8]);
+    request.extend_from_slice(&(meta.len() as u16).to_be_bytes());
+    request.extend_from_slice(&meta);
+    request.extend_from_slice(&5u16.to_be_bytes());
+    request.extend_from_slice(b"query");
+    stream.write_all(&request).await.unwrap();
+    stream.flush().await.unwrap();
+
+    let mut header = [0u8; 2];
+    tokio::time::timeout(TIMEOUT, stream.read_exact(&mut header))
+        .await
+        .expect("vless response timed out")
+        .unwrap();
+    assert_eq!(header, [0, 0]);
+    // Keep frame for session 0 with the UDP source, then the datagram.
+    let mut expected = vec![0, 0, 2, 1, 2];
+    write_port_addr(&mut expected, echo, VMESS);
+    let mut reply = vec![0u8; 2 + expected.len() + 2 + 5];
+    tokio::time::timeout(TIMEOUT, stream.read_exact(&mut reply))
+        .await
+        .expect("xudp reply timed out")
+        .unwrap();
+    assert_eq!(
+        usize::from(u16::from_be_bytes([reply[0], reply[1]])),
+        expected.len()
+    );
+    assert_eq!(&reply[2..2 + expected.len()], &expected[..]);
+    assert_eq!(&reply[2 + expected.len()..], b"\x00\x05query");
+}

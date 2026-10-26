@@ -186,6 +186,7 @@ impl Hysteria2Inbound {
                 target,
                 stream: Box::new(stream),
                 udp: None,
+                mux: false,
             },
             session.peer,
             outbound.as_ref(),

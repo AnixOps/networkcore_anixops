@@ -755,6 +755,7 @@ name = "engine-inbound"
 version = "0.2.0"
 dependencies = [
  "engine-outbound",
+ "futures-util",
  "serde",
  "serde_json",
  "tokio",

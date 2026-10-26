@@ -26,6 +26,10 @@ kernel that anix-agent drives on a proxy server). It mirrors `engine-outbound`:
   are refused. `SessionRelay` keeps one socket per protocol session id for
   QUIC protocols (Hysteria2, TUIC; `PacketInbound::serve` takes the UDP
   outbound) and Shadowsocks UDP (`StreamInbound::datagram`, same port).
+- `mux` (internal): Mux.Cool for VLESS/VMess command 3. A protocol sets
+  `Accepted::mux`; the serve loop then runs TCP sessions through the outbound
+  and UDP sessions (XUDP, per-datagram addresses) through the UDP outbound on
+  the one client stream, at most 128 sessions per connection.
 - `registry`: config `type` name to `InboundFactory`, one crate and cargo
   feature per protocol.
 

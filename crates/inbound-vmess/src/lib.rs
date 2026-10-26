@@ -8,8 +8,10 @@
 //!
 //! Body securities `aes-128-gcm`, `chacha20-poly1305` and `none`, with the
 //! ChunkStream option and optional ChunkMasking and GlobalPadding. The UDP
-//! command carries one datagram per body chunk to the request target. Not
-//! yet: authenticated length, the legacy MD5 header (alterId > 0) and mux.
+//! command carries one datagram per body chunk to the request target; the
+//! mux command (3, no address) carries Mux.Cool frames, which Xray clients
+//! use for UDP (XUDP) and for `mux`. Not yet: authenticated length and the
+//! legacy MD5 header (alterId > 0).
 //!
 //! TLS is terminated by `inbound-transport` when the settings carry `tls`.
 
@@ -53,6 +55,8 @@ const FIXED_HEADER_LEN: usize = 1 + 16 + 16 + 1 + 1 + 1 + 1 + 1;
 const CHECKSUM_LEN: usize = 4;
 const COMMAND_TCP: u8 = 1;
 const COMMAND_UDP: u8 = 2;
+/// Mux.Cool (also XUDP); the header then has no address.
+const COMMAND_MUX: u8 = 3;
 
 const OPTION_CHUNK_STREAM: u8 = 0x01;
 const OPTION_CHUNK_MASKING: u8 = 0x04;
@@ -210,6 +214,7 @@ impl VmessInbound {
             target: request.target,
             stream: Box::new(stream),
             udp,
+            mux: request.command == COMMAND_MUX,
         })
     }
 }
@@ -295,11 +300,15 @@ async fn parse_header(header: &[u8]) -> Result<Request, Rejected> {
         return Err(Rejected::close("vmess security is not supported"));
     }
     let command = body[37];
-    if command != COMMAND_TCP && command != COMMAND_UDP {
+    if command != COMMAND_TCP && command != COMMAND_UDP && command != COMMAND_MUX {
         return Err(Rejected::close("vmess command is not supported"));
     }
     let mut rest = &body[FIXED_HEADER_LEN..];
-    let target = read_port_addr(&mut rest, VMESS).await?;
+    let target = if command == COMMAND_MUX {
+        TargetAddr::Domain("v1.mux.cool".into(), 0)
+    } else {
+        read_port_addr(&mut rest, VMESS).await?
+    };
     if rest.len() != padding {
         return Err(Rejected::close("vmess header length is inconsistent"));
     }

@@ -191,6 +191,7 @@ impl SnellInbound {
                 first[used..].to_vec(),
             )),
             udp: None,
+            mux: false,
         })
     }
 

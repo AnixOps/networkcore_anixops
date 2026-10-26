@@ -19,6 +19,7 @@
 //! reasons. Implementations must keep credentials out of both.
 
 pub mod addr;
+mod mux;
 pub mod registry;
 pub mod replay;
 pub mod server;
@@ -50,6 +51,10 @@ pub struct Accepted {
     /// in this framing and is relayed with [`udp::relay_datagrams`]
     /// instead of a TCP connection to `target`.
     pub udp: Option<Box<dyn udp::DatagramCodec>>,
+    /// Set when the client asked for Mux.Cool (VLESS and VMess command 3,
+    /// which Xray clients also use for XUDP): `stream` then carries mux
+    /// frames with sessions of their own and `target` is unused.
+    pub mux: bool,
 }
 
 /// A client that failed the handshake.
@@ -177,6 +182,7 @@ pub fn fallback_or_hold(
             target: target.clone(),
             stream: Box::new(PrefixedStream::new(stream).with_read_prefix(consumed)),
             udp: None,
+            mux: false,
         }),
         None => Err(Rejected::hold(reason, stream)),
     }
