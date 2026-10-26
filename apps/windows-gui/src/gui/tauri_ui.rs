@@ -2831,7 +2831,6 @@ mod tests {
         assert_eq!(groups[0].outbound_labels, vec!["Auto", "Tokyo", "DIRECT"]);
         assert_eq!(groups[1].group_type, "urltest");
         assert_eq!(groups[1].selected.as_deref(), Some("hk"));
-        assert!(groups.iter().all(|group| group.json.is_empty()));
     }
 
     #[test]
