@@ -7,18 +7,22 @@
 //!   "inbounds": [
 //!     {"tag": "ss", "type": "shadowsocks", "listen": "::", "listen_port": 8388,
 //!      "method": "2022-blake3-aes-128-gcm", "password": "...", "users": []}
-//!   ]
+//!   ],
+//!   "egress": {"routes": [], "relays": []}
 //! }
 //! ```
 //!
 //! Every inbound key other than `tag`, `type`, `listen` and `listen_port` is
-//! passed to the protocol factory as its settings.
+//! passed to the protocol factory as its settings. `egress` is optional and
+//! has the format of `PUT /v1/egress` ([`crate::egress::EgressConfig`]).
 
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 
 use engine_inbound::registry::Settings;
 use engine_inbound::FallbackSettings;
 use serde::Deserialize;
+
+use crate::egress::EgressConfig;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -29,6 +33,8 @@ pub struct NodeConfig {
     pub allow_private_targets: bool,
     #[serde(default)]
     pub inbounds: Vec<InboundConfig>,
+    #[serde(default)]
+    pub egress: Option<EgressConfig>,
 }
 
 /// Has no `Debug`: `token` is a credential.
