@@ -478,7 +478,8 @@ fn share_link_via_and_iwan_links_import() {
     let text = "iwan://shared%20user:p%40ss@203.0.113.10:4567?mtu=1400&encrypt=0#HK%20line\n\
         trojan://pw@198.51.100.20:443?security=tls&sni=land.example&via=HK%20line#US%20land\n\
         vmess://eyJ2IjoiMiIsInBzIjoiSlAgdm1lc3MiLCJhZGQiOiIxOTguNTEuMTAwLjQwIiwicG9ydCI6IjQ0MyIsImlkIjoiMDAwMDAwMDAtMDAwMC0wMDAwLTAwMDAtMDAwMDAwMDAwMDAxIiwiYWlkIjoiMCIsInNjeSI6ImF1dG8iLCJuZXQiOiJ0Y3AiLCJ0eXBlIjoibm9uZSIsInRscyI6IiJ9?via=HK%20line\n\
-        trojan://pw@198.51.100.30:443?security=tls&via=missing#Lost";
+        trojan://pw@198.51.100.30:443?security=tls&via=missing#Lost\n\
+        hysteria2://pw@198.51.100.50:443?sni=land.example&via=HK%20line#UDP%20land";
     let report = import_text(text).unwrap();
     let line = report
         .nodes
@@ -506,8 +507,13 @@ fn share_link_via_and_iwan_links_import() {
         .expect("the vmess link imports");
     assert_eq!(vmess.outbound["via"], line.id.as_str());
 
-    assert_eq!(report.unsupported.len(), 1);
-    assert_eq!(report.unsupported[0].name, "Lost");
+    // Lost names no imported node; hysteria2 cannot ride another node.
+    let names: Vec<_> = report
+        .unsupported
+        .iter()
+        .map(|node| node.name.as_str())
+        .collect();
+    assert_eq!(names, ["Lost", "UDP land"]);
 }
 
 #[test]

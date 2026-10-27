@@ -66,6 +66,15 @@ pub fn outbound_json(node: &NodeDescriptor) -> Result<Value, Unsupported> {
         _ => Err("protocol is not implemented by the embedded engine yet"),
     }?;
     if let Some(via) = metadata(node, NODE_METADATA_VIA) {
+        // These dial their own UDP or tunnel and cannot ride another node
+        // (the engine's `supports_via`); one in a routed config would fail
+        // the whole tunnel.
+        if matches!(
+            node.protocol,
+            Protocol::Hysteria2 | Protocol::Tuic | Protocol::Iwan | Protocol::WireGuard
+        ) {
+            return Err("this protocol cannot connect through another node");
+        }
         outbound["via"] = json!(via);
     }
     Ok(outbound)
