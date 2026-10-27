@@ -86,6 +86,7 @@ pub const SUBSCRIPTION_VMESS_LINK_INVALID_CODE: &str = "subscription.core.vmess_
 pub const SUBSCRIPTION_HYSTERIA2_LINK_INVALID_CODE: &str =
     "subscription.core.hysteria2_link_invalid";
 pub const SUBSCRIPTION_TUIC_LINK_INVALID_CODE: &str = "subscription.core.tuic_link_invalid";
+pub const SUBSCRIPTION_IWAN_LINK_INVALID_CODE: &str = "subscription.core.iwan_link_invalid";
 pub const SUBSCRIPTION_WIREGUARD_LINK_INVALID_CODE: &str =
     "subscription.core.wireguard_link_invalid";
 pub const SUBSCRIPTION_MIERU_LINK_INVALID_CODE: &str = "subscription.core.mieru_link_invalid";
@@ -2529,6 +2530,8 @@ fn parse_proxy_link_lines(source_id: &str, content: &str) -> DomainResult<Subscr
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
+        let (line, via) = take_link_via(line)?;
+        let line = line.as_str();
 
         let mut node = if line.starts_with("ss://") {
             parse_shadowsocks_link(line)?
@@ -2546,9 +2549,17 @@ fn parse_proxy_link_lines(source_id: &str, content: &str) -> DomainResult<Subscr
             parse_wireguard_link(line)?
         } else if line.starts_with("mierus://") {
             parse_mieru_link(line)?
+        } else if line.starts_with("iwan://") {
+            parse_iwan_link(line)?
         } else {
             continue;
         };
+        if let Some(via) = via {
+            node.metadata.push(MetadataEntry {
+                key: NODE_METADATA_VIA_UNRESOLVED.to_string(),
+                value: via,
+            });
+        }
         if !seen_ids.insert(node.id.clone()) {
             let base_id = node.id.clone();
             let mut suffix = seen_ids.len() + 1;
@@ -2573,11 +2584,135 @@ fn parse_proxy_link_lines(source_id: &str, content: &str) -> DomainResult<Subscr
             "subscription link list did not contain supported proxy links",
         ));
     }
+    resolve_vias(&mut nodes);
 
     Ok(SubscriptionDocument {
         nodes,
         rules: Vec::new(),
         diagnostics: Vec::new(),
+    })
+}
+
+/// Takes the AnixOps `via` query field (the name of the node a link connects
+/// through, like a sing-box `detour`) off a share link, so the protocol's own
+/// parser never sees it. A `vmess://` link carries it after its base64 body.
+fn take_link_via(line: &str) -> DomainResult<(String, Option<String>)> {
+    let (without_fragment, fragment) = split_once_optional(line, '#');
+    let (main, query) = split_once_optional(without_fragment, '?');
+    let Some(query) = query else {
+        return Ok((line.to_string(), None));
+    };
+    let mut via = None;
+    let mut kept = Vec::new();
+    for entry in query.split('&') {
+        let key = entry.split_once('=').map_or(entry, |(key, _)| key);
+        if key.eq_ignore_ascii_case("via") {
+            let value = entry.split_once('=').map_or("", |(_, value)| value);
+            let value = percent_decode(value).map_err(|_| {
+                domain_error(
+                    SUBSCRIPTION_LINK_UNSUPPORTED_CODE,
+                    "share link via is not valid percent encoding",
+                )
+            })?;
+            via = Some(value.trim().to_string()).filter(|value| !value.is_empty());
+        } else {
+            kept.push(entry);
+        }
+    }
+    if via.is_none() {
+        return Ok((line.to_string(), None));
+    }
+    let mut rebuilt = main.to_string();
+    if !kept.is_empty() {
+        rebuilt.push('?');
+        rebuilt.push_str(&kept.join("&"));
+    }
+    if let Some(fragment) = fragment {
+        rebuilt.push('#');
+        rebuilt.push_str(fragment);
+    }
+    Ok((rebuilt, via))
+}
+
+/// Parses an AnixOps Panabit iWAN link:
+/// `iwan://user:password@host:port?mtu=1400&encrypt=1#name`.
+fn parse_iwan_link(link: &str) -> DomainResult<NodeDescriptor> {
+    let invalid = |message: &str| domain_error(SUBSCRIPTION_IWAN_LINK_INVALID_CODE, message);
+    let payload = link
+        .strip_prefix("iwan://")
+        .ok_or_else(|| invalid("iwan link must start with iwan://"))?;
+    let (without_fragment, fragment) = split_once_optional(payload, '#');
+    let name = fragment
+        .and_then(|fragment| percent_decode(fragment).ok())
+        .filter(|name| !name.trim().is_empty());
+    let (main_without_query, query) = split_once_optional(without_fragment, '?');
+    let (userinfo, host_port) = main_without_query
+        .rsplit_once('@')
+        .ok_or_else(|| invalid("iwan link must contain a login and an endpoint"))?;
+    let (username, password) = userinfo
+        .split_once(':')
+        .ok_or_else(|| invalid("iwan link login must be username:password"))?;
+    let decode = |value: &str| percent_decode(value).unwrap_or_else(|_| value.to_string());
+    let username = required_trimmed(
+        decode(username),
+        SUBSCRIPTION_IWAN_LINK_INVALID_CODE,
+        "iwan username cannot be empty",
+    )?;
+    let password = required_trimmed(
+        decode(password),
+        SUBSCRIPTION_IWAN_LINK_INVALID_CODE,
+        "iwan password cannot be empty",
+    )?;
+    let (host, port) = parse_host_port_for(host_port, SUBSCRIPTION_IWAN_LINK_INVALID_CODE, "iwan")?;
+    let query = parse_share_link_query(query, SUBSCRIPTION_IWAN_LINK_INVALID_CODE, "iwan")?;
+    let host_id = sanitize_identifier(&host);
+    let host_id = if host_id.is_empty() {
+        "host".to_string()
+    } else {
+        host_id
+    };
+    let id = format!("iwan-{host_id}-{port}");
+    let name = name.unwrap_or_else(|| id.clone());
+
+    let mut metadata = vec![
+        MetadataEntry {
+            key: NODE_METADATA_IWAN_USERNAME.to_string(),
+            value: username,
+        },
+        MetadataEntry {
+            key: NODE_METADATA_IWAN_PASSWORD.to_string(),
+            value: password,
+        },
+    ];
+    if let Some(mtu) = query.get("mtu").filter(|mtu| !mtu.trim().is_empty()) {
+        metadata.push(MetadataEntry {
+            key: NODE_METADATA_IWAN_MTU.to_string(),
+            value: mtu.trim().to_string(),
+        });
+    }
+    if let Some(encrypt) = query.get("encrypt") {
+        metadata.push(MetadataEntry {
+            key: NODE_METADATA_IWAN_ENCRYPT.to_string(),
+            value: parse_share_link_boolean(
+                encrypt,
+                SUBSCRIPTION_IWAN_LINK_INVALID_CODE,
+                "iwan encrypt",
+            )?
+            .to_string(),
+        });
+    }
+    metadata.push(MetadataEntry {
+        key: NODE_METADATA_SOURCE_FORMAT.to_string(),
+        value: "iwan-url".to_string(),
+    });
+
+    Ok(NodeDescriptor {
+        id,
+        name,
+        protocol: Protocol::Iwan,
+        endpoint: Endpoint { host, port },
+        tags: vec!["subscription".to_string(), "iwan".to_string()],
+        metadata,
     })
 }
 

@@ -81,10 +81,15 @@ App ──iWAN──▶ Panabit 入口（国内）══IPLC══▶ Panabit NA
 
 ## 订阅导入
 
-面板发给 App 的订阅用 sing-box JSON：
+两种写法，导入时都按名字找到前置节点，转成那个节点的 id，写进 `via`：
 
-- `detour` 是 sing-box 标准的前置写法，导入时按 tag 找到对应节点，转成那个节点的 id，写进 `via`。
-- `"type": "iwan"` 是 AnixOps 的扩展类型，字段有 `server`、`server_port`、`username`、`password`，可选 `mtu`、`encrypt`。
+- **sing-box JSON**：`detour` 是 sing-box 标准的前置写法。`"type": "iwan"` 是 AnixOps 的扩展类型，字段有 `server`、`server_port`、`username`、`password`，可选 `mtu`、`encrypt`。
+- **分享链接列表**（面板发给 App 的格式）：
+  - 任一链接的查询参数 `via=<前置节点名>` 是 AnixOps 扩展，导入器先取走它，再交给协议自己的解析。`vmess://` 写在 base64 之后，比如 `vmess://<base64>?via=HK%20line`。
+  - iWAN 线路写成 `iwan://<用户名>:<口令>@<主机>:<端口>?mtu=1400&encrypt=0#<名字>`，用户名和口令按百分号编码。
+  - 旧版 App 不认识 `iwan://`，会跳过它。旧版 App 也会忽略 `via`，于是直连落地机。
+
+面板继续用分享链接，不改成 sing-box JSON。原因是 App 已经支持的 xhttp 和 WireGuard 链接，在 sing-box JSON 里没有对应写法。
 
 导入时有两种情况会把节点报为无法运行，而不是让它绕开前置节点直接连出：
 
