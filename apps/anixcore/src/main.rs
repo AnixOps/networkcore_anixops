@@ -67,6 +67,18 @@ fn start(config: NodeConfig, check_only: bool) -> Result<(), String> {
             Node::new(default_registry(), config.allow_private_targets)
                 .with_default_outbound(config.default_outbound),
         );
+        if let Some(network) = &config.network {
+            let status = node
+                .apply_network(network)
+                .await
+                .map_err(|error| format!("network: {error}"))?;
+            println!(
+                "network: generation {}, {} egresses, {} ingresses",
+                status.generation,
+                status.egresses.len(),
+                status.ingresses.len()
+            );
+        }
         for inbound in config.inbounds {
             let tag = inbound.tag.clone();
             let listen = node

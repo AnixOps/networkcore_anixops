@@ -32,6 +32,13 @@ with `PUT /v1/egress` (or the config member `egress`): the route's domains
 leave through the exit node's Shadowsocks-2022 relay, for every inbound, and
 an exit node serves the relays. See `crates/node-runtime/src/egress.rs`.
 
+The network model's device plan (anix-control `docs/design/network-model`)
+is applied with `PUT /v1/network` (or the config member `network`): every
+egress becomes an outbound `egress:<id>` bound to its source address and
+health-checked from it, and an inbound with `"ingress": "<id>"` leaves
+through that ingress's active path, failing over between egresses. See
+`crates/node-runtime/src/network.rs`.
+
 Port forwarding rules from the panel (anix-control 「转发」) are `forward`
 inbounds: the listen port relays TCP and UDP to one fixed target, through
 the inbound's base outbound only (egress routes do not apply). The target
