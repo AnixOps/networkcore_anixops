@@ -454,26 +454,22 @@ async fn read_loop<R: AsyncRead + Unpin>(
                 }
                 synack = Some(version >= 2);
             }
-            CMD_ALERT => {
-                if len > 0 {
-                    return;
-                }
+            CMD_ALERT if len > 0 => return,
+            CMD_WASTE | CMD_SYNACK | CMD_UPDATE_PADDING_SCHEME | CMD_SERVER_SETTINGS
+                if read_data(reader, len).await.is_err() =>
+            {
+                return;
             }
-            CMD_WASTE | CMD_SYNACK | CMD_UPDATE_PADDING_SCHEME | CMD_SERVER_SETTINGS => {
-                if read_data(reader, len).await.is_err() {
-                    return;
-                }
-            }
-            CMD_HEART_REQUEST => {
+            CMD_HEART_REQUEST
                 if frames
                     .send(frame(CMD_HEART_RESPONSE, id, &[]))
                     .await
-                    .is_err()
-                {
-                    return;
-                }
+                    .is_err() =>
+            {
+                return;
             }
-            // HeartResponse and unknown commands carry no data.
+            // HeartResponse and unknown commands carry no data; the arms
+            // above fall through here once their data is handled.
             _ => {}
         }
     }
