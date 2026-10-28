@@ -36,6 +36,7 @@ const SS_AEAD_METHOD: &str = "aes-256-gcm";
 const PASSWORD: &str = "interop-password";
 const OBFS_PASSWORD: &str = "interop-obfs";
 const WS_PATH: &str = "/ws";
+const HTTPUPGRADE_PATH: &str = "/up";
 const GRPC_SERVICE: &str = "interop";
 const XHTTP_PATH: &str = "/xh";
 
@@ -104,6 +105,7 @@ enum Proto {
 enum Net {
     Tcp,
     Ws,
+    HttpUpgrade,
     Grpc,
     /// XHTTP in `mode`; `h1` makes the client offer only ALPN `http/1.1`.
     Xhttp {
@@ -277,6 +279,18 @@ const CASES: &[Case] = &[
         tls: false,
     },
     Case {
+        tag: "vless-httpupgrade",
+        proto: Proto::Vless,
+        net: Net::HttpUpgrade,
+        tls: false,
+    },
+    Case {
+        tag: "trojan-tls-httpupgrade",
+        proto: Proto::Trojan,
+        net: Net::HttpUpgrade,
+        tls: true,
+    },
+    Case {
         tag: "ss-aead-multi-user",
         proto: Proto::ShadowsocksAead,
         net: Net::Tcp,
@@ -390,6 +404,12 @@ fn inbound(env: &Env, case: &Case) -> Value {
         Net::Tcp => {}
         Net::Ws => {
             object.insert("transport".into(), json!({"type": "ws", "path": WS_PATH}));
+        }
+        Net::HttpUpgrade => {
+            object.insert(
+                "transport".into(),
+                json!({"type": "httpupgrade", "path": HTTPUPGRADE_PATH}),
+            );
         }
         Net::Grpc => {
             object.insert(
@@ -516,6 +536,7 @@ fn xray_config(env: &Env, case: &Case, server: SocketAddr, socks: u16) -> Value 
     let mut stream = json!({"network": match case.net {
         Net::Tcp => "tcp",
         Net::Ws => "ws",
+        Net::HttpUpgrade => "httpupgrade",
         Net::Grpc => "grpc",
         Net::Xhttp { .. } => "xhttp",
     }});
@@ -527,6 +548,12 @@ fn xray_config(env: &Env, case: &Case, server: SocketAddr, socks: u16) -> Value 
             stream_object.insert(
                 "wsSettings".into(),
                 json!({"path": format!("{WS_PATH}?ed=2048"), "host": env.server_name}),
+            );
+        }
+        Net::HttpUpgrade => {
+            stream_object.insert(
+                "httpupgradeSettings".into(),
+                json!({"path": format!("{HTTPUPGRADE_PATH}?ed=2048"), "host": env.server_name}),
             );
         }
         Net::Grpc => {
@@ -663,6 +690,12 @@ fn sing_box_config(env: &Env, case: &Case, server: SocketAddr, socks: u16) -> Va
                 json!({"type": "ws", "path": WS_PATH, "max_early_data": 2048,
                     "early_data_header_name": "Sec-WebSocket-Protocol",
                     "headers": {"Host": env.server_name}}),
+            );
+        }
+        Net::HttpUpgrade => {
+            object.insert(
+                "transport".into(),
+                json!({"type": "httpupgrade", "path": HTTPUPGRADE_PATH, "host": env.server_name}),
             );
         }
         Net::Grpc => {
