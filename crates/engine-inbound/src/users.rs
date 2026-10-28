@@ -20,6 +20,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Notify;
 
+use crate::limit::RateLimiter;
 use crate::registry::BuildError;
 
 /// One user as configured. Which credential fields apply depends on the
@@ -45,6 +46,18 @@ pub struct User {
     /// inbound's pool when absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub address: Option<IpAddr>,
+    /// Speed limit in Mbit/s for each direction, shared by all of the
+    /// user's connections; 0 for none.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub speed_limit: u64,
+    /// Most client IPs the user may have online at once; a connection from
+    /// one more IP is refused. 0 for no limit.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub device_limit: u32,
+}
+
+fn is_zero<T: Default + PartialEq>(value: &T) -> bool {
+    *value == T::default()
 }
 
 impl User {
@@ -56,6 +69,8 @@ impl User {
             flow: None,
             username: None,
             address: None,
+            speed_limit: 0,
+            device_limit: 0,
         }
     }
 
@@ -67,6 +82,8 @@ impl User {
             flow: None,
             username: None,
             address: None,
+            speed_limit: 0,
+            device_limit: 0,
         }
     }
 }
@@ -93,6 +110,8 @@ pub struct OnlineUser {
 /// every open connection of the user.
 pub struct UserEntry {
     user: User,
+    up_limit: Option<RateLimiter>,
+    down_limit: Option<RateLimiter>,
     up: AtomicU64,
     down: AtomicU64,
     online: Mutex<HashMap<IpAddr, u32>>,
@@ -103,6 +122,8 @@ pub struct UserEntry {
 impl UserEntry {
     fn new(user: User) -> Self {
         Self {
+            up_limit: RateLimiter::from_mbps(user.speed_limit),
+            down_limit: RateLimiter::from_mbps(user.speed_limit),
             user,
             up: AtomicU64::new(0),
             down: AtomicU64::new(0),
@@ -118,6 +139,16 @@ impl UserEntry {
 
     pub fn name(&self) -> &str {
         &self.user.name
+    }
+
+    /// The limiter of client-to-server bytes, `None` without a speed limit.
+    pub fn up_limiter(&self) -> Option<&RateLimiter> {
+        self.up_limit.as_ref()
+    }
+
+    /// The limiter of server-to-client bytes, `None` without a speed limit.
+    pub fn down_limiter(&self) -> Option<&RateLimiter> {
+        self.down_limit.as_ref()
     }
 
     pub fn add_up(&self, bytes: u64) {
@@ -164,7 +195,23 @@ impl UserEntry {
         self.revoke.notify_waiters();
     }
 
-    /// Marks one connection from `ip` as online until the guard drops.
+    /// Like [`UserEntry::connect`], but `None` when `ip` would be one IP
+    /// more than the user's `device_limit`.
+    pub fn try_connect(self: &Arc<Self>, ip: IpAddr) -> Option<OnlineGuard> {
+        let limit = self.user.device_limit as usize;
+        let mut online = self.online.lock().unwrap_or_else(|e| e.into_inner());
+        if limit > 0 && !online.contains_key(&ip) && online.len() >= limit {
+            return None;
+        }
+        *online.entry(ip).or_insert(0) += 1;
+        Some(OnlineGuard {
+            entry: self.clone(),
+            ip,
+        })
+    }
+
+    /// Marks one connection from `ip` as online until the guard drops,
+    /// whatever the device limit.
     pub fn connect(self: &Arc<Self>, ip: IpAddr) -> OnlineGuard {
         let mut online = self.online.lock().unwrap_or_else(|e| e.into_inner());
         *online.entry(ip).or_insert(0) += 1;
@@ -573,6 +620,44 @@ mod tests {
         drop(first);
         drop(second);
         assert!(store.online().is_empty());
+    }
+
+    #[test]
+    fn device_limit_refuses_one_ip_too_many() {
+        let store = store();
+        store
+            .add(User {
+                device_limit: 2,
+                ..User::with_password("a", "1")
+            })
+            .unwrap();
+        let entry = store.get("a").unwrap();
+        let ip = |last| IpAddr::V4(Ipv4Addr::new(192, 0, 2, last));
+        let first = entry.try_connect(ip(1)).unwrap();
+        let _second = entry.try_connect(ip(2)).unwrap();
+        // More connections from an online IP are fine.
+        let again = entry.try_connect(ip(1)).unwrap();
+        assert!(entry.try_connect(ip(3)).is_none());
+        drop(first);
+        assert!(entry.try_connect(ip(3)).is_none(), "ip 1 still has a connection");
+        drop(again);
+        assert!(entry.try_connect(ip(3)).is_some());
+    }
+
+    #[test]
+    fn limits_parse_and_build_limiters() {
+        let user: User =
+            serde_json::from_str(r#"{"name":"a","password":"p","speed_limit":8,"device_limit":3}"#)
+                .unwrap();
+        assert_eq!((user.speed_limit, user.device_limit), (8, 3));
+        let entry = UserEntry::new(user);
+        assert!(entry.up_limiter().is_some() && entry.down_limiter().is_some());
+        let plain = UserEntry::new(User::with_password("b", "p"));
+        assert!(plain.up_limiter().is_none());
+        assert_eq!(
+            serde_json::to_string(plain.user()).unwrap(),
+            r#"{"name":"b","password":"p"}"#
+        );
     }
 
     #[test]

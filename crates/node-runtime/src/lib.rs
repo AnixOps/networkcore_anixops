@@ -192,6 +192,8 @@ pub struct InboundInfo {
     pub accepted: u64,
     pub active: u64,
     pub handshake_failed: u64,
+    /// Connections refused by a user's `device_limit`.
+    pub device_limited: u64,
     pub bytes_up: u64,
     pub bytes_down: u64,
     /// The base outbound's name; [`DIRECT_OUTBOUND`] for direct,
@@ -653,6 +655,7 @@ impl Node {
                     accepted: stats.accepted.load(Ordering::Relaxed),
                     active: stats.active.load(Ordering::Relaxed),
                     handshake_failed: stats.handshake_failed.load(Ordering::Relaxed),
+                    device_limited: stats.device_limited.load(Ordering::Relaxed),
                     bytes_up: stats.bytes_up.load(Ordering::Relaxed),
                     bytes_down: stats.bytes_down.load(Ordering::Relaxed),
                     outbound: running.outbound.clone(),

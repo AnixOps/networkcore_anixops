@@ -19,6 +19,7 @@
 //! reasons. Implementations must keep credentials out of both.
 
 pub mod addr;
+pub mod limit;
 mod mux;
 pub mod registry;
 pub mod replay;

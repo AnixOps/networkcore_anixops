@@ -241,6 +241,84 @@ async fn multi_user_charges_the_right_user_and_revokes() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn speed_and_device_limits_apply_per_user() {
+    let echo_addr = start_echo_server(None).await;
+    let method = Method::Aes128Gcm;
+    let identity = key(method, 81);
+    let slow = key(method, 82);
+    let single = key(method, 83);
+    let server = start_server(
+        method,
+        &identity,
+        vec![
+            User {
+                speed_limit: 1,
+                ..User::with_password("slow", slow.clone())
+            },
+            User {
+                device_limit: 1,
+                ..User::with_password("single", single.clone())
+            },
+        ],
+    )
+    .await;
+
+    // 1 Mbit/s is 125 000 bytes a second with one second of burst: 375 000
+    // bytes each way take at least two seconds.
+    let mut stream = ss_client(
+        method,
+        server.addr,
+        &format!("{identity}:{slow}"),
+        Arc::new(TcpDialer),
+    )
+    .connect(&TargetAddr::Ip(echo_addr))
+    .await
+    .unwrap();
+    let started = std::time::Instant::now();
+    let (mut reader, mut writer) = tokio::io::split(&mut stream);
+    let data = payload(375_000);
+    let write = async {
+        writer.write_all(&data).await.unwrap();
+        writer.flush().await.unwrap();
+    };
+    let read = async {
+        let mut received = vec![0u8; data.len()];
+        reader.read_exact(&mut received).await.unwrap();
+        received
+    };
+    let (_, received) = tokio::time::timeout(Duration::from_secs(30), async {
+        tokio::join!(write, read)
+    })
+    .await
+    .expect("limited echo finishes");
+    assert!(received == data);
+    let elapsed = started.elapsed();
+    assert!(elapsed >= Duration::from_millis(1800), "{elapsed:?}");
+
+    // Another IP holds the single device; this client's IP is refused.
+    let entry = server.inbound.users().get("single").unwrap();
+    let held = entry.try_connect("192.0.2.9".parse().unwrap()).unwrap();
+    let single_client = ss_client(
+        method,
+        server.addr,
+        &format!("{identity}:{single}"),
+        Arc::new(TcpDialer),
+    );
+    let mut refused = single_client
+        .connect(&TargetAddr::Ip(echo_addr))
+        .await
+        .unwrap();
+    assert!(echo(&mut refused, b"refused").await.is_err());
+    assert_eq!(server.stats.device_limited.load(Ordering::Relaxed), 1);
+    drop(held);
+    let mut stream = single_client
+        .connect(&TargetAddr::Ip(echo_addr))
+        .await
+        .unwrap();
+    echo(&mut stream, b"welcome").await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn users_added_at_runtime_can_connect() {
     let echo_addr = start_echo_server(None).await;
     let method = Method::Aes256Gcm;

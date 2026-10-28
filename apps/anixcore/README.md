@@ -23,6 +23,10 @@ anixcore version
 }
 ```
 
+Users may carry `"speed_limit"` (Mbit/s for each direction, shared by all
+of the user's connections) and `"device_limit"` (most client IPs online at
+once); both default to 0, no limit.
+
 The config format is documented in `crates/node-runtime/src/config.rs` and
 the API in `crates/node-runtime/src/api.rs`. Users relay through a direct
 outbound that refuses loopback and private targets unless

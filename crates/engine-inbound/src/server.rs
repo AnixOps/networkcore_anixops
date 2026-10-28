@@ -14,6 +14,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, ReadBuf};
 use tokio::net::TcpListener;
 use tokio::sync::Semaphore;
 
+use crate::limit::Throttle;
 use crate::udp::{relay_datagrams, UdpOutbound};
 use crate::{Accepted, StreamInbound, UserEntry};
 
@@ -52,6 +53,8 @@ pub struct InboundStats {
     pub connect_failed: AtomicU64,
     /// Closed because their user was removed.
     pub revoked: AtomicU64,
+    /// Refused because their user had `device_limit` other IPs online.
+    pub device_limited: AtomicU64,
     pub bytes_up: AtomicU64,
     pub bytes_down: AtomicU64,
 }
@@ -200,7 +203,16 @@ async fn relay(
         udp,
         mux,
     } = accepted;
-    let _online = user.as_ref().map(|user| user.connect(peer.ip()));
+    let _online = match &user {
+        Some(entry) => match entry.try_connect(peer.ip()) {
+            Some(guard) => Some(guard),
+            None => {
+                stats.device_limited.fetch_add(1, Ordering::Relaxed);
+                return;
+            }
+        },
+        None => None,
+    };
     if user.as_ref().is_some_and(|user| user.is_revoked()) {
         stats.revoked.fetch_add(1, Ordering::Relaxed);
         return;
@@ -228,11 +240,7 @@ async fn relay(
         }
     };
 
-    let mut client = Metered {
-        inner: stream,
-        user: user.clone(),
-        stats,
-    };
+    let mut client = Metered::new(stream, user.clone(), stats);
     let relay = tokio::io::copy_bidirectional_with_sizes(
         &mut client,
         &mut remote,
@@ -379,11 +387,7 @@ impl<'a> ConnectionContext<'a> {
     where
         S: AsyncRead + AsyncWrite + Unpin + ?Sized,
     {
-        let mut client = Metered {
-            inner: client,
-            user: user.cloned(),
-            stats: self.stats,
-        };
+        let mut client = Metered::new(client, user.cloned(), self.stats);
         let relay = tokio::io::copy_bidirectional_with_sizes(
             &mut client,
             remote,
@@ -405,11 +409,26 @@ impl<'a> ConnectionContext<'a> {
     }
 }
 
-/// The client side of a relay; counts bytes as they move.
+/// The client side of a relay; counts bytes as they move and holds them to
+/// the user's speed limit.
 struct Metered<'s, S> {
     inner: S,
     user: Option<Arc<UserEntry>>,
     stats: &'s InboundStats,
+    up: Throttle,
+    down: Throttle,
+}
+
+impl<'s, S> Metered<'s, S> {
+    fn new(inner: S, user: Option<Arc<UserEntry>>, stats: &'s InboundStats) -> Self {
+        Self {
+            inner,
+            user,
+            stats,
+            up: Throttle::default(),
+            down: Throttle::default(),
+        }
+    }
 }
 
 impl<S: AsyncRead + Unpin> AsyncRead for Metered<'_, S> {
@@ -419,6 +438,9 @@ impl<S: AsyncRead + Unpin> AsyncRead for Metered<'_, S> {
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
         let this = self.get_mut();
+        if this.up.poll_ready(cx).is_pending() {
+            return Poll::Pending;
+        }
         let before = buf.filled().len();
         let polled = Pin::new(&mut this.inner).poll_read(cx, buf);
         let read = (buf.filled().len() - before) as u64;
@@ -426,6 +448,7 @@ impl<S: AsyncRead + Unpin> AsyncRead for Metered<'_, S> {
             this.stats.bytes_up.fetch_add(read, Ordering::Relaxed);
             if let Some(user) = &this.user {
                 user.add_up(read);
+                this.up.charge(user.up_limiter(), read as usize);
             }
         }
         polled
@@ -439,12 +462,16 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for Metered<'_, S> {
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
         let this = self.get_mut();
+        if this.down.poll_ready(cx).is_pending() {
+            return Poll::Pending;
+        }
         let polled = Pin::new(&mut this.inner).poll_write(cx, buf);
         if let Poll::Ready(Ok(written)) = &polled {
-            let written = *written as u64;
-            this.stats.bytes_down.fetch_add(written, Ordering::Relaxed);
+            let written = *written;
+            this.stats.bytes_down.fetch_add(written as u64, Ordering::Relaxed);
             if let Some(user) = &this.user {
-                user.add_down(written);
+                user.add_down(written as u64);
+                this.down.charge(user.down_limiter(), written);
             }
         }
         polled

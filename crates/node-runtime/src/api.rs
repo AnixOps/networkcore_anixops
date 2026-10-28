@@ -34,6 +34,11 @@
 //! inbound (users or not, so also a `forward` inbound's), both since the
 //! last `reset=true` call, which starts the next interval for both.
 //!
+//! A user may carry `speed_limit` (Mbit/s for each direction, shared by
+//! all of its connections) and `device_limit` (most client IPs online at
+//! once; a connection from one more IP is refused and counted in the
+//! inbound's `device_limited`). Both default to 0, no limit.
+//!
 //! Adding a user that exists replaces it (and closes its connections when the
 //! credentials changed). Errors answer `{"error": "..."}` with 400, 401, 404,
 //! 409 or 500.
