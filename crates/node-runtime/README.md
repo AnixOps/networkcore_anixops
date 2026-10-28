@@ -25,6 +25,17 @@ accounting.
   node gave the address (`domains::DomainCache`, which layer-3 inbounds with
   their own resolver also fill). Matchers: bare name or `domain:` (with
   subdomains), `full:`, `keyword:`, `regexp:`.
+- `network`: the network model's device plan (anix-control
+  `docs/design/network-model` §6.3, `NetworkPlan` from
+  `sdk/api/network/v1`), set with `PUT /v1/network` or the config member
+  `network`, beside `/v1/egress`. Each egress is an outbound `egress:<id>`
+  bound to its source address (TCP bind then connect, UDP `bind(source:0)`)
+  and, with a health check, probed by the kernel from that source. An
+  inbound with `"ingress": "<id>"` takes the ingress's active path: a local
+  egress, or a transport's registered outbound `<kind>:<transport id>`
+  (`anx-line:<id>`), failing over in pairing order with a failback delay.
+  `GET /v1/network` reports each egress's state and each ingress's active
+  egress and path.
 - Listeners on `::` accept IPv4 too on every OS and fall back to `0.0.0.0`
   on hosts without IPv6.
 - Protocols are cargo features (`shadowsocks`, `trojan`, `vless`, `vmess`,
@@ -32,4 +43,5 @@ accounting.
 
 `tests/management_api.rs` drives a node through the API with the engine's
 Shadowsocks-2022 client; `tests/egress.rs` routes domains between two nodes
-through a relay.
+through a relay; `tests/network.rs` sends ingresses through a source-bound
+egress and a transport outbound.

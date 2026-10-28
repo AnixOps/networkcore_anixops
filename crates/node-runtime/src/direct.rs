@@ -1,4 +1,5 @@
-//! Direct outbound with a private-target filter.
+//! Direct outbound with a private-target filter and an optional source
+//! address (a network-model egress, see [`crate::network`]).
 
 use std::io;
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
@@ -6,13 +7,16 @@ use std::sync::Arc;
 
 use engine_inbound::udp::{UdpOutbound, UdpSession};
 use engine_outbound::{BoxFuture, BoxStream, TargetAddr, TcpOutbound};
-use tokio::net::{TcpStream, UdpSocket};
+use tokio::net::{TcpSocket, TcpStream, UdpSocket};
 
 #[derive(Clone)]
 pub struct DirectOutbound {
     allow_private: bool,
     /// `(host, port)` pairs allowed even when private.
     allowed: Vec<(String, u16)>,
+    /// The address connections leave from; only targets of its family are
+    /// reached. The agent's `ip rule from <source>` picks the line.
+    source: Option<IpAddr>,
 }
 
 impl DirectOutbound {
@@ -20,6 +24,22 @@ impl DirectOutbound {
         Self {
             allow_private,
             allowed,
+            source: None,
+        }
+    }
+
+    /// Binds TCP connections (`bind` then `connect`) and UDP sessions
+    /// (`bind(source:0)`) to `source`.
+    pub fn with_source(mut self, source: Option<IpAddr>) -> Self {
+        self.source = source.map(|source| source.to_canonical());
+        self
+    }
+
+    /// Whether a target address can be reached from the source.
+    fn reaches(&self, address: &SocketAddr) -> bool {
+        match self.source {
+            Some(source) => source.is_ipv4() == address.ip().to_canonical().is_ipv4(),
+            None => true,
         }
     }
 
@@ -55,7 +75,16 @@ impl TcpOutbound for DirectOutbound {
                     ));
                     continue;
                 }
-                match TcpStream::connect(address).await {
+                if !self.reaches(&address) {
+                    last_error.get_or_insert_with(|| {
+                        io::Error::new(
+                            io::ErrorKind::AddrNotAvailable,
+                            "target has no address of the egress family",
+                        )
+                    });
+                    continue;
+                }
+                match self.connect_tcp(address).await {
                     Ok(stream) => {
                         let _ = stream.set_nodelay(true);
                         return Ok(Box::new(stream) as BoxStream);
@@ -70,13 +99,32 @@ impl TcpOutbound for DirectOutbound {
     }
 }
 
+impl DirectOutbound {
+    async fn connect_tcp(&self, address: SocketAddr) -> io::Result<TcpStream> {
+        let Some(source) = self.source else {
+            return TcpStream::connect(address).await;
+        };
+        let address = SocketAddr::new(address.ip().to_canonical(), address.port());
+        let socket = match source {
+            IpAddr::V4(_) => TcpSocket::new_v4()?,
+            IpAddr::V6(_) => TcpSocket::new_v6()?,
+        };
+        socket.bind(SocketAddr::new(source, 0))?;
+        socket.connect(address).await
+    }
+}
+
 impl UdpOutbound for DirectOutbound {
     fn bind(&self) -> BoxFuture<'_, io::Result<Arc<dyn UdpSession>>> {
         Box::pin(async move {
-            // One dual-stack socket when the host has IPv6, else IPv4 only.
-            let (socket, dual_stack) = match dual_stack_socket() {
-                Ok(socket) => (socket, true),
-                Err(_) => (UdpSocket::bind("0.0.0.0:0").await?, false),
+            // One dual-stack socket when the host has IPv6, else IPv4 only;
+            // with a source, a socket of its family bound to it.
+            let (socket, dual_stack) = match self.source {
+                Some(source) => (UdpSocket::bind(SocketAddr::new(source, 0)).await?, false),
+                None => match dual_stack_socket() {
+                    Ok(socket) => (socket, true),
+                    Err(_) => (UdpSocket::bind("0.0.0.0:0").await?, false),
+                },
             };
             Ok(Arc::new(DirectUdp {
                 policy: self.clone(),
@@ -107,6 +155,16 @@ struct DirectUdp {
     dual_stack: bool,
 }
 
+impl DirectUdp {
+    /// Whether the socket can send to `address`.
+    fn reaches(&self, address: &SocketAddr) -> bool {
+        match self.policy.source {
+            Some(_) => self.policy.reaches(address),
+            None => self.dual_stack || address.is_ipv4(),
+        }
+    }
+}
+
 impl UdpSession for DirectUdp {
     fn send_to<'a>(
         &'a self,
@@ -115,12 +173,22 @@ impl UdpSession for DirectUdp {
     ) -> BoxFuture<'a, io::Result<()>> {
         Box::pin(async move {
             let address = match target {
+                TargetAddr::Ip(address) if self.policy.source.is_some() => {
+                    let address = SocketAddr::new(address.ip().to_canonical(), address.port());
+                    if !self.reaches(&address) {
+                        return Err(io::Error::new(
+                            io::ErrorKind::AddrNotAvailable,
+                            "target is not of the egress family",
+                        ));
+                    }
+                    address
+                }
                 TargetAddr::Ip(address) => *address,
                 TargetAddr::Domain(host, port) => {
                     let mut addresses = tokio::net::lookup_host((host.as_str(), *port)).await?;
                     let mut chosen = None;
                     for address in addresses.by_ref() {
-                        if self.dual_stack || address.is_ipv4() {
+                        if self.reaches(&address) {
                             chosen = Some(address);
                             break;
                         }
@@ -235,6 +303,41 @@ mod tests {
         let (n, source) = open.recv_from(&mut buf).await.unwrap();
         assert_eq!(&buf[..n], b"ping");
         assert_eq!(source, echo_address);
+    }
+
+    #[tokio::test]
+    async fn binds_the_source_address() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        // Every 127/8 address is local on Linux; elsewhere only 127.0.0.1.
+        let source: IpAddr = if cfg!(target_os = "linux") {
+            "127.0.0.2"
+        } else {
+            "127.0.0.1"
+        }
+        .parse()
+        .unwrap();
+        let bound = DirectOutbound::new(true, Vec::new()).with_source(Some(source));
+        let _stream = bound.connect(&TargetAddr::Ip(address)).await.unwrap();
+        let (_, peer) = listener.accept().await.unwrap();
+        assert_eq!(peer.ip(), source);
+        // A v4 source reaches no v6 target.
+        let error = bound
+            .connect(&TargetAddr::Ip("[::1]:9".parse().unwrap()))
+            .await
+            .err()
+            .unwrap();
+        assert_eq!(error.kind(), io::ErrorKind::AddrNotAvailable);
+
+        let echo = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let session = bound.bind().await.unwrap();
+        session
+            .send_to(b"x", &TargetAddr::Ip(echo.local_addr().unwrap()))
+            .await
+            .unwrap();
+        let mut buf = [0u8; 8];
+        let (_, from) = echo.recv_from(&mut buf).await.unwrap();
+        assert_eq!(from.ip(), source);
     }
 
     #[tokio::test]

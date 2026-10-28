@@ -14,12 +14,21 @@
 //! | `GET /v1/inbounds/{tag}/online` | | `{"online": [OnlineUser]}` |
 //! | `GET /v1/egress` | | `EgressStatus` |
 //! | `PUT /v1/egress` | `EgressConfig` | `EgressStatus` |
+//! | `GET /v1/network` | | `NetworkStatus` |
+//! | `PUT /v1/network` | `NetworkPlan` | `NetworkStatus` |
 //!
 //! `PUT /v1/egress` replaces the domain egress routes and relays (the panel's
 //! `egress` member, see [`crate::egress`]); `{}` removes them all. An
 //! invalid entry refuses the whole body with 400; a relay port that cannot
 //! be bound answers 500 after the rest was applied. Neither answer carries a
 //! relay key.
+//!
+//! `PUT /v1/network` replaces the device's network plan (egresses, ingresses,
+//! paths; see [`crate::network`]); `{}` removes it. It coexists with
+//! `/v1/egress`: domain egress routes still apply on top of an ingress's
+//! path. An invalid entry refuses the whole body with 400. `GET` answers the
+//! plan's generation, each egress's probe state and each ingress's active
+//! egress and path.
 //!
 //! `traffic` lists the bytes per user, `inbound` the bytes of the whole
 //! inbound (users or not, so also a `forward` inbound's), both since the
@@ -39,7 +48,7 @@ use serde_json::{json, Value};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
-use crate::{EgressConfig, InboundConfig, Node, NodeError};
+use crate::{EgressConfig, InboundConfig, NetworkPlan, Node, NodeError};
 
 const MAX_HEAD_BYTES: usize = 16 * 1024;
 const MAX_BODY_BYTES: usize = 4 * 1024 * 1024;
@@ -96,7 +105,7 @@ impl From<NodeError> for Response {
         let status = match &error {
             NodeError::NotFound => 404,
             NodeError::Exists => 409,
-            NodeError::Invalid(_) | NodeError::Egress(_) => 400,
+            NodeError::Invalid(_) | NodeError::Egress(_) | NodeError::Network(_) => 400,
             NodeError::Io(_) => 500,
         };
         Response::error(status, error.to_string())
@@ -235,6 +244,14 @@ async fn route(node: &Node, request: Request) -> Response {
         ("PUT", ["v1", "egress"]) => match parse::<EgressConfig>(&request.body) {
             Ok(config) => node
                 .apply_egress(&config)
+                .await
+                .map(|status| Response::ok(json!(status))),
+            Err(response) => return response,
+        },
+        ("GET", ["v1", "network"]) => Ok(Response::ok(json!(node.network_state()))),
+        ("PUT", ["v1", "network"]) => match parse::<NetworkPlan>(&request.body) {
+            Ok(plan) => node
+                .apply_network(&plan)
                 .await
                 .map(|status| Response::ok(json!(status))),
             Err(response) => return response,

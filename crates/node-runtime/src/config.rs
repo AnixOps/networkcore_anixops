@@ -8,19 +8,23 @@
 //!     {"tag": "ss", "type": "shadowsocks", "listen": "::", "listen_port": 8388,
 //!      "method": "2022-blake3-aes-128-gcm", "password": "...", "users": []}
 //!   ],
-//!   "egress": {"routes": [], "relays": []}
+//!   "egress": {"routes": [], "relays": []},
+//!   "network": {"generation": 1, "egresses": [], "ingresses": [], "paths": []}
 //! }
 //! ```
 //!
-//! Every inbound key other than `tag`, `type`, `listen`, `listen_port` and
-//! `outbound` is passed to the protocol factory as its settings. `egress` is
-//! optional and has the format of `PUT /v1/egress`
-//! ([`crate::egress::EgressConfig`]).
+//! Every inbound key other than `tag`, `type`, `listen`, `listen_port`,
+//! `outbound` and `ingress` is passed to the protocol factory as its
+//! settings. `egress` is optional and has the format of `PUT /v1/egress`
+//! ([`crate::egress::EgressConfig`]); `network` is optional and has the
+//! format of `PUT /v1/network` ([`crate::network::NetworkPlan`]).
 //!
 //! `outbound` (on an inbound) and `default_outbound` (for all inbounds)
-//! name the base outbound traffic leaves through: `"direct"` (the default)
-//! or one the binary registered ([`crate::Node::with_outbound`]); plain
-//! `anixcore` registers none.
+//! name the base outbound traffic leaves through: `"direct"` (the default),
+//! `"egress:<id>"` (an egress of the network plan) or one the binary
+//! registered ([`crate::Node::with_outbound`]); plain `anixcore` registers
+//! none. `ingress` (instead of `outbound`) puts the inbound in an ingress
+//! of the network plan: it takes that ingress's active path.
 
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 
@@ -30,6 +34,7 @@ use engine_outbound::TargetAddr;
 use serde::Deserialize;
 
 use crate::egress::EgressConfig;
+use crate::network::NetworkPlan;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -44,6 +49,8 @@ pub struct NodeConfig {
     pub egress: Option<EgressConfig>,
     #[serde(default)]
     pub default_outbound: Option<String>,
+    #[serde(default)]
+    pub network: Option<NetworkPlan>,
 }
 
 /// Has no `Debug`: `token` is a credential.
@@ -67,6 +74,9 @@ pub struct InboundConfig {
     /// The base outbound's name; `None` takes the node's default.
     #[serde(default)]
     pub outbound: Option<String>,
+    /// The network-model ingress; excludes `outbound`.
+    #[serde(default)]
+    pub ingress: Option<String>,
     #[serde(flatten)]
     pub settings: Settings,
 }

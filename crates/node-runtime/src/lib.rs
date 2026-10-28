@@ -28,12 +28,19 @@
 //! rule: its listen port relays TCP and UDP to one fixed `server:port`
 //! through its base outbound only (egress routes do not apply), and the
 //! inbound's bytes are read back with [`Node::inbound_traffic`].
+//!
+//! The network model ([`network`], [`Node::apply_network`]) adds the
+//! device's egresses and paths: each egress is a base outbound named
+//! `egress:<id>`, bound to its source address and probed by the kernel, and
+//! an inbound with an `ingress` key takes its ingress's active path, failing
+//! over between egresses in pairing order.
 
 pub mod api;
 pub mod config;
 mod direct;
 pub mod domains;
 pub mod egress;
+pub mod network;
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -54,8 +61,10 @@ use tokio::task::JoinHandle;
 pub use config::{InboundConfig, ManagementSettings, NodeConfig};
 pub use direct::DirectOutbound;
 pub use egress::{Egress, EgressConfig};
+pub use network::{NetworkPlan, NetworkStatus};
 
 use egress::{EgressRelay, Router};
+use network::{EgressOutbound, IngressOutbound, Network, EGRESS_PREFIX};
 
 /// The name an inbound's `outbound` key uses for the direct outbound.
 pub const DIRECT_OUTBOUND: &str = "direct";
@@ -118,6 +127,8 @@ pub enum NodeError {
     Invalid(BuildError),
     /// An egress configuration was refused; nothing of it was applied.
     Egress(String),
+    /// A network plan was refused; nothing of it was applied.
+    Network(String),
     Io(io::Error),
 }
 
@@ -127,7 +138,7 @@ impl fmt::Display for NodeError {
             NodeError::NotFound => f.write_str("inbound not found"),
             NodeError::Exists => f.write_str("inbound tag already exists"),
             NodeError::Invalid(reason) => f.write_str(reason),
-            NodeError::Egress(reason) => f.write_str(reason),
+            NodeError::Egress(reason) | NodeError::Network(reason) => f.write_str(reason),
             NodeError::Io(error) => write!(f, "{error}"),
         }
     }
@@ -154,8 +165,12 @@ pub struct InboundInfo {
     pub handshake_failed: u64,
     pub bytes_up: u64,
     pub bytes_down: u64,
-    /// The base outbound's name; [`DIRECT_OUTBOUND`] for direct.
+    /// The base outbound's name; [`DIRECT_OUTBOUND`] for direct,
+    /// `ingress:<id>` for an inbound in an ingress.
     pub outbound: String,
+    /// The network-model ingress the inbound belongs to.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ingress: Option<String>,
 }
 
 /// Bytes relayed by one inbound, all users and none together.
@@ -192,6 +207,7 @@ pub struct RelayInfo {
 struct Running {
     kind: String,
     outbound: String,
+    ingress: Option<String>,
     listen: SocketAddr,
     inbound: Inbound,
     stats: Arc<InboundStats>,
@@ -212,6 +228,7 @@ pub struct Node {
     allow_private_targets: bool,
     inbounds: Mutex<BTreeMap<String, Running>>,
     egress: Arc<Egress>,
+    network: Arc<Network>,
     /// Relays by id; also serializes [`Node::apply_egress`].
     relays: tokio::sync::Mutex<BTreeMap<u64, RunningRelay>>,
     /// Base outbounds the embedding binary registered, by name.
@@ -227,6 +244,7 @@ impl Node {
             allow_private_targets,
             inbounds: Mutex::new(BTreeMap::new()),
             egress: Arc::new(Egress::new()),
+            network: Arc::new(Network::new(allow_private_targets)),
             relays: tokio::sync::Mutex::new(BTreeMap::new()),
             outbounds: BTreeMap::new(),
             default_outbound: None,
@@ -240,7 +258,10 @@ impl Node {
 
     /// Registers a base outbound inbounds can name in their `outbound` key.
     /// A later registration under the same name replaces the earlier one;
-    /// [`DIRECT_OUTBOUND`] always means the direct outbound.
+    /// [`DIRECT_OUTBOUND`] always means the direct outbound and names
+    /// starting with `egress:` the network plan's egresses. A transport's
+    /// outbound is registered as `<kind>:<transport id>` (`anx-line:<id>`)
+    /// for network paths to use it.
     pub fn with_outbound(mut self, name: impl Into<String>, outbound: NodeOutbound) -> Self {
         self.outbounds.insert(name.into(), outbound);
         self
@@ -266,6 +287,16 @@ impl Node {
                 config.allowed_targets(),
             )));
         }
+        if let Some(id) = name.strip_prefix(EGRESS_PREFIX) {
+            // Looked up when a connection opens: the plan can change.
+            return valid_tag(id).then(|| {
+                EgressOutbound::node_outbound(
+                    self.network.clone(),
+                    id.to_owned(),
+                    config.allowed_targets(),
+                )
+            });
+        }
         self.outbounds.get(name).cloned()
     }
 
@@ -279,14 +310,38 @@ impl Node {
         if self.lock().contains_key(&config.tag) {
             return Err(NodeError::Exists);
         }
-        let outbound = config
-            .outbound
-            .clone()
-            .or_else(|| self.default_outbound.clone())
-            .unwrap_or_else(|| DIRECT_OUTBOUND.to_owned());
-        let base = self
-            .base_outbound(&outbound, &config)
-            .ok_or(NodeError::Invalid("inbound names an unknown outbound"))?;
+        let (outbound, base) = match &config.ingress {
+            Some(_) if config.outbound.is_some() => {
+                return Err(NodeError::Invalid(
+                    "an inbound takes an ingress or an outbound, not both",
+                ))
+            }
+            Some(ingress) if !valid_tag(ingress) => {
+                return Err(NodeError::Invalid("the ingress id is not valid"))
+            }
+            // The plan may name the ingress later; until then its
+            // connections are refused.
+            Some(ingress) => (
+                format!("ingress:{ingress}"),
+                IngressOutbound::node_outbound(
+                    self.network.clone(),
+                    ingress.clone(),
+                    config.allowed_targets(),
+                    self.outbounds.clone(),
+                ),
+            ),
+            None => {
+                let outbound = config
+                    .outbound
+                    .clone()
+                    .or_else(|| self.default_outbound.clone())
+                    .unwrap_or_else(|| DIRECT_OUTBOUND.to_owned());
+                let base = self
+                    .base_outbound(&outbound, &config)
+                    .ok_or(NodeError::Invalid("inbound names an unknown outbound"))?;
+                (outbound, base)
+            }
+        };
         let inbound = self
             .registry
             .build(&config.kind, &config.settings)
@@ -308,6 +363,7 @@ impl Node {
             Running {
                 kind: config.kind,
                 outbound,
+                ingress: config.ingress,
                 listen,
                 inbound,
                 stats,
@@ -434,6 +490,7 @@ impl Node {
                             running: Running {
                                 kind: egress::RELAY_PROTOCOL.to_owned(),
                                 outbound: DIRECT_OUTBOUND.to_owned(),
+                                ingress: None,
                                 listen,
                                 inbound,
                                 stats,
@@ -479,6 +536,23 @@ impl Node {
                 .collect(),
             mapped_addresses: self.egress.domains().len(),
         }
+    }
+
+    /// Replaces the network plan (egresses, ingresses, paths). Nothing
+    /// changes when an entry is invalid, including a path into a transport
+    /// whose outbound this binary did not register. Connections already
+    /// open keep the path they took.
+    pub async fn apply_network(&self, plan: &NetworkPlan) -> Result<NetworkStatus, NodeError> {
+        let registered = self.outbounds.keys().cloned().collect();
+        self.network
+            .apply(plan, &registered)
+            .await
+            .map_err(NodeError::Network)
+    }
+
+    /// What the network plan runs now, with the egresses' health.
+    pub fn network_state(&self) -> NetworkStatus {
+        self.network.status()
     }
 
     /// Stops an inbound and closes its users' connections.
@@ -540,6 +614,7 @@ impl Node {
                     bytes_up: stats.bytes_up.load(Ordering::Relaxed),
                     bytes_down: stats.bytes_down.load(Ordering::Relaxed),
                     outbound: running.outbound.clone(),
+                    ingress: running.ingress.clone(),
                 }
             })
             .collect()
