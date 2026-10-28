@@ -125,6 +125,10 @@ async fn agent_workflow() {
         .as_array()
         .unwrap()
         .contains(&json!("shadowsocks")));
+    assert!(body["features"]
+        .as_array()
+        .unwrap()
+        .contains(&json!("user_limits")));
 
     let (status, body) = call(api, "POST", "/v1/inbounds", Some(ss_inbound("ss"))).await;
     assert_eq!(status, 201, "{body}");

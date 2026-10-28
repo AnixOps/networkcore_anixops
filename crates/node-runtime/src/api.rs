@@ -3,7 +3,7 @@
 //!
 //! | Method and path | Body | Answer |
 //! | --- | --- | --- |
-//! | `GET /v1/status` | | `{"version", "types", "outbounds", "inbounds"}` |
+//! | `GET /v1/status` | | `{"version", "features", "types", "outbounds", "inbounds"}` |
 //! | `GET /v1/inbounds` | | `{"inbounds": [InboundInfo]}` |
 //! | `POST /v1/inbounds` | inbound config | `{"tag", "listen"}` (201) |
 //! | `DELETE /v1/inbounds/{tag}` | | `{}` |
@@ -33,6 +33,9 @@
 //! `traffic` lists the bytes per user, `inbound` the bytes of the whole
 //! inbound (users or not, so also a `forward` inbound's), both since the
 //! last `reset=true` call, which starts the next interval for both.
+//!
+//! `features` names what this kernel takes beyond the base API, so an agent
+//! can tell before sending it: `user_limits` (the user members below).
 //!
 //! A user may carry `speed_limit` (Mbit/s for each direction, shared by
 //! all of its connections) and `device_limit` (most client IPs online at
@@ -240,6 +243,7 @@ async fn route(node: &Node, request: Request) -> Response {
     let result = match (request.method.as_str(), segments.as_slice()) {
         ("GET", ["v1", "status"]) => Ok(Response::ok(json!({
             "version": env!("CARGO_PKG_VERSION"),
+            "features": crate::FEATURES,
             "types": node.types(),
             "outbounds": node.outbounds(),
             "inbounds": node.list().len(),
