@@ -15,6 +15,8 @@
 
 ### Added
 
+- AnyTLS 服务端入站（新 crate `inbound-anytls`，node-runtime 默认 feature `anytls`，`"type": "anytls"`）：协议版本 2，与 sing-box、mihomo 客户端兼容。用户按 `password` 的 SHA-256 认证，多用户、按用户计流量、限速与设备数限制同其他入站；客户端设置先于第一个 SYN，否则回 Alert；客户端 padding MD5 不同时下发服务端方案（`padding_scheme`，默认与客户端默认方案相同），v2 客户端收到 `v=2` 服务端设置，每个流在目标连上后收到 SYNACK（连不上时带错误信息）；心跳请求有应答。流目标 `sp.v2.udp-over-tcp.arpa` 走 sing UDP over TCP v2（地址模式与 connect 模式）经节点 UDP 出口。未知用户转 `fallback` 或被拖住。TLS 由 `tls` 设置终结。测试用按协议写的最小客户端覆盖多流、计费、SYNACK、padding 下发、Alert、UoT、fallback 和删除用户。
+
 - 面板拦截规则：管理 API 新增 `GET`/`PUT /v1/rules`（`RulesConfig`：`block_domains` 用与分流路由相同的域名匹配写法，`block_protocols` 可选 `bittorrent`、`http`、`tls`，按客户端首包识别）。被拦截的域名（TCP 与 UDP）和协议在所有入站上直接拒绝，转发入站除外；有效规则替换旧规则，任一条无效则整体拒绝（400）并保留旧规则；已建立的连接不受影响。`GET /v1/status` 的 `features` 新增 `block_rules`。
 
 - 用户限速与设备数限制：入站用户新增 `speed_limit`（Mbit/s，上下行各一个令牌桶，用户所有连接共享，最多一秒突发）和 `device_limit`（同时在线的客户端 IP 上限，再来一个新 IP 的连接被拒绝），默认 0 不限。限速作用于经 serve 循环转发的 TCP 流（含 Hysteria2/TUIC 的流和协议自管连接的 `ConnectionContext::relay`），UDP 报文暂不限速；设备数限制作用于 serve 循环和 Snell。`InboundStats` 与 `GET /v1/inbounds` 新增 `device_limited` 计数。

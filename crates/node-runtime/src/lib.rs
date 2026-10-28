@@ -146,6 +146,8 @@ pub fn default_registry() -> InboundRegistry {
     registry.register_packet(Arc::new(inbound_iwan::IwanInboundFactory));
     #[cfg(feature = "forward")]
     registry.register(Arc::new(inbound_forward::ForwardInboundFactory));
+    #[cfg(feature = "anytls")]
+    registry.register(Arc::new(inbound_anytls::AnyTlsInboundFactory));
     registry
 }
 

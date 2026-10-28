@@ -2,7 +2,7 @@
 
 The AnixOps node kernel: protocol server inbounds (Shadowsocks-2022 and
 Shadowsocks AEAD, Trojan,
-VLESS with REALITY, VMess, Hysteria2, TUIC, Snell) in one process, driven by
+VLESS with REALITY, VMess, Hysteria2, TUIC, Snell, AnyTLS) in one process, driven by
 a local management API so that a node agent such as anix-agent can add and
 remove inbounds and users and collect per-user traffic and online IPs.
 
