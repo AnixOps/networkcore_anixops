@@ -254,9 +254,8 @@ impl Targets {
             Strategy::RoundRobin => self.round_robin(candidates),
             Strategy::Random => {
                 let total: u64 = candidates.iter().map(|&i| self.weight(i)).sum();
-                let mut hasher = self.seed.build_hasher();
-                self.draws.fetch_add(1, Ordering::Relaxed).hash(&mut hasher);
-                let mut draw = hasher.finish() % total;
+                let draw = self.draws.fetch_add(1, Ordering::Relaxed);
+                let mut draw = self.seed.hash_one(draw) % total;
                 for &index in candidates {
                     let weight = self.weight(index);
                     if draw < weight {
