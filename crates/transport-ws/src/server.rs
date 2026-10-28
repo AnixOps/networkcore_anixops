@@ -11,12 +11,19 @@
 //! Early data: Xray-style clients (`?ed=`) send the first bytes base64url in
 //! `Sec-WebSocket-Protocol`; they are returned before the first frame and the
 //! header is echoed back, as Xray and sing-box servers do.
+//!
+//! [`HttpUpgradeAcceptor`] is the server side of the V2Ray/sing-box/Xray
+//! `httpupgrade` transport: the same upgrade request (path, host, early
+//! data) without `Sec-WebSocket-Key`, answered with a bare `101`, after
+//! which the connection carries raw bytes with no frames.
 
 use std::io;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 
 use base64::Engine as _;
 use engine_outbound::BoxStream;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 
 use crate::{accept_value, invalid, is_header_safe, protocol_error, Role, WsStream};
 
@@ -161,6 +168,107 @@ impl WsAcceptor {
         host.rsplit_once(':').is_some_and(|(name, port)| {
             name == self.host && port.bytes().all(|b| b.is_ascii_digit())
         })
+    }
+}
+
+/// Server side of the `httpupgrade` transport. Takes the same settings as
+/// [`WsAcceptor`].
+pub struct HttpUpgradeAcceptor(WsAcceptor);
+
+impl HttpUpgradeAcceptor {
+    pub fn new(settings: &WsServerSettings) -> io::Result<Self> {
+        WsAcceptor::new(settings).map(Self)
+    }
+
+    /// Runs the upgrade handshake on `transport`; the returned stream starts
+    /// with any early data and the bytes the client sent after its request.
+    pub async fn accept(&self, mut transport: BoxStream) -> io::Result<BoxStream> {
+        let acceptor = &self.0;
+        let (head, rest) = read_head(&mut transport).await?;
+        let request = match Request::parse(&head) {
+            Some(request) => request,
+            None => {
+                let _ = respond(&mut transport, "400 Bad Request").await;
+                return Err(protocol_error("http upgrade request is malformed"));
+            }
+        };
+        if request.path != acceptor.path || !acceptor.host_matches(request.header("host")) {
+            let _ = respond(&mut transport, "404 Not Found").await;
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "http upgrade request is for another path or host",
+            ));
+        }
+        if !request.has_token("upgrade", "websocket") || !request.has_token("connection", "upgrade")
+        {
+            let _ = respond(&mut transport, "400 Bad Request").await;
+            return Err(protocol_error("request is not an http upgrade"));
+        }
+        let mut buffered = request
+            .header(&acceptor.early_data_header)
+            .filter(|_| acceptor.max_early_data > 0)
+            .and_then(decode_early_data)
+            .filter(|data| data.len() <= acceptor.max_early_data)
+            .unwrap_or_default();
+        buffered.extend_from_slice(&rest);
+        transport
+            .write_all(
+                b"HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n",
+            )
+            .await?;
+        transport.flush().await?;
+        Ok(Box::new(Replay {
+            inner: transport,
+            buffered,
+            pos: 0,
+        }))
+    }
+}
+
+/// A stream that returns `buffered` before reading from `inner`.
+struct Replay {
+    inner: BoxStream,
+    buffered: Vec<u8>,
+    pos: usize,
+}
+
+impl AsyncRead for Replay {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        let this = self.get_mut();
+        if this.pos < this.buffered.len() {
+            let available = &this.buffered[this.pos..];
+            let n = available.len().min(buf.remaining());
+            buf.put_slice(&available[..n]);
+            this.pos += n;
+            if this.pos == this.buffered.len() {
+                this.buffered = Vec::new();
+                this.pos = 0;
+            }
+            return Poll::Ready(Ok(()));
+        }
+        Pin::new(&mut this.inner).poll_read(cx, buf)
+    }
+}
+
+impl AsyncWrite for Replay {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        Pin::new(&mut self.get_mut().inner).poll_write(cx, buf)
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.get_mut().inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.get_mut().inner).poll_shutdown(cx)
     }
 }
 

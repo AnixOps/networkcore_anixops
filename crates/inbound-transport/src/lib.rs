@@ -6,7 +6,8 @@
 //! an ACME client (anix-agent renews with lego) can replace them without a
 //! restart; a broken replacement keeps the previous certificate.
 //!
-//! [`WsInbound`] and [`GrpcInbound`] run the WebSocket or gRPC server side
+//! [`WsInbound`], [`HttpUpgradeInbound`] and [`GrpcInbound`] run the
+//! WebSocket, HTTPUpgrade or gRPC server side
 //! between TLS and the protocol, matching the outbound `transport` object;
 //! gRPC carries several client streams on one connection.
 //!
@@ -15,7 +16,9 @@
 
 mod transport;
 
-pub use transport::{wrap_transport, GrpcInbound, TransportSettings, WsInbound};
+pub use transport::{
+    wrap_transport, GrpcInbound, HttpUpgradeInbound, TransportSettings, WsInbound,
+};
 
 use std::fmt;
 use std::net::SocketAddr;

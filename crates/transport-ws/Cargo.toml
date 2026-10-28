@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "WebSocket client transport (RFC 6455) shared by outbound protocol crates."
+description = "WebSocket (RFC 6455) client and server transport, and the HTTPUpgrade server, for protocol crates."
 
 [dependencies]
 base64 = "0.22"

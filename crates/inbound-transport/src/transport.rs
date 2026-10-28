@@ -1,4 +1,4 @@
-//! WebSocket, gRPC and XHTTP server transports between the client
+//! WebSocket, HTTPUpgrade, gRPC and XHTTP server transports between the client
 //! connection (or its TLS layer) and the protocol inbound.
 
 use std::net::SocketAddr;
@@ -10,7 +10,9 @@ use engine_inbound::udp::DatagramInbound;
 use engine_inbound::{Accepted, Rejected, StreamInbound, UserStore};
 use engine_outbound::{BoxFuture, BoxStream};
 use serde::Deserialize;
-use transport_ws::server::{WsAcceptor, WsServerSettings, DEFAULT_MAX_EARLY_DATA};
+use transport_ws::server::{
+    HttpUpgradeAcceptor, WsAcceptor, WsServerSettings, DEFAULT_MAX_EARLY_DATA,
+};
 use transport_xhttp::server::XhttpServer;
 use transport_xhttp::XhttpSettings;
 
@@ -30,6 +32,23 @@ pub enum TransportSettings {
         host: String,
         /// Largest early data accepted in the handshake (Xray `?ed=`); 0
         /// turns it off.
+        #[serde(default = "default_max_early_data")]
+        max_early_data: usize,
+        /// Header carrying early data; `Sec-WebSocket-Protocol` when empty.
+        #[serde(default)]
+        early_data_header_name: String,
+    },
+    /// V2Ray/sing-box/Xray `httpupgrade`: a WebSocket-style upgrade
+    /// request, then raw bytes. Takes the same members as `ws`.
+    #[serde(alias = "http_upgrade")]
+    Httpupgrade {
+        /// Request path, `/` when empty.
+        #[serde(default)]
+        path: String,
+        /// Required `Host` header; any when empty.
+        #[serde(default)]
+        host: String,
+        /// Largest early data accepted in the handshake; 0 turns it off.
         #[serde(default = "default_max_early_data")]
         max_early_data: usize,
         /// Header carrying early data; `Sec-WebSocket-Protocol` when empty.
@@ -90,6 +109,21 @@ pub fn wrap_transport(
             .map_err(|_| "ws transport path, host or early data header is invalid")?;
             Ok(Arc::new(WsInbound { acceptor, inner }))
         }
+        Some(TransportSettings::Httpupgrade {
+            path,
+            host,
+            max_early_data,
+            early_data_header_name,
+        }) => {
+            let acceptor = HttpUpgradeAcceptor::new(&WsServerSettings {
+                path: path.clone(),
+                host: host.clone(),
+                max_early_data: *max_early_data,
+                early_data_header_name: early_data_header_name.clone(),
+            })
+            .map_err(|_| "httpupgrade transport path, host or early data header is invalid")?;
+            Ok(Arc::new(HttpUpgradeInbound { acceptor, inner }))
+        }
         Some(TransportSettings::Grpc { service_name }) => {
             let path = transport_grpc::tun_path(service_name)
                 .map_err(|_| "grpc transport service_name is missing or invalid")?;
@@ -127,6 +161,61 @@ impl StreamInbound for WsInbound {
             let stream = match self.acceptor.accept(stream).await {
                 Ok(stream) => stream,
                 Err(_) => return Err(Rejected::close("websocket handshake failed")),
+            };
+            self.inner.accept(stream, peer).await
+        })
+    }
+
+    fn serves_connections(&self) -> bool {
+        self.inner.serves_connections()
+    }
+
+    fn serve_connection<'a>(
+        &'a self,
+        stream: BoxStream,
+        context: ConnectionContext<'a>,
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            let handshake = tokio::time::timeout(
+                context.settings.handshake_timeout,
+                self.acceptor.accept(stream),
+            );
+            match handshake.await {
+                Ok(Ok(stream)) => self.inner.serve_connection(stream, context).await,
+                _ => context.handshake_failed(),
+            }
+        })
+    }
+
+    fn datagram(&self) -> Option<Arc<dyn DatagramInbound>> {
+        self.inner.datagram()
+    }
+}
+
+/// A protocol inbound behind an HTTPUpgrade handshake.
+pub struct HttpUpgradeInbound {
+    acceptor: HttpUpgradeAcceptor,
+    inner: Arc<dyn StreamInbound>,
+}
+
+impl StreamInbound for HttpUpgradeInbound {
+    fn protocol(&self) -> &'static str {
+        self.inner.protocol()
+    }
+
+    fn users(&self) -> &Arc<UserStore> {
+        self.inner.users()
+    }
+
+    fn accept<'a>(
+        &'a self,
+        stream: BoxStream,
+        peer: SocketAddr,
+    ) -> BoxFuture<'a, Result<Accepted, Rejected>> {
+        Box::pin(async move {
+            let stream = match self.acceptor.accept(stream).await {
+                Ok(stream) => stream,
+                Err(_) => return Err(Rejected::close("http upgrade handshake failed")),
             };
             self.inner.accept(stream, peer).await
         })
@@ -291,6 +380,22 @@ mod tests {
             serde_json::from_str::<TransportSettings>(r#"{"type": "ws", "paht": "/"}"#).is_err()
         );
         assert!(serde_json::from_str::<TransportSettings>(r#"{"type": "h3"}"#).is_err());
+        for name in ["httpupgrade", "http_upgrade"] {
+            let upgrade: TransportSettings = serde_json::from_str(&format!(
+                r#"{{"type": "{name}", "path": "/up", "host": "cdn.example"}}"#
+            ))
+            .unwrap();
+            assert_eq!(
+                upgrade,
+                TransportSettings::Httpupgrade {
+                    path: "/up".into(),
+                    host: "cdn.example".into(),
+                    max_early_data: DEFAULT_MAX_EARLY_DATA,
+                    early_data_header_name: String::new(),
+                }
+            );
+            assert!(upgrade.default_alpn().is_empty());
+        }
         let xhttp: TransportSettings =
             serde_json::from_str(r#"{"type": "splithttp", "path": "/xh", "mode": "packet-up"}"#)
                 .unwrap();
