@@ -132,6 +132,14 @@ pub trait StreamInbound: Send + Sync {
     fn datagram(&self) -> Option<Arc<dyn udp::DatagramInbound>> {
         None
     }
+
+    /// Work that runs beside [`server::serve_with_udp`] for as long as it
+    /// serves, given the inbound's outbound: a forward's health checks of
+    /// its targets.
+    fn background(&self, outbound: Arc<dyn TcpOutbound>) -> Option<BoxFuture<'static, ()>> {
+        let _ = outbound;
+        None
+    }
 }
 
 /// A server protocol that owns a UDP socket, such as the QUIC-based
