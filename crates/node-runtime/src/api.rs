@@ -3,7 +3,7 @@
 //!
 //! | Method and path | Body | Answer |
 //! | --- | --- | --- |
-//! | `GET /v1/status` | | `{"version", "types", "inbounds"}` |
+//! | `GET /v1/status` | | `{"version", "types", "outbounds", "inbounds"}` |
 //! | `GET /v1/inbounds` | | `{"inbounds": [InboundInfo]}` |
 //! | `POST /v1/inbounds` | inbound config | `{"tag", "listen"}` (201) |
 //! | `DELETE /v1/inbounds/{tag}` | | `{}` |
@@ -223,6 +223,7 @@ async fn route(node: &Node, request: Request) -> Response {
         ("GET", ["v1", "status"]) => Ok(Response::ok(json!({
             "version": env!("CARGO_PKG_VERSION"),
             "types": node.types(),
+            "outbounds": node.outbounds(),
             "inbounds": node.list().len(),
         }))),
         ("GET", ["v1", "inbounds"]) => Ok(Response::ok(json!({ "inbounds": node.list() }))),
