@@ -95,6 +95,35 @@ impl NodeOutbound {
     }
 }
 
+/// Builds the base outbound for the rest of a name after a registered
+/// prefix ([`Node::with_outbound_prefix`]); `None` refuses the name.
+pub type OutboundResolver = Arc<dyn Fn(&str) -> Option<NodeOutbound> + Send + Sync>;
+
+/// Base outbounds the embedding binary registered: by name, and by prefix
+/// for names it resolves on demand.
+#[derive(Clone, Default)]
+pub(crate) struct Outbounds {
+    named: BTreeMap<String, NodeOutbound>,
+    prefixes: Vec<(String, OutboundResolver)>,
+}
+
+impl Outbounds {
+    /// A name registered as is wins over a prefix.
+    pub(crate) fn get(&self, name: &str) -> Option<NodeOutbound> {
+        if let Some(outbound) = self.named.get(name) {
+            return Some(outbound.clone());
+        }
+        for (prefix, resolve) in &self.prefixes {
+            if let Some(rest) = name.strip_prefix(prefix.as_str()) {
+                if !rest.is_empty() {
+                    return resolve(rest);
+                }
+            }
+        }
+        None
+    }
+}
+
 /// The inbound protocols this build was compiled with.
 pub fn default_registry() -> InboundRegistry {
     #[allow(unused_mut)]
@@ -232,7 +261,7 @@ pub struct Node {
     /// Relays by id; also serializes [`Node::apply_egress`].
     relays: tokio::sync::Mutex<BTreeMap<u64, RunningRelay>>,
     /// Base outbounds the embedding binary registered, by name.
-    outbounds: BTreeMap<String, NodeOutbound>,
+    outbounds: Outbounds,
     default_outbound: Option<String>,
 }
 
@@ -246,7 +275,7 @@ impl Node {
             egress: Arc::new(Egress::new()),
             network: Arc::new(Network::new(allow_private_targets)),
             relays: tokio::sync::Mutex::new(BTreeMap::new()),
-            outbounds: BTreeMap::new(),
+            outbounds: Outbounds::default(),
             default_outbound: None,
         }
     }
@@ -263,7 +292,21 @@ impl Node {
     /// outbound is registered as `<kind>:<transport id>` (`anx-line:<id>`)
     /// for network paths to use it.
     pub fn with_outbound(mut self, name: impl Into<String>, outbound: NodeOutbound) -> Self {
-        self.outbounds.insert(name.into(), outbound);
+        self.outbounds.named.insert(name.into(), outbound);
+        self
+    }
+
+    /// Registers base outbounds by name prefix, built on demand from the
+    /// rest of the name: `with_outbound_prefix("anx-line:", ..)` serves
+    /// `anx-line:<id>` for links added after the node started. Inbounds'
+    /// `outbound` keys and network paths into transports use them; a name
+    /// registered with [`Node::with_outbound`] wins.
+    pub fn with_outbound_prefix(
+        mut self,
+        prefix: impl Into<String>,
+        resolver: OutboundResolver,
+    ) -> Self {
+        self.outbounds.prefixes.push((prefix.into(), resolver));
         self
     }
 
@@ -276,7 +319,7 @@ impl Node {
 
     /// Registered base outbound names, without [`DIRECT_OUTBOUND`].
     pub fn outbounds(&self) -> Vec<String> {
-        self.outbounds.keys().cloned().collect()
+        self.outbounds.named.keys().cloned().collect()
     }
 
     /// The base outbound `name` stands for; `None` when it is unknown.
@@ -297,7 +340,7 @@ impl Node {
                 )
             });
         }
-        self.outbounds.get(name).cloned()
+        self.outbounds.get(name)
     }
 
     /// Builds, binds and starts an inbound. Returns the bound address.
@@ -543,9 +586,8 @@ impl Node {
     /// whose outbound this binary did not register. Connections already
     /// open keep the path they took.
     pub async fn apply_network(&self, plan: &NetworkPlan) -> Result<NetworkStatus, NodeError> {
-        let registered = self.outbounds.keys().cloned().collect();
         self.network
-            .apply(plan, &registered)
+            .apply(plan, &self.outbounds)
             .await
             .map_err(NodeError::Network)
     }

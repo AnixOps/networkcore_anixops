@@ -44,7 +44,7 @@ use engine_outbound::{BoxFuture, BoxStream, TargetAddr, TcpOutbound};
 use serde::{Deserialize, Deserializer, Serialize};
 use tokio::task::JoinHandle;
 
-use crate::{DirectOutbound, NodeOutbound};
+use crate::{DirectOutbound, NodeOutbound, Outbounds};
 
 /// The outbound name prefix of an egress.
 pub const EGRESS_PREFIX: &str = "egress:";
@@ -199,7 +199,7 @@ struct Compiled {
 
 /// Checks the whole plan; nothing is applied when an entry is invalid.
 /// `registered` are the outbound names the binary registered.
-fn compile(plan: &NetworkPlan, registered: &BTreeSet<String>) -> Result<Compiled, String> {
+fn compile(plan: &NetworkPlan, registered: &Outbounds) -> Result<Compiled, String> {
     if plan.egresses.len() > MAX_ITEMS
         || plan.ingresses.len() > MAX_ITEMS
         || plan.paths.len() > MAX_ITEMS * 4
@@ -310,7 +310,7 @@ fn compile(plan: &NetworkPlan, registered: &BTreeSet<String>) -> Result<Compiled
                     continue;
                 }
                 let name = format!("{kind}:{transport}");
-                if !registered.contains(&name) {
+                if registered.get(&name).is_none() {
                     return Err(fail(format!("this kernel has no outbound {name:?}")));
                 }
                 Candidate {
@@ -496,7 +496,7 @@ impl Network {
     pub(crate) async fn apply(
         &self,
         plan: &NetworkPlan,
-        registered: &BTreeSet<String>,
+        registered: &Outbounds,
     ) -> Result<NetworkStatus, String> {
         let compiled = compile(plan, registered)?;
         let _applying = self.applying.lock().await;
@@ -582,11 +582,11 @@ impl Network {
         compiled: &Compiled,
         hop: &Hop,
         allowed: &[(String, u16)],
-        registered: &BTreeMap<String, NodeOutbound>,
+        registered: &Outbounds,
     ) -> io::Result<NodeOutbound> {
         match hop {
             Hop::Egress(id) => self.egress_outbound(compiled, id, allowed),
-            Hop::Outbound(name) => registered.get(name).cloned().ok_or_else(|| {
+            Hop::Outbound(name) => registered.get(name).ok_or_else(|| {
                 io::Error::new(io::ErrorKind::NotFound, "transport outbound is gone")
             }),
         }
@@ -860,7 +860,7 @@ pub(crate) struct IngressOutbound {
     network: Arc<Network>,
     ingress: String,
     allowed: Vec<(String, u16)>,
-    registered: BTreeMap<String, NodeOutbound>,
+    registered: Outbounds,
 }
 
 impl IngressOutbound {
@@ -868,7 +868,7 @@ impl IngressOutbound {
         network: Arc<Network>,
         ingress: String,
         allowed: Vec<(String, u16)>,
-        registered: BTreeMap<String, NodeOutbound>,
+        registered: Outbounds,
     ) -> NodeOutbound {
         let outbound = Arc::new(Self {
             network,
@@ -920,8 +920,13 @@ mod tests {
         serde_json::from_value(value).unwrap()
     }
 
-    fn registered(names: &[&str]) -> BTreeSet<String> {
-        names.iter().map(|name| name.to_string()).collect()
+    fn registered(names: &[&str]) -> Outbounds {
+        let direct = || NodeOutbound::direct(DirectOutbound::new(false, Vec::new()));
+        let mut outbounds = Outbounds::default();
+        for name in names {
+            outbounds.named.insert(name.to_string(), direct());
+        }
+        outbounds
     }
 
     #[test]
@@ -992,7 +997,9 @@ mod tests {
         ];
         for case in cases {
             let text = case.to_string();
-            let error = compile(&plan(case), &BTreeSet::new()).err().expect(&text);
+            let error = compile(&plan(case), &Outbounds::default())
+                .err()
+                .expect(&text);
             assert!(error.starts_with("network "), "{error}");
         }
     }
@@ -1050,7 +1057,7 @@ mod tests {
                     "ingresses": [{"id": "i", "pairing": {
                         "mode": "PAIRING_MODE_FAILOVER", "egress_ids": ["a", "b"]}}]
                 })),
-                &BTreeSet::new(),
+                &Outbounds::default(),
             )
             .await
             .unwrap();
