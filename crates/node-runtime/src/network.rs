@@ -17,9 +17,11 @@
 //!   `CROSS` name one, `FAILOVER` several in order. `RULES` is refused for
 //!   now (domain rules still come through `PUT /v1/egress`).
 //! - `paths`: the device view of a path, from an ingress either to a local
-//!   egress (`egress_id`) or into the first transport (`transport_id`),
-//!   which leaves through the outbound the binary registered as
-//!   `<kind>:<transport id>` (`anx_line` → `anx-line:<id>`).
+//!   egress (`egress_id`, or a `local` transport and `final_egress_id`) or
+//!   into the first transport (`transport_id`), which leaves through the
+//!   outbound the binary registered as `<kind>:<transport id>` (`anx_line`
+//!   → `anx-line:<id>`). `forwarding` (relay hops) is not read: the
+//!   transport's server (anx-server) hands relayed traffic to its egress.
 //! - `transports`: only `id` and `kind` are read, to name that outbound.
 //!
 //! A connection takes the ingress's active path, chosen when it opens:
@@ -78,7 +80,8 @@ pub struct NetworkPlan {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct PlanEgress {
     pub id: String,
-    /// An IP address; empty leaves the source to the routing table.
+    /// An IP address; empty or `auto` (which the agent should have
+    /// resolved) leaves the source to the routing table.
     #[serde(default)]
     pub source: String,
     #[serde(default)]
@@ -209,7 +212,7 @@ fn compile(plan: &NetworkPlan, registered: &BTreeSet<String>) -> Result<Compiled
         let fail = |message: String| format!("network egress {:?}: {message}", egress.id);
         check_id(&egress.id).map_err(fail)?;
         let source = match egress.source.trim() {
-            "" => None,
+            "" | "auto" => None,
             source => Some(
                 source
                     .parse::<IpAddr>()
@@ -289,7 +292,22 @@ fn compile(plan: &NetworkPlan, registered: &BTreeSet<String>) -> Result<Compiled
                     .get(transport)
                     .ok_or_else(|| fail(format!("transport {transport:?} is not in the plan")))?;
                 if kind == "local" {
-                    return Err(fail("a local transport cannot start a path".into()));
+                    // In-process forwarding: the path ends at a local egress.
+                    let egress = path.final_egress_id.as_str();
+                    if !egresses.contains_key(egress) {
+                        return Err(fail(format!(
+                            "a local transport needs a local final egress, not {egress:?}"
+                        )));
+                    }
+                    paths
+                        .entry(path.ingress_id.as_str())
+                        .or_default()
+                        .push(Candidate {
+                            path_id: path.id.clone(),
+                            egress_id: Some(egress.to_owned()),
+                            hop: Hop::Egress(egress.to_owned()),
+                        });
+                    continue;
                 }
                 let name = format!("{kind}:{transport}");
                 if !registered.contains(&name) {
@@ -956,7 +974,7 @@ mod tests {
     fn refuses_invalid_plans() {
         let egress = json!({"id": "e", "source": "203.0.113.5"});
         let cases = [
-            json!({"egresses": [{"id": "e", "source": "auto"}]}),
+            json!({"egresses": [{"id": "e", "source": "10.0.0.300"}]}),
             json!({"egresses": [egress.clone(), egress.clone()]}),
             json!({"egresses": [{"id": "e", "health": {"targets": []}}]}),
             json!({"egresses": [{"id": "e", "health": {"targets": ["1.1.1.1"]}}]}),

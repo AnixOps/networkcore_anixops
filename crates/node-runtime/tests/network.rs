@@ -202,3 +202,73 @@ async fn ingresses_take_their_paths() {
     assert!(error.to_string().contains("anx-line:8"), "{error}");
     assert_eq!(node.network_state().generation, 3);
 }
+
+/// The golden plans of anix-control `contracts/network/v1/` (copied into
+/// `tests/fixtures/network-v1/`): the kernel reads each one as the agent
+/// hands it down.
+#[tokio::test]
+async fn reads_the_contract_golden_plans() {
+    let golden = |name: &str| -> NetworkPlan {
+        let path = format!(
+            "{}/tests/fixtures/network-v1/{name}.json",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
+    };
+    let udp = Arc::new(DirectOutbound::new(false, Vec::new()));
+    let transport = || NodeOutbound::new(udp.clone(), udp.clone());
+
+    // Ingress device: failover between two ANX-Line transports.
+    let ingress = Node::new(default_registry(), false)
+        .with_outbound("anx-line:tr-jp", transport())
+        .with_outbound("anx-line:tr-hk", transport());
+    let status = ingress
+        .apply_network(&golden("plan-anx-line-ingress"))
+        .await
+        .unwrap();
+    assert_eq!(status.generation, 1);
+    assert_eq!(status.ingresses[0].id, "in-ss");
+    assert_eq!(status.ingresses[0].active_path_id.as_deref(), Some("pa-jp"));
+    assert_eq!(
+        status.ingresses[0].active_egress_id.as_deref(),
+        Some("eg-jp")
+    );
+    // Without the transport outbounds the plan is refused.
+    assert!(Node::new(default_registry(), false)
+        .apply_network(&golden("plan-anx-line-ingress"))
+        .await
+        .is_err());
+
+    // Egress device: its egresses are probed and bound to their source.
+    let egress = Node::new(default_registry(), false);
+    let status = egress
+        .apply_network(&golden("plan-anx-line-egress"))
+        .await
+        .unwrap();
+    let egresses: Vec<(&str, bool)> = status
+        .egresses
+        .iter()
+        .map(|egress| (egress.id.as_str(), egress.checked))
+        .collect();
+    assert_eq!(egresses, vec![("eg-jp", true), ("eg-jp6", false)]);
+
+    // One box, two lines: same-line, cross and a local transport.
+    let single = Node::new(default_registry(), false);
+    let status = single
+        .apply_network(&golden("plan-dual-line-single-box"))
+        .await
+        .unwrap();
+    let active: Vec<(&str, Option<&str>)> = status
+        .ingresses
+        .iter()
+        .map(|ingress| (ingress.id.as_str(), ingress.active_egress_id.as_deref()))
+        .collect();
+    assert_eq!(
+        active,
+        vec![
+            ("in-9929", Some("eg-9929")),
+            ("in-cn2-nat", Some("eg-9929")),
+            ("in-cn2-v6", Some("eg-cn2")),
+        ]
+    );
+}
