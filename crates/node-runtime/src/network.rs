@@ -557,10 +557,8 @@ impl Network {
         let probed = lock(&self.probed);
         let probe = probed.get(egress?)?;
         probe.egress.health.as_ref()?;
-        Some((
-            probe.health.up.load(Ordering::Relaxed),
-            *lock(&probe.health.since),
-        ))
+        let since = *lock(&probe.health.since);
+        Some((probe.health.up.load(Ordering::Relaxed), since))
     }
 
     /// The candidate an ingress's next connection takes.
