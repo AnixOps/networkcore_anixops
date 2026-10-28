@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Shadowsocks-2022 (SIP022) TCP and UDP server inbound with multi-user identity headers."
+description = "Shadowsocks-2022 (SIP022) and Shadowsocks AEAD (SIP004) TCP and UDP server inbounds, multi-user."
 
 [dependencies]
 # Block cipher for Shadowsocks-2022 identity headers only; session data uses ring.

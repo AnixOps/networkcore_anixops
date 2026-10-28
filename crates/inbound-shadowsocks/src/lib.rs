@@ -1,4 +1,8 @@
-//! Shadowsocks-2022 (SIP022) TCP server inbound.
+//! Shadowsocks server inbounds: Shadowsocks-2022 (SIP022) in this file and
+//! the older AEAD protocol (SIP004) in [`sip004`]. The `shadowsocks` inbound
+//! type picks one by method name.
+//!
+//! Shadowsocks-2022:
 //!
 //! Supports `2022-blake3-aes-128-gcm`, `2022-blake3-aes-256-gcm` and
 //! `2022-blake3-chacha20-poly1305`. Two modes, as in other SIP022 servers:
@@ -17,6 +21,7 @@
 //! timestamp window and a per-session packet id replay window.
 
 mod factory;
+pub mod sip004;
 mod udp;
 
 use std::io;
@@ -39,7 +44,9 @@ use ring::rand::{SecureRandom, SystemRandom};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, ReadBuf};
 
 pub use factory::{ShadowsocksInboundFactory, TYPE_NAME};
+pub use outbound_shadowsocks::AeadMethod;
 pub use outbound_shadowsocks::Method;
+pub use sip004::AeadInbound;
 
 pub const PROTOCOL: &str = "shadowsocks-2022";
 
