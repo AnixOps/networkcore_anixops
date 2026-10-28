@@ -1430,6 +1430,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "inbound-anytls"
+version = "0.2.0"
+dependencies = [
+ "engine-inbound",
+ "engine-outbound",
+ "futures-util",
+ "inbound-transport",
+ "md-5 0.10.6",
+ "rcgen",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "transport-tls",
+]
+
+[[package]]
 name = "inbound-forward"
 version = "0.2.0"
 dependencies = [
@@ -1911,6 +1928,7 @@ version = "0.2.0"
 dependencies = [
  "engine-inbound",
  "engine-outbound",
+ "inbound-anytls",
  "inbound-forward",
  "inbound-hysteria2",
  "inbound-iwan",

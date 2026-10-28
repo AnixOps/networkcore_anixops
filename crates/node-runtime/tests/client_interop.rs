@@ -32,9 +32,11 @@ const TIMEOUT: Duration = Duration::from_secs(15);
 const SS_METHOD: &str = "2022-blake3-aes-128-gcm";
 const SS_SERVER_KEY: &str = "AQIDBAUGBwgJCgsMDQ4PEA==";
 const SS_USER_KEY: &str = "EA8ODQwLCgkIBwYFBAMCAQ==";
+const SS_AEAD_METHOD: &str = "aes-256-gcm";
 const PASSWORD: &str = "interop-password";
 const OBFS_PASSWORD: &str = "interop-obfs";
 const WS_PATH: &str = "/ws";
+const HTTPUPGRADE_PATH: &str = "/up";
 const GRPC_SERVICE: &str = "interop";
 const XHTTP_PATH: &str = "/xh";
 
@@ -83,19 +85,27 @@ impl Env {
 /// What a client must speak to one of our inbounds.
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Proto {
-    VlessReality { vision: bool },
+    VlessReality {
+        vision: bool,
+    },
     Vless,
     Vmess,
     Trojan,
     Shadowsocks,
-    Hysteria2 { obfs: bool },
+    /// Shadowsocks AEAD (SIP004) with per-user passwords.
+    ShadowsocksAead,
+    Hysteria2 {
+        obfs: bool,
+    },
     Tuic,
+    AnyTls,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Net {
     Tcp,
     Ws,
+    HttpUpgrade,
     Grpc,
     /// XHTTP in `mode`; `h1` makes the client offer only ALPN `http/1.1`.
     Xhttp {
@@ -269,6 +279,30 @@ const CASES: &[Case] = &[
         tls: false,
     },
     Case {
+        tag: "vless-httpupgrade",
+        proto: Proto::Vless,
+        net: Net::HttpUpgrade,
+        tls: false,
+    },
+    Case {
+        tag: "trojan-tls-httpupgrade",
+        proto: Proto::Trojan,
+        net: Net::HttpUpgrade,
+        tls: true,
+    },
+    Case {
+        tag: "ss-aead-multi-user",
+        proto: Proto::ShadowsocksAead,
+        net: Net::Tcp,
+        tls: false,
+    },
+    Case {
+        tag: "anytls",
+        proto: Proto::AnyTls,
+        net: Net::Tcp,
+        tls: true,
+    },
+    Case {
         tag: "hysteria2",
         proto: Proto::Hysteria2 { obfs: false },
         net: Net::Tcp,
@@ -338,6 +372,15 @@ fn inbound(env: &Env, case: &Case) -> Value {
             object.insert("password".into(), SS_SERVER_KEY.into());
             object.insert("users".into(), user(json!({"password": SS_USER_KEY})));
         }
+        Proto::ShadowsocksAead => {
+            object.insert("type".into(), "shadowsocks".into());
+            object.insert("method".into(), SS_AEAD_METHOD.into());
+            object.insert("users".into(), user(json!({"password": PASSWORD})));
+        }
+        Proto::AnyTls => {
+            object.insert("type".into(), "anytls".into());
+            object.insert("users".into(), user(json!({"password": PASSWORD})));
+        }
         Proto::Hysteria2 { obfs } => {
             object.insert("type".into(), "hysteria2".into());
             object.insert("users".into(), user(json!({"password": PASSWORD})));
@@ -361,6 +404,12 @@ fn inbound(env: &Env, case: &Case) -> Value {
         Net::Tcp => {}
         Net::Ws => {
             object.insert("transport".into(), json!({"type": "ws", "path": WS_PATH}));
+        }
+        Net::HttpUpgrade => {
+            object.insert(
+                "transport".into(),
+                json!({"type": "httpupgrade", "path": HTTPUPGRADE_PATH}),
+            );
         }
         Net::Grpc => {
             object.insert(
@@ -410,7 +459,10 @@ impl Client {
 
     fn supports(self, case: &Case) -> bool {
         match self {
-            Client::Xray => !matches!(case.proto, Proto::Hysteria2 { .. } | Proto::Tuic),
+            Client::Xray => !matches!(
+                case.proto,
+                Proto::Hysteria2 { .. } | Proto::Tuic | Proto::AnyTls
+            ),
             // sing-box has no XHTTP.
             Client::SingBox => !matches!(case.net, Net::Xhttp { .. }),
             Client::Hysteria => matches!(case.proto, Proto::Hysteria2 { .. }),
@@ -472,11 +524,19 @@ fn xray_config(env: &Env, case: &Case, server: SocketAddr, socks: u16) -> Value 
             json!({"servers": [{"address": address, "port": port, "method": SS_METHOD,
                 "password": format!("{SS_SERVER_KEY}:{SS_USER_KEY}")}]}),
         ),
-        Proto::Hysteria2 { .. } | Proto::Tuic => unreachable!("not an Xray client case"),
+        Proto::ShadowsocksAead => (
+            "shadowsocks",
+            json!({"servers": [{"address": address, "port": port, "method": SS_AEAD_METHOD,
+                "password": PASSWORD}]}),
+        ),
+        Proto::Hysteria2 { .. } | Proto::Tuic | Proto::AnyTls => {
+            unreachable!("not an Xray client case")
+        }
     };
     let mut stream = json!({"network": match case.net {
         Net::Tcp => "tcp",
         Net::Ws => "ws",
+        Net::HttpUpgrade => "httpupgrade",
         Net::Grpc => "grpc",
         Net::Xhttp { .. } => "xhttp",
     }});
@@ -488,6 +548,12 @@ fn xray_config(env: &Env, case: &Case, server: SocketAddr, socks: u16) -> Value 
             stream_object.insert(
                 "wsSettings".into(),
                 json!({"path": format!("{WS_PATH}?ed=2048"), "host": env.server_name}),
+            );
+        }
+        Net::HttpUpgrade => {
+            stream_object.insert(
+                "httpupgradeSettings".into(),
+                json!({"path": format!("{HTTPUPGRADE_PATH}?ed=2048"), "host": env.server_name}),
             );
         }
         Net::Grpc => {
@@ -590,6 +656,15 @@ fn sing_box_config(env: &Env, case: &Case, server: SocketAddr, socks: u16) -> Va
                 format!("{SS_SERVER_KEY}:{SS_USER_KEY}").into(),
             );
         }
+        Proto::ShadowsocksAead => {
+            object.insert("type".into(), "shadowsocks".into());
+            object.insert("method".into(), SS_AEAD_METHOD.into());
+            object.insert("password".into(), PASSWORD.into());
+        }
+        Proto::AnyTls => {
+            object.insert("type".into(), "anytls".into());
+            object.insert("password".into(), PASSWORD.into());
+        }
         Proto::Hysteria2 { obfs } => {
             object.insert("type".into(), "hysteria2".into());
             object.insert("password".into(), PASSWORD.into());
@@ -615,6 +690,12 @@ fn sing_box_config(env: &Env, case: &Case, server: SocketAddr, socks: u16) -> Va
                 json!({"type": "ws", "path": WS_PATH, "max_early_data": 2048,
                     "early_data_header_name": "Sec-WebSocket-Protocol",
                     "headers": {"Host": env.server_name}}),
+            );
+        }
+        Net::HttpUpgrade => {
+            object.insert(
+                "transport".into(),
+                json!({"type": "httpupgrade", "path": HTTPUPGRADE_PATH, "host": env.server_name}),
             );
         }
         Net::Grpc => {
