@@ -31,3 +31,20 @@ Domain egress routes from the panel (anix-control 「转发 → 分流」) are a
 with `PUT /v1/egress` (or the config member `egress`): the route's domains
 leave through the exit node's Shadowsocks-2022 relay, for every inbound, and
 an exit node serves the relays. See `crates/node-runtime/src/egress.rs`.
+
+Port forwarding rules from the panel (anix-control 「转发」) are `forward`
+inbounds: the listen port relays TCP and UDP to one fixed target, through
+the inbound's base outbound only (egress routes do not apply). The target
+may be private; it is the operator's, not a user's.
+
+```json
+{"tag": "rule-7", "type": "forward", "listen_port": 10001,
+ "server": "203.0.113.7", "server_port": 443, "network": "tcp,udp",
+ "outbound": "anx-line:7"}
+```
+
+`network` is `tcp`, `udp` or `tcp,udp` (the default). A forward has no
+users; `GET /v1/inbounds/{tag}/traffic?reset=true` answers its bytes in
+`inbound` (`{"up", "down"}` since the last reset), and every inbound reports
+the same. `outbound` names a base outbound the binary registered, such as
+`anx-line:<link_id>` on anx-node; plain anixcore only has `direct`.

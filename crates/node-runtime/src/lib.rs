@@ -23,6 +23,11 @@
 //! default ([`Node::with_default_outbound`]) applies, else direct. A
 //! registered outbound applies its own target policy:
 //! `allow_private_targets` only governs the direct outbound.
+//!
+//! A `"type": "forward"` inbound ([`FORWARD_TYPE`]) is a panel forwarding
+//! rule: its listen port relays TCP and UDP to one fixed `server:port`
+//! through its base outbound only (egress routes do not apply), and the
+//! inbound's bytes are read back with [`Node::inbound_traffic`].
 
 pub mod api;
 pub mod config;
@@ -54,6 +59,11 @@ use egress::{EgressRelay, Router};
 
 /// The name an inbound's `outbound` key uses for the direct outbound.
 pub const DIRECT_OUTBOUND: &str = "direct";
+
+/// The `type` of fixed-target port forwards (`inbound-forward`): their
+/// target is the operator's, so it passes the private-target filter, and
+/// they leave through their base outbound without egress routes.
+pub const FORWARD_TYPE: &str = "forward";
 
 /// An inbound's base outbound, for TCP connections and UDP sessions.
 #[derive(Clone)]
@@ -96,6 +106,8 @@ pub fn default_registry() -> InboundRegistry {
     registry.register_packet(Arc::new(inbound_tuic::TuicInboundFactory));
     #[cfg(feature = "iwan")]
     registry.register_packet(Arc::new(inbound_iwan::IwanInboundFactory));
+    #[cfg(feature = "forward")]
+    registry.register(Arc::new(inbound_forward::ForwardInboundFactory));
     registry
 }
 
@@ -146,6 +158,15 @@ pub struct InboundInfo {
     pub outbound: String,
 }
 
+/// Bytes relayed by one inbound, all users and none together.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct InboundTraffic {
+    /// Client to target.
+    pub up: u64,
+    /// Target to client.
+    pub down: u64,
+}
+
 /// What an egress configuration runs on this node.
 #[derive(Clone, Debug, Serialize)]
 pub struct EgressStatus {
@@ -175,6 +196,9 @@ struct Running {
     inbound: Inbound,
     stats: Arc<InboundStats>,
     task: JoinHandle<()>,
+    /// Bytes up and down already reported by a resetting
+    /// [`Node::inbound_traffic`] call.
+    reported: Mutex<(u64, u64)>,
 }
 
 struct RunningRelay {
@@ -267,9 +291,13 @@ impl Node {
             .registry
             .build(&config.kind, &config.settings)
             .map_err(NodeError::Invalid)?;
-        let router = Arc::new(Router::new(base, self.egress.clone()));
         let address = SocketAddr::new(config.listen, config.listen_port);
-        let (listen, stats, task) = self.spawn(&inbound, address, router.clone(), router)?;
+        let (listen, stats, task) = if config.kind == FORWARD_TYPE {
+            self.spawn(&inbound, address, base.tcp, base.udp)?
+        } else {
+            let router = Arc::new(Router::new(base, self.egress.clone()));
+            self.spawn(&inbound, address, router.clone(), router)?
+        };
         let mut inbounds = self.lock();
         if inbounds.contains_key(&config.tag) {
             task.abort();
@@ -284,6 +312,7 @@ impl Node {
                 inbound,
                 stats,
                 task,
+                reported: Mutex::new((0, 0)),
             },
         );
         Ok(listen)
@@ -409,6 +438,7 @@ impl Node {
                                 inbound,
                                 stats,
                                 task,
+                                reported: Mutex::new((0, 0)),
                             },
                             config: relay,
                         },
@@ -468,6 +498,30 @@ impl Node {
             .get(tag)
             .map(|running| running.inbound.users().clone())
             .ok_or(NodeError::NotFound)
+    }
+
+    /// Bytes an inbound relayed since the last call with `reset`, or since
+    /// it started; `reset` starts the next interval. Unlike per-user
+    /// traffic this covers inbounds without users, such as forwards.
+    pub fn inbound_traffic(&self, tag: &str, reset: bool) -> Result<InboundTraffic, NodeError> {
+        let inbounds = self.lock();
+        let running = inbounds.get(tag).ok_or(NodeError::NotFound)?;
+        let total = (
+            running.stats.bytes_up.load(Ordering::Relaxed),
+            running.stats.bytes_down.load(Ordering::Relaxed),
+        );
+        let mut reported = running
+            .reported
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let traffic = InboundTraffic {
+            up: total.0.saturating_sub(reported.0),
+            down: total.1.saturating_sub(reported.1),
+        };
+        if reset {
+            *reported = total;
+        }
+        Ok(traffic)
     }
 
     pub fn list(&self) -> Vec<InboundInfo> {

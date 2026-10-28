@@ -1,0 +1,20 @@
+[package]
+name = "inbound-forward"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Fixed-target port forward inbound: listen port to one host:port, TCP and UDP."
+
+[dependencies]
+engine-inbound = { path = "../engine-inbound" }
+engine-outbound = { path = "../engine-outbound" }
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", default-features = false, features = ["net", "macros"] }
+
+[dev-dependencies]
+serde_json = "1"
+tokio = { version = "1", default-features = false, features = ["io-util", "net", "rt", "rt-multi-thread", "macros", "time"] }
+
+[lib]
+path = "src/lib.rs"

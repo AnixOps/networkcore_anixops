@@ -177,7 +177,9 @@ async fn agent_workflow() {
         .collect();
     traffic.sort();
     assert_eq!(traffic, vec![("1001".into(), 5, 5), ("1002".into(), 4, 4)]);
+    assert_eq!(body["inbound"], json!({"up": 9, "down": 9}));
     let (_, body) = call(api, "GET", "/v1/inbounds/ss/traffic", None).await;
+    assert_eq!(body["inbound"], json!({"up": 0, "down": 0}));
     assert!(body["traffic"]
         .as_array()
         .unwrap()
