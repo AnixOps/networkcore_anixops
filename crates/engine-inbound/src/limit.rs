@@ -118,7 +118,10 @@ mod tests {
         let wait = limiter.charge_at(500, start).unwrap();
         assert!((wait.as_secs_f64() - 0.5).abs() < 1e-6);
         // Half a second later the debt is paid.
-        assert_eq!(limiter.charge_at(0, start + Duration::from_millis(500)), None);
+        assert_eq!(
+            limiter.charge_at(0, start + Duration::from_millis(500)),
+            None
+        );
         // Tokens never exceed one second's worth.
         let later = start + Duration::from_secs(60);
         assert_eq!(limiter.charge_at(1000, later), None);

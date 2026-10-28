@@ -468,7 +468,9 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for Metered<'_, S> {
         let polled = Pin::new(&mut this.inner).poll_write(cx, buf);
         if let Poll::Ready(Ok(written)) = &polled {
             let written = *written;
-            this.stats.bytes_down.fetch_add(written as u64, Ordering::Relaxed);
+            this.stats
+                .bytes_down
+                .fetch_add(written as u64, Ordering::Relaxed);
             if let Some(user) = &this.user {
                 user.add_down(written as u64);
                 this.down.charge(user.down_limiter(), written);

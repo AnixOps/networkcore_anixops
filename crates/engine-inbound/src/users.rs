@@ -639,7 +639,10 @@ mod tests {
         let again = entry.try_connect(ip(1)).unwrap();
         assert!(entry.try_connect(ip(3)).is_none());
         drop(first);
-        assert!(entry.try_connect(ip(3)).is_none(), "ip 1 still has a connection");
+        assert!(
+            entry.try_connect(ip(3)).is_none(),
+            "ip 1 still has a connection"
+        );
         drop(again);
         assert!(entry.try_connect(ip(3)).is_some());
     }

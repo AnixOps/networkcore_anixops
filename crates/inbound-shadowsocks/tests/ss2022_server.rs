@@ -286,11 +286,10 @@ async fn speed_and_device_limits_apply_per_user() {
         reader.read_exact(&mut received).await.unwrap();
         received
     };
-    let (_, received) = tokio::time::timeout(Duration::from_secs(30), async {
-        tokio::join!(write, read)
-    })
-    .await
-    .expect("limited echo finishes");
+    let (_, received) =
+        tokio::time::timeout(Duration::from_secs(30), async { tokio::join!(write, read) })
+            .await
+            .expect("limited echo finishes");
     assert!(received == data);
     let elapsed = started.elapsed();
     assert!(elapsed >= Duration::from_millis(1800), "{elapsed:?}");
