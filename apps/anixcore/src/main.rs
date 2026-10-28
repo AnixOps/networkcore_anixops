@@ -63,7 +63,10 @@ fn start(config: NodeConfig, check_only: bool) -> Result<(), String> {
         .build()
         .map_err(|error| format!("cannot start runtime: {error}"))?;
     runtime.block_on(async move {
-        let node = Arc::new(Node::new(default_registry(), config.allow_private_targets));
+        let node = Arc::new(
+            Node::new(default_registry(), config.allow_private_targets)
+                .with_default_outbound(config.default_outbound),
+        );
         for inbound in config.inbounds {
             let tag = inbound.tag.clone();
             let listen = node

@@ -12,9 +12,15 @@
 //! }
 //! ```
 //!
-//! Every inbound key other than `tag`, `type`, `listen` and `listen_port` is
-//! passed to the protocol factory as its settings. `egress` is optional and
-//! has the format of `PUT /v1/egress` ([`crate::egress::EgressConfig`]).
+//! Every inbound key other than `tag`, `type`, `listen`, `listen_port` and
+//! `outbound` is passed to the protocol factory as its settings. `egress` is
+//! optional and has the format of `PUT /v1/egress`
+//! ([`crate::egress::EgressConfig`]).
+//!
+//! `outbound` (on an inbound) and `default_outbound` (for all inbounds)
+//! name the base outbound traffic leaves through: `"direct"` (the default)
+//! or one the binary registered ([`crate::Node::with_outbound`]); plain
+//! `anixcore` registers none.
 
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 
@@ -35,6 +41,8 @@ pub struct NodeConfig {
     pub inbounds: Vec<InboundConfig>,
     #[serde(default)]
     pub egress: Option<EgressConfig>,
+    #[serde(default)]
+    pub default_outbound: Option<String>,
 }
 
 /// Has no `Debug`: `token` is a credential.
@@ -55,6 +63,9 @@ pub struct InboundConfig {
     #[serde(default = "any_address")]
     pub listen: IpAddr,
     pub listen_port: u16,
+    /// The base outbound's name; `None` takes the node's default.
+    #[serde(default)]
+    pub outbound: Option<String>,
     #[serde(flatten)]
     pub settings: Settings,
 }
@@ -90,6 +101,7 @@ mod tests {
         let config: NodeConfig = serde_json::from_value(serde_json::json!({
             "inbounds": [{
                 "tag": "vless", "type": "vless", "listen_port": 443,
+                "outbound": "direct",
                 "users": [],
                 "fallback": {"server": "127.0.0.1", "server_port": 8080},
                 "reality": {"handshake": {"server": "www.example.com", "server_port": 443}}
@@ -100,6 +112,8 @@ mod tests {
         assert_eq!(inbound.listen, any_address());
         assert!(!inbound.settings.contains_key("tag"));
         assert!(!inbound.settings.contains_key("listen_port"));
+        assert_eq!(inbound.outbound.as_deref(), Some("direct"));
+        assert!(!inbound.settings.contains_key("outbound"));
         assert!(inbound.settings.contains_key("users"));
         assert_eq!(
             inbound.allowed_targets(),

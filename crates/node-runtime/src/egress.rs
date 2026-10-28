@@ -19,8 +19,10 @@
 //! 3. the name a DNS answer relayed through the node mapped the address to
 //!    ([`DomainCache`]).
 //!
-//! UDP datagrams use 1 and 3. Without routes the router is the direct
-//! outbound and adds nothing.
+//! UDP datagrams use 1 and 3. Everything no route matches leaves through
+//! the inbound's base outbound: the direct outbound, or one the embedding
+//! binary registered ([`crate::NodeOutbound`]). Without routes the router is
+//! that base outbound and adds nothing.
 
 use std::collections::{BTreeSet, HashMap};
 use std::future::Future;
@@ -42,7 +44,6 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
-use crate::direct::DirectOutbound;
 use crate::domains::{normalize, DomainCache};
 
 /// The only relay protocol today; an empty `protocol` means it.
@@ -277,17 +278,19 @@ impl Egress {
 }
 
 /// The outbound of every inbound: the egress route a connection's domain
-/// matches, else the direct outbound.
+/// matches, else the inbound's base outbound.
 #[derive(Clone)]
 pub struct Router {
-    direct: Arc<DirectOutbound>,
+    base: Arc<dyn TcpOutbound>,
+    base_udp: Arc<dyn UdpOutbound>,
     egress: Arc<Egress>,
 }
 
 impl Router {
-    pub fn new(direct: DirectOutbound, egress: Arc<Egress>) -> Self {
+    pub fn new(base: crate::NodeOutbound, egress: Arc<Egress>) -> Self {
         Self {
-            direct: Arc::new(direct),
+            base: base.tcp,
+            base_udp: base.udp,
             egress,
         }
     }
@@ -296,7 +299,7 @@ impl Router {
         let table = self.egress.table();
         match host.and_then(|host| table.find(host)) {
             Some(route) => route.outbound.connect(target).await,
-            None => self.direct.connect(target).await,
+            None => self.base.connect(target).await,
         }
     }
 }
@@ -309,7 +312,7 @@ impl TcpOutbound for Router {
     fn connect<'a>(&'a self, target: &'a TargetAddr) -> BoxFuture<'a, io::Result<BoxStream>> {
         Box::pin(async move {
             if self.egress.table().is_empty() {
-                return self.direct.connect(target).await;
+                return self.base.connect(target).await;
             }
             match target {
                 TargetAddr::Domain(host, _) => {
@@ -436,7 +439,7 @@ impl AsyncWrite for SniffStream {
 impl UdpOutbound for Router {
     fn bind(&self) -> BoxFuture<'_, io::Result<Arc<dyn UdpSession>>> {
         Box::pin(async move {
-            let direct = self.direct.bind().await?;
+            let direct = self.base_udp.bind().await?;
             let (replies, receiver) = mpsc::channel(256);
             Ok(Arc::new(RoutedUdp {
                 direct,
@@ -688,7 +691,10 @@ mod tests {
             ))
             .unwrap(),
         );
-        let router = Router::new(DirectOutbound::new(true, Vec::new()), egress);
+        let router = Router::new(
+            crate::NodeOutbound::direct(crate::DirectOutbound::new(true, Vec::new())),
+            egress,
+        );
         let target = TargetAddr::Ip(address);
 
         // Client first: the bytes pick the route (none here), then pass.

@@ -15,6 +15,14 @@
 //! egress routes of the panel ([`Node::apply_egress`]) send chosen domains
 //! out through another node's Shadowsocks-2022 relay, and the relays this
 //! node serves as an exit node run beside the inbounds.
+//!
+//! What no egress route takes leaves through the inbound's base outbound:
+//! the direct outbound, or an outbound the embedding binary registered by
+//! name ([`Node::with_outbound`]), such as a tunnel to another node. An
+//! inbound picks one with its `outbound` key; without it the node's
+//! default ([`Node::with_default_outbound`]) applies, else direct. A
+//! registered outbound applies its own target policy:
+//! `allow_private_targets` only governs the direct outbound.
 
 pub mod api;
 pub mod config;
@@ -43,6 +51,30 @@ pub use direct::DirectOutbound;
 pub use egress::{Egress, EgressConfig};
 
 use egress::{EgressRelay, Router};
+
+/// The name an inbound's `outbound` key uses for the direct outbound.
+pub const DIRECT_OUTBOUND: &str = "direct";
+
+/// An inbound's base outbound, for TCP connections and UDP sessions.
+#[derive(Clone)]
+pub struct NodeOutbound {
+    pub tcp: Arc<dyn TcpOutbound>,
+    pub udp: Arc<dyn UdpOutbound>,
+}
+
+impl NodeOutbound {
+    pub fn new(tcp: Arc<dyn TcpOutbound>, udp: Arc<dyn UdpOutbound>) -> Self {
+        Self { tcp, udp }
+    }
+
+    pub fn direct(direct: DirectOutbound) -> Self {
+        let direct = Arc::new(direct);
+        Self {
+            tcp: direct.clone(),
+            udp: direct,
+        }
+    }
+}
 
 /// The inbound protocols this build was compiled with.
 pub fn default_registry() -> InboundRegistry {
@@ -110,6 +142,8 @@ pub struct InboundInfo {
     pub handshake_failed: u64,
     pub bytes_up: u64,
     pub bytes_down: u64,
+    /// The base outbound's name; [`DIRECT_OUTBOUND`] for direct.
+    pub outbound: String,
 }
 
 /// What an egress configuration runs on this node.
@@ -136,6 +170,7 @@ pub struct RelayInfo {
 
 struct Running {
     kind: String,
+    outbound: String,
     listen: SocketAddr,
     inbound: Inbound,
     stats: Arc<InboundStats>,
@@ -155,6 +190,9 @@ pub struct Node {
     egress: Arc<Egress>,
     /// Relays by id; also serializes [`Node::apply_egress`].
     relays: tokio::sync::Mutex<BTreeMap<u64, RunningRelay>>,
+    /// Base outbounds the embedding binary registered, by name.
+    outbounds: BTreeMap<String, NodeOutbound>,
+    default_outbound: Option<String>,
 }
 
 impl Node {
@@ -166,12 +204,45 @@ impl Node {
             inbounds: Mutex::new(BTreeMap::new()),
             egress: Arc::new(Egress::new()),
             relays: tokio::sync::Mutex::new(BTreeMap::new()),
+            outbounds: BTreeMap::new(),
+            default_outbound: None,
         }
     }
 
     pub fn with_serve_settings(mut self, settings: ServeSettings) -> Self {
         self.serve_settings = settings;
         self
+    }
+
+    /// Registers a base outbound inbounds can name in their `outbound` key.
+    /// A later registration under the same name replaces the earlier one;
+    /// [`DIRECT_OUTBOUND`] always means the direct outbound.
+    pub fn with_outbound(mut self, name: impl Into<String>, outbound: NodeOutbound) -> Self {
+        self.outbounds.insert(name.into(), outbound);
+        self
+    }
+
+    /// The base outbound of inbounds without an `outbound` key; `None` (the
+    /// default) is direct. An unknown name fails when an inbound is added.
+    pub fn with_default_outbound(mut self, name: Option<String>) -> Self {
+        self.default_outbound = name;
+        self
+    }
+
+    /// Registered base outbound names, without [`DIRECT_OUTBOUND`].
+    pub fn outbounds(&self) -> Vec<String> {
+        self.outbounds.keys().cloned().collect()
+    }
+
+    /// The base outbound `name` stands for; `None` when it is unknown.
+    fn base_outbound(&self, name: &str, config: &InboundConfig) -> Option<NodeOutbound> {
+        if name == DIRECT_OUTBOUND {
+            return Some(NodeOutbound::direct(DirectOutbound::new(
+                self.allow_private_targets,
+                config.allowed_targets(),
+            )));
+        }
+        self.outbounds.get(name).cloned()
     }
 
     /// Builds, binds and starts an inbound. Returns the bound address.
@@ -184,14 +255,19 @@ impl Node {
         if self.lock().contains_key(&config.tag) {
             return Err(NodeError::Exists);
         }
+        let outbound = config
+            .outbound
+            .clone()
+            .or_else(|| self.default_outbound.clone())
+            .unwrap_or_else(|| DIRECT_OUTBOUND.to_owned());
+        let base = self
+            .base_outbound(&outbound, &config)
+            .ok_or(NodeError::Invalid("inbound names an unknown outbound"))?;
         let inbound = self
             .registry
             .build(&config.kind, &config.settings)
             .map_err(NodeError::Invalid)?;
-        let router = Arc::new(Router::new(
-            DirectOutbound::new(self.allow_private_targets, config.allowed_targets()),
-            self.egress.clone(),
-        ));
+        let router = Arc::new(Router::new(base, self.egress.clone()));
         let address = SocketAddr::new(config.listen, config.listen_port);
         let (listen, stats, task) = self.spawn(&inbound, address, router.clone(), router)?;
         let mut inbounds = self.lock();
@@ -203,6 +279,7 @@ impl Node {
             config.tag,
             Running {
                 kind: config.kind,
+                outbound,
                 listen,
                 inbound,
                 stats,
@@ -327,6 +404,7 @@ impl Node {
                         RunningRelay {
                             running: Running {
                                 kind: egress::RELAY_PROTOCOL.to_owned(),
+                                outbound: DIRECT_OUTBOUND.to_owned(),
                                 listen,
                                 inbound,
                                 stats,
@@ -407,6 +485,7 @@ impl Node {
                     handshake_failed: stats.handshake_failed.load(Ordering::Relaxed),
                     bytes_up: stats.bytes_up.load(Ordering::Relaxed),
                     bytes_down: stats.bytes_down.load(Ordering::Relaxed),
+                    outbound: running.outbound.clone(),
                 }
             })
             .collect()
