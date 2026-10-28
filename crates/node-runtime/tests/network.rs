@@ -272,3 +272,64 @@ async fn reads_the_contract_golden_plans() {
         ]
     );
 }
+
+/// Outbounds registered by prefix: transports added after the node started
+/// (anx-node's `anx-line:<link id>`) are resolved when a plan or an inbound
+/// names them.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn resolves_outbounds_by_prefix() {
+    let (target, _) = echo_server().await;
+    let transport = Arc::new(Transport {
+        direct: DirectOutbound::new(true, Vec::new()),
+        connects: AtomicU64::new(0),
+    });
+    let resolver_transport = transport.clone();
+    let node = Node::new(default_registry(), true).with_outbound_prefix(
+        "anx-line:",
+        Arc::new(move |id: &str| {
+            (id != "unknown").then(|| {
+                let udp = Arc::new(DirectOutbound::new(true, Vec::new()));
+                NodeOutbound::new(resolver_transport.clone(), udp)
+            })
+        }),
+    );
+    node.apply_network(&plan(json!({
+        "ingresses": [{"id": "i"}],
+        "transports": [{"id": "late", "kind": "anx_line"}],
+        "paths": [{"id": "p", "ingress_id": "i", "transport_id": "late"}]
+    })))
+    .await
+    .unwrap();
+    let ingress = node
+        .add_inbound(inbound("in", "ingress", "i"))
+        .await
+        .unwrap();
+    round_trip(ingress, target).await;
+    assert_eq!(transport.connects.load(Ordering::Relaxed), 1);
+
+    let named = node
+        .add_inbound(inbound("named", "outbound", "anx-line:other"))
+        .await
+        .unwrap();
+    round_trip(named, target).await;
+    assert_eq!(transport.connects.load(Ordering::Relaxed), 2);
+
+    // The resolver refuses a name: the plan and the inbound are refused.
+    assert!(node
+        .apply_network(&plan(json!({
+            "ingresses": [{"id": "i"}],
+            "transports": [{"id": "unknown", "kind": "anx_line"}],
+            "paths": [{"id": "p", "ingress_id": "i", "transport_id": "unknown"}]
+        })))
+        .await
+        .is_err());
+    assert!(node
+        .add_inbound(inbound("bad", "outbound", "anx-line:unknown"))
+        .await
+        .is_err());
+    // Nothing follows the prefix: no outbound.
+    assert!(node
+        .add_inbound(inbound("bare", "outbound", "anx-line:"))
+        .await
+        .is_err());
+}
