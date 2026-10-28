@@ -7,7 +7,7 @@ use engine_inbound::registry::{parse_settings, BuildError, InboundFactory, Setti
 use engine_inbound::{StreamInbound, User};
 use serde::Deserialize;
 
-use crate::{aead, AeadInbound, Method, Ss2022Inbound};
+use crate::{sip004, AeadInbound, Method, Ss2022Inbound};
 
 pub const TYPE_NAME: &str = "shadowsocks";
 
@@ -42,7 +42,7 @@ impl InboundFactory for ShadowsocksInboundFactory {
             "shadowsocks inbound settings are missing or invalid",
         )?;
         if !settings.method.starts_with("2022-") {
-            let method = aead::parse_method(&settings.method)
+            let method = sip004::parse_method(&settings.method)
                 .map_err(|_| "unsupported shadowsocks method")?;
             let inbound = AeadInbound::new(method, &settings.password)
                 .map_err(|_| "inbound could not be created")?;

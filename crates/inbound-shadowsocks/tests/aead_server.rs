@@ -179,7 +179,10 @@ async fn users_are_found_by_key_charged_and_revoked() {
         server.inbound.users().remove("37");
         let mut buf = [0u8; 8];
         let closed = tokio::time::timeout(TIMEOUT, again.read(&mut buf)).await;
-        assert!(matches!(closed, Ok(Ok(0)) | Ok(Err(_))), "removed user is cut off");
+        assert!(
+            matches!(closed, Ok(Ok(0)) | Ok(Err(_))),
+            "removed user is cut off"
+        );
     }
 }
 

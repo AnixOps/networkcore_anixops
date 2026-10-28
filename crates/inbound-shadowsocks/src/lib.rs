@@ -1,5 +1,5 @@
 //! Shadowsocks server inbounds: Shadowsocks-2022 (SIP022) in this file and
-//! the older AEAD protocol (SIP004) in [`aead`]. The `shadowsocks` inbound
+//! the older AEAD protocol (SIP004) in [`sip004`]. The `shadowsocks` inbound
 //! type picks one by method name.
 //!
 //! Shadowsocks-2022:
@@ -20,8 +20,8 @@
 //! `src/udp.rs` for the packet format): one socket per client session, the same
 //! timestamp window and a per-session packet id replay window.
 
-pub mod aead;
 mod factory;
+pub mod sip004;
 mod udp;
 
 use std::io;
@@ -43,10 +43,10 @@ use ring::aead::{self, Aad, LessSafeKey, Nonce, UnboundKey};
 use ring::rand::{SecureRandom, SystemRandom};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, ReadBuf};
 
-pub use aead::AeadInbound;
 pub use factory::{ShadowsocksInboundFactory, TYPE_NAME};
 pub use outbound_shadowsocks::AeadMethod;
 pub use outbound_shadowsocks::Method;
+pub use sip004::AeadInbound;
 
 pub const PROTOCOL: &str = "shadowsocks-2022";
 

@@ -183,7 +183,11 @@ impl AeadInbound {
         self.method
     }
 
-    async fn handshake(&self, mut stream: BoxStream, peer: SocketAddr) -> Result<Accepted, Rejected> {
+    async fn handshake(
+        &self,
+        mut stream: BoxStream,
+        peer: SocketAddr,
+    ) -> Result<Accepted, Rejected> {
         let key_len = self.method.key_len();
         let mut head = vec![0u8; key_len + 2 + TAG_LEN];
         stream.read_exact(&mut head).await?;
@@ -194,13 +198,19 @@ impl AeadInbound {
             let mut length = [0u8; 2 + TAG_LEN];
             length.copy_from_slice(sealed);
             cipher.open_in_place(&mut length).ok()?;
-            Some((cipher, usize::from(u16::from_be_bytes([length[0], length[1]]))))
+            Some((
+                cipher,
+                usize::from(u16::from_be_bytes([length[0], length[1]])),
+            ))
         });
         let Some((candidate, (mut decryptor, length))) = found else {
             return Err(Rejected::hold("shadowsocks authentication failed", stream));
         };
         if length == 0 || length > MAX_PAYLOAD {
-            return Err(Rejected::hold("shadowsocks chunk length is invalid", stream));
+            return Err(Rejected::hold(
+                "shadowsocks chunk length is invalid",
+                stream,
+            ));
         }
         let mut first = vec![0u8; length + TAG_LEN];
         stream.read_exact(&mut first).await?;
@@ -283,7 +293,9 @@ fn session_cipher(method: AeadMethod, key: &[u8], salt: &[u8]) -> io::Result<Cip
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    mutex
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// Server side of one Shadowsocks AEAD TCP session, after the address.
@@ -584,7 +596,12 @@ impl Replies {
         Some(id)
     }
 
-    fn seal(&self, session: u64, source: SocketAddr, payload: &[u8]) -> Option<(Vec<u8>, SocketAddr)> {
+    fn seal(
+        &self,
+        session: u64,
+        source: SocketAddr,
+        payload: &[u8],
+    ) -> Option<(Vec<u8>, SocketAddr)> {
         let (key, peer) = {
             let sessions = lock(&self.sessions);
             let session = sessions.get(&session)?;
@@ -647,8 +664,14 @@ mod tests {
     #[test]
     fn keys_follow_the_user_store_and_hints_go_first() {
         let inbound = AeadInbound::new(AeadMethod::Aes256Gcm, "anonymous").unwrap();
-        inbound.users().add(User::with_password("a", "one")).unwrap();
-        inbound.users().add(User::with_password("b", "two")).unwrap();
+        inbound
+            .users()
+            .add(User::with_password("a", "one"))
+            .unwrap();
+        inbound
+            .users()
+            .add(User::with_password("b", "two"))
+            .unwrap();
         let (_, list) = inbound.keys.current();
         assert_eq!(list.len(), 3);
         assert!(list.last().unwrap().user.is_none(), "anonymous key last");
