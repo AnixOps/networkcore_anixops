@@ -32,6 +32,7 @@ const TIMEOUT: Duration = Duration::from_secs(15);
 const SS_METHOD: &str = "2022-blake3-aes-128-gcm";
 const SS_SERVER_KEY: &str = "AQIDBAUGBwgJCgsMDQ4PEA==";
 const SS_USER_KEY: &str = "EA8ODQwLCgkIBwYFBAMCAQ==";
+const SS_AEAD_METHOD: &str = "aes-256-gcm";
 const PASSWORD: &str = "interop-password";
 const OBFS_PASSWORD: &str = "interop-obfs";
 const WS_PATH: &str = "/ws";
@@ -83,13 +84,20 @@ impl Env {
 /// What a client must speak to one of our inbounds.
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Proto {
-    VlessReality { vision: bool },
+    VlessReality {
+        vision: bool,
+    },
     Vless,
     Vmess,
     Trojan,
     Shadowsocks,
-    Hysteria2 { obfs: bool },
+    /// Shadowsocks AEAD (SIP004) with per-user passwords.
+    ShadowsocksAead,
+    Hysteria2 {
+        obfs: bool,
+    },
     Tuic,
+    AnyTls,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -269,6 +277,18 @@ const CASES: &[Case] = &[
         tls: false,
     },
     Case {
+        tag: "ss-aead-multi-user",
+        proto: Proto::ShadowsocksAead,
+        net: Net::Tcp,
+        tls: false,
+    },
+    Case {
+        tag: "anytls",
+        proto: Proto::AnyTls,
+        net: Net::Tcp,
+        tls: true,
+    },
+    Case {
         tag: "hysteria2",
         proto: Proto::Hysteria2 { obfs: false },
         net: Net::Tcp,
@@ -337,6 +357,15 @@ fn inbound(env: &Env, case: &Case) -> Value {
             object.insert("method".into(), SS_METHOD.into());
             object.insert("password".into(), SS_SERVER_KEY.into());
             object.insert("users".into(), user(json!({"password": SS_USER_KEY})));
+        }
+        Proto::ShadowsocksAead => {
+            object.insert("type".into(), "shadowsocks".into());
+            object.insert("method".into(), SS_AEAD_METHOD.into());
+            object.insert("users".into(), user(json!({"password": PASSWORD})));
+        }
+        Proto::AnyTls => {
+            object.insert("type".into(), "anytls".into());
+            object.insert("users".into(), user(json!({"password": PASSWORD})));
         }
         Proto::Hysteria2 { obfs } => {
             object.insert("type".into(), "hysteria2".into());
@@ -410,7 +439,10 @@ impl Client {
 
     fn supports(self, case: &Case) -> bool {
         match self {
-            Client::Xray => !matches!(case.proto, Proto::Hysteria2 { .. } | Proto::Tuic),
+            Client::Xray => !matches!(
+                case.proto,
+                Proto::Hysteria2 { .. } | Proto::Tuic | Proto::AnyTls
+            ),
             // sing-box has no XHTTP.
             Client::SingBox => !matches!(case.net, Net::Xhttp { .. }),
             Client::Hysteria => matches!(case.proto, Proto::Hysteria2 { .. }),
@@ -472,7 +504,14 @@ fn xray_config(env: &Env, case: &Case, server: SocketAddr, socks: u16) -> Value 
             json!({"servers": [{"address": address, "port": port, "method": SS_METHOD,
                 "password": format!("{SS_SERVER_KEY}:{SS_USER_KEY}")}]}),
         ),
-        Proto::Hysteria2 { .. } | Proto::Tuic => unreachable!("not an Xray client case"),
+        Proto::ShadowsocksAead => (
+            "shadowsocks",
+            json!({"servers": [{"address": address, "port": port, "method": SS_AEAD_METHOD,
+                "password": PASSWORD}]}),
+        ),
+        Proto::Hysteria2 { .. } | Proto::Tuic | Proto::AnyTls => {
+            unreachable!("not an Xray client case")
+        }
     };
     let mut stream = json!({"network": match case.net {
         Net::Tcp => "tcp",
@@ -589,6 +628,15 @@ fn sing_box_config(env: &Env, case: &Case, server: SocketAddr, socks: u16) -> Va
                 "password".into(),
                 format!("{SS_SERVER_KEY}:{SS_USER_KEY}").into(),
             );
+        }
+        Proto::ShadowsocksAead => {
+            object.insert("type".into(), "shadowsocks".into());
+            object.insert("method".into(), SS_AEAD_METHOD.into());
+            object.insert("password".into(), PASSWORD.into());
+        }
+        Proto::AnyTls => {
+            object.insert("type".into(), "anytls".into());
+            object.insert("password".into(), PASSWORD.into());
         }
         Proto::Hysteria2 { obfs } => {
             object.insert("type".into(), "hysteria2".into());
