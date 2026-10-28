@@ -44,6 +44,12 @@ health-checked from it, and an inbound with `"ingress": "<id>"` leaves
 through that ingress's active path, failing over between egresses. See
 `crates/node-runtime/src/network.rs`.
 
+The panel's block rules are applied with `PUT /v1/rules`
+(`{"block_domains": [..], "block_protocols": [..]}`): a connection to a
+blocked domain (egress route matchers) or whose first bytes are a blocked
+protocol (`bittorrent`, `http`, `tls`) is refused on every inbound. The
+kernel lists `block_rules` in `GET /v1/status` `features`.
+
 Port forwarding rules from the panel (anix-control 「转发」) are `forward`
 inbounds: the listen port relays TCP and UDP to one fixed target, through
 the inbound's base outbound only (egress routes do not apply). The target

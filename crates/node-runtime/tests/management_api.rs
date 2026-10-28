@@ -92,7 +92,15 @@ async fn echo(
     target: SocketAddr,
     payload: &[u8],
 ) -> std::io::Result<()> {
-    let mut stream = outbound.connect(&TargetAddr::Ip(target)).await?;
+    echo_to(outbound, &TargetAddr::Ip(target), payload).await
+}
+
+async fn echo_to(
+    outbound: &Ss2022Outbound,
+    target: &TargetAddr,
+    payload: &[u8],
+) -> std::io::Result<()> {
+    let mut stream = outbound.connect(target).await?;
     stream.write_all(payload).await?;
     let mut received = vec![0u8; payload.len()];
     tokio::time::timeout(TIMEOUT, stream.read_exact(&mut received))
@@ -129,6 +137,10 @@ async fn agent_workflow() {
         .as_array()
         .unwrap()
         .contains(&json!("user_limits")));
+    assert!(body["features"]
+        .as_array()
+        .unwrap()
+        .contains(&json!("block_rules")));
 
     let (status, body) = call(api, "POST", "/v1/inbounds", Some(ss_inbound("ss"))).await;
     assert_eq!(status, 201, "{body}");
@@ -214,6 +226,56 @@ async fn agent_workflow() {
     assert!(echo(&client(server, ALICE_KEY), target, b"gone")
         .await
         .is_err());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn block_rules_refuse_domains_and_protocols() {
+    let api = start_api(true).await;
+    let target = echo_server().await;
+    let (status, body) = call(api, "POST", "/v1/inbounds", Some(ss_inbound("ss"))).await;
+    assert_eq!(status, 201, "{body}");
+    let server: SocketAddr = body["listen"].as_str().unwrap().parse().unwrap();
+    let alice = client(server, ALICE_KEY);
+    let by_name = TargetAddr::Domain("localhost".into(), target.port());
+    let http = b"GET / HTTP/1.1\r\nHost: a.test\r\n\r\n";
+
+    let (status, body) = call(api, "GET", "/v1/rules", None).await;
+    assert_eq!(status, 200);
+    assert_eq!(body, json!({"block_domains": [], "block_protocols": []}));
+    echo_to(&alice, &by_name, b"named").await.unwrap();
+    echo(&alice, target, http).await.unwrap();
+
+    let rules = json!({"block_domains": ["full:localhost"], "block_protocols": ["http"]});
+    let (status, body) = call(api, "PUT", "/v1/rules", Some(rules.clone())).await;
+    assert_eq!((status, &body), (200, &rules));
+    assert!(echo_to(&alice, &by_name, b"named").await.is_err());
+    assert!(echo(&alice, target, http).await.is_err());
+    echo(&alice, target, b"not http").await.unwrap();
+
+    // A bad entry is refused and the rules in force stay.
+    let (status, _) = call(
+        api,
+        "PUT",
+        "/v1/rules",
+        Some(json!({"block_domains": ["regexp:("], "block_protocols": []})),
+    )
+    .await;
+    assert_eq!(status, 400);
+    let (status, _) = call(
+        api,
+        "PUT",
+        "/v1/rules",
+        Some(json!({"block_protocols": ["carrier-pigeon"]})),
+    )
+    .await;
+    assert_eq!(status, 400);
+    let (_, body) = call(api, "GET", "/v1/rules", None).await;
+    assert_eq!(body, rules);
+
+    let (status, _) = call(api, "PUT", "/v1/rules", Some(json!({}))).await;
+    assert_eq!(status, 200);
+    echo_to(&alice, &by_name, b"named").await.unwrap();
+    echo(&alice, target, http).await.unwrap();
 }
 
 #[tokio::test]

@@ -16,6 +16,8 @@
 //! | `PUT /v1/egress` | `EgressConfig` | `EgressStatus` |
 //! | `GET /v1/network` | | `NetworkStatus` |
 //! | `PUT /v1/network` | `NetworkPlan` | `NetworkStatus` |
+//! | `GET /v1/rules` | | `RulesConfig` |
+//! | `PUT /v1/rules` | `RulesConfig` | `RulesConfig` |
 //!
 //! `PUT /v1/egress` replaces the domain egress routes and relays (the panel's
 //! `egress` member, see [`crate::egress`]); `{}` removes them all. An
@@ -56,7 +58,7 @@ use serde_json::{json, Value};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
-use crate::{EgressConfig, InboundConfig, NetworkPlan, Node, NodeError};
+use crate::{EgressConfig, InboundConfig, NetworkPlan, Node, NodeError, RulesConfig};
 
 const MAX_HEAD_BYTES: usize = 16 * 1024;
 const MAX_BODY_BYTES: usize = 4 * 1024 * 1024;
@@ -113,7 +115,10 @@ impl From<NodeError> for Response {
         let status = match &error {
             NodeError::NotFound => 404,
             NodeError::Exists => 409,
-            NodeError::Invalid(_) | NodeError::Egress(_) | NodeError::Network(_) => 400,
+            NodeError::Invalid(_)
+            | NodeError::Egress(_)
+            | NodeError::Network(_)
+            | NodeError::Rules(_) => 400,
             NodeError::Io(_) => 500,
         };
         Response::error(status, error.to_string())
@@ -263,6 +268,13 @@ async fn route(node: &Node, request: Request) -> Response {
                 .apply_network(&plan)
                 .await
                 .map(|status| Response::ok(json!(status))),
+            Err(response) => return response,
+        },
+        ("GET", ["v1", "rules"]) => Ok(Response::ok(json!(node.rules()))),
+        ("PUT", ["v1", "rules"]) => match parse::<RulesConfig>(&request.body) {
+            Ok(config) => node
+                .apply_rules(&config)
+                .map(|rules| Response::ok(json!(rules))),
             Err(response) => return response,
         },
         ("POST", ["v1", "inbounds"]) => match parse::<InboundConfig>(&request.body) {

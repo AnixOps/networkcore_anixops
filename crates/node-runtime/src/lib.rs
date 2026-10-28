@@ -60,7 +60,7 @@ use tokio::task::JoinHandle;
 
 pub use config::{InboundConfig, ManagementSettings, NodeConfig};
 pub use direct::DirectOutbound;
-pub use egress::{Egress, EgressConfig};
+pub use egress::{Egress, EgressConfig, RulesConfig};
 pub use network::{NetworkPlan, NetworkStatus};
 
 use egress::{EgressRelay, Router};
@@ -158,6 +158,8 @@ pub enum NodeError {
     Egress(String),
     /// A network plan was refused; nothing of it was applied.
     Network(String),
+    /// Block rules were refused; the previous rules stay.
+    Rules(String),
     Io(io::Error),
 }
 
@@ -167,7 +169,9 @@ impl fmt::Display for NodeError {
             NodeError::NotFound => f.write_str("inbound not found"),
             NodeError::Exists => f.write_str("inbound tag already exists"),
             NodeError::Invalid(reason) => f.write_str(reason),
-            NodeError::Egress(reason) | NodeError::Network(reason) => f.write_str(reason),
+            NodeError::Egress(reason) | NodeError::Network(reason) | NodeError::Rules(reason) => {
+                f.write_str(reason)
+            }
             NodeError::Io(error) => write!(f, "{error}"),
         }
     }
@@ -185,7 +189,7 @@ impl From<io::Error> for NodeError {
 
 /// Optional API capabilities this kernel has, answered in `GET /v1/status`
 /// so an agent can tell whether it may send them.
-pub const FEATURES: &[&str] = &["user_limits"];
+pub const FEATURES: &[&str] = &["user_limits", "block_rules"];
 
 #[derive(Clone, Debug, Serialize)]
 pub struct InboundInfo {
@@ -267,6 +271,8 @@ pub struct Node {
     network: Arc<Network>,
     /// Relays by id; also serializes [`Node::apply_egress`].
     relays: tokio::sync::Mutex<BTreeMap<u64, RunningRelay>>,
+    /// The block rules last applied.
+    rules: Mutex<RulesConfig>,
     /// Base outbounds the embedding binary registered, by name.
     outbounds: Outbounds,
     default_outbound: Option<String>,
@@ -282,6 +288,7 @@ impl Node {
             egress: Arc::new(Egress::new()),
             network: Arc::new(Network::new(allow_private_targets)),
             relays: tokio::sync::Mutex::new(BTreeMap::new()),
+            rules: Mutex::new(RulesConfig::default()),
             outbounds: Outbounds::default(),
             default_outbound: None,
         }
@@ -482,6 +489,23 @@ impl Node {
     /// The node's egress routes and address-to-name map.
     pub fn egress(&self) -> &Arc<Egress> {
         &self.egress
+    }
+
+    /// Replaces the block rules with `config`: connections to a blocked
+    /// domain, and connections whose first bytes are a blocked protocol,
+    /// are refused on every inbound. Nothing changes when an entry is
+    /// invalid; connections already open are not cut.
+    pub fn apply_rules(&self, config: &RulesConfig) -> Result<RulesConfig, NodeError> {
+        let rules = egress::compile_rules(config).map_err(NodeError::Rules)?;
+        let mut current = self.rules.lock().unwrap_or_else(|p| p.into_inner());
+        self.egress.set_blocks(rules);
+        *current = config.clone();
+        Ok(current.clone())
+    }
+
+    /// The block rules last applied.
+    pub fn rules(&self) -> RulesConfig {
+        self.rules.lock().unwrap_or_else(|p| p.into_inner()).clone()
     }
 
     /// Replaces the egress routes and relays with `config`. Nothing changes

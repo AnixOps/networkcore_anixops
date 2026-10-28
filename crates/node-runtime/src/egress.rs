@@ -19,7 +19,15 @@
 //! 3. the name a DNS answer relayed through the node mapped the address to
 //!    ([`DomainCache`]).
 //!
-//! UDP datagrams use 1 and 3. Everything no route matches leaves through
+//! UDP datagrams use 1 and 3.
+//!
+//! The router also applies the panel's block rules ([`RulesConfig`], `PUT
+//! /v1/rules`): a connection whose domain matches a blocked domain, or whose
+//! first bytes show a blocked protocol, is refused instead of connected.
+//! Protocol rules make every TCP connection wait for the client's first
+//! bytes (at most [`SNIFF_WAIT`]); domain rules only address-only ones.
+//!
+//! Everything no route matches leaves through
 //! the inbound's base outbound: the direct outbound, or one the embedding
 //! binary registered ([`crate::NodeOutbound`]). Without routes the router is
 //! that base outbound and adds nothing.
@@ -239,10 +247,112 @@ fn check_protocol(protocol: &str) -> Result<(), String> {
     }
 }
 
-/// The node's routes and address-to-name map, shared by every inbound.
+/// Block rules of a node (`PUT /v1/rules`), from the panel's `block`
+/// routes. Unknown fields are ignored so a newer agent can add some.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+pub struct RulesConfig {
+    /// Domain matchers as in egress routes: a bare name (the domain and its
+    /// subdomains), `domain:`, `full:`, `keyword:` or `regexp:`.
+    #[serde(default)]
+    pub block_domains: Vec<String>,
+    /// Protocols seen in the client's first bytes: `bittorrent`, `http`,
+    /// `tls`.
+    #[serde(default)]
+    pub block_protocols: Vec<String>,
+}
+
+/// A protocol a block rule can name.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SniffedProtocol {
+    BitTorrent,
+    Http,
+    Tls,
+}
+
+impl SniffedProtocol {
+    fn parse(name: &str) -> Result<Self, String> {
+        match name.trim().to_ascii_lowercase().as_str() {
+            "bittorrent" | "bt" => Ok(Self::BitTorrent),
+            "http" => Ok(Self::Http),
+            "tls" => Ok(Self::Tls),
+            other => Err(format!(
+                "unknown protocol {other:?} (bittorrent, http or tls)"
+            )),
+        }
+    }
+
+    fn matches(self, first: &[u8]) -> bool {
+        match self {
+            Self::BitTorrent => {
+                first.len() >= 20 && first[0] == 19 && &first[1..20] == b"BitTorrent protocol"
+            }
+            Self::Http => sniff::http_host(first).is_some(),
+            Self::Tls => first.len() >= 3 && first[0] == 0x16 && first[1] == 0x03,
+        }
+    }
+}
+
+/// Compiled [`RulesConfig`].
+#[derive(Default)]
+pub(crate) struct BlockRules {
+    domains: Vec<DomainMatcher>,
+    protocols: Vec<SniffedProtocol>,
+}
+
+impl BlockRules {
+    fn is_empty(&self) -> bool {
+        self.domains.is_empty() && self.protocols.is_empty()
+    }
+
+    /// Whether connections must wait for the client's first bytes.
+    fn sniffs_protocols(&self) -> bool {
+        !self.protocols.is_empty()
+    }
+
+    fn blocks_host(&self, host: &str) -> bool {
+        self.domains.iter().any(|matcher| matcher.matches(host))
+    }
+
+    fn blocks_first(&self, first: &[u8]) -> bool {
+        self.protocols
+            .iter()
+            .any(|protocol| protocol.matches(first))
+    }
+}
+
+/// Checks and compiles block rules; nothing is applied when an entry is
+/// invalid.
+pub(crate) fn compile_rules(config: &RulesConfig) -> Result<BlockRules, String> {
+    if config.block_domains.len() > MAX_DOMAINS {
+        return Err(format!("rules: at most {MAX_DOMAINS} blocked domains"));
+    }
+    let domains = config
+        .block_domains
+        .iter()
+        .map(|entry| DomainMatcher::parse(entry))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|message| format!("rules: {message}"))?;
+    let mut protocols = Vec::new();
+    for name in &config.block_protocols {
+        let protocol =
+            SniffedProtocol::parse(name).map_err(|message| format!("rules: {message}"))?;
+        if !protocols.contains(&protocol) {
+            protocols.push(protocol);
+        }
+    }
+    Ok(BlockRules { domains, protocols })
+}
+
+fn blocked() -> io::Error {
+    io::Error::new(io::ErrorKind::PermissionDenied, "blocked by a rule")
+}
+
+/// The node's routes, block rules and address-to-name map, shared by every
+/// inbound.
 #[derive(Default)]
 pub struct Egress {
     table: RwLock<Arc<RouteTable>>,
+    blocks: RwLock<Arc<BlockRules>>,
     domains: DomainCache,
 }
 
@@ -275,6 +385,22 @@ impl Egress {
     fn table(&self) -> Arc<RouteTable> {
         self.table.read().unwrap_or_else(|p| p.into_inner()).clone()
     }
+
+    /// Whether a connection to `host` is blocked by the rules.
+    pub fn blocks(&self, host: &str) -> bool {
+        normalize(host).is_some_and(|host| self.block_rules().blocks_host(&host))
+    }
+
+    pub(crate) fn set_blocks(&self, rules: BlockRules) {
+        *self.blocks.write().unwrap_or_else(|p| p.into_inner()) = Arc::new(rules);
+    }
+
+    fn block_rules(&self) -> Arc<BlockRules> {
+        self.blocks
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
+    }
 }
 
 /// The outbound of every inbound: the egress route a connection's domain
@@ -296,6 +422,9 @@ impl Router {
     }
 
     async fn connect_by(&self, target: &TargetAddr, host: Option<&str>) -> io::Result<BoxStream> {
+        if host.is_some_and(|host| self.egress.block_rules().blocks_host(host)) {
+            return Err(blocked());
+        }
         let table = self.egress.table();
         match host.and_then(|host| table.find(host)) {
             Some(route) => route.outbound.connect(target).await,
@@ -311,20 +440,29 @@ impl TcpOutbound for Router {
 
     fn connect<'a>(&'a self, target: &'a TargetAddr) -> BoxFuture<'a, io::Result<BoxStream>> {
         Box::pin(async move {
-            if self.egress.table().is_empty() {
+            let blocks = self.egress.block_rules();
+            if self.egress.table().is_empty() && blocks.is_empty() {
                 return self.base.connect(target).await;
             }
-            match target {
+            let host = match target {
                 TargetAddr::Domain(host, _) => {
                     let host = normalize(host);
-                    self.connect_by(target, host.as_deref()).await
+                    if !blocks.sniffs_protocols() {
+                        return self.connect_by(target, host.as_deref()).await;
+                    }
+                    if host.as_deref().is_some_and(|host| blocks.blocks_host(host)) {
+                        return Err(blocked());
+                    }
+                    host
                 }
-                TargetAddr::Ip(_) => Ok(Box::new(SniffStream {
-                    router: self.clone(),
-                    target: target.clone(),
-                    state: State::Waiting(Box::pin(tokio::time::sleep(SNIFF_WAIT))),
-                }) as BoxStream),
-            }
+                TargetAddr::Ip(_) => None,
+            };
+            Ok(Box::new(SniffStream {
+                router: self.clone(),
+                target: target.clone(),
+                host,
+                state: State::Waiting(Box::pin(tokio::time::sleep(SNIFF_WAIT))),
+            }) as BoxStream)
         })
     }
 }
@@ -334,6 +472,8 @@ impl TcpOutbound for Router {
 struct SniffStream {
     router: Router,
     target: TargetAddr,
+    /// The target's name, when it has one.
+    host: Option<String>,
     state: State,
 }
 
@@ -348,10 +488,18 @@ impl SniffStream {
     /// Picks the route from `first` (the client's first bytes, or none) and
     /// starts connecting.
     fn decide(&mut self, first: &[u8]) {
-        let host = sniff::host(first).or_else(|| match &self.target {
-            TargetAddr::Ip(address) => self.router.egress.domains.lookup(address.ip()),
-            TargetAddr::Domain(..) => None,
-        });
+        if self.router.egress.block_rules().blocks_first(first) {
+            self.state = State::Failed(io::ErrorKind::PermissionDenied);
+            return;
+        }
+        let host = self
+            .host
+            .clone()
+            .or_else(|| sniff::host(first))
+            .or_else(|| match &self.target {
+                TargetAddr::Ip(address) => self.router.egress.domains.lookup(address.ip()),
+                TargetAddr::Domain(..) => None,
+            });
         let router = self.router.clone();
         let target = self.target.clone();
         self.state = State::Connecting(Box::pin(async move {
@@ -538,11 +686,15 @@ impl UdpSession for RoutedUdp {
     ) -> BoxFuture<'a, io::Result<()>> {
         Box::pin(async move {
             let table = self.egress.table();
+            let blocks = self.egress.block_rules();
             let host = match target {
-                _ if table.is_empty() => None,
+                _ if table.is_empty() && blocks.is_empty() => None,
                 TargetAddr::Domain(host, _) => normalize(host),
                 TargetAddr::Ip(address) => self.egress.domains.lookup(address.ip()),
             };
+            if host.as_deref().is_some_and(|host| blocks.blocks_host(host)) {
+                return Err(blocked());
+            }
             match host.as_deref().and_then(|host| table.find(host)) {
                 Some(route) => {
                     let send = self.flow(&route.outbound, target).await?;
@@ -598,6 +750,44 @@ impl Drop for RoutedUdp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn block_rules_compile_and_match() {
+        let rules = compile_rules(&RulesConfig {
+            block_domains: vec!["ads.example".into(), r"regexp:^track\d+\.".into()],
+            block_protocols: vec!["BitTorrent".into(), "bittorrent".into()],
+        })
+        .unwrap();
+        assert!(rules.blocks_host("ads.example"));
+        assert!(rules.blocks_host("x.ads.example"));
+        assert!(rules.blocks_host("track7.cdn.test"));
+        assert!(!rules.blocks_host("example.com"));
+        assert_eq!(rules.protocols, [SniffedProtocol::BitTorrent]);
+        let mut handshake = vec![19u8];
+        handshake.extend_from_slice(b"BitTorrent protocol");
+        handshake.extend_from_slice(&[0; 8]);
+        assert!(rules.blocks_first(&handshake));
+        assert!(!rules.blocks_first(b"GET / HTTP/1.1\r\nHost: a\r\n\r\n"));
+        assert!(compile_rules(&RulesConfig::default()).unwrap().is_empty());
+        assert!(compile_rules(&RulesConfig {
+            block_protocols: vec!["smtp".into()],
+            ..RulesConfig::default()
+        })
+        .is_err());
+        assert!(compile_rules(&RulesConfig {
+            block_domains: vec!["regexp:(".into()],
+            ..RulesConfig::default()
+        })
+        .is_err());
+    }
+
+    #[test]
+    fn http_and_tls_are_sniffed() {
+        assert!(SniffedProtocol::Http.matches(b"GET / HTTP/1.1\r\nHost: a.test\r\n\r\n"));
+        assert!(!SniffedProtocol::Http.matches(&[0x16, 0x03, 0x01]));
+        assert!(SniffedProtocol::Tls.matches(&[0x16, 0x03, 0x01, 0x02, 0x00]));
+        assert!(!SniffedProtocol::Tls.matches(b"GET"));
+    }
 
     const KEY: &str = "AAAAAAAAAAAAAAAAAAAAAA==";
 
