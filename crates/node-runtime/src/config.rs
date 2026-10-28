@@ -179,6 +179,7 @@ mod tests {
             config.inbounds[0].allowed_targets(),
             vec![("fd00::7".to_owned(), 22)]
         );
+        assert!(config.inbounds[1].allowed_targets().is_empty());
         let config: NodeConfig = serde_json::from_value(serde_json::json!({
             "inbounds": [
                 {"tag": "f", "type": "forward", "listen_port": 10001,
@@ -191,6 +192,5 @@ mod tests {
             config.inbounds[0].allowed_targets(),
             vec![("10.0.0.1".to_owned(), 22), ("b.example".to_owned(), 80)]
         );
-        assert!(config.inbounds[1].allowed_targets().is_empty());
     }
 }
