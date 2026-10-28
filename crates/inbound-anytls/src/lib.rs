@@ -38,6 +38,7 @@ use std::io;
 use std::net::SocketAddr;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::time::Duration;
 
 use engine_inbound::addr::{read_addr_port, write_addr_port, AddrCodes, SOCKS};
 use engine_inbound::server::ConnectionContext;
@@ -74,6 +75,9 @@ const HASH_LEN: usize = 32;
 const HEADER_LEN: usize = 7;
 /// Open streams per session; clients pool sessions and use few at once.
 const MAX_STREAMS: usize = 128;
+/// How long a session that the client's side ended may take to write the
+/// frames already queued (an Alert, say) before it closes.
+const CLOSE_GRACE: Duration = Duration::from_secs(1);
 /// Frames queued toward one stream, and toward the client.
 const QUEUE: usize = 16;
 /// Payload bytes per PSH frame toward the client.
@@ -214,6 +218,12 @@ impl AnyTlsInbound {
         let read = read_loop(&mut reader, &frames, &spawn, &self.padding);
         let write = async {
             while let Some(frame) = outgoing.recv().await {
+                // The empty frame ends the session: what was queued before
+                // it is written.
+                if frame.is_empty() {
+                    let _ = writer.flush().await;
+                    return;
+                }
                 if writer.write_all(&frame).await.is_err() {
                     return;
                 }
@@ -228,7 +238,12 @@ impl AnyTlsInbound {
         let mut running = FuturesUnordered::new();
         loop {
             tokio::select! {
-                _ = &mut read => break,
+                _ = &mut read => {
+                    if frames.try_send(Vec::new()).is_ok() {
+                        let _ = tokio::time::timeout(CLOSE_GRACE, &mut write).await;
+                    }
+                    break;
+                }
                 _ = &mut write => break,
                 _ = &mut revoked => {
                     context.revoked();
