@@ -3,7 +3,7 @@
 //!
 //! | Method and path | Body | Answer |
 //! | --- | --- | --- |
-//! | `GET /v1/status` | | `{"version", "types", "outbounds", "inbounds"}` |
+//! | `GET /v1/status` | | `{"version", "features", "types", "outbounds", "inbounds"}` |
 //! | `GET /v1/inbounds` | | `{"inbounds": [InboundInfo]}` |
 //! | `POST /v1/inbounds` | inbound config | `{"tag", "listen"}` (201) |
 //! | `DELETE /v1/inbounds/{tag}` | | `{}` |
@@ -16,6 +16,8 @@
 //! | `PUT /v1/egress` | `EgressConfig` | `EgressStatus` |
 //! | `GET /v1/network` | | `NetworkStatus` |
 //! | `PUT /v1/network` | `NetworkPlan` | `NetworkStatus` |
+//! | `GET /v1/rules` | | `RulesConfig` |
+//! | `PUT /v1/rules` | `RulesConfig` | `RulesConfig` |
 //!
 //! `PUT /v1/egress` replaces the domain egress routes and relays (the panel's
 //! `egress` member, see [`crate::egress`]); `{}` removes them all. An
@@ -34,6 +36,14 @@
 //! inbound (users or not, so also a `forward` inbound's), both since the
 //! last `reset=true` call, which starts the next interval for both.
 //!
+//! `features` names what this kernel takes beyond the base API, so an agent
+//! can tell before sending it: `user_limits` (the user members below).
+//!
+//! A user may carry `speed_limit` (Mbit/s for each direction, shared by
+//! all of its connections) and `device_limit` (most client IPs online at
+//! once; a connection from one more IP is refused and counted in the
+//! inbound's `device_limited`). Both default to 0, no limit.
+//!
 //! Adding a user that exists replaces it (and closes its connections when the
 //! credentials changed). Errors answer `{"error": "..."}` with 400, 401, 404,
 //! 409 or 500.
@@ -48,7 +58,7 @@ use serde_json::{json, Value};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
-use crate::{EgressConfig, InboundConfig, NetworkPlan, Node, NodeError};
+use crate::{EgressConfig, InboundConfig, NetworkPlan, Node, NodeError, RulesConfig};
 
 const MAX_HEAD_BYTES: usize = 16 * 1024;
 const MAX_BODY_BYTES: usize = 4 * 1024 * 1024;
@@ -105,7 +115,10 @@ impl From<NodeError> for Response {
         let status = match &error {
             NodeError::NotFound => 404,
             NodeError::Exists => 409,
-            NodeError::Invalid(_) | NodeError::Egress(_) | NodeError::Network(_) => 400,
+            NodeError::Invalid(_)
+            | NodeError::Egress(_)
+            | NodeError::Network(_)
+            | NodeError::Rules(_) => 400,
             NodeError::Io(_) => 500,
         };
         Response::error(status, error.to_string())
@@ -235,6 +248,7 @@ async fn route(node: &Node, request: Request) -> Response {
     let result = match (request.method.as_str(), segments.as_slice()) {
         ("GET", ["v1", "status"]) => Ok(Response::ok(json!({
             "version": env!("CARGO_PKG_VERSION"),
+            "features": crate::FEATURES,
             "types": node.types(),
             "outbounds": node.outbounds(),
             "inbounds": node.list().len(),
@@ -254,6 +268,13 @@ async fn route(node: &Node, request: Request) -> Response {
                 .apply_network(&plan)
                 .await
                 .map(|status| Response::ok(json!(status))),
+            Err(response) => return response,
+        },
+        ("GET", ["v1", "rules"]) => Ok(Response::ok(json!(node.rules()))),
+        ("PUT", ["v1", "rules"]) => match parse::<RulesConfig>(&request.body) {
+            Ok(config) => node
+                .apply_rules(&config)
+                .map(|rules| Response::ok(json!(rules))),
             Err(response) => return response,
         },
         ("POST", ["v1", "inbounds"]) => match parse::<InboundConfig>(&request.body) {

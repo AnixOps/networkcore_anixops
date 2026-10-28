@@ -225,7 +225,19 @@ impl SnellInbound {
                 return;
             }
             first_request = false;
-            let _online = user.as_ref().map(|user| user.connect(context.peer.ip()));
+            let _online = match &user {
+                Some(entry) => match entry.try_connect(context.peer.ip()) {
+                    Some(guard) => Some(guard),
+                    None => {
+                        context
+                            .stats
+                            .device_limited
+                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        return;
+                    }
+                },
+                None => None,
+            };
             let target = match (request.command, request.target) {
                 (Command::Udp, _) => {
                     // The request must be a frame of its own (§4.1).

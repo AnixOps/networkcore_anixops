@@ -23,6 +23,10 @@ anixcore version
 }
 ```
 
+Users may carry `"speed_limit"` (Mbit/s for each direction, shared by all
+of the user's connections) and `"device_limit"` (most client IPs online at
+once); both default to 0, no limit.
+
 The config format is documented in `crates/node-runtime/src/config.rs` and
 the API in `crates/node-runtime/src/api.rs`. Users relay through a direct
 outbound that refuses loopback and private targets unless
@@ -39,6 +43,12 @@ egress becomes an outbound `egress:<id>` bound to its source address and
 health-checked from it, and an inbound with `"ingress": "<id>"` leaves
 through that ingress's active path, failing over between egresses. See
 `crates/node-runtime/src/network.rs`.
+
+The panel's block rules are applied with `PUT /v1/rules`
+(`{"block_domains": [..], "block_protocols": [..]}`): a connection to a
+blocked domain (egress route matchers) or whose first bytes are a blocked
+protocol (`bittorrent`, `http`, `tls`) is refused on every inbound. The
+kernel lists `block_rules` in `GET /v1/status` `features`.
 
 Port forwarding rules from the panel (anix-control 「转发」) are `forward`
 inbounds: the listen port relays TCP and UDP to one fixed target, through

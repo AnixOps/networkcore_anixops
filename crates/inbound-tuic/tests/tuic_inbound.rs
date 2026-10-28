@@ -208,6 +208,8 @@ async fn users_added_and_removed_at_runtime() {
             flow: None,
             username: None,
             address: None,
+            speed_limit: 0,
+            device_limit: 0,
         })
         .unwrap();
     let carol = client(server.addr, CAROL, "carol-secret", Congestion::Cubic);
