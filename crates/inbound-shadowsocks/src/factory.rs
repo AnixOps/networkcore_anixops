@@ -7,7 +7,7 @@ use engine_inbound::registry::{parse_settings, BuildError, InboundFactory, Setti
 use engine_inbound::{StreamInbound, User};
 use serde::Deserialize;
 
-use crate::{Method, Ss2022Inbound};
+use crate::{aead, AeadInbound, Method, Ss2022Inbound};
 
 pub const TYPE_NAME: &str = "shadowsocks";
 
@@ -16,14 +16,19 @@ pub const TYPE_NAME: &str = "shadowsocks";
 #[serde(deny_unknown_fields)]
 struct ShadowsocksInboundSettings {
     method: String,
-    /// Server key; the identity key when `users` is not empty.
+    /// 2022 methods: the server key, the identity key when `users` is not
+    /// empty. AEAD methods: an optional key for clients that are no user.
+    #[serde(default)]
     password: String,
     #[serde(default)]
     users: Vec<User>,
 }
 
-/// Builds Shadowsocks-2022 inbounds. Without `users` the inbound is
-/// single-key; with `users` it is multi-user and needs an AES method.
+/// Builds Shadowsocks inbounds. A 2022 method makes a Shadowsocks-2022
+/// inbound: without `users` it is single-key, with `users` multi-user (AES
+/// methods only). An AEAD method (`aes-128-gcm`, `aes-256-gcm`,
+/// `chacha20-ietf-poly1305`) makes a SIP004 inbound that always takes users
+/// and adds users at runtime, with or without `users` at creation.
 pub struct ShadowsocksInboundFactory;
 
 impl InboundFactory for ShadowsocksInboundFactory {
@@ -37,7 +42,12 @@ impl InboundFactory for ShadowsocksInboundFactory {
             "shadowsocks inbound settings are missing or invalid",
         )?;
         if !settings.method.starts_with("2022-") {
-            return Err("shadowsocks inbound supports only 2022 methods");
+            let method = aead::parse_method(&settings.method)
+                .map_err(|_| "unsupported shadowsocks method")?;
+            let inbound = AeadInbound::new(method, &settings.password)
+                .map_err(|_| "inbound could not be created")?;
+            inbound.users().add_all(settings.users)?;
+            return Ok(Arc::new(inbound));
         }
         let method =
             Method::parse(&settings.method).map_err(|_| "unsupported shadowsocks method")?;
@@ -78,8 +88,24 @@ mod tests {
     }
 
     #[test]
+    fn builds_aead_inbounds_with_and_without_users() {
+        for method in ["aes-128-gcm", "aes-256-gcm", "chacha20-ietf-poly1305"] {
+            let open = build(&format!(r#"{{"method":"{method}"}}"#)).unwrap();
+            assert!(open.users().is_empty());
+            assert_eq!(open.protocol(), "shadowsocks");
+            let users = build(&format!(
+                r#"{{"method":"{method}","password":"anon","users":[{{"name":"1","password":"p1"}}]}}"#
+            ))
+            .unwrap();
+            assert_eq!(users.users().names(), ["1"]);
+        }
+        assert!(build(r#"{"method":"aes-128-gcm","users":[{"name":"1"}]}"#).is_err());
+    }
+
+    #[test]
     fn rejects_bad_settings_without_echoing_keys() {
-        assert!(build(r#"{"method":"aes-128-gcm","password":"x"}"#).is_err());
+        assert!(build(r#"{"method":"aes-128-cfb","password":"x"}"#).is_err());
+        assert!(build(r#"{"method":"2022-blake3-aes-128-gcm"}"#).is_err());
         let err = build(r#"{"method":"2022-blake3-aes-128-gcm","password":"c2hvcnQ="}"#)
             .err()
             .unwrap();

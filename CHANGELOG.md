@@ -15,6 +15,8 @@
 
 ### Added
 
+- 常规 Shadowsocks（SIP004 AEAD）服务端入站：`"type": "shadowsocks"` 的 `method` 为 `aes-128-gcm`、`aes-256-gcm` 或 `chacha20-ietf-poly1305` 时建 SIP004 入站（`inbound_shadowsocks::AeadInbound`），2022 方法照旧。始终多用户：用户 `password` 为明文密码（EVP_BytesToKey），可在运行中增删用户、按用户计流量和在线 IP；可选的入站 `password` 是不计入任何用户的匿名密钥。协议不带用户标识，服务端按首个长度块（UDP 为整包）逐个试用户密钥，同一客户端 IP 上次匹配的密钥先试。TCP 已认证 salt 记 10 分钟拒绝重放，认证失败的连接挂起排空。同端口 UDP：会话 = 客户端地址 + 其密钥。测试对本仓库客户端出站与 shadowsocks-rust 客户端（TCP、UDP、多用户）互通。
+
 - 固定目标端口转发入站 `"type": "forward"`（新 crate `inbound-forward`，node-runtime 默认 feature `forward`）：监听端口的 TCP 连接和 UDP 报文原样转到配置的 `server:server_port`，`network` 可选 `tcp`、`udp`、`tcp,udp`（默认）。面板转发规则 = 一个 forward 入站 + `outbound`（anx-node 上如 `anx-line:<link_id>`）。转发目标是运营方配置的，可以是内网地址；forward 只走自己的基础出站，不套用分流 egress 路由；不接受用户。`GET /v1/inbounds/{tag}/traffic` 新增 `inbound` 成员：整个入站自上次 `reset=true` 以来的字节数，与用户流量一起清零，所有入站都有。
 
 - XHTTP 客户端支持 HTTP/3：TLS ALPN 恰好为 `h3` 时，每条代理流走一条 QUIC 连接（`transport-quic`，`h3`/`h3-quinn`），三种模式都支持，VLESS、VMess、Trojan 出站均可用。互通测试新增 Xray 的 VLESS-XHTTP-H3 入站（UDP），覆盖三种模式。服务端 HTTP/3 暂不支持。
