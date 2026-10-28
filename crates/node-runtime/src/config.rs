@@ -87,7 +87,7 @@ fn any_address() -> IpAddr {
 
 impl InboundConfig {
     /// Targets this inbound relays to by design (`fallback`, REALITY
-    /// `handshake`, a forward's `server`), which the private-target filter
+    /// `handshake`, a forward's `server` or `targets`), which the private-target filter
     /// lets through.
     pub fn allowed_targets(&self) -> Vec<(String, u16)> {
         let fallback = self.settings.get("fallback");
@@ -102,16 +102,30 @@ impl InboundConfig {
             .map(|target| (target.server, target.server_port))
             .collect();
         if self.kind == crate::FORWARD_TYPE {
-            let server = self.settings.get("server").and_then(|value| value.as_str());
-            let port = self
+            let targets = self
                 .settings
-                .get("server_port")
-                .and_then(|value| value.as_u64())
-                .and_then(|port| u16::try_from(port).ok());
-            if let (Some(server), Some(port)) = (server, port) {
-                // As the forward sends it: IP literals in canonical form.
-                let target = TargetAddr::from_host(server.trim(), port);
-                allowed.push((target.host(), port));
+                .get("targets")
+                .and_then(|value| value.as_array());
+            let own = std::iter::once(&self.settings).filter_map(|settings| {
+                settings
+                    .get("server")
+                    .map(|server| (server, settings.get("server_port")))
+            });
+            let listed = targets.into_iter().flatten().filter_map(|target| {
+                target
+                    .get("server")
+                    .map(|server| (server, target.get("server_port")))
+            });
+            for (server, port) in own.chain(listed) {
+                let server = server.as_str();
+                let port = port
+                    .and_then(|value| value.as_u64())
+                    .and_then(|port| u16::try_from(port).ok());
+                if let (Some(server), Some(port)) = (server, port) {
+                    // As the forward sends it: IP literals in canonical form.
+                    let target = TargetAddr::from_host(server.trim(), port);
+                    allowed.push((target.host(), port));
+                }
             }
         }
         allowed
@@ -166,5 +180,17 @@ mod tests {
             vec![("fd00::7".to_owned(), 22)]
         );
         assert!(config.inbounds[1].allowed_targets().is_empty());
+        let config: NodeConfig = serde_json::from_value(serde_json::json!({
+            "inbounds": [
+                {"tag": "f", "type": "forward", "listen_port": 10001,
+                 "targets": [{"server": "10.0.0.1", "server_port": 22},
+                             {"server": "b.example", "server_port": 80}]}
+            ]
+        }))
+        .unwrap();
+        assert_eq!(
+            config.inbounds[0].allowed_targets(),
+            vec![("10.0.0.1".to_owned(), 22), ("b.example".to_owned(), 80)]
+        );
     }
 }

@@ -226,3 +226,151 @@ async fn forwards_through_the_named_outbound() {
     assert_eq!(rule["type"], "forward");
     assert_eq!(rule["outbound"], "anx-line:7");
 }
+
+/// Accepts connections, answers each with `tag` and the first line it got,
+/// then ends its side.
+async fn tagged_server(tag: &'static str) -> SocketAddr {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        while let Ok((mut stream, _)) = listener.accept().await {
+            tokio::spawn(async move {
+                let mut line = Vec::new();
+                let mut byte = [0u8; 1];
+                while stream.read_exact(&mut byte).await.is_ok() {
+                    line.push(byte[0]);
+                    if byte[0] == b'\n' {
+                        break;
+                    }
+                }
+                let mut reply = tag.as_bytes().to_vec();
+                reply.push(b' ');
+                reply.extend_from_slice(&line);
+                let _ = stream.write_all(&reply).await;
+                // Close after the client did: unread input would reset the
+                // connection and could drop the reply.
+                let _ = stream.shutdown().await;
+                let _ = tokio::io::copy(&mut stream, &mut tokio::io::sink()).await;
+            });
+        }
+    });
+    addr
+}
+
+/// A port nothing listens on.
+async fn closed_port() -> u16 {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    listener.local_addr().unwrap().port()
+}
+
+/// Sends `line` and returns what came back until the target closed.
+async fn ask(server: SocketAddr, line: &[u8]) -> String {
+    let mut stream = TcpStream::connect(server).await.unwrap();
+    stream.write_all(line).await.unwrap();
+    let mut reply = Vec::new();
+    tokio::time::timeout(TIMEOUT, stream.read_to_end(&mut reply))
+        .await
+        .expect("reply timed out")
+        .unwrap();
+    String::from_utf8(reply).unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn balances_over_several_targets() {
+    let api = start_api(Node::new(default_registry(), false)).await;
+    let (a, b) = (tagged_server("a").await, tagged_server("b").await);
+    let dead = closed_port().await;
+
+    // Round robin alternates.
+    let server = add_forward(
+        api,
+        json!({"tag": "rr", "type": "forward", "listen": "127.0.0.1", "listen_port": 0,
+               "network": "tcp", "balance": "round_robin",
+               "targets": [{"server": "127.0.0.1", "server_port": a.port()},
+                           {"server": "127.0.0.1", "server_port": b.port()}]}),
+    )
+    .await;
+    let mut tags = Vec::new();
+    for _ in 0..4 {
+        tags.push(ask(server, b"hi\n").await);
+    }
+    assert_eq!(tags.iter().filter(|tag| tag.starts_with("a ")).count(), 2);
+    assert_eq!(tags.iter().filter(|tag| tag.starts_with("b ")).count(), 2);
+    assert_ne!(tags[0], tags[1]);
+
+    // Failover skips a target that does not answer, on the same connection.
+    let server = add_forward(
+        api,
+        json!({"tag": "fo", "type": "forward", "listen": "127.0.0.1", "listen_port": 0,
+               "network": "tcp", "balance": "failover", "health": {"disabled": true},
+               "targets": [{"server": "127.0.0.1", "server_port": dead, "priority": 0},
+                           {"server": "127.0.0.1", "server_port": b.port(), "priority": 1}]}),
+    )
+    .await;
+    for _ in 0..4 {
+        assert_eq!(ask(server, b"hi\n").await, "b hi\n");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn writes_the_proxy_protocol_header() {
+    let api = start_api(Node::new(default_registry(), false)).await;
+    let target = tagged_server("t").await;
+    let server = add_forward(
+        api,
+        json!({"tag": "pp", "type": "forward", "listen": "127.0.0.1", "listen_port": 0,
+               "network": "tcp", "proxy_protocol": "v1",
+               "server": "127.0.0.1", "server_port": target.port()}),
+    )
+    .await;
+    let mut stream = TcpStream::connect(server).await.unwrap();
+    let client = stream.local_addr().unwrap();
+    stream.write_all(b"payload\n").await.unwrap();
+    let mut reply = Vec::new();
+    tokio::time::timeout(TIMEOUT, stream.read_to_end(&mut reply))
+        .await
+        .expect("reply timed out")
+        .unwrap();
+    // The target's first line is the header, ahead of the client's bytes.
+    assert_eq!(
+        String::from_utf8(reply).unwrap(),
+        format!(
+            "t PROXY TCP4 127.0.0.1 127.0.0.1 {} {}\r\n",
+            client.port(),
+            server.port()
+        )
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn caps_concurrent_connections() {
+    let api = start_api(Node::new(default_registry(), false)).await;
+    let target = echo_server().await;
+    let server = add_forward(
+        api,
+        json!({"tag": "cap", "type": "forward", "listen": "127.0.0.1", "listen_port": 0,
+               "network": "tcp", "max_conns": 1, "bandwidth_bps": 80_000_000,
+               "server": "127.0.0.1", "server_port": target.port()}),
+    )
+    .await;
+    let mut first = TcpStream::connect(server).await.unwrap();
+    first.write_all(b"one").await.unwrap();
+    let mut buf = [0u8; 3];
+    tokio::time::timeout(TIMEOUT, first.read_exact(&mut buf))
+        .await
+        .expect("first timed out")
+        .unwrap();
+
+    // The second is closed while the first is open.
+    let mut second = TcpStream::connect(server).await.unwrap();
+    let _ = second.write_all(b"two").await;
+    let mut rest = Vec::new();
+    let read = tokio::time::timeout(TIMEOUT, second.read_to_end(&mut rest))
+        .await
+        .expect("second was not closed");
+    assert!(read.is_err() || rest.is_empty());
+
+    drop(first);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    tcp_round_trip(server, b"three").await;
+}

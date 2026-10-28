@@ -76,6 +76,9 @@ pub async fn serve_with_udp(
     settings: ServeSettings,
     stats: Arc<InboundStats>,
 ) -> io::Result<()> {
+    // Ends with the serve loop, as the background work of the inbound does.
+    let background = inbound.background(outbound.clone()).map(tokio::spawn);
+    let _background = background.map(AbortOnDrop);
     let permits = Arc::new(Semaphore::new(settings.max_connections));
     let settings = Arc::new(settings);
     loop {
@@ -94,10 +97,12 @@ pub async fn serve_with_udp(
         tokio::spawn(async move {
             let _permit = permit;
             let _ = stream.set_nodelay(true);
+            let local = stream.local_addr().ok();
             stats.active.fetch_add(1, Ordering::Relaxed);
             run(
                 Box::new(stream),
                 peer,
+                local,
                 inbound.as_ref(),
                 outbound.as_ref(),
                 udp.as_deref(),
@@ -121,13 +126,15 @@ pub async fn handle_connection(
     stats: &Arc<InboundStats>,
 ) {
     stats.active.fetch_add(1, Ordering::Relaxed);
-    run(stream, peer, inbound, outbound, None, settings, stats).await;
+    run(stream, peer, None, inbound, outbound, None, settings, stats).await;
     stats.active.fetch_sub(1, Ordering::Relaxed);
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run(
     stream: BoxStream,
     peer: SocketAddr,
+    local: Option<SocketAddr>,
     inbound: &dyn StreamInbound,
     outbound: &dyn TcpOutbound,
     udp: Option<&dyn UdpOutbound>,
@@ -137,6 +144,7 @@ async fn run(
     if inbound.serves_connections() {
         let context = ConnectionContext {
             peer,
+            local,
             settings,
             stats,
             outbound,
@@ -246,6 +254,15 @@ async fn relay(
     }
 }
 
+/// Aborts a spawned task when dropped.
+struct AbortOnDrop(tokio::task::JoinHandle<()>);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
 /// Reads and drops client input until it closes or `hold` elapses.
 async fn discard(mut stream: BoxStream, hold: Duration) {
     let mut sink = [0u8; 4096];
@@ -263,6 +280,9 @@ async fn discard(mut stream: BoxStream, hold: Duration) {
 #[derive(Clone, Copy)]
 pub struct ConnectionContext<'a> {
     pub peer: SocketAddr,
+    /// The address the client reached, when the transport knows it (plain
+    /// TCP does).
+    pub local: Option<SocketAddr>,
     pub settings: &'a ServeSettings,
     pub stats: &'a Arc<InboundStats>,
     outbound: &'a dyn TcpOutbound,
@@ -305,6 +325,7 @@ impl<'a> ConnectionContext<'a> {
         run(
             stream,
             self.peer,
+            self.local,
             inbound,
             self.outbound,
             self.udp,
