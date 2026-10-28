@@ -185,12 +185,11 @@ impl From<io::Error> for NodeError {
     }
 }
 
-/// Counters of one running inbound.
-
 /// Optional API capabilities this kernel has, answered in `GET /v1/status`
 /// so an agent can tell whether it may send them.
 pub const FEATURES: &[&str] = &["user_limits", "block_rules"];
 
+/// Counters of one running inbound.
 #[derive(Clone, Debug, Serialize)]
 pub struct InboundInfo {
     pub tag: String,
