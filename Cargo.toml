@@ -10,6 +10,7 @@ members = [
     "crates/engine-inbound",
     "crates/engine-native",
     "crates/engine-outbound",
+    "crates/inbound-forward",
     "crates/inbound-hysteria2",
     "crates/inbound-iwan",
     "crates/inbound-mixed",

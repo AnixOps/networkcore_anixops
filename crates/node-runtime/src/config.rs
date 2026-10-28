@@ -26,6 +26,7 @@ use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 
 use engine_inbound::registry::Settings;
 use engine_inbound::FallbackSettings;
+use engine_outbound::TargetAddr;
 use serde::Deserialize;
 
 use crate::egress::EgressConfig;
@@ -76,19 +77,34 @@ fn any_address() -> IpAddr {
 
 impl InboundConfig {
     /// Targets this inbound relays to by design (`fallback`, REALITY
-    /// `handshake`), which the private-target filter lets through.
+    /// `handshake`, a forward's `server`), which the private-target filter
+    /// lets through.
     pub fn allowed_targets(&self) -> Vec<(String, u16)> {
         let fallback = self.settings.get("fallback");
         let handshake = self
             .settings
             .get("reality")
             .and_then(|reality| reality.get("handshake"));
-        [fallback, handshake]
+        let mut allowed: Vec<(String, u16)> = [fallback, handshake]
             .into_iter()
             .flatten()
             .filter_map(|value| serde_json::from_value::<FallbackSettings>(value.clone()).ok())
             .map(|target| (target.server, target.server_port))
-            .collect()
+            .collect();
+        if self.kind == crate::FORWARD_TYPE {
+            let server = self.settings.get("server").and_then(|value| value.as_str());
+            let port = self
+                .settings
+                .get("server_port")
+                .and_then(|value| value.as_u64())
+                .and_then(|port| u16::try_from(port).ok());
+            if let (Some(server), Some(port)) = (server, port) {
+                // As the forward sends it: IP literals in canonical form.
+                let target = TargetAddr::from_host(server.trim(), port);
+                allowed.push((target.host(), port));
+            }
+        }
+        allowed
     }
 }
 
@@ -122,5 +138,23 @@ mod tests {
                 ("www.example.com".to_owned(), 443)
             ]
         );
+    }
+
+    #[test]
+    fn allows_the_forward_target() {
+        let config: NodeConfig = serde_json::from_value(serde_json::json!({
+            "inbounds": [
+                {"tag": "f", "type": "forward", "listen_port": 10001,
+                 "server": "[fd00::0:7]", "server_port": 22},
+                {"tag": "ss", "type": "shadowsocks", "listen_port": 8388,
+                 "server": "10.0.0.1", "server_port": 22}
+            ]
+        }))
+        .unwrap();
+        assert_eq!(
+            config.inbounds[0].allowed_targets(),
+            vec![("fd00::7".to_owned(), 22)]
+        );
+        assert!(config.inbounds[1].allowed_targets().is_empty());
     }
 }

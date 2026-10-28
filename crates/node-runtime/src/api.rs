@@ -10,7 +10,7 @@
 //! | `POST /v1/inbounds/{tag}/users` | `{"users": [User]}` | `{"users": n}` |
 //! | `POST /v1/inbounds/{tag}/users/remove` | `{"names": [..]}` | `{"removed": n}` |
 //! | `GET /v1/inbounds/{tag}/users` | | `{"names": [..]}` |
-//! | `GET /v1/inbounds/{tag}/traffic[?reset=true]` | | `{"traffic": [UserTraffic]}` |
+//! | `GET /v1/inbounds/{tag}/traffic[?reset=true]` | | `{"traffic": [UserTraffic], "inbound": InboundTraffic}` |
 //! | `GET /v1/inbounds/{tag}/online` | | `{"online": [OnlineUser]}` |
 //! | `GET /v1/egress` | | `EgressStatus` |
 //! | `PUT /v1/egress` | `EgressConfig` | `EgressStatus` |
@@ -20,6 +20,10 @@
 //! invalid entry refuses the whole body with 400; a relay port that cannot
 //! be bound answers 500 after the rest was applied. Neither answer carries a
 //! relay key.
+//!
+//! `traffic` lists the bytes per user, `inbound` the bytes of the whole
+//! inbound (users or not, so also a `forward` inbound's), both since the
+//! last `reset=true` call, which starts the next interval for both.
 //!
 //! Adding a user that exists replaces it (and closes its connections when the
 //! credentials changed). Errors answer `{"error": "..."}` with 400, 401, 404,
@@ -279,8 +283,13 @@ async fn route(node: &Node, request: Request) -> Response {
                 .query
                 .split('&')
                 .any(|pair| pair == "reset=true" || pair == "reset=1");
-            node.users(tag)
-                .map(|users| Response::ok(json!({ "traffic": users.traffic(reset) })))
+            node.users(tag).and_then(|users| {
+                let traffic = users.traffic(reset);
+                let inbound = node.inbound_traffic(tag, reset)?;
+                Ok(Response::ok(
+                    json!({ "traffic": traffic, "inbound": inbound }),
+                ))
+            })
         }
         ("GET", ["v1", "inbounds", tag, "online"]) => node
             .users(tag)

@@ -7,7 +7,7 @@ repository.workspace = true
 description = "Node server runtime: inbounds by tag, domain egress routes, a direct outbound and a local management API for node agents."
 
 [features]
-default = ["shadowsocks", "trojan", "vless", "vmess", "hysteria2", "tuic", "snell", "iwan"]
+default = ["shadowsocks", "trojan", "vless", "vmess", "hysteria2", "tuic", "snell", "iwan", "forward"]
 shadowsocks = ["dep:inbound-shadowsocks"]
 trojan = ["dep:inbound-trojan"]
 snell = ["dep:inbound-snell"]
@@ -16,10 +16,12 @@ vmess = ["dep:inbound-vmess"]
 hysteria2 = ["dep:inbound-hysteria2"]
 tuic = ["dep:inbound-tuic"]
 iwan = ["dep:inbound-iwan"]
+forward = ["dep:inbound-forward"]
 
 [dependencies]
 engine-inbound = { path = "../engine-inbound" }
 engine-outbound = { path = "../engine-outbound" }
+inbound-forward = { path = "../inbound-forward", optional = true }
 inbound-hysteria2 = { path = "../inbound-hysteria2", optional = true }
 inbound-iwan = { path = "../inbound-iwan", optional = true }
 inbound-shadowsocks = { path = "../inbound-shadowsocks", optional = true }
