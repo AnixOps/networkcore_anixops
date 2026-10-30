@@ -6,14 +6,18 @@
 //! opens the breaker; the target is then skipped for `open_ms`, after which
 //! one connection (or check) may try it. Any success closes it. When every
 //! target is open, all of them are candidates again rather than none.
+//!
+//! [`Targets::report`] answers each target's state with the round trip and
+//! time of its last active check, for the management API.
 
 use std::collections::hash_map::{DefaultHasher, RandomState};
 use std::hash::{BuildHasher, Hash, Hasher};
 use std::net::IpAddr;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use engine_inbound::health::{TargetHealth, TargetState};
 use engine_outbound::{TargetAddr, TcpOutbound};
 use tokio::time::Instant;
 
@@ -74,8 +78,9 @@ pub struct Target {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Health {
     /// Active checks: a TCP connect through the forward's outbound every
-    /// `interval`, within `timeout`. Off for a single target or a UDP-only
-    /// forward; passive failures still count.
+    /// `interval`, within `timeout`. Off for a UDP-only forward; passive
+    /// failures still count. A single target is checked too, for its
+    /// health and round trip, though it is dialed whatever its state.
     pub active: bool,
     pub interval: Duration,
     pub timeout: Duration,
@@ -110,6 +115,18 @@ struct State {
     active: AtomicUsize,
     /// Smooth weighted round robin's running weight.
     current: Mutex<i64>,
+    /// A check or dial has tried the target.
+    seen: AtomicBool,
+    /// The last active check.
+    probe: Mutex<Probe>,
+}
+
+/// One active check's outcome.
+#[derive(Clone, Copy, Default)]
+struct Probe {
+    /// Microseconds; 0 when it failed.
+    rtt_us: u32,
+    checked_at_unix_ms: u64,
 }
 
 /// The targets of one forward and their state.
@@ -167,6 +184,8 @@ impl Targets {
                     breaker: Mutex::default(),
                     active: AtomicUsize::new(0),
                     current: Mutex::new(0),
+                    seen: AtomicBool::new(false),
+                    probe: Mutex::default(),
                 })
                 .collect(),
             strategy,
@@ -308,10 +327,12 @@ impl Targets {
     }
 
     fn succeeded(&self, index: usize) {
+        self.states[index].seen.store(true, Ordering::Relaxed);
         *lock(&self.states[index].breaker) = Breaker::default();
     }
 
     fn failed(&self, index: usize, now: Instant) {
+        self.states[index].seen.store(true, Ordering::Relaxed);
         let mut breaker = lock(&self.states[index].breaker);
         breaker.failures = breaker.failures.saturating_add(1);
         breaker.trial = false;
@@ -336,18 +357,70 @@ impl Targets {
                     let (targets, outbound) = (self.clone(), outbound.clone());
                     async move {
                         let addr = &targets.states[index].target.addr;
+                        let began = Instant::now();
                         let connected =
                             tokio::time::timeout(targets.health.timeout, outbound.connect(addr))
                                 .await;
-                        match connected {
-                            Ok(Ok(_stream)) => targets.succeeded(index),
-                            _ => targets.failed(index, Instant::now()),
-                        }
+                        let rtt_us = match connected {
+                            Ok(Ok(_stream)) => {
+                                targets.succeeded(index);
+                                // At least 1: 0 means the check failed.
+                                u32::try_from(began.elapsed().as_micros())
+                                    .unwrap_or(u32::MAX)
+                                    .max(1)
+                            }
+                            _ => {
+                                targets.failed(index, Instant::now());
+                                0
+                            }
+                        };
+                        *lock(&targets.states[index].probe) = Probe {
+                            rtt_us,
+                            checked_at_unix_ms: unix_ms(SystemTime::now()),
+                        };
                     }
                 });
             futures_util::future::join_all(checks).await;
         }
     }
+}
+
+impl Targets {
+    /// Each target's state, in the configured order.
+    pub fn report(&self) -> Vec<TargetHealth> {
+        let (now, wall) = (Instant::now(), SystemTime::now());
+        self.states
+            .iter()
+            .map(|state| {
+                let breaker = lock(&state.breaker);
+                let probe = *lock(&state.probe);
+                let (status, open_until) = match breaker.open_until {
+                    Some(until) => (
+                        TargetState::CircuitOpen,
+                        unix_ms(wall + until.saturating_duration_since(now)),
+                    ),
+                    None if breaker.failures > 0 => (TargetState::Unhealthy, 0),
+                    None if state.seen.load(Ordering::Relaxed) => (TargetState::Healthy, 0),
+                    None => (TargetState::Unknown, 0),
+                };
+                TargetHealth {
+                    address: state.target.addr.host(),
+                    port: state.target.addr.port(),
+                    state: status,
+                    consecutive_failures: breaker.failures,
+                    circuit_open_until_unix_ms: open_until,
+                    rtt_us: probe.rtt_us,
+                    checked_at_unix_ms: probe.checked_at_unix_ms,
+                }
+            })
+            .collect()
+    }
+}
+
+fn unix_ms(time: SystemTime) -> u64 {
+    time.duration_since(UNIX_EPOCH)
+        .map(|elapsed| u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX))
+        .unwrap_or(0)
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -493,6 +566,38 @@ mod tests {
         trial.succeeded();
         assert!(targets.is_up(1));
         assert_eq!(pick(&targets, client(1)), 1);
+    }
+
+    #[test]
+    fn reports_each_target() {
+        let targets = targets(3, Strategy::RoundRobin);
+        let now = Instant::now();
+        targets.succeeded(0);
+        targets.failed(1, now);
+        for _ in 0..3 {
+            targets.failed(2, now);
+        }
+        let report = targets.report();
+        assert_eq!(report.len(), 3);
+        assert_eq!(report[0].address, "192.0.2.1");
+        assert_eq!(report[0].port, 1000);
+        assert_eq!(report[0].state, TargetState::Healthy);
+        assert_eq!(report[1].state, TargetState::Unhealthy);
+        assert_eq!(report[1].consecutive_failures, 1);
+        assert_eq!(report[2].state, TargetState::CircuitOpen);
+        assert!(report[2].circuit_open_until_unix_ms > unix_ms(SystemTime::now()));
+        assert_eq!(report[0].checked_at_unix_ms, 0, "no active check ran");
+        let fresh = super::Targets::new(
+            vec![Target {
+                addr: TargetAddr::Domain("t.example".into(), 80),
+                weight: 1,
+                priority: 0,
+            }],
+            Strategy::RoundRobin,
+            Health::default(),
+        );
+        assert_eq!(fresh.report()[0].state, TargetState::Unknown);
+        assert_eq!(fresh.report()[0].address, "t.example");
     }
 
     #[test]

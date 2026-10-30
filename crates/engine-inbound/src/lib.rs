@@ -19,6 +19,7 @@
 //! reasons. Implementations must keep credentials out of both.
 
 pub mod addr;
+pub mod health;
 pub mod limit;
 mod mux;
 pub mod registry;
@@ -139,6 +140,12 @@ pub trait StreamInbound: Send + Sync {
     /// its targets.
     fn background(&self, outbound: Arc<dyn TcpOutbound>) -> Option<BoxFuture<'static, ()>> {
         let _ = outbound;
+        None
+    }
+
+    /// The health of the upstreams an inbound dials itself (a forward's
+    /// targets); `None` for inbounds whose clients name the destination.
+    fn target_health(&self) -> Option<Vec<health::TargetHealth>> {
         None
     }
 }

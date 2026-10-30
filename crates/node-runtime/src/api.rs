@@ -12,6 +12,7 @@
 //! | `GET /v1/inbounds/{tag}/users` | | `{"names": [..]}` |
 //! | `GET /v1/inbounds/{tag}/traffic[?reset=true]` | | `{"traffic": [UserTraffic], "inbound": InboundTraffic}` |
 //! | `GET /v1/inbounds/{tag}/online` | | `{"online": [OnlineUser]}` |
+//! | `GET /v1/inbounds/{tag}/targets` | | `{"targets": [TargetHealth]}` |
 //! | `GET /v1/egress` | | `EgressStatus` |
 //! | `PUT /v1/egress` | `EgressConfig` | `EgressStatus` |
 //! | `GET /v1/network` | | `NetworkStatus` |
@@ -35,6 +36,13 @@
 //! `traffic` lists the bytes per user, `inbound` the bytes of the whole
 //! inbound (users or not, so also a `forward` inbound's), both since the
 //! last `reset=true` call, which starts the next interval for both.
+//!
+//! `targets` answers a `forward` inbound's targets in their configured order:
+//! `address`, `port`, `state` (`unknown`, `healthy`, `unhealthy` or
+//! `circuit_open`), `consecutive_failures`, `circuit_open_until_unix_ms`,
+//! and the last active check's `rtt_us` (0 when it failed) and
+//! `checked_at_unix_ms` (0 before the first). Other inbounds answer an empty
+//! list.
 //!
 //! `features` names what this kernel takes beyond the base API, so an agent
 //! can tell before sending it: `user_limits` (the user members below).
@@ -329,6 +337,9 @@ async fn route(node: &Node, request: Request) -> Response {
                 ))
             })
         }
+        ("GET", ["v1", "inbounds", tag, "targets"]) => node
+            .target_health(tag)
+            .map(|targets| Response::ok(json!({ "targets": targets }))),
         ("GET", ["v1", "inbounds", tag, "online"]) => node
             .users(tag)
             .map(|users| Response::ok(json!({ "online": users.online() }))),

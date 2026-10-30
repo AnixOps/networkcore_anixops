@@ -1,6 +1,7 @@
 //! Fixed-target forwards (`"type": "forward"`), as a panel forwarding rule
 //! creates them: TCP and UDP to one target, through the inbound's base
-//! outbound, with per-inbound traffic from the management API.
+//! outbound, with per-inbound traffic and target health from the management
+//! API.
 
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -214,7 +215,7 @@ async fn forwards_through_the_named_outbound() {
     let server = add_forward(
         api,
         json!({"tag": "rule-7", "type": "forward", "listen": "127.0.0.1", "listen_port": 0,
-               "outbound": "anx-line:7",
+               "outbound": "anx-line:7", "health": {"disabled": true},
                "server": "127.0.0.1", "server_port": target.port()}),
     )
     .await;
@@ -373,4 +374,71 @@ async fn caps_concurrent_connections() {
     drop(first);
     tokio::time::sleep(Duration::from_millis(300)).await;
     tcp_round_trip(server, b"three").await;
+}
+
+async fn target_health(api: SocketAddr, tag: &str) -> Vec<Value> {
+    let (status, body) = call(api, "GET", &format!("/v1/inbounds/{tag}/targets"), None).await;
+    assert_eq!(status, 200, "{body}");
+    body["targets"].as_array().unwrap().clone()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn reports_target_health() {
+    let api = start_api(Node::new(default_registry(), false)).await;
+    let live = echo_server().await;
+    let dead = closed_port().await;
+    add_forward(
+        api,
+        json!({"tag": "hc", "type": "forward", "listen": "127.0.0.1", "listen_port": 0,
+               "network": "tcp", "health": {"interval_ms": 50, "timeout_ms": 1000},
+               "circuit_breaker": {"failure_threshold": 2, "open_ms": 60000},
+               "targets": [{"server": "127.0.0.1", "server_port": live.port()},
+                           {"server": "127.0.0.1", "server_port": dead}]}),
+    )
+    .await;
+    // One target is checked too.
+    add_forward(
+        api,
+        json!({"tag": "one", "type": "forward", "listen": "127.0.0.1", "listen_port": 0,
+               "network": "tcp", "health": {"interval_ms": 50},
+               "server": "127.0.0.1", "server_port": live.port()}),
+    )
+    .await;
+
+    let deadline = tokio::time::Instant::now() + TIMEOUT;
+    loop {
+        let targets = target_health(api, "hc").await;
+        let one = target_health(api, "one").await;
+        if targets[1]["state"] == "circuit_open" && one[0]["state"] == "healthy" {
+            assert_eq!(targets[0]["address"], "127.0.0.1");
+            assert_eq!(targets[0]["port"], live.port());
+            assert_eq!(targets[0]["state"], "healthy");
+            assert!(targets[0]["rtt_us"].as_u64().unwrap() > 0);
+            assert!(targets[0]["checked_at_unix_ms"].as_u64().unwrap() > 0);
+            assert_eq!(targets[1]["port"], dead);
+            assert_eq!(targets[1]["rtt_us"], 0);
+            assert!(targets[1]["consecutive_failures"].as_u64().unwrap() >= 2);
+            assert!(targets[1]["circuit_open_until_unix_ms"].as_u64().unwrap() > 0);
+            assert!(one[0]["rtt_us"].as_u64().unwrap() > 0);
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "health never settled: {targets:?} {one:?}"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+
+    // A UDP-only forward runs no checks; its target stays unknown.
+    add_forward(
+        api,
+        json!({"tag": "u", "type": "forward", "listen": "127.0.0.1", "listen_port": 0,
+               "network": "udp", "server": "127.0.0.1", "server_port": dead}),
+    )
+    .await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(target_health(api, "u").await[0]["state"], "unknown");
+
+    let (status, _) = call(api, "GET", "/v1/inbounds/missing/targets", None).await;
+    assert_eq!(status, 404);
 }

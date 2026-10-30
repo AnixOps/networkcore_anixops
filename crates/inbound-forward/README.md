@@ -25,8 +25,12 @@ target is resolved and dialed at the last hop).
   `ip_hash` (a client stays on its target while it is up), `least_conn` or
   `failover` (the lowest `priority` that is up); the forward.v1 names
   (`BALANCE_STRATEGY_IP_HASH`) work too. Health checks are a TCP connect to
-  each target through the forward's outbound every `interval_ms`; with one
-  target or a UDP-only forward they do not run. Failures in a row (checks or
+  each target through the forward's outbound every `interval_ms`, one target
+  too (for its health and round trip; it is dialed whatever its state); a
+  UDP-only forward runs none. The management API answers each target's state,
+  last round trip and check time (`GET /v1/inbounds/{tag}/targets`), which the
+  agent reports to the panel for route health, latency, diagnosis and DNS
+  entry failover. Failures in a row (checks or
   dials) open a target's breaker for `open_ms`, then one connection or check
   tries it again; any success closes it. A failed dial moves the connection
   on to the next target. When every target is open, all are tried. 0 in any

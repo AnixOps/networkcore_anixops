@@ -112,15 +112,14 @@ impl ForwardInbound {
         )
     }
 
-    /// `targets` must not be empty. Active health checks run only with
-    /// several targets and TCP.
+    /// `targets` must not be empty. Active health checks run only with TCP.
     pub fn with_targets(
         targets: Vec<Target>,
         strategy: Strategy,
         mut health: Health,
         network: Network,
     ) -> Self {
-        health.active &= targets.len() > 1 && network.tcp;
+        health.active &= network.tcp;
         Self {
             targets: Arc::new(Targets::new(targets, strategy, health)),
             network,
@@ -265,6 +264,10 @@ impl StreamInbound for ForwardInbound {
             .health()
             .active
             .then(|| Box::pin(self.targets.clone().check(outbound)) as BoxFuture<'static, ()>)
+    }
+
+    fn target_health(&self) -> Option<Vec<engine_inbound::health::TargetHealth>> {
+        Some(self.targets.report())
     }
 }
 

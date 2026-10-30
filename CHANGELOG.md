@@ -15,6 +15,8 @@
 
 ### Added
 
+- 转发目标健康上报：管理 API 新增 `GET /v1/inbounds/{tag}/targets`，按配置顺序返回 `forward` 入站每个目标的 `state`（`unknown`/`healthy`/`unhealthy`/`circuit_open`）、连续失败数、熔断截止时间，以及最近一次主动检查的连接往返 `rtt_us`（失败为 0）和检查时间 `checked_at_unix_ms`；其他入站返回空列表。主动健康检查现在对单目标转发也运行（只要不是纯 UDP 且未 `disabled`），以便面板得到 ANX 路由的健康、延迟历史、诊断和 DNS 入口切换依据；单目标无论状态都照常拨号。
+
 - HTTPUpgrade 服务端传输：入站 `"transport": {"type": "httpupgrade"}`（别名 `http_upgrade`，成员同 `ws`：`path`、`host`、`max_early_data`、`early_data_header_name`），VLESS、VMess、Trojan 入站可用。`transport_ws::server::HttpUpgradeAcceptor` 校验路径与 Host，接受 `Sec-WebSocket-Protocol` 早期数据，回 `101` 后直接传原始字节（无 WebSocket 帧），兼容 sing-box、V2Ray、Xray 的 httpupgrade 客户端。
 
 - AnyTLS 服务端入站（新 crate `inbound-anytls`，node-runtime 默认 feature `anytls`，`"type": "anytls"`）：协议版本 2，与 sing-box、mihomo 客户端兼容。用户按 `password` 的 SHA-256 认证，多用户、按用户计流量、限速与设备数限制同其他入站；客户端设置先于第一个 SYN，否则回 Alert；客户端 padding MD5 不同时下发服务端方案（`padding_scheme`，默认与客户端默认方案相同），v2 客户端收到 `v=2` 服务端设置，每个流在目标连上后收到 SYNACK（连不上时带错误信息）；心跳请求有应答。流目标 `sp.v2.udp-over-tcp.arpa` 走 sing UDP over TCP v2（地址模式与 connect 模式）经节点 UDP 出口。未知用户转 `fallback` 或被拖住。TLS 由 `tls` 设置终结。测试用按协议写的最小客户端覆盖多流、计费、SYNACK、padding 下发、Alert、UoT、fallback 和删除用户。
