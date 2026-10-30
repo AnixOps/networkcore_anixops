@@ -49,6 +49,7 @@ use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
+use engine_inbound::health::TargetHealth;
 use engine_inbound::registry::{BuildError, Inbound, InboundRegistry, Settings};
 use engine_inbound::server::{serve_with_udp, InboundStats, ServeSettings};
 use engine_inbound::udp::UdpOutbound;
@@ -670,6 +671,15 @@ impl Node {
             *reported = total;
         }
         Ok(traffic)
+    }
+
+    /// The health of the targets an inbound dials itself (a forward's), in
+    /// their configured order; empty for other inbounds.
+    pub fn target_health(&self, tag: &str) -> Result<Vec<TargetHealth>, NodeError> {
+        self.lock()
+            .get(tag)
+            .map(|running| running.inbound.target_health().unwrap_or_default())
+            .ok_or(NodeError::NotFound)
     }
 
     pub fn list(&self) -> Vec<InboundInfo> {

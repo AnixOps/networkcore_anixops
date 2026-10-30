@@ -43,6 +43,14 @@ impl Inbound {
         }
     }
 
+    /// See [`crate::StreamInbound::target_health`].
+    pub fn target_health(&self) -> Option<Vec<crate::health::TargetHealth>> {
+        match self {
+            Inbound::Stream(inbound) => inbound.target_health(),
+            Inbound::Packet(_) => None,
+        }
+    }
+
     pub fn users(&self) -> &Arc<crate::UserStore> {
         match self {
             Inbound::Stream(inbound) => inbound.users(),
