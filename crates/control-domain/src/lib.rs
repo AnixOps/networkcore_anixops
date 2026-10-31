@@ -164,6 +164,11 @@ pub const NODE_METADATA_IWAN_USERNAME: &str = "iwan.username";
 pub const NODE_METADATA_IWAN_PASSWORD: &str = "iwan.password";
 pub const NODE_METADATA_IWAN_MTU: &str = "iwan.mtu";
 pub const NODE_METADATA_IWAN_ENCRYPT: &str = "iwan.encrypt";
+pub const NODE_METADATA_ANX_USER_KEY: &str = "anx.user_key";
+pub const NODE_METADATA_ANX_PUBLIC_KEY: &str = "anx.public_key";
+pub const NODE_METADATA_ANX_SERVER_NAME: &str = "anx.server_name";
+pub const NODE_METADATA_ANX_ALPN: &str = "anx.alpn";
+pub const NODE_METADATA_ANX_FINGERPRINT: &str = "anx.fingerprint";
 /// Id of the node this one connects through (`via`, a proxy chain).
 pub const NODE_METADATA_VIA: &str = "proxy.via";
 /// The subscription's name for that node when it could not be resolved to
@@ -420,6 +425,10 @@ pub enum Protocol {
     Snell,
     /// Panabit iWAN, a layer-3 tunnel (docs/protocols/iwan.md).
     Iwan,
+    /// ANX-A, AnixOps' private protocol under the A2 jacket. The public
+    /// build only parses it; a client build that compiles the protocol in
+    /// runs it.
+    Anx,
     Other(String),
 }
 
