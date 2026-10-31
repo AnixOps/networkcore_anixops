@@ -30,7 +30,7 @@ use engine_inbound::registry::BuildError;
 use engine_inbound::server::ConnectionContext;
 use engine_inbound::udp::DatagramInbound;
 use engine_inbound::{Accepted, Rejected, StreamInbound, UserStore};
-use engine_outbound::{BoxFuture, BoxStream};
+use engine_outbound::{BoxFuture, BoxStream, TcpOutbound};
 use rustls::crypto::CryptoProvider;
 use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
@@ -163,6 +163,14 @@ impl StreamInbound for TlsInbound {
 
     fn datagram(&self) -> Option<Arc<dyn DatagramInbound>> {
         self.inner.datagram()
+    }
+
+    fn background(&self, outbound: Arc<dyn TcpOutbound>) -> Option<BoxFuture<'static, ()>> {
+        self.inner.background(outbound)
+    }
+
+    fn target_health(&self) -> Option<Vec<engine_inbound::health::TargetHealth>> {
+        self.inner.target_health()
     }
 }
 

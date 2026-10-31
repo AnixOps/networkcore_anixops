@@ -277,3 +277,56 @@ async fn answers_502_when_upstreams_are_down() {
     .await
     .unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn terminates_tls_and_reports_https() {
+    let key = rcgen::KeyPair::generate().unwrap();
+    let cert = rcgen::CertificateParams::new(vec!["a.example".to_string()])
+        .unwrap()
+        .self_signed(&key)
+        .unwrap();
+    let a = start_upstream("a").await;
+    let settings = format!(
+        r#"{{"sites":[{{"hosts":["a.example"],"routes":[{{"upstreams":[{{"server":"127.0.0.1","server_port":{}}}]}}]}}],
+            "tls":{{"certificate":{},"key":{}}}}}"#,
+        a.port(),
+        serde_json::to_string(&cert.pem()).unwrap(),
+        serde_json::to_string(&key.serialize_pem()).unwrap()
+    );
+    let parsed: Settings = serde_json::from_str(&settings).unwrap();
+    let inbound = ReverseProxyInboundFactory.build(&parsed).unwrap();
+    // The TLS wrapper still reports the upstreams' health.
+    assert!(inbound.target_health().is_some());
+    let proxy = start_proxy(settings).await;
+    tokio::time::timeout(TIMEOUT, async {
+        let connector = transport_tls::TlsConnector::new(&transport_tls::TlsSettings {
+            server_name: "a.example".into(),
+            alpn: vec!["http/1.1".into()],
+            insecure: true,
+        })
+        .unwrap();
+        let tcp: BoxStream = Box::new(TcpStream::connect(proxy).await.unwrap());
+        let mut client = connector.connect(tcp).await.unwrap();
+        client
+            .write_all(b"GET / HTTP/1.1\r\nHost: a.example\r\nConnection: close\r\n\r\n")
+            .await
+            .unwrap();
+        let mut answer = Vec::new();
+        let _ = client.read_to_end(&mut answer).await;
+        let answer = String::from_utf8_lossy(&answer);
+        assert!(answer.starts_with("HTTP/1.1 200 OK\r\n"), "{answer}");
+        assert!(answer.contains("X-Forwarded-Proto: https\r\n"), "{answer}");
+    })
+    .await
+    .unwrap();
+}
+
+#[test]
+fn refuses_h2_alpn() {
+    let settings: Settings = serde_json::from_str(
+        r#"{"sites":[{"hosts":["*"],"routes":[{"upstreams":[{"server":"127.0.0.1","server_port":1}]}]}],
+            "tls":{"certificate":"x","key":"y","alpn":["h2"]}}"#,
+    )
+    .unwrap();
+    assert!(ReverseProxyInboundFactory.build(&settings).is_err());
+}

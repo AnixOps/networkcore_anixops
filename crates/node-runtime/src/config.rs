@@ -87,7 +87,8 @@ fn any_address() -> IpAddr {
 
 impl InboundConfig {
     /// Targets this inbound relays to by design (`fallback`, REALITY
-    /// `handshake`, a forward's `server` or `targets`), which the private-target filter
+    /// `handshake`, a forward's `server` or `targets`, a reverse proxy's
+    /// upstreams), which the private-target filter
     /// lets through.
     pub fn allowed_targets(&self) -> Vec<(String, u16)> {
         let fallback = self.settings.get("fallback");
@@ -123,6 +124,29 @@ impl InboundConfig {
                     .and_then(|port| u16::try_from(port).ok());
                 if let (Some(server), Some(port)) = (server, port) {
                     // As the forward sends it: IP literals in canonical form.
+                    let target = TargetAddr::from_host(server.trim(), port);
+                    allowed.push((target.host(), port));
+                }
+            }
+        }
+        if self.kind == crate::REVERSE_PROXY_TYPE {
+            let upstreams = self
+                .settings
+                .get("sites")
+                .and_then(|sites| sites.as_array())
+                .into_iter()
+                .flatten()
+                .filter_map(|site| site.get("routes").and_then(|routes| routes.as_array()))
+                .flatten()
+                .filter_map(|route| route.get("upstreams").and_then(|ups| ups.as_array()))
+                .flatten();
+            for upstream in upstreams {
+                let server = upstream.get("server").and_then(|value| value.as_str());
+                let port = upstream
+                    .get("server_port")
+                    .and_then(|value| value.as_u64())
+                    .and_then(|port| u16::try_from(port).ok());
+                if let (Some(server), Some(port)) = (server, port) {
                     let target = TargetAddr::from_host(server.trim(), port);
                     allowed.push((target.host(), port));
                 }
@@ -191,6 +215,24 @@ mod tests {
         assert_eq!(
             config.inbounds[0].allowed_targets(),
             vec![("10.0.0.1".to_owned(), 22), ("b.example".to_owned(), 80)]
+        );
+    }
+
+    #[test]
+    fn allows_the_reverse_proxy_upstreams() {
+        let config: NodeConfig = serde_json::from_value(serde_json::json!({
+            "inbounds": [
+                {"tag": "rp", "type": "reverse_proxy", "listen_port": 443,
+                 "sites": [{"hosts": ["a.example"], "routes": [
+                     {"path": "/api", "upstreams": [{"server": "10.0.0.1", "server_port": 8080}]},
+                     {"upstreams": [{"server": "[fd00::0:7]", "server_port": 80}]}]},
+                     {"hosts": ["b.example"], "redirect_https": true}]}
+            ]
+        }))
+        .unwrap();
+        assert_eq!(
+            config.inbounds[0].allowed_targets(),
+            vec![("10.0.0.1".to_owned(), 8080), ("fd00::7".to_owned(), 80)]
         );
     }
 }

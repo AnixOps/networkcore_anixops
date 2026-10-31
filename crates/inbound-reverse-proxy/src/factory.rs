@@ -8,6 +8,7 @@ use engine_inbound::registry::{parse_settings, BuildError, InboundFactory, Setti
 use engine_inbound::StreamInbound;
 use engine_outbound::TargetAddr;
 use inbound_forward::balance::{Health, Strategy, Target, Targets};
+use inbound_transport::TlsServerSettings;
 use serde::Deserialize;
 
 use crate::{HostHeader, HostPattern, Options, ReverseProxyInbound, Route, Site};
@@ -21,6 +22,7 @@ pub const TYPE_NAME: &str = "reverse_proxy";
 ///                         "balance": "least_conn", "host_header": "upstream",
 ///                         "headers": {"X-Site": "a"}},
 ///                        {"path": "/", "upstreams": [{"server": "10.0.0.3", "server_port": 3000}]}]}],
+///  "tls": {"certificate": "-----BEGIN CERTIFICATE-----...", "key": "..."},
 ///  "forwarded_proto": "https", "max_header_bytes": 65536,
 ///  "idle_timeout_ms": 60000, "upstream_timeout_ms": 60000}
 /// ```
@@ -28,7 +30,11 @@ pub const TYPE_NAME: &str = "reverse_proxy";
 #[serde(deny_unknown_fields)]
 struct ReverseProxySettings {
     sites: Vec<SiteSettings>,
-    /// `http` (default) or `https`.
+    /// Terminates TLS; ALPN defaults to `http/1.1`, the only HTTP version
+    /// the proxy speaks.
+    #[serde(default)]
+    tls: Option<TlsServerSettings>,
+    /// `http`, or `https`; defaults to `https` with `tls`, else `http`.
     #[serde(default)]
     forwarded_proto: Option<String>,
     #[serde(default)]
@@ -256,6 +262,7 @@ impl InboundFactory for ReverseProxyInboundFactory {
         let defaults = Options::default();
         let options = Options {
             forwarded_proto: match settings.forwarded_proto.as_deref() {
+                None if settings.tls.is_some() => "https",
                 None | Some("http") => "http",
                 Some("https") => "https",
                 Some(_) => return Err("reverse proxy forwarded_proto must be http or https"),
@@ -268,7 +275,19 @@ impl InboundFactory for ReverseProxyInboundFactory {
             idle_timeout: or_default(settings.idle_timeout_ms, defaults.idle_timeout),
             upstream_timeout: or_default(settings.upstream_timeout_ms, defaults.upstream_timeout),
         };
-        Ok(Arc::new(ReverseProxyInbound::new(sites, options)))
+        let inbound: Arc<dyn StreamInbound> = Arc::new(ReverseProxyInbound::new(sites, options));
+        match settings.tls {
+            Some(mut tls) => {
+                if tls.alpn.is_empty() {
+                    tls.alpn = vec!["http/1.1".to_string()];
+                }
+                if tls.alpn.iter().any(|protocol| protocol != "http/1.1") {
+                    return Err("reverse proxy tls alpn must be http/1.1");
+                }
+                inbound_transport::wrap(inbound, Some(&tls))
+            }
+            None => Ok(inbound),
+        }
     }
 }
 

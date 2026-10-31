@@ -27,7 +27,9 @@
 //! A `"type": "forward"` inbound ([`FORWARD_TYPE`]) is a panel forwarding
 //! rule: its listen port relays TCP and UDP to one fixed `server:port`
 //! through its base outbound only (egress routes do not apply), and the
-//! inbound's bytes are read back with [`Node::inbound_traffic`].
+//! inbound's bytes are read back with [`Node::inbound_traffic`]. A
+//! `"type": "reverse_proxy"` inbound ([`REVERSE_PROXY_TYPE`]) dials its
+//! upstreams the same way.
 //!
 //! The network model ([`network`], [`Node::apply_network`]) adds the
 //! device's egresses and paths: each egress is a base outbound named
@@ -74,6 +76,10 @@ pub const DIRECT_OUTBOUND: &str = "direct";
 /// target is the operator's, so it passes the private-target filter, and
 /// they leave through their base outbound without egress routes.
 pub const FORWARD_TYPE: &str = "forward";
+
+/// The inbound type of a panel reverse proxy; like a forward it dials its
+/// upstreams through its base outbound only.
+pub const REVERSE_PROXY_TYPE: &str = "reverse_proxy";
 
 /// An inbound's base outbound, for TCP connections and UDP sessions.
 #[derive(Clone)]
@@ -414,12 +420,13 @@ impl Node {
             .build(&config.kind, &config.settings)
             .map_err(NodeError::Invalid)?;
         let address = SocketAddr::new(config.listen, config.listen_port);
-        let (listen, stats, task) = if config.kind == FORWARD_TYPE {
-            self.spawn(&inbound, address, base.tcp, base.udp)?
-        } else {
-            let router = Arc::new(Router::new(base, self.egress.clone()));
-            self.spawn(&inbound, address, router.clone(), router)?
-        };
+        let (listen, stats, task) =
+            if config.kind == FORWARD_TYPE || config.kind == REVERSE_PROXY_TYPE {
+                self.spawn(&inbound, address, base.tcp, base.udp)?
+            } else {
+                let router = Arc::new(Router::new(base, self.egress.clone()));
+                self.spawn(&inbound, address, router.clone(), router)?
+            };
         let mut inbounds = self.lock();
         if inbounds.contains_key(&config.tag) {
             task.abort();
