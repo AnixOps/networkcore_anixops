@@ -585,3 +585,26 @@ vless://00000000-0000-0000-0000-000000000006@c.example.test:443?security=reality
     let again = import_text(&link).unwrap();
     assert_eq!(&again.nodes[0].outbound, outbound);
 }
+
+#[test]
+fn anx_links_import_as_anx_outbounds() {
+    let key = "ab".repeat(32);
+    let text = format!(
+        "anx://{key}@203.0.113.7:8443?sni=www.apple.com&pk=aa%3Abb&alpn=h2%2Chttp%2F1.1&fp=chrome#JP%20ANX"
+    );
+    let report = import_text(&text).unwrap();
+    let node = report
+        .nodes
+        .iter()
+        .find(|node| node.name == "JP ANX")
+        .expect("the anx link imports");
+    assert_eq!(node.protocol, "anx");
+    assert_eq!(node.outbound["type"], "anx");
+    assert_eq!(node.outbound["server"], "203.0.113.7");
+    assert_eq!(node.outbound["port"], 8443);
+    assert_eq!(node.outbound["server_name"], "www.apple.com");
+    assert_eq!(node.outbound["public_key"], "aa:bb");
+    assert_eq!(node.outbound["user_key"], key.as_str());
+    assert_eq!(node.outbound["alpn"], serde_json::json!(["h2", "http/1.1"]));
+    assert_eq!(node.outbound["fingerprint"], "chrome");
+}

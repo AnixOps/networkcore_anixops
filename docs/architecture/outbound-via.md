@@ -88,6 +88,7 @@ App ──iWAN──▶ Panabit 入口（国内）══IPLC══▶ Panabit NA
   - 任一链接的查询参数 `via=<前置节点名>` 是 AnixOps 扩展，导入器先取走它，再交给协议自己的解析。`vmess://` 写在 base64 之后，比如 `vmess://<base64>?via=HK%20line`。
   - iWAN 线路写成 `iwan://<用户名>:<口令>@<主机>:<端口>?mtu=1400&encrypt=0#<名字>`，用户名和口令按百分号编码。
   - 旧版 App 不认识 `iwan://`，会跳过它。旧版 App 也会忽略 `via`，于是直连落地机。
+  - ANX-A 节点写成 `anx://<64 位十六进制用户密钥>@<主机>:<端口>?sni=<SNI>&pk=<服务器公钥文本>&alpn=h2,http/1.1&fp=chrome#<名字>`，查询值按百分号编码。公开引擎只解析它，输出 `type = "anx"` 出站（`server_name`、`public_key`、`user_key`、可选 `alpn`、`fingerprint`），没有编译 ANX 的构建会把这个节点列为不支持。ANX 出站不走 `via`。
 
 面板继续用分享链接，不改成 sing-box JSON。原因是 App 已经支持的 xhttp 和 WireGuard 链接，在 sing-box JSON 里没有对应写法。
 

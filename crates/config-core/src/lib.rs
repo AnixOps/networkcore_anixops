@@ -15,14 +15,16 @@ use control_domain::{
     DomainResult, Endpoint, ListenerBind, ListenerDescriptor, ListenerKind, ListenerNetwork,
     ListenerRoute, Metadata, MetadataEntry, NodeCatalog, NodeDescriptor, PlatformCapabilities,
     Protocol, RawSubscription, RouteAction, RuleSet, SchemaVersion, SubscriptionDocument,
-    SubscriptionService, SubscriptionSource, NODE_METADATA_HYSTERIA2_OBFS_MAX_PACKET_SIZE,
-    NODE_METADATA_HYSTERIA2_OBFS_MIN_PACKET_SIZE, NODE_METADATA_HYSTERIA2_OBFS_PASSWORD,
-    NODE_METADATA_HYSTERIA2_OBFS_TYPE, NODE_METADATA_HYSTERIA2_PASSWORD,
-    NODE_METADATA_HYSTERIA2_SERVER_PORTS, NODE_METADATA_IWAN_ENCRYPT, NODE_METADATA_IWAN_MTU,
-    NODE_METADATA_IWAN_PASSWORD, NODE_METADATA_IWAN_USERNAME, NODE_METADATA_MIERU_HANDSHAKE_MODE,
-    NODE_METADATA_MIERU_MTU, NODE_METADATA_MIERU_MULTIPLEXING, NODE_METADATA_MIERU_PASSWORD,
-    NODE_METADATA_MIERU_PORT_RANGE, NODE_METADATA_MIERU_TRAFFIC_PATTERN,
-    NODE_METADATA_MIERU_TRANSPORT, NODE_METADATA_MIERU_USERNAME, NODE_METADATA_SHADOWSOCKS_METHOD,
+    SubscriptionService, SubscriptionSource, NODE_METADATA_ANX_ALPN, NODE_METADATA_ANX_FINGERPRINT,
+    NODE_METADATA_ANX_PUBLIC_KEY, NODE_METADATA_ANX_SERVER_NAME, NODE_METADATA_ANX_USER_KEY,
+    NODE_METADATA_HYSTERIA2_OBFS_MAX_PACKET_SIZE, NODE_METADATA_HYSTERIA2_OBFS_MIN_PACKET_SIZE,
+    NODE_METADATA_HYSTERIA2_OBFS_PASSWORD, NODE_METADATA_HYSTERIA2_OBFS_TYPE,
+    NODE_METADATA_HYSTERIA2_PASSWORD, NODE_METADATA_HYSTERIA2_SERVER_PORTS,
+    NODE_METADATA_IWAN_ENCRYPT, NODE_METADATA_IWAN_MTU, NODE_METADATA_IWAN_PASSWORD,
+    NODE_METADATA_IWAN_USERNAME, NODE_METADATA_MIERU_HANDSHAKE_MODE, NODE_METADATA_MIERU_MTU,
+    NODE_METADATA_MIERU_MULTIPLEXING, NODE_METADATA_MIERU_PASSWORD, NODE_METADATA_MIERU_PORT_RANGE,
+    NODE_METADATA_MIERU_TRAFFIC_PATTERN, NODE_METADATA_MIERU_TRANSPORT,
+    NODE_METADATA_MIERU_USERNAME, NODE_METADATA_SHADOWSOCKS_METHOD,
     NODE_METADATA_SHADOWSOCKS_PASSWORD, NODE_METADATA_SNELL_MODE, NODE_METADATA_SNELL_OBFS,
     NODE_METADATA_SNELL_OBFS_HOST, NODE_METADATA_SNELL_OBFS_URI, NODE_METADATA_SNELL_PSK,
     NODE_METADATA_SNELL_REUSE, NODE_METADATA_SNELL_USER_KEY, NODE_METADATA_SNELL_VERSION,
@@ -87,6 +89,7 @@ pub const SUBSCRIPTION_HYSTERIA2_LINK_INVALID_CODE: &str =
     "subscription.core.hysteria2_link_invalid";
 pub const SUBSCRIPTION_TUIC_LINK_INVALID_CODE: &str = "subscription.core.tuic_link_invalid";
 pub const SUBSCRIPTION_IWAN_LINK_INVALID_CODE: &str = "subscription.core.iwan_link_invalid";
+pub const SUBSCRIPTION_ANX_LINK_INVALID_CODE: &str = "subscription.core.anx_link_invalid";
 pub const SUBSCRIPTION_WIREGUARD_LINK_INVALID_CODE: &str =
     "subscription.core.wireguard_link_invalid";
 pub const SUBSCRIPTION_MIERU_LINK_INVALID_CODE: &str = "subscription.core.mieru_link_invalid";
@@ -2551,6 +2554,8 @@ fn parse_proxy_link_lines(source_id: &str, content: &str) -> DomainResult<Subscr
             parse_mieru_link(line)?
         } else if line.starts_with("iwan://") {
             parse_iwan_link(line)?
+        } else if line.starts_with("anx://") {
+            parse_anx_link(line)?
         } else {
             continue;
         };
@@ -2712,6 +2717,94 @@ fn parse_iwan_link(link: &str) -> DomainResult<NodeDescriptor> {
         protocol: Protocol::Iwan,
         endpoint: Endpoint { host, port },
         tags: vec!["subscription".to_string(), "iwan".to_string()],
+        metadata,
+    })
+}
+
+/// Parses an AnixOps ANX-A link:
+/// `anx://<user key>@host:port?sni=<name>&pk=<server public key>&alpn=h2,http/1.1&fp=chrome#name`.
+/// The user key is 64 hex digits; `pk` is the server's public key text.
+fn parse_anx_link(link: &str) -> DomainResult<NodeDescriptor> {
+    let invalid = |message: &str| domain_error(SUBSCRIPTION_ANX_LINK_INVALID_CODE, message);
+    let payload = link
+        .strip_prefix("anx://")
+        .ok_or_else(|| invalid("anx link must start with anx://"))?;
+    let (without_fragment, fragment) = split_once_optional(payload, '#');
+    let name = fragment
+        .and_then(|fragment| percent_decode(fragment).ok())
+        .filter(|name| !name.trim().is_empty());
+    let (main_without_query, query) = split_once_optional(without_fragment, '?');
+    let (user_key, host_port) = main_without_query
+        .rsplit_once('@')
+        .ok_or_else(|| invalid("anx link must contain a user key and an endpoint"))?;
+    let user_key = required_trimmed(
+        user_key.to_string(),
+        SUBSCRIPTION_ANX_LINK_INVALID_CODE,
+        "anx user key cannot be empty",
+    )?;
+    if user_key.len() != 64 || !user_key.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(invalid("anx user key must be 64 hex digits"));
+    }
+    let (host, port) = parse_host_port_for(host_port, SUBSCRIPTION_ANX_LINK_INVALID_CODE, "anx")?;
+    let query = parse_share_link_query(query, SUBSCRIPTION_ANX_LINK_INVALID_CODE, "anx")?;
+    let public_key = required_trimmed(
+        query.get("pk").cloned().unwrap_or_default(),
+        SUBSCRIPTION_ANX_LINK_INVALID_CODE,
+        "anx link needs pk, the server public key",
+    )?;
+    let server_name = required_trimmed(
+        query.get("sni").cloned().unwrap_or_default(),
+        SUBSCRIPTION_ANX_LINK_INVALID_CODE,
+        "anx link needs sni, the server name",
+    )?;
+    let host_id = sanitize_identifier(&host);
+    let host_id = if host_id.is_empty() {
+        "host".to_string()
+    } else {
+        host_id
+    };
+    let id = format!("anx-{host_id}-{port}");
+    let name = name.unwrap_or_else(|| id.clone());
+
+    let mut metadata = vec![
+        MetadataEntry {
+            key: NODE_METADATA_ANX_USER_KEY.to_string(),
+            value: user_key,
+        },
+        MetadataEntry {
+            key: NODE_METADATA_ANX_PUBLIC_KEY.to_string(),
+            value: public_key,
+        },
+        MetadataEntry {
+            key: NODE_METADATA_ANX_SERVER_NAME.to_string(),
+            value: server_name,
+        },
+    ];
+    for (query_key, metadata_key) in [
+        ("alpn", NODE_METADATA_ANX_ALPN),
+        ("fp", NODE_METADATA_ANX_FINGERPRINT),
+    ] {
+        if let Some(value) = query
+            .get(query_key)
+            .filter(|value| !value.trim().is_empty())
+        {
+            metadata.push(MetadataEntry {
+                key: metadata_key.to_string(),
+                value: value.trim().to_string(),
+            });
+        }
+    }
+    metadata.push(MetadataEntry {
+        key: NODE_METADATA_SOURCE_FORMAT.to_string(),
+        value: "anx-url".to_string(),
+    });
+
+    Ok(NodeDescriptor {
+        id,
+        name,
+        protocol: Protocol::Anx,
+        endpoint: Endpoint { host, port },
+        tags: vec!["subscription".to_string(), "anx".to_string()],
         metadata,
     })
 }
@@ -4188,6 +4281,7 @@ fn parse_protocol(raw: String) -> DomainResult<Protocol> {
         "wireguard" => Protocol::WireGuard,
         "snell" => Protocol::Snell,
         "iwan" => Protocol::Iwan,
+        "anx" => Protocol::Anx,
         _ => Protocol::Other(protocol),
     })
 }

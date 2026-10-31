@@ -20,6 +20,8 @@ use config_core::routing::RoutingSpec;
 use config_core::routing_import::{import_subscription_routing, ImportedRuleSet};
 use control_domain::{
     NodeCatalog, NodeDescriptor, Protocol, SubscriptionService, SubscriptionSource,
+    NODE_METADATA_ANX_ALPN, NODE_METADATA_ANX_FINGERPRINT, NODE_METADATA_ANX_PUBLIC_KEY,
+    NODE_METADATA_ANX_SERVER_NAME, NODE_METADATA_ANX_USER_KEY,
     NODE_METADATA_HYSTERIA2_OBFS_PASSWORD, NODE_METADATA_HYSTERIA2_OBFS_TYPE,
     NODE_METADATA_HYSTERIA2_PASSWORD, NODE_METADATA_IWAN_ENCRYPT, NODE_METADATA_IWAN_MTU,
     NODE_METADATA_IWAN_PASSWORD, NODE_METADATA_IWAN_USERNAME, NODE_METADATA_MIERU_PASSWORD,
@@ -63,6 +65,7 @@ pub fn outbound_json(node: &NodeDescriptor) -> Result<Value, Unsupported> {
         Protocol::Snell => snell(node),
         Protocol::Mieru => mieru(node),
         Protocol::Iwan => iwan(node),
+        Protocol::Anx => anx(node),
         _ => Err("protocol is not implemented by the embedded engine yet"),
     }?;
     if let Some(via) = metadata(node, NODE_METADATA_VIA) {
@@ -71,7 +74,11 @@ pub fn outbound_json(node: &NodeDescriptor) -> Result<Value, Unsupported> {
         // the whole tunnel.
         if matches!(
             node.protocol,
-            Protocol::Hysteria2 | Protocol::Tuic | Protocol::Iwan | Protocol::WireGuard
+            Protocol::Hysteria2
+                | Protocol::Tuic
+                | Protocol::Iwan
+                | Protocol::Anx
+                | Protocol::WireGuard
         ) {
             return Err("this protocol cannot connect through another node");
         }
@@ -298,6 +305,7 @@ fn protocol_name(protocol: &Protocol) -> String {
         Protocol::Mieru => "mieru".to_string(),
         Protocol::Snell => "snell".to_string(),
         Protocol::Iwan => "iwan".to_string(),
+        Protocol::Anx => "anx".to_string(),
         Protocol::Other(name) => name.to_ascii_lowercase(),
     }
 }
@@ -541,6 +549,37 @@ fn iwan(node: &NodeDescriptor) -> Result<Value, Unsupported> {
     }
     if let Some(encrypt) = metadata(node, NODE_METADATA_IWAN_ENCRYPT) {
         outbound["encrypt"] = json!(encrypt == "true");
+    }
+    Ok(outbound)
+}
+
+/// ANX-A under the A2 jacket. The public engine does not compile the
+/// protocol in; a client build that does reads this entry (`type = "anx"`:
+/// `server_name`, `public_key`, `user_key`, optional `alpn`, `fingerprint`).
+fn anx(node: &NodeDescriptor) -> Result<Value, Unsupported> {
+    let user_key = metadata(node, NODE_METADATA_ANX_USER_KEY).ok_or("anx user key is missing")?;
+    let public_key =
+        metadata(node, NODE_METADATA_ANX_PUBLIC_KEY).ok_or("anx server public key is missing")?;
+    let server_name =
+        metadata(node, NODE_METADATA_ANX_SERVER_NAME).ok_or("anx server name is missing")?;
+    let mut outbound = json!({
+        "type": "anx",
+        "server": node.endpoint.host,
+        "port": node.endpoint.port,
+        "server_name": server_name,
+        "public_key": public_key,
+        "user_key": user_key,
+    });
+    if let Some(alpn) = metadata(node, NODE_METADATA_ANX_ALPN) {
+        let alpn: Vec<&str> = alpn
+            .split(',')
+            .map(str::trim)
+            .filter(|entry| !entry.is_empty())
+            .collect();
+        outbound["alpn"] = json!(alpn);
+    }
+    if let Some(fingerprint) = metadata(node, NODE_METADATA_ANX_FINGERPRINT) {
+        outbound["fingerprint"] = json!(fingerprint);
     }
     Ok(outbound)
 }
