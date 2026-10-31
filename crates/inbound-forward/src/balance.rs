@@ -611,9 +611,9 @@ mod tests {
         assert_eq!(report[0].rtt_us, 30_000);
 
         let down = targets(1, Strategy::RoundRobin);
-        let check = tokio::spawn(down.clone().check(Arc::new(Probed(Err(
-            io::Error::from(io::ErrorKind::ConnectionReset),
-        )))));
+        let check = tokio::spawn(down.clone().check(Arc::new(Probed(Err(io::Error::from(
+            io::ErrorKind::ConnectionReset,
+        ))))));
         tokio::time::sleep(Duration::from_millis(10)).await;
         check.abort();
         let report = down.report();
