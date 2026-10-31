@@ -565,16 +565,17 @@ fn anx(node: &NodeDescriptor) -> Result<Value, Unsupported> {
     let user_key = metadata(node, NODE_METADATA_ANX_USER_KEY).ok_or("anx user key is missing")?;
     let public_key =
         metadata(node, NODE_METADATA_ANX_PUBLIC_KEY).ok_or("anx server public key is missing")?;
-    let server_name =
-        metadata(node, NODE_METADATA_ANX_SERVER_NAME).ok_or("anx server name is missing")?;
     let mut outbound = json!({
         "type": "anx",
         "server": node.endpoint.host,
         "port": node.endpoint.port,
-        "server_name": server_name,
         "public_key": public_key,
         "user_key": user_key,
     });
+    // No server name means no SNI in the ClientHello.
+    if let Some(server_name) = metadata(node, NODE_METADATA_ANX_SERVER_NAME) {
+        outbound["server_name"] = json!(server_name);
+    }
     if let Some(alpn) = metadata(node, NODE_METADATA_ANX_ALPN) {
         let alpn: Vec<&str> = alpn
             .split(',')

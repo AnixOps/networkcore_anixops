@@ -610,6 +610,21 @@ fn anx_links_import_as_anx_outbounds() {
 }
 
 #[test]
+fn anx_links_without_sni_import_without_server_name() {
+    let key = "cd".repeat(32);
+    let text = format!("anx://{key}@203.0.113.8:443?pk=aa%3Abb#No%20SNI");
+    let report = import_text(&text).unwrap();
+    let node = report
+        .nodes
+        .iter()
+        .find(|node| node.name == "No SNI")
+        .expect("an anx link without sni imports");
+    assert_eq!(node.outbound["type"], "anx");
+    assert_eq!(node.outbound["server"], "203.0.113.8");
+    assert!(node.outbound.get("server_name").is_none());
+}
+
+#[test]
 fn vless_encryption_nodes_are_reported_unsupported_not_imported_as_plain() {
     // Xray VLESS Encryption (XTLS/Xray-core#5067): dialing it as plain VLESS
     // would only read the server's random stream, so say it is unsupported.
