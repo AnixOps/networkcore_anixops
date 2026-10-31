@@ -77,8 +77,8 @@ pub struct Target {
 /// Active checks and breaker settings.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Health {
-    /// Active checks: a TCP connect through the forward's outbound every
-    /// `interval`, within `timeout`. Off for a UDP-only forward; passive
+    /// Active checks: a probe through the forward's outbound
+    /// ([`TcpOutbound::probe`]) every `interval`, within `timeout`. Off for a UDP-only forward; passive
     /// failures still count. A single target is checked too, for its
     /// health and round trip, though it is dialed whatever its state.
     pub active: bool,
@@ -357,17 +357,17 @@ impl Targets {
                     let (targets, outbound) = (self.clone(), outbound.clone());
                     async move {
                         let addr = &targets.states[index].target.addr;
-                        let began = Instant::now();
-                        let connected =
-                            tokio::time::timeout(targets.health.timeout, outbound.connect(addr))
-                                .await;
-                        let rtt_us = match connected {
-                            Ok(Ok(_stream)) => {
+                        let timeout = targets.health.timeout;
+                        // The outbound waits for the far end within the
+                        // timeout; the outer bound only guards one that
+                        // does not.
+                        let probed =
+                            tokio::time::timeout(timeout, outbound.probe(addr, timeout)).await;
+                        let rtt_us = match probed {
+                            Ok(Ok(rtt)) => {
                                 targets.succeeded(index);
                                 // At least 1: 0 means the check failed.
-                                u32::try_from(began.elapsed().as_micros())
-                                    .unwrap_or(u32::MAX)
-                                    .max(1)
+                                u32::try_from(rtt.as_micros()).unwrap_or(u32::MAX).max(1)
                             }
                             _ => {
                                 targets.failed(index, Instant::now());
@@ -432,6 +432,7 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io;
     use std::net::Ipv4Addr;
 
     fn targets(n: u16, strategy: Strategy) -> Arc<Targets> {
@@ -566,6 +567,59 @@ mod tests {
         trial.succeeded();
         assert!(targets.is_up(1));
         assert_eq!(pick(&targets, client(1)), 1);
+    }
+
+    /// An outbound whose `connect` would fail and whose `probe` answers.
+    struct Probed(io::Result<Duration>);
+
+    impl TcpOutbound for Probed {
+        fn protocol(&self) -> &'static str {
+            "probed"
+        }
+
+        fn connect<'a>(
+            &'a self,
+            _target: &'a TargetAddr,
+        ) -> engine_outbound::BoxFuture<'a, io::Result<engine_outbound::BoxStream>> {
+            Box::pin(async { Err(io::Error::other("checks probe, not connect")) })
+        }
+
+        fn probe<'a>(
+            &'a self,
+            _target: &'a TargetAddr,
+            _timeout: Duration,
+        ) -> engine_outbound::BoxFuture<'a, io::Result<Duration>> {
+            let result = match &self.0 {
+                Ok(rtt) => Ok(*rtt),
+                Err(error) => Err(io::Error::new(error.kind(), "probe failed")),
+            };
+            Box::pin(async move { result })
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn checks_report_the_probe_round_trip() {
+        let up = targets(1, Strategy::RoundRobin);
+        let check = tokio::spawn(
+            up.clone()
+                .check(Arc::new(Probed(Ok(Duration::from_millis(30))))),
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        check.abort();
+        let report = up.report();
+        assert_eq!(report[0].state, TargetState::Healthy);
+        assert_eq!(report[0].rtt_us, 30_000);
+
+        let down = targets(1, Strategy::RoundRobin);
+        let check = tokio::spawn(down.clone().check(Arc::new(Probed(Err(
+            io::Error::from(io::ErrorKind::ConnectionReset),
+        )))));
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        check.abort();
+        let report = down.report();
+        assert_eq!(report[0].state, TargetState::Unhealthy);
+        assert_eq!(report[0].rtt_us, 0);
+        assert!(report[0].checked_at_unix_ms > 0);
     }
 
     #[test]

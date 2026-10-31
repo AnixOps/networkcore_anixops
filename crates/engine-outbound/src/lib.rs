@@ -23,6 +23,7 @@ use std::future::Future;
 use std::io;
 use std::net::{IpAddr, SocketAddr};
 use std::pin::Pin;
+use std::time::Duration;
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadHalf, WriteHalf};
 use tokio::net::{TcpStream, UdpSocket};
@@ -198,6 +199,33 @@ pub trait TcpOutbound: Send + Sync {
         let _ = target;
         Box::pin(async { Err(udp_unsupported()) })
     }
+
+    /// Checks that `target` answers through this outbound within `timeout`
+    /// and returns the round trip, for active health checks. The default
+    /// times [`TcpOutbound::connect`], which is the whole path for an
+    /// outbound that dials before it returns. An outbound whose `connect`
+    /// returns before the far end has dialed (a stream opened on a
+    /// multiplexed session, say) overrides this to wait for the far end's
+    /// answer and to report the path's round trip, not a local open.
+    fn probe<'a>(
+        &'a self,
+        target: &'a TargetAddr,
+        timeout: Duration,
+    ) -> BoxFuture<'a, io::Result<Duration>> {
+        Box::pin(async move {
+            let began = tokio::time::Instant::now();
+            match tokio::time::timeout(timeout, self.connect(target)).await {
+                Ok(Ok(_stream)) => Ok(began.elapsed()),
+                Ok(Err(error)) => Err(error),
+                Err(_) => Err(probe_timed_out()),
+            }
+        })
+    }
+}
+
+/// The error a [`TcpOutbound::probe`] that ran out of time fails with.
+pub fn probe_timed_out() -> io::Error {
+    io::Error::new(io::ErrorKind::TimedOut, "probe timed out")
 }
 
 /// The error [`TcpOutbound::open_udp`] returns for protocols without UDP.

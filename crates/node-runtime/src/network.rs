@@ -845,6 +845,14 @@ impl TcpOutbound for EgressOutbound {
     fn connect<'a>(&'a self, target: &'a TargetAddr) -> BoxFuture<'a, io::Result<BoxStream>> {
         Box::pin(async move { self.resolve()?.tcp.connect(target).await })
     }
+
+    fn probe<'a>(
+        &'a self,
+        target: &'a TargetAddr,
+        timeout: Duration,
+    ) -> BoxFuture<'a, io::Result<Duration>> {
+        Box::pin(async move { self.resolve()?.tcp.probe(target, timeout).await })
+    }
 }
 
 impl UdpOutbound for EgressOutbound {
@@ -902,6 +910,14 @@ impl TcpOutbound for IngressOutbound {
 
     fn connect<'a>(&'a self, target: &'a TargetAddr) -> BoxFuture<'a, io::Result<BoxStream>> {
         Box::pin(async move { self.resolve()?.tcp.connect(target).await })
+    }
+
+    fn probe<'a>(
+        &'a self,
+        target: &'a TargetAddr,
+        timeout: Duration,
+    ) -> BoxFuture<'a, io::Result<Duration>> {
+        Box::pin(async move { self.resolve()?.tcp.probe(target, timeout).await })
     }
 }
 
