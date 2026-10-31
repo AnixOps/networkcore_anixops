@@ -15,6 +15,8 @@
 
 ### Added
 
+- 出站探测接口 `TcpOutbound::probe(target, timeout)`：返回经该出站到目标的往返时间。默认实现仍是对 `connect` 计时；`connect` 在对端拨号前就返回的出站（复用会话上开流，如 ANX-Line）可覆盖它，等对端应答并报告路径往返。`forward` 入站的主动健康检查改用 `probe`，`rtt_us` 由此不再只是本机开流时间；`egress:`/`ingress:` 出站把探测转给实际出站。
+
 - 转发目标健康上报：管理 API 新增 `GET /v1/inbounds/{tag}/targets`，按配置顺序返回 `forward` 入站每个目标的 `state`（`unknown`/`healthy`/`unhealthy`/`circuit_open`）、连续失败数、熔断截止时间，以及最近一次主动检查的连接往返 `rtt_us`（失败为 0）和检查时间 `checked_at_unix_ms`；其他入站返回空列表。主动健康检查现在对单目标转发也运行（只要不是纯 UDP 且未 `disabled`），以便面板得到 ANX 路由的健康、延迟历史、诊断和 DNS 入口切换依据；单目标无论状态都照常拨号。
 
 - HTTPUpgrade 服务端传输：入站 `"transport": {"type": "httpupgrade"}`（别名 `http_upgrade`，成员同 `ws`：`path`、`host`、`max_early_data`、`early_data_header_name`），VLESS、VMess、Trojan 入站可用。`transport_ws::server::HttpUpgradeAcceptor` 校验路径与 Host，接受 `Sec-WebSocket-Protocol` 早期数据，回 `101` 后直接传原始字节（无 WebSocket 帧），兼容 sing-box、V2Ray、Xray 的 httpupgrade 客户端。

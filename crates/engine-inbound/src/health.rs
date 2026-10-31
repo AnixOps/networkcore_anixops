@@ -29,8 +29,8 @@ pub struct TargetHealth {
     pub consecutive_failures: u32,
     /// When the open breaker lets a trial through; 0 while it is closed.
     pub circuit_open_until_unix_ms: u64,
-    /// The last active check's connect round trip in microseconds; 0 when
-    /// it failed or none ran.
+    /// The last active check's round trip in microseconds, as the
+    /// outbound's probe measured it; 0 when it failed or none ran.
     pub rtt_us: u32,
     /// When the last active check ran; 0 when none did.
     pub checked_at_unix_ms: u64,
