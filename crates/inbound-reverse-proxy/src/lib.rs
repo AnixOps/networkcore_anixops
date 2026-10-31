@@ -432,7 +432,7 @@ impl Conn<'_, '_> {
         let mut retried = false;
         let mut upstream = match reused {
             Some(upstream) => upstream,
-            None => match self.dial(site_index, route_index, peer).await {
+            None => match dial(inbound, self.context, site_index, route_index, peer).await {
                 Some(upstream) => upstream,
                 None => {
                     respond(client, 502, "Bad Gateway").await?;
@@ -488,7 +488,7 @@ impl Conn<'_, '_> {
                 Ok(Some(head)) => break head,
                 Ok(None) | Err(_) if was_reused && !retried && body == Body::None => {
                     retried = true;
-                    match self.dial(site_index, route_index, peer).await {
+                    match dial(inbound, self.context, site_index, route_index, peer).await {
                         Some(fresh) => upstream = fresh,
                         None => {
                             respond(client, 502, "Bad Gateway").await?;
@@ -564,28 +564,6 @@ impl Conn<'_, '_> {
         })
     }
 
-    async fn dial(&self, site: usize, route: usize, peer: IpAddr) -> Option<Upstream> {
-        let targets = &self.inbound.sites[site].routes[route].targets;
-        let mut tried = Vec::new();
-        loop {
-            let lease = targets.pick(peer, &tried)?;
-            match self.context.connect(lease.target()).await {
-                Ok(stream) => {
-                    return Some(Upstream {
-                        site,
-                        route,
-                        lease,
-                        side: Side::new(stream),
-                    })
-                }
-                Err(_) => {
-                    lease.failed();
-                    tried.push(lease.index());
-                }
-            }
-        }
-    }
-
     /// After a `101`: what each side sent past the heads, then raw bytes
     /// both ways until both end.
     async fn splice(&mut self, client: &mut Side, mut upstream: Upstream) -> io::Result<Outcome> {
@@ -601,6 +579,36 @@ impl Conn<'_, '_> {
             .relay(None, &mut client.stream, &mut upstream.side.stream)
             .await;
         Ok(Outcome::Close)
+    }
+}
+
+/// Opens a connection to one of a route's upstreams, trying each once.
+/// A free function: a `&Conn` held across the dial would not be `Send`.
+async fn dial(
+    inbound: &ReverseProxyInbound,
+    context: &ConnectionContext<'_>,
+    site: usize,
+    route: usize,
+    peer: IpAddr,
+) -> Option<Upstream> {
+    let targets = &inbound.sites[site].routes[route].targets;
+    let mut tried = Vec::new();
+    loop {
+        let lease = targets.pick(peer, &tried)?;
+        match context.connect(lease.target()).await {
+            Ok(stream) => {
+                return Some(Upstream {
+                    site,
+                    route,
+                    lease,
+                    side: Side::new(stream),
+                })
+            }
+            Err(_) => {
+                lease.failed();
+                tried.push(lease.index());
+            }
+        }
     }
 }
 

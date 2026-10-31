@@ -54,7 +54,7 @@ impl Side {
     /// The next message head including its blank line; `None` when the
     /// peer closed before sending any byte of it.
     pub async fn read_head(&mut self, max: usize) -> io::Result<Option<Vec<u8>>> {
-        let mut searched = 0;
+        let mut searched: usize = 0;
         loop {
             if let Some(end) = find(&self.buf[searched.saturating_sub(3)..], b"\r\n\r\n") {
                 let end = searched.saturating_sub(3) + end + 4;
@@ -77,7 +77,7 @@ impl Side {
 
     /// One line including its CRLF.
     async fn read_line(&mut self) -> io::Result<Vec<u8>> {
-        let mut searched = 0;
+        let mut searched: usize = 0;
         loop {
             if let Some(end) = find(&self.buf[searched.saturating_sub(1)..], b"\r\n") {
                 let end = searched.saturating_sub(1) + end + 2;
