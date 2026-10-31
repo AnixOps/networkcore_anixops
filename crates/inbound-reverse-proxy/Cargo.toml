@@ -10,12 +10,15 @@ description = "HTTP/1.1 reverse proxy inbound: sites by Host, routes by path pre
 engine-inbound = { path = "../engine-inbound" }
 engine-outbound = { path = "../engine-outbound" }
 inbound-forward = { path = "../inbound-forward" }
+inbound-transport = { path = "../inbound-transport" }
 httparse = "1.10"
 serde = { version = "1", features = ["derive"] }
 futures-util = { version = "0.3", default-features = false, features = ["alloc"] }
 tokio = { version = "1", default-features = false, features = ["net", "io-util", "rt", "time", "macros"] }
 
 [dev-dependencies]
+rcgen = "0.14.8"
+transport-tls = { path = "../transport-tls" }
 serde_json = "1"
 tokio = { version = "1", default-features = false, features = ["io-util", "net", "rt", "rt-multi-thread", "macros", "time"] }
 

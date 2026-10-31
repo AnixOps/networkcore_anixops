@@ -1507,9 +1507,12 @@ dependencies = [
  "futures-util",
  "httparse",
  "inbound-forward",
+ "inbound-transport",
+ "rcgen",
  "serde",
  "serde_json",
  "tokio",
+ "transport-tls",
 ]
 
 [[package]]
