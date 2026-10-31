@@ -149,6 +149,8 @@ pub fn default_registry() -> InboundRegistry {
     registry.register(Arc::new(inbound_forward::ForwardInboundFactory));
     #[cfg(feature = "anytls")]
     registry.register(Arc::new(inbound_anytls::AnyTlsInboundFactory));
+    #[cfg(feature = "reverse_proxy")]
+    registry.register(Arc::new(inbound_reverse_proxy::ReverseProxyInboundFactory));
     registry
 }
 
@@ -189,8 +191,14 @@ impl From<io::Error> for NodeError {
 }
 
 /// Optional API capabilities this kernel has, answered in `GET /v1/status`
-/// so an agent can tell whether it may send them.
-pub const FEATURES: &[&str] = &["user_limits", "block_rules"];
+/// so an agent can tell whether it may send them. `reverse_proxy` says the
+/// `reverse_proxy` inbound type is built in.
+pub const FEATURES: &[&str] = &[
+    "user_limits",
+    "block_rules",
+    #[cfg(feature = "reverse_proxy")]
+    "reverse_proxy",
+];
 
 /// Counters of one running inbound.
 #[derive(Clone, Debug, Serialize)]

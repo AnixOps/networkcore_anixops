@@ -786,8 +786,8 @@ dependencies = [
  "boringtun",
  "config-core",
  "control-domain",
- "engine-native",
  "engine-inbound",
+ "engine-native",
  "engine-outbound",
  "etherparse",
  "futures",
@@ -1499,6 +1499,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "inbound-reverse-proxy"
+version = "0.2.0"
+dependencies = [
+ "engine-inbound",
+ "engine-outbound",
+ "futures-util",
+ "httparse",
+ "inbound-forward",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "inbound-shadowsocks"
 version = "0.2.0"
 dependencies = [
@@ -1932,6 +1946,7 @@ dependencies = [
  "inbound-forward",
  "inbound-hysteria2",
  "inbound-iwan",
+ "inbound-reverse-proxy",
  "inbound-shadowsocks",
  "inbound-snell",
  "inbound-trojan",

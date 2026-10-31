@@ -15,6 +15,7 @@ members = [
     "crates/inbound-hysteria2",
     "crates/inbound-iwan",
     "crates/inbound-mixed",
+    "crates/inbound-reverse-proxy",
     "crates/inbound-shadowsocks",
     "crates/inbound-snell",
     "crates/inbound-transport",
