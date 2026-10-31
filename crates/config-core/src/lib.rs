@@ -2731,7 +2731,8 @@ fn parse_iwan_link(link: &str) -> DomainResult<NodeDescriptor> {
 
 /// Parses an AnixOps ANX-A link:
 /// `anx://<user key>@host:port?sni=<name>&pk=<server public key>&alpn=h2,http/1.1&fp=chrome#name`.
-/// The user key is 64 hex digits; `pk` is the server's public key text.
+/// The user key is 64 hex digits; `pk` is the server's public key text. `sni` is
+/// optional: leave it out and the client sends no SNI.
 fn parse_anx_link(link: &str) -> DomainResult<NodeDescriptor> {
     let invalid = |message: &str| domain_error(SUBSCRIPTION_ANX_LINK_INVALID_CODE, message);
     let payload = link
@@ -2760,11 +2761,12 @@ fn parse_anx_link(link: &str) -> DomainResult<NodeDescriptor> {
         SUBSCRIPTION_ANX_LINK_INVALID_CODE,
         "anx link needs pk, the server public key",
     )?;
-    let server_name = required_trimmed(
-        query.get("sni").cloned().unwrap_or_default(),
-        SUBSCRIPTION_ANX_LINK_INVALID_CODE,
-        "anx link needs sni, the server name",
-    )?;
+    // `sni` is optional: without it the client sends no SNI, for servers that
+    // accept connections to their IP address directly.
+    let server_name = query
+        .get("sni")
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
     let host_id = sanitize_identifier(&host);
     let host_id = if host_id.is_empty() {
         "host".to_string()
@@ -2783,11 +2785,13 @@ fn parse_anx_link(link: &str) -> DomainResult<NodeDescriptor> {
             key: NODE_METADATA_ANX_PUBLIC_KEY.to_string(),
             value: public_key,
         },
-        MetadataEntry {
+    ];
+    if let Some(server_name) = server_name {
+        metadata.push(MetadataEntry {
             key: NODE_METADATA_ANX_SERVER_NAME.to_string(),
             value: server_name,
-        },
-    ];
+        });
+    }
     for (query_key, metadata_key) in [
         ("alpn", NODE_METADATA_ANX_ALPN),
         ("fp", NODE_METADATA_ANX_FINGERPRINT),
