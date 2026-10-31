@@ -133,6 +133,8 @@ pub const NODE_METADATA_VMESS_UUID: &str = "vmess.uuid";
 pub const NODE_METADATA_VMESS_SECURITY: &str = "vmess.security";
 pub const NODE_METADATA_VMESS_ALTER_ID: &str = "vmess.alter_id";
 pub const NODE_METADATA_VLESS_FLOW: &str = "vless.flow";
+/// VLESS `encryption` when it is not `none` (Xray VLESS Encryption, not implemented).
+pub const NODE_METADATA_VLESS_ENCRYPTION: &str = "vless.encryption";
 pub const NODE_METADATA_HYSTERIA2_PASSWORD: &str = "hysteria2.password";
 pub const NODE_METADATA_HYSTERIA2_SERVER_PORTS: &str = "hysteria2.server_ports";
 pub const NODE_METADATA_HYSTERIA2_OBFS_TYPE: &str = "hysteria2.obfs.type";
