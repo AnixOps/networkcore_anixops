@@ -15,6 +15,8 @@
 
 ### Added
 
+- 反向代理入站（新 crate `inbound-reverse-proxy`，node-runtime 默认 feature `reverse_proxy`，`"type": "reverse_proxy"`，`GET /v1/status` 的 `features` 含 `reverse_proxy`）：HTTP/1.1，按 `Host` 匹配站点（精确名、最长 `*.` 通配、`*`），按路径前缀（按段边界、最长优先，可 `strip_prefix`）匹配路由，上游池沿用 `forward` 的均衡、主动健康检查与熔断，经入站的基础出站拨号（上游可走 ANX 路由）。补 `X-Forwarded-For`/`X-Real-IP`/`X-Forwarded-Proto`/`X-Forwarded-Host`，`Host` 可取客户端、上游或固定值，可设附加请求头；去掉逐跳头和 `Connection` 点名的头；请求体与响应体按帧流式转发，`Transfer-Encoding` 与 `Content-Length` 并存、长度冲突或非 chunked 编码一律 `400` 防走私；`101` 后裸流转发（WebSocket），透传 `1xx`；同路由复用上游长连接，复用连接已关闭时无请求体的请求重试一次。自身应答 `421`/`404`/`502`/`504`/`431`/`308`（`redirect_https`）。TLS 由 `tls` 设置终结。测试覆盖按 Host/路径分发、同连接多请求、chunked、走私拒绝、重定向、升级与上游不可达。
+
 - 出站探测接口 `TcpOutbound::probe(target, timeout)`：返回经该出站到目标的往返时间。默认实现仍是对 `connect` 计时；`connect` 在对端拨号前就返回的出站（复用会话上开流，如 ANX-Line）可覆盖它，等对端应答并报告路径往返。`forward` 入站的主动健康检查改用 `probe`，`rtt_us` 由此不再只是本机开流时间；`egress:`/`ingress:` 出站把探测转给实际出站。
 
 - 转发目标健康上报：管理 API 新增 `GET /v1/inbounds/{tag}/targets`，按配置顺序返回 `forward` 入站每个目标的 `state`（`unknown`/`healthy`/`unhealthy`/`circuit_open`）、连续失败数、熔断截止时间，以及最近一次主动检查的连接往返 `rtt_us`（失败为 0）和检查时间 `checked_at_unix_ms`；其他入站返回空列表。主动健康检查现在对单目标转发也运行（只要不是纯 UDP 且未 `disabled`），以便面板得到 ANX 路由的健康、延迟历史、诊断和 DNS 入口切换依据；单目标无论状态都照常拨号。
