@@ -37,8 +37,8 @@ use control_domain::{
     NODE_METADATA_V2RAY_TRANSPORT_HOST, NODE_METADATA_V2RAY_TRANSPORT_MODE,
     NODE_METADATA_V2RAY_TRANSPORT_PATH, NODE_METADATA_V2RAY_TRANSPORT_SERVICE_NAME,
     NODE_METADATA_V2RAY_TRANSPORT_TYPE, NODE_METADATA_VIA, NODE_METADATA_VIA_UNRESOLVED,
-    NODE_METADATA_VLESS_FLOW, NODE_METADATA_VLESS_UUID, NODE_METADATA_VMESS_ALTER_ID,
-    NODE_METADATA_VMESS_SECURITY, NODE_METADATA_VMESS_UUID,
+    NODE_METADATA_VLESS_ENCRYPTION, NODE_METADATA_VLESS_FLOW, NODE_METADATA_VLESS_UUID,
+    NODE_METADATA_VMESS_ALTER_ID, NODE_METADATA_VMESS_SECURITY, NODE_METADATA_VMESS_UUID,
 };
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -346,6 +346,11 @@ fn shadowsocks(node: &NodeDescriptor) -> Result<Value, Unsupported> {
 
 fn vless(node: &NodeDescriptor) -> Result<Value, Unsupported> {
     let uuid = metadata(node, NODE_METADATA_VLESS_UUID).ok_or("vless uuid is missing")?;
+    // Xray's VLESS Encryption (`encryption=mlkem768x25519plus...`) wraps the
+    // whole connection; dialing it as plain VLESS only gets random bytes back.
+    if metadata(node, NODE_METADATA_VLESS_ENCRYPTION).is_some_and(|value| value != "none") {
+        return Err("vless encryption (VLESS Encryption) is not implemented yet");
+    }
     let flow = metadata(node, NODE_METADATA_VLESS_FLOW).unwrap_or_default();
     let transport = v2ray_transport(node)?;
     if let Some(public_key) = metadata(node, NODE_METADATA_TLS_REALITY_PUBLIC_KEY) {

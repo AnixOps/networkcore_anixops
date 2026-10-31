@@ -608,3 +608,48 @@ fn anx_links_import_as_anx_outbounds() {
     assert_eq!(node.outbound["alpn"], serde_json::json!(["h2", "http/1.1"]));
     assert_eq!(node.outbound["fingerprint"], "chrome");
 }
+
+#[test]
+fn vless_encryption_nodes_are_reported_unsupported_not_imported_as_plain() {
+    // Xray VLESS Encryption (XTLS/Xray-core#5067): dialing it as plain VLESS
+    // would only read the server's random stream, so say it is unsupported.
+    let links = "\
+vless://00000000-0000-0000-0000-000000000007@enc.example.test:443?encryption=mlkem768x25519plus.native.0rtt.enc-secret&security=none&type=tcp#Enc
+vless://00000000-0000-0000-0000-000000000008@plain.example.test:443?encryption=none&security=none&type=tcp#Plain
+";
+    let report = import_text(links).unwrap();
+    assert_eq!(report.nodes.len(), 1);
+    assert_eq!(report.nodes[0].server, "plain.example.test");
+    assert_eq!(report.unsupported.len(), 1);
+    assert_eq!(report.unsupported[0].protocol, "vless");
+    assert_eq!(
+        report.unsupported[0].reason,
+        "vless encryption (VLESS Encryption) is not implemented yet"
+    );
+    let unsupported = serde_json::to_string(&report.unsupported).unwrap();
+    assert!(!unsupported.contains("enc-secret"), "{unsupported}");
+
+    let clash = r#"
+proxies:
+  - name: Enc
+    type: vless
+    server: enc.example.test
+    port: 443
+    uuid: 00000000-0000-0000-0000-000000000007
+    encryption: mlkem768x25519plus.native.1rtt.enc-secret
+  - name: Plain
+    type: vless
+    server: plain.example.test
+    port: 443
+    uuid: 00000000-0000-0000-0000-000000000008
+    encryption: ""
+"#;
+    let report = import_text(clash).unwrap();
+    assert_eq!(report.nodes.len(), 1);
+    assert_eq!(report.nodes[0].server, "plain.example.test");
+    assert_eq!(report.unsupported.len(), 1);
+    assert_eq!(
+        report.unsupported[0].reason,
+        "vless encryption (VLESS Encryption) is not implemented yet"
+    );
+}

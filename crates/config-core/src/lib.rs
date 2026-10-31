@@ -37,11 +37,11 @@ use control_domain::{
     NODE_METADATA_V2RAY_TRANSPORT_EXTRA, NODE_METADATA_V2RAY_TRANSPORT_HOST,
     NODE_METADATA_V2RAY_TRANSPORT_MODE, NODE_METADATA_V2RAY_TRANSPORT_PATH,
     NODE_METADATA_V2RAY_TRANSPORT_SERVICE_NAME, NODE_METADATA_V2RAY_TRANSPORT_TYPE,
-    NODE_METADATA_VIA, NODE_METADATA_VIA_UNRESOLVED, NODE_METADATA_VLESS_FLOW,
-    NODE_METADATA_VLESS_UUID, NODE_METADATA_VMESS_ALTER_ID, NODE_METADATA_VMESS_SECURITY,
-    NODE_METADATA_VMESS_UUID, NODE_METADATA_WIREGUARD_LOCAL_ADDRESS, NODE_METADATA_WIREGUARD_MTU,
-    NODE_METADATA_WIREGUARD_PEER_PUBLIC_KEY, NODE_METADATA_WIREGUARD_PRE_SHARED_KEY,
-    NODE_METADATA_WIREGUARD_PRIVATE_KEY,
+    NODE_METADATA_VIA, NODE_METADATA_VIA_UNRESOLVED, NODE_METADATA_VLESS_ENCRYPTION,
+    NODE_METADATA_VLESS_FLOW, NODE_METADATA_VLESS_UUID, NODE_METADATA_VMESS_ALTER_ID,
+    NODE_METADATA_VMESS_SECURITY, NODE_METADATA_VMESS_UUID, NODE_METADATA_WIREGUARD_LOCAL_ADDRESS,
+    NODE_METADATA_WIREGUARD_MTU, NODE_METADATA_WIREGUARD_PEER_PUBLIC_KEY,
+    NODE_METADATA_WIREGUARD_PRE_SHARED_KEY, NODE_METADATA_WIREGUARD_PRIVATE_KEY,
 };
 use routing::{PolicyGroupSpec, RoutingModel, RoutingSpec};
 use serde::Deserialize;
@@ -189,6 +189,7 @@ struct RawClashProxy {
     cipher: Option<RawClashScalar>,
     password: Option<RawClashScalar>,
     uuid: Option<RawClashScalar>,
+    encryption: Option<RawClashScalar>,
     psk: Option<RawClashScalar>,
     version: Option<RawClashScalar>,
     #[serde(rename = "obfs-opts")]
@@ -893,14 +894,21 @@ fn parse_clash_proxy(mut raw: RawClashProxy, source_id: &str) -> DomainResult<No
         }
         "vless" => {
             let uuid = required_clash_scalar_field(raw.uuid, "clash vless uuid cannot be empty")?;
-            (
-                Protocol::Vless,
-                "vless",
-                vec![MetadataEntry {
-                    key: NODE_METADATA_VLESS_UUID.to_string(),
-                    value: uuid,
-                }],
-            )
+            let mut metadata = vec![MetadataEntry {
+                key: NODE_METADATA_VLESS_UUID.to_string(),
+                value: uuid,
+            }];
+            if let Some(encryption) = raw
+                .encryption
+                .map(|raw| raw.into_text().trim().to_string())
+                .filter(|value| !value.is_empty() && value != "none")
+            {
+                metadata.push(MetadataEntry {
+                    key: NODE_METADATA_VLESS_ENCRYPTION.to_string(),
+                    value: encryption,
+                });
+            }
+            (Protocol::Vless, "vless", metadata)
         }
         "vmess" => {
             let uuid = required_clash_scalar_field(raw.uuid, "clash vmess uuid cannot be empty")?;
@@ -3250,6 +3258,16 @@ fn parse_vless_link(link: &str) -> DomainResult<NodeDescriptor> {
         metadata.push(MetadataEntry {
             key: NODE_METADATA_VLESS_FLOW.to_string(),
             value: flow.trim().to_string(),
+        });
+    }
+    if let Some(encryption) = query
+        .get("encryption")
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty() && *value != "none")
+    {
+        metadata.push(MetadataEntry {
+            key: NODE_METADATA_VLESS_ENCRYPTION.to_string(),
+            value: encryption.to_string(),
         });
     }
     append_v2ray_share_link_metadata(
