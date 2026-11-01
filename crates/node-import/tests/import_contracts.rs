@@ -625,6 +625,43 @@ fn anx_links_without_sni_import_without_server_name() {
 }
 
 #[test]
+fn anx_links_carry_jacket_and_wg_port() {
+    let key = "cd".repeat(32);
+    let text = format!("anx://{key}@203.0.113.8:443?pk=aa%3Abb&jacket=wg&wg_port=51820#W1");
+    let report = import_text(&text).unwrap();
+    let node = report
+        .nodes
+        .iter()
+        .find(|node| node.name == "W1")
+        .expect("an anx link with jacket=wg imports");
+    assert_eq!(node.outbound["jacket"], "wg");
+    assert_eq!(node.outbound["wg_port"], 51820);
+
+    let auto = format!("anx://{key}@203.0.113.8:443?pk=aa%3Abb&wg_port=51820#Auto");
+    let report = import_text(&auto).unwrap();
+    let node = report
+        .nodes
+        .iter()
+        .find(|node| node.name == "Auto")
+        .unwrap();
+    assert!(node.outbound.get("jacket").is_none());
+    assert_eq!(node.outbound["wg_port"], 51820);
+
+    for bad in [
+        "jacket=wg",
+        "jacket=xx&wg_port=1",
+        "wg_port=0",
+        "wg_port=abc",
+    ] {
+        let text = format!("anx://{key}@203.0.113.8:443?pk=aa%3Abb&{bad}#Bad");
+        let imported = import_text(&text)
+            .map(|report| report.nodes.iter().any(|node| node.name == "Bad"))
+            .unwrap_or(false);
+        assert!(!imported, "{bad} must not import");
+    }
+}
+
+#[test]
 fn vless_encryption_nodes_are_reported_unsupported_not_imported_as_plain() {
     // Xray VLESS Encryption (XTLS/Xray-core#5067): dialing it as plain VLESS
     // would only read the server's random stream, so say it is unsupported.

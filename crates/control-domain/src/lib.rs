@@ -171,6 +171,8 @@ pub const NODE_METADATA_ANX_PUBLIC_KEY: &str = "anx.public_key";
 pub const NODE_METADATA_ANX_SERVER_NAME: &str = "anx.server_name";
 pub const NODE_METADATA_ANX_ALPN: &str = "anx.alpn";
 pub const NODE_METADATA_ANX_FINGERPRINT: &str = "anx.fingerprint";
+pub const NODE_METADATA_ANX_JACKET: &str = "anx.jacket";
+pub const NODE_METADATA_ANX_WG_PORT: &str = "anx.wg_port";
 /// Id of the node this one connects through (`via`, a proxy chain).
 pub const NODE_METADATA_VIA: &str = "proxy.via";
 /// The subscription's name for that node when it could not be resolved to

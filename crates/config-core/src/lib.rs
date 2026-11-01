@@ -16,7 +16,8 @@ use control_domain::{
     ListenerRoute, Metadata, MetadataEntry, NodeCatalog, NodeDescriptor, PlatformCapabilities,
     Protocol, RawSubscription, RouteAction, RuleSet, SchemaVersion, SubscriptionDocument,
     SubscriptionService, SubscriptionSource, NODE_METADATA_ANX_ALPN, NODE_METADATA_ANX_FINGERPRINT,
-    NODE_METADATA_ANX_PUBLIC_KEY, NODE_METADATA_ANX_SERVER_NAME, NODE_METADATA_ANX_USER_KEY,
+    NODE_METADATA_ANX_JACKET, NODE_METADATA_ANX_PUBLIC_KEY, NODE_METADATA_ANX_SERVER_NAME,
+    NODE_METADATA_ANX_USER_KEY, NODE_METADATA_ANX_WG_PORT,
     NODE_METADATA_HYSTERIA2_OBFS_MAX_PACKET_SIZE, NODE_METADATA_HYSTERIA2_OBFS_MIN_PACKET_SIZE,
     NODE_METADATA_HYSTERIA2_OBFS_PASSWORD, NODE_METADATA_HYSTERIA2_OBFS_TYPE,
     NODE_METADATA_HYSTERIA2_PASSWORD, NODE_METADATA_HYSTERIA2_SERVER_PORTS,
@@ -2805,6 +2806,39 @@ fn parse_anx_link(link: &str) -> DomainResult<NodeDescriptor> {
                 value: value.trim().to_string(),
             });
         }
+    }
+    // `jacket` picks the outer shape (auto, wg or a2); `wg_port` is the UDP
+    // port of the wg jacket, which `jacket=wg` needs.
+    let jacket = query
+        .get("jacket")
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    if let Some(jacket) = &jacket {
+        if !matches!(jacket.as_str(), "auto" | "wg" | "a2") {
+            return Err(invalid("anx jacket must be auto, wg or a2"));
+        }
+    }
+    let wg_port = match query.get("wg_port").map(|value| value.trim()) {
+        None | Some("") => None,
+        Some(value) => match value.parse::<u16>() {
+            Ok(port) if port > 0 => Some(port),
+            _ => return Err(invalid("anx wg_port must be a port number")),
+        },
+    };
+    if jacket.as_deref() == Some("wg") && wg_port.is_none() {
+        return Err(invalid("anx jacket wg needs wg_port"));
+    }
+    if let Some(jacket) = jacket {
+        metadata.push(MetadataEntry {
+            key: NODE_METADATA_ANX_JACKET.to_string(),
+            value: jacket,
+        });
+    }
+    if let Some(port) = wg_port {
+        metadata.push(MetadataEntry {
+            key: NODE_METADATA_ANX_WG_PORT.to_string(),
+            value: port.to_string(),
+        });
     }
     metadata.push(MetadataEntry {
         key: NODE_METADATA_SOURCE_FORMAT.to_string(),
