@@ -380,6 +380,16 @@ async fn relay_uot(mut app: DuplexStream, user: &Arc<UserEntry>, context: &Conne
     .await;
 }
 
+/// Reads and drops input until the client closes or the read fails.
+async fn drain<R: AsyncRead + Unpin>(reader: &mut R) {
+    let mut sink = [0u8; 4096];
+    while let Ok(n) = reader.read(&mut sink).await {
+        if n == 0 {
+            return;
+        }
+    }
+}
+
 /// Reads client frames, answers the control commands and hands stream data
 /// on. Returns when the client closes the session, sends an Alert or
 /// breaks the protocol.
@@ -418,6 +428,11 @@ async fn read_loop<R: AsyncRead + Unpin>(
                 let Some(synack) = synack else {
                     let alert = frame(CMD_ALERT, 0, b"client did not send its settings");
                     let _ = frames.send(alert).await;
+                    // Read away what the client already sent (the stream's data
+                    // usually follows its SYN): closing with unread input makes
+                    // the kernel answer RST, and a client on Windows then loses
+                    // the alert still in its receive buffer.
+                    let _ = tokio::time::timeout(CLOSE_GRACE, drain(reader)).await;
                     return;
                 };
                 // Streams that ended on the server side.
