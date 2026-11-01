@@ -21,14 +21,36 @@
 //! A new protocol adds its crate as an optional dependency, a feature, and one
 //! `register` call below. A build without a feature rejects that `type` with
 //! "outbound type is not supported by this build".
+//!
+//! A protocol crate that lives outside this repository joins every registry
+//! this crate builds through [`register_extra_outbound`], so a downstream
+//! build can link this library unchanged and add its own outbounds.
 
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
-use engine_outbound::registry::OutboundRegistry;
+use engine_outbound::registry::{OutboundFactory, OutboundRegistry};
 
 use crate::direct::DirectFactory;
 
-/// Registry with every TCP outbound enabled by cargo features.
+/// Factories added with [`register_extra_outbound`], in registration order.
+static EXTRA_OUTBOUNDS: RwLock<Vec<Arc<dyn OutboundFactory>>> = RwLock::new(Vec::new());
+
+/// Adds an outbound factory from outside this crate to every registry it
+/// builds: the C ABI runtimes, node import support checks, delay tests and
+/// the desktop local proxy. A factory for a type that is already registered
+/// (a feature protocol or an earlier extra) replaces it. Call it before the
+/// first runtime is created; runtimes already built keep their outbounds.
+pub fn register_extra_outbound(factory: Arc<dyn OutboundFactory>) {
+    let mut extras = EXTRA_OUTBOUNDS
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let name = factory.type_name();
+    extras.retain(|extra| extra.type_name() != name);
+    extras.push(factory);
+}
+
+/// Registry with every TCP outbound enabled by cargo features, plus the ones
+/// added with [`register_extra_outbound`].
 pub fn default_registry() -> OutboundRegistry {
     let mut registry = OutboundRegistry::new();
     registry.register(Arc::new(DirectFactory));
@@ -54,6 +76,12 @@ pub fn default_registry() -> OutboundRegistry {
     registry.register(Arc::new(outbound_vless::VlessFactory));
     #[cfg(feature = "vmess")]
     registry.register(Arc::new(outbound_vmess::VmessFactory));
+    let extras = EXTRA_OUTBOUNDS
+        .read()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    for factory in extras.iter() {
+        registry.register(factory.clone());
+    }
     registry
 }
 
