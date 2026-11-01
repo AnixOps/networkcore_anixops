@@ -208,7 +208,7 @@ impl Policy {
             }
         }
         let mut networks: Vec<_> = networks.into_iter().collect();
-        networks.sort_by(|a, b| b.0.cmp(&a.0));
+        networks.sort_by_key(|a| std::cmp::Reverse(a.0));
         let min_share = f64::from(min_share_percent) / 100.0;
         Ok(Self {
             config: config.clone(),
@@ -354,10 +354,8 @@ impl Policy {
             if let Some(class) = self.domains.get(name) {
                 return Some(*class);
             }
-            match name.find('.') {
-                Some(dot) => name = &name[dot + 1..],
-                None => return None,
-            }
+            let dot = name.find('.')?;
+            name = &name[dot + 1..];
         }
     }
 
@@ -627,8 +625,11 @@ pub(crate) struct Classing {
     sniff: bool,
     /// The limiter and the user scheduler, looked up once the class is
     /// final.
-    resolved: Option<(Option<Arc<RateLimiter>>, Option<Arc<Scheduler>>)>,
+    resolved: Option<Resolved>,
 }
+
+/// The class limiter and the user scheduler of a connection.
+type Resolved = (Option<Arc<RateLimiter>>, Option<Arc<Scheduler>>);
 
 impl Classing {
     /// The class state for a connection to `target` (`None` when the
