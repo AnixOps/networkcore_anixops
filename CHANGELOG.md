@@ -15,6 +15,7 @@
 
 ### Added
 
+- `engine-embedded` 新增 `protocols::register_extra_outbound`：本仓库之外的出站工厂可在第一个运行时创建前登记一次，之后 `default_registry()` 构建的每个注册表（C ABI 运行时、节点导入的支持判断、延迟测试、桌面本地代理）都带上它，同名类型覆盖。下游构建可原样链接本库再加自己的协议；公开构建行为不变。
 - 反向代理入站（新 crate `inbound-reverse-proxy`，node-runtime 默认 feature `reverse_proxy`，`"type": "reverse_proxy"`，`GET /v1/status` 的 `features` 含 `reverse_proxy`）：HTTP/1.1，按 `Host` 匹配站点（精确名、最长 `*.` 通配、`*`），按路径前缀（按段边界、最长优先，可 `strip_prefix`）匹配路由，上游池沿用 `forward` 的均衡、主动健康检查与熔断，经入站的基础出站拨号（上游可走 ANX 路由）。补 `X-Forwarded-For`/`X-Real-IP`/`X-Forwarded-Proto`/`X-Forwarded-Host`，`Host` 可取客户端、上游或固定值，可设附加请求头；去掉逐跳头和 `Connection` 点名的头；请求体与响应体按帧流式转发，`Transfer-Encoding` 与 `Content-Length` 并存、长度冲突或非 chunked 编码一律 `400` 防走私；`101` 后裸流转发（WebSocket），透传 `1xx`；同路由复用上游长连接，复用连接已关闭时无请求体的请求重试一次。自身应答 `421`/`404`/`502`/`504`/`431`/`308`（`redirect_https`）。TLS 由 `tls` 设置终结。测试覆盖按 Host/路径分发、同连接多请求、chunked、走私拒绝、重定向、升级与上游不可达。
 - 反向代理入站补 TLS：设置新增 `tls`（与其他入站相同，支持内联 PEM 或证书文件），ALPN 默认且只允许 `http/1.1`；有 `tls` 时 `forwarded_proto` 默认 `https`。TLS 包装层现转发 `background` 与 `target_health`，TLS 下上游健康检查照常运行并上报。node-runtime 中 `reverse_proxy` 入站像 `forward` 一样只经基础出站拨号（不走 egress 路由），其上游计入私网目标放行名单。
 
