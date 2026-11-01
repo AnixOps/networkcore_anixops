@@ -50,6 +50,7 @@ use std::io;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use engine_inbound::health::TargetHealth;
 use engine_inbound::qos;
@@ -426,13 +427,31 @@ impl Node {
             .build(&config.kind, &config.settings)
             .map_err(NodeError::Invalid)?;
         let address = SocketAddr::new(config.listen, config.listen_port);
-        let (listen, stats, task) =
+        let (tcp_outbound, udp_outbound): (Arc<dyn TcpOutbound>, Arc<dyn UdpOutbound>) =
             if config.kind == FORWARD_TYPE || config.kind == REVERSE_PROXY_TYPE {
-                self.spawn(&inbound, address, base.tcp, base.udp)?
+                (base.tcp, base.udp)
             } else {
                 let router = Arc::new(Router::new(base, self.egress.clone()));
-                self.spawn(&inbound, address, router.clone(), router)?
+                (router.clone(), router)
             };
+        // A replaced inbound's sockets close a moment after its removal:
+        // its task is cancelled, not joined. Retry the port for a while
+        // instead of failing the replacement.
+        let mut waited = Duration::ZERO;
+        let (listen, stats, task) = loop {
+            match self.spawn(
+                &inbound,
+                address,
+                tcp_outbound.clone(),
+                udp_outbound.clone(),
+            ) {
+                Err(error) if error.kind() == io::ErrorKind::AddrInUse && waited < REBIND_WAIT => {
+                    tokio::time::sleep(REBIND_STEP).await;
+                    waited += REBIND_STEP;
+                }
+                spawned => break spawned?,
+            }
+        };
         let mut inbounds = self.lock();
         if inbounds.contains_key(&config.tag) {
             task.abort();
@@ -767,6 +786,11 @@ impl Drop for Node {
 
 /// Binds a TCP listener; `[::]` listens on IPv4 too (on every OS) and
 /// falls back to `0.0.0.0` on a host without IPv6.
+/// How long [`Node::add_inbound`] retries a port still held by an inbound
+/// that was just removed, and its step.
+const REBIND_WAIT: Duration = Duration::from_secs(3);
+const REBIND_STEP: Duration = Duration::from_millis(100);
+
 fn bind_tcp(address: SocketAddr) -> io::Result<TcpListener> {
     let socket = match bind(address, socket2::Type::STREAM) {
         Err(error) if is_any_v6(address) && error.kind() != io::ErrorKind::AddrInUse => {
