@@ -15,6 +15,7 @@ use tokio::net::TcpListener;
 use tokio::sync::Semaphore;
 
 use crate::limit::Throttle;
+use crate::qos::Classing;
 use crate::udp::{relay_datagrams, UdpOutbound};
 use crate::{Accepted, StreamInbound, UserEntry};
 
@@ -240,7 +241,7 @@ async fn relay(
         }
     };
 
-    let mut client = Metered::new(stream, user.clone(), stats);
+    let mut client = Metered::new(stream, user.clone(), stats, Some(&target));
     let relay = tokio::io::copy_bidirectional_with_sizes(
         &mut client,
         &mut remote,
@@ -387,7 +388,24 @@ impl<'a> ConnectionContext<'a> {
     where
         S: AsyncRead + AsyncWrite + Unpin + ?Sized,
     {
-        let mut client = Metered::new(client, user.cloned(), self.stats);
+        self.relay_to(user, None, client, remote).await
+    }
+
+    /// [`ConnectionContext::relay`] of a connection to `target`, which
+    /// classes it for the traffic priorities ([`crate::qos`]) by the name
+    /// or address the client asked for; without it only the client's first
+    /// bytes do.
+    pub async fn relay_to<S>(
+        &self,
+        user: Option<&Arc<UserEntry>>,
+        target: Option<&TargetAddr>,
+        client: &mut S,
+        remote: &mut BoxStream,
+    ) -> io::Result<()>
+    where
+        S: AsyncRead + AsyncWrite + Unpin + ?Sized,
+    {
+        let mut client = Metered::new(client, user.cloned(), self.stats, target);
         let relay = tokio::io::copy_bidirectional_with_sizes(
             &mut client,
             remote,
@@ -410,23 +428,30 @@ impl<'a> ConnectionContext<'a> {
 }
 
 /// The client side of a relay; counts bytes as they move and holds them to
-/// the user's speed limit.
+/// the user's speed limit and the traffic priorities ([`crate::qos`]).
 struct Metered<'s, S> {
     inner: S,
     user: Option<Arc<UserEntry>>,
     stats: &'s InboundStats,
     up: Throttle,
     down: Throttle,
+    qos: Option<Classing>,
 }
 
 impl<'s, S> Metered<'s, S> {
-    fn new(inner: S, user: Option<Arc<UserEntry>>, stats: &'s InboundStats) -> Self {
+    fn new(
+        inner: S,
+        user: Option<Arc<UserEntry>>,
+        stats: &'s InboundStats,
+        target: Option<&TargetAddr>,
+    ) -> Self {
         Self {
             inner,
             user,
             stats,
             up: Throttle::default(),
             down: Throttle::default(),
+            qos: Classing::start(target),
         }
     }
 }
@@ -445,6 +470,9 @@ impl<S: AsyncRead + Unpin> AsyncRead for Metered<'_, S> {
         let polled = Pin::new(&mut this.inner).poll_read(cx, buf);
         let read = (buf.filled().len() - before) as u64;
         if read > 0 {
+            if let Some(qos) = &mut this.qos {
+                qos.first_bytes(&buf.filled()[before..]);
+            }
             this.stats.bytes_up.fetch_add(read, Ordering::Relaxed);
             if let Some(user) = &this.user {
                 user.add_up(read);
@@ -471,9 +499,22 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for Metered<'_, S> {
             this.stats
                 .bytes_down
                 .fetch_add(written as u64, Ordering::Relaxed);
+            let mut wait = None;
             if let Some(user) = &this.user {
                 user.add_down(written as u64);
-                this.down.charge(user.down_limiter(), written);
+                wait = user
+                    .down_limiter()
+                    .and_then(|limiter| limiter.charge(written));
+            }
+            if let Some(qos) = &mut this.qos {
+                let user = this
+                    .user
+                    .as_ref()
+                    .map(|user| (user.name(), user.user().speed_limit));
+                wait = wait.max(qos.charge(user, written));
+            }
+            if let Some(wait) = wait {
+                this.down.wait(wait);
             }
         }
         polled

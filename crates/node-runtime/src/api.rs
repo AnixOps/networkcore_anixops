@@ -19,6 +19,13 @@
 //! | `PUT /v1/network` | `NetworkPlan` | `NetworkStatus` |
 //! | `GET /v1/rules` | | `RulesConfig` |
 //! | `PUT /v1/rules` | `RulesConfig` | `RulesConfig` |
+//! | `GET /v1/qos` | | `QosStatus` |
+//! | `PUT /v1/qos` | `QosConfig` | `QosStatus` |
+//!
+//! `PUT /v1/qos` replaces the traffic priorities and per-user class caps
+//! ([`engine_inbound::qos`]); `{}` turns them off. An invalid entry refuses
+//! the whole body with 400. The status answers the classes' rule counts and
+//! the node scheduler's capacity and current rates per priority.
 //!
 //! `PUT /v1/egress` replaces the domain egress routes and relays (the panel's
 //! `egress` member, see [`crate::egress`]); `{}` removes them all. An
@@ -45,7 +52,8 @@
 //! list.
 //!
 //! `features` names what this kernel takes beyond the base API, so an agent
-//! can tell before sending it: `user_limits` (the user members below).
+//! can tell before sending it: `user_limits` (the user members below),
+//! `block_rules` (`/v1/rules`), `qos` (`/v1/qos`).
 //!
 //! A user may carry `speed_limit` (Mbit/s for each direction, shared by
 //! all of its connections) and `device_limit` (most client IPs online at
@@ -66,10 +74,11 @@ use serde_json::{json, Value};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
-use crate::{EgressConfig, InboundConfig, NetworkPlan, Node, NodeError, RulesConfig};
+use crate::{EgressConfig, InboundConfig, NetworkPlan, Node, NodeError, QosConfig, RulesConfig};
 
 const MAX_HEAD_BYTES: usize = 16 * 1024;
-const MAX_BODY_BYTES: usize = 4 * 1024 * 1024;
+// Room for the traffic priority lists (`PUT /v1/qos`).
+const MAX_BODY_BYTES: usize = 32 * 1024 * 1024;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// Serves the management API until the listener fails or the task is
@@ -126,7 +135,8 @@ impl From<NodeError> for Response {
             NodeError::Invalid(_)
             | NodeError::Egress(_)
             | NodeError::Network(_)
-            | NodeError::Rules(_) => 400,
+            | NodeError::Rules(_)
+            | NodeError::Qos(_) => 400,
             NodeError::Io(_) => 500,
         };
         Response::error(status, error.to_string())
@@ -283,6 +293,13 @@ async fn route(node: &Node, request: Request) -> Response {
             Ok(config) => node
                 .apply_rules(&config)
                 .map(|rules| Response::ok(json!(rules))),
+            Err(response) => return response,
+        },
+        ("GET", ["v1", "qos"]) => Ok(Response::ok(json!(node.qos()))),
+        ("PUT", ["v1", "qos"]) => match parse::<QosConfig>(&request.body) {
+            Ok(config) => node
+                .apply_qos(&config)
+                .map(|status| Response::ok(json!(status))),
             Err(response) => return response,
         },
         ("POST", ["v1", "inbounds"]) => match parse::<InboundConfig>(&request.body) {

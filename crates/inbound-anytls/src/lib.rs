@@ -336,7 +336,9 @@ async fn relay_stream(
             if synack && frames.send(frame(CMD_SYNACK, id, &[])).await.is_err() {
                 return;
             }
-            let _ = context.relay(Some(user), &mut app, &mut remote).await;
+            let _ = context
+                .relay_to(Some(user), Some(&target), &mut app, &mut remote)
+                .await;
         }
         Err(error) => {
             if synack {
