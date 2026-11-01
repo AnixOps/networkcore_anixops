@@ -198,6 +198,16 @@ pub struct SessionRelay {
     sessions: Mutex<HashMap<u64, RelayEntry>>,
 }
 
+/// Closes a [`SessionRelay`] when dropped; see
+/// [`SessionRelay::close_on_drop`].
+pub struct CloseOnDrop(Arc<SessionRelay>);
+
+impl Drop for CloseOnDrop {
+    fn drop(&mut self) {
+        self.0.close();
+    }
+}
+
 struct RelayEntry {
     socket: Arc<dyn UdpSession>,
     last_active: Arc<AtomicU64>,
@@ -270,6 +280,14 @@ impl SessionRelay {
     pub fn close(&self) {
         let removed = std::mem::take(&mut *self.lock());
         drop(removed);
+    }
+
+    /// A guard that [`close`](Self::close)s the relay when dropped. A
+    /// listening inbound holds one in its serve future, so cancelling the
+    /// inbound ends the sessions at once; their reply tasks would otherwise
+    /// keep the listening socket open until they idle out.
+    pub fn close_on_drop(self: &Arc<Self>) -> CloseOnDrop {
+        CloseOnDrop(self.clone())
     }
 
     /// True while `session` is open.

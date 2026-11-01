@@ -442,3 +442,26 @@ async fn reports_target_health() {
     let (status, _) = call(api, "GET", "/v1/inbounds/missing/targets", None).await;
     assert_eq!(status, 404);
 }
+
+/// The Agent replaces a forward by removing it and adding it again on the
+/// same port. Open UDP sessions of the old forward must not keep the port: the replacement binds and serves (the Mumble route
+/// failed with "Address in use" here).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn replaces_a_forward_with_open_sessions_on_the_same_port() {
+    let api = start_api(Node::new(default_registry(), false)).await;
+    let udp_target = udp_echo_server().await;
+    let config = |port: u16| {
+        json!({"tag": "f-replace", "type": "forward", "listen": "127.0.0.1", "listen_port": port,
+               "server": "127.0.0.1", "server_port": udp_target.port(), "network": "tcp,udp"})
+    };
+    let first = add_forward(api, config(0)).await;
+    // An open UDP session on the old forward: its reply task holds the
+    // listening socket until the session ends.
+    udp_round_trip(first, b"before").await;
+
+    let (status, body) = call(api, "DELETE", "/v1/inbounds/f-replace", None).await;
+    assert_eq!(status, 200, "{body}");
+    let second = add_forward(api, config(first.port())).await;
+    assert_eq!(second, first);
+    udp_round_trip(second, b"after").await;
+}

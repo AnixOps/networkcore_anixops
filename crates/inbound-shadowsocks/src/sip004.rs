@@ -523,6 +523,7 @@ impl DatagramInbound for AeadDatagrams {
                 sessions: Mutex::default(),
             });
             let relay = SessionRelay::new(outbound, sink.clone(), stats.clone());
+            let _close = relay.close_on_drop();
             let mut buf = vec![0u8; MAX_DATAGRAM];
             loop {
                 let (n, peer) = match socket.recv_from(&mut buf).await {
