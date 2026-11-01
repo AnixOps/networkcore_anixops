@@ -7,7 +7,10 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use config_core::routing::{PolicyGroupSpec, RoutingSpec};
-use engine_embedded::connections::{Dispatcher, Mode, Network, MAX_CLOSED_CONNECTIONS};
+use engine_embedded::connections::{
+    Dispatcher, Mode, Network, LARGE_CONNECTION_BYTES, MAX_CLOSED_CONNECTIONS,
+    MAX_KEPT_LARGE_CONNECTIONS,
+};
 use engine_embedded::routing::RoutedOutbound;
 use engine_embedded::{control, EmbeddedRuntime};
 use engine_outbound::{BoxFuture, BoxStream, TargetAddr, TcpOutbound};
@@ -463,5 +466,89 @@ fn global_routes_to_the_configured_target() {
             route_of(&dispatcher, "a.test").await.1,
             ["hk-1".to_string()]
         );
+    });
+}
+
+/// Accepts and discards everything written, reads nothing.
+struct Sink;
+
+impl TcpOutbound for Sink {
+    fn protocol(&self) -> &'static str {
+        "test-sink"
+    }
+
+    fn connect<'a>(&'a self, _target: &'a TargetAddr) -> BoxFuture<'a, io::Result<BoxStream>> {
+        Box::pin(async {
+            let (client, mut server) = tokio::io::duplex(64 * 1024);
+            tokio::spawn(async move {
+                let mut buf = vec![0u8; 64 * 1024];
+                while let Ok(n) = server.read(&mut buf).await {
+                    if n == 0 {
+                        break;
+                    }
+                }
+            });
+            Ok(Box::new(client) as BoxStream)
+        })
+    }
+}
+
+#[test]
+fn large_closed_connections_outlive_small_ones() {
+    runtime().block_on(async {
+        let sink = Dispatcher::single(Arc::new(Sink));
+        let payload = vec![0u8; LARGE_CONNECTION_BYTES as usize];
+        let mut large_ids = Vec::new();
+        for _ in 0..3 {
+            let mut stream = sink
+                .connect_flow(&ip("192.0.2.9:8080"), Some("speedtest.example.test"))
+                .await
+                .unwrap();
+            stream.write_all(&payload).await.unwrap();
+            drop(stream);
+            large_ids.push(sink.tracker().connections().closed[0].id);
+        }
+        // A burst of small connections afterwards, more than the list holds.
+        for _ in 0..MAX_CLOSED_CONNECTIONS * 2 {
+            let mut stream = sink.connect_flow(&ip("192.0.2.1:443"), None).await.unwrap();
+            stream.write_all(b"ping").await.unwrap();
+        }
+        let closed = sink.tracker().connections().closed;
+        assert_eq!(closed.len(), MAX_CLOSED_CONNECTIONS);
+        for id in &large_ids {
+            let kept = closed
+                .iter()
+                .find(|c| c.id == *id)
+                .expect("large connection kept");
+            assert_eq!(kept.upload, LARGE_CONNECTION_BYTES);
+        }
+        // Still newest first, and the newest small connection is listed.
+        assert!(closed.windows(2).all(|pair| pair[0].id > pair[1].id));
+        assert!(closed[0].upload < LARGE_CONNECTION_BYTES);
+    });
+}
+
+#[test]
+fn kept_large_connections_are_capped() {
+    runtime().block_on(async {
+        let sink = Dispatcher::single(Arc::new(Sink));
+        let payload = vec![0u8; LARGE_CONNECTION_BYTES as usize];
+        for _ in 0..MAX_CLOSED_CONNECTIONS + 10 {
+            let mut stream = sink
+                .connect_flow(&ip("192.0.2.9:8080"), None)
+                .await
+                .unwrap();
+            stream.write_all(&payload).await.unwrap();
+        }
+        for _ in 0..MAX_CLOSED_CONNECTIONS {
+            let _ = sink.connect_flow(&ip("192.0.2.1:443"), None).await.unwrap();
+        }
+        let closed = sink.tracker().connections().closed;
+        assert_eq!(closed.len(), MAX_CLOSED_CONNECTIONS);
+        let large = closed
+            .iter()
+            .filter(|c| c.upload >= LARGE_CONNECTION_BYTES)
+            .count();
+        assert_eq!(large, MAX_KEPT_LARGE_CONNECTIONS);
     });
 }

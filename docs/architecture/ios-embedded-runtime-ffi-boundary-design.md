@@ -101,7 +101,7 @@ struct 必须采用 C-compatible layout，字段必须固定大小、对齐和 o
 | `cmd` | 请求字段 | 应答 |
 | --- | --- | --- |
 | `traffic` | | `upload_total`、`download_total`（字节）、`upload_rate`、`download_rate`（字节/秒，按两次调用间隔采样，间隔不足 500 ms 时沿用上次速率）、`active` |
-| `connections` | | `traffic`，`active`（最早的在前）与 `closed`（最新的在前，最多 128 条）连接列表 |
+| `connections` | | `traffic`，`active`（最早的在前）与 `closed`（最新的在前，最多 128 条；满了先淘汰最旧的小连接，传输 ≥1 MiB 的大连接最多保留 64 条）连接列表 |
 | `close_connection` | `id` | `{"closed": bool}`，连接不在活动列表时为 `false` |
 | `close_all` | | `{"closed": 关闭数量}` |
 | `mode` | | `{"mode": "rule" \| "global" \| "direct"}` |
