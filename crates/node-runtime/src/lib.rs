@@ -427,7 +427,7 @@ impl Node {
             .build(&config.kind, &config.settings)
             .map_err(NodeError::Invalid)?;
         let address = SocketAddr::new(config.listen, config.listen_port);
-        let (outbound, udp): (Arc<dyn TcpOutbound>, Arc<dyn UdpOutbound>) =
+        let (tcp_outbound, udp_outbound): (Arc<dyn TcpOutbound>, Arc<dyn UdpOutbound>) =
             if config.kind == FORWARD_TYPE || config.kind == REVERSE_PROXY_TYPE {
                 (base.tcp, base.udp)
             } else {
@@ -439,7 +439,12 @@ impl Node {
         // instead of failing the replacement.
         let mut waited = Duration::ZERO;
         let (listen, stats, task) = loop {
-            match self.spawn(&inbound, address, outbound.clone(), udp.clone()) {
+            match self.spawn(
+                &inbound,
+                address,
+                tcp_outbound.clone(),
+                udp_outbound.clone(),
+            ) {
                 Err(error) if error.kind() == io::ErrorKind::AddrInUse && waited < REBIND_WAIT => {
                     tokio::time::sleep(REBIND_STEP).await;
                     waited += REBIND_STEP;
