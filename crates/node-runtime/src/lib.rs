@@ -52,6 +52,8 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
 use engine_inbound::health::TargetHealth;
+use engine_inbound::qos;
+pub use engine_inbound::qos::{QosConfig, QosStatus};
 use engine_inbound::registry::{BuildError, Inbound, InboundRegistry, Settings};
 use engine_inbound::server::{serve_with_udp, InboundStats, ServeSettings};
 use engine_inbound::udp::UdpOutbound;
@@ -171,6 +173,8 @@ pub enum NodeError {
     Network(String),
     /// Block rules were refused; the previous rules stay.
     Rules(String),
+    /// An invalid traffic priority configuration (`PUT /v1/qos`).
+    Qos(String),
     Io(io::Error),
 }
 
@@ -180,9 +184,10 @@ impl fmt::Display for NodeError {
             NodeError::NotFound => f.write_str("inbound not found"),
             NodeError::Exists => f.write_str("inbound tag already exists"),
             NodeError::Invalid(reason) => f.write_str(reason),
-            NodeError::Egress(reason) | NodeError::Network(reason) | NodeError::Rules(reason) => {
-                f.write_str(reason)
-            }
+            NodeError::Egress(reason)
+            | NodeError::Network(reason)
+            | NodeError::Rules(reason)
+            | NodeError::Qos(reason) => f.write_str(reason),
             NodeError::Io(error) => write!(f, "{error}"),
         }
     }
@@ -202,6 +207,7 @@ impl From<io::Error> for NodeError {
 pub const FEATURES: &[&str] = &[
     "user_limits",
     "block_rules",
+    "qos",
     #[cfg(feature = "reverse_proxy")]
     "reverse_proxy",
 ];
@@ -518,6 +524,22 @@ impl Node {
         self.egress.set_blocks(rules);
         *current = config.clone();
         Ok(current.clone())
+    }
+
+    /// Replaces the traffic priorities ([`engine_inbound::qos`]) with
+    /// `config`; `{}` turns them off. Nothing changes when an entry is
+    /// invalid; connections already open keep the class they started
+    /// with.
+    pub fn apply_qos(&self, config: &QosConfig) -> Result<QosStatus, NodeError> {
+        let policy = qos::Policy::compile(config).map_err(NodeError::Qos)?;
+        let status = policy.status();
+        qos::set(Some(policy));
+        Ok(status)
+    }
+
+    /// The traffic priorities in force and the node scheduler's rates.
+    pub fn qos(&self) -> QosStatus {
+        qos::status()
     }
 
     /// The block rules last applied.

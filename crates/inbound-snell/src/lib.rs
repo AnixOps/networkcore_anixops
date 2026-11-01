@@ -262,7 +262,9 @@ impl SnellInbound {
             };
             let mut stream =
                 RequestStream::new(conn, one_shot, Ending::KeepOpen, frame[used..].to_vec());
-            let relayed = context.relay(user.as_ref(), &mut stream, &mut remote).await;
+            let relayed = context
+                .relay_to(user.as_ref(), Some(&target), &mut stream, &mut remote)
+                .await;
             drop(remote);
             if relayed.is_err() || !stream.reusable() {
                 return;

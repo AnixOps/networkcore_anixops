@@ -88,6 +88,11 @@ impl Throttle {
         Poll::Ready(())
     }
 
+    /// Arms a wait of `wait` before the next transfer.
+    pub fn wait(&mut self, wait: Duration) {
+        self.sleep = Some(Box::pin(tokio::time::sleep(wait)));
+    }
+
     /// Charges `bytes` to `limiter` and arms the wait for an overdraft.
     pub fn charge(&mut self, limiter: Option<&RateLimiter>, bytes: usize) {
         if bytes == 0 {

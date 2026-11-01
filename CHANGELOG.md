@@ -4,6 +4,10 @@
 
 ## Unreleased
 
+### Added
+
+- 流量优先级与按类别限速（`engine_inbound::qos`，管理 API `GET`/`PUT /v1/qos`，feature `qos`）：面板把流量类别（视频、下载……）的优先级（high/normal/low）和每用户上限（如 Steam 下载 5 Mbit/s）下发为类别的域名、网段与嗅探协议。连接在转发时按目标名称/地址或客户端首包（TLS SNI、HTTP Host、BitTorrent 握手）归类，只调度下载方向：节点调度器以 `egress_mbps` 为容量、每个限速用户以其限速为容量，按短窗口测量各优先级速率，低优先级只用高优先级剩下的部分（至少 `min_share_percent`，默认 10%），空闲时可跑满；有 `limit_mbps` 的类别对每个用户的该类连接合计限速。Mux.Cool 会话与 UDP 暂不调度。管理 API 请求体上限提高到 32 MiB 以容纳规则列表。
+
 ### Changed
 
 - 仓库拆分：客户端连同 git 历史迁到公开仓库 [AnixOps/anixops-net](https://github.com/AnixOps/anixops-net)，本仓库只保留 AnixOps Net 的网络内核（`crates/*`、`apps/anixcore`、`apps/linux-cli`、`apps/windows-cli`、`third_party/mitm_anixops` 与内核文档）。客户端仓库固定引用本仓库的一个内核 commit，并有自己的 CI（UI、Linux GUI、Windows 构建与 MSI、Swift、iOS/macOS Xcode）、`ios-testflight.yml` 和 `release.yml`（Windows MSI 与 portable ZIP，内含由固定内核 commit 构建的 `networkcore-windows` CLI；Linux 桌面 tarball 与 `.deb`）。

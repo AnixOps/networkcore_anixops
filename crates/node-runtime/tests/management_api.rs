@@ -141,6 +141,33 @@ async fn agent_workflow() {
         .as_array()
         .unwrap()
         .contains(&json!("block_rules")));
+    assert!(body["features"].as_array().unwrap().contains(&json!("qos")));
+
+    // Traffic priorities: an invalid entry refuses the body, a valid one
+    // answers its classes, `{}` turns them off.
+    let (status, _) = call(
+        api,
+        "PUT",
+        "/v1/qos",
+        Some(json!({"classes": [{"priority": "low", "domains": ["bad domain"]}]})),
+    )
+    .await;
+    assert_eq!(status, 400);
+    let (status, body) = call(
+        api,
+        "PUT",
+        "/v1/qos",
+        Some(json!({"classes": [{"name": "steam", "priority": "low", "limit_mbps": 5, "domains": ["qos-test.invalid"]}]})),
+    )
+    .await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["active"], json!(true));
+    assert_eq!(body["classes"][0]["limit_mbps"], json!(5));
+    assert_eq!(body["classes"][0]["domains"], json!(1));
+    let (status, body) = call(api, "PUT", "/v1/qos", Some(json!({}))).await;
+    assert_eq!(status, 200, "{body}");
+    let (_, body) = call(api, "GET", "/v1/qos", None).await;
+    assert_eq!(body["active"], json!(false));
 
     let (status, body) = call(api, "POST", "/v1/inbounds", Some(ss_inbound("ss"))).await;
     assert_eq!(status, 201, "{body}");
