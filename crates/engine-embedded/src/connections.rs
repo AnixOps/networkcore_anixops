@@ -3,7 +3,8 @@
 //! Every TCP connection and UDP flow the tunnel or the local proxy opens goes
 //! through a [`Dispatcher`], which routes it, registers it with the
 //! [`ConnectionTracker`] and wraps its stream so the bytes are counted per
-//! connection. A closed connection moves to a short list of recent ones.
+//! connection. A closed connection moves to a short list of recent ones,
+//! where connections that moved a lot of data outlive small ones.
 //!
 //! The list holds destinations (host names and addresses) and which rule and
 //! node carried them: data the user asks for to see what their device does.
@@ -32,6 +33,13 @@ use crate::routing::{RouteInfo, RoutedOutbound};
 
 /// Closed connections kept for the list, newest first.
 pub const MAX_CLOSED_CONNECTIONS: usize = 128;
+/// A closed connection that moved at least this many bytes is a large one:
+/// it outlives the small ones in the closed list, so a download or speed test
+/// stays visible while a page keeps opening small connections afterwards.
+pub const LARGE_CONNECTION_BYTES: u64 = 1024 * 1024;
+/// At most this many large connections are held back from eviction; past it
+/// the oldest large one goes first.
+pub const MAX_KEPT_LARGE_CONNECTIONS: usize = 64;
 /// Shortest interval the traffic rates are measured over; calls closer
 /// together report the previous rates.
 const RATE_MIN_INTERVAL: Duration = Duration::from_millis(500);
@@ -327,7 +335,30 @@ impl ConnectionTracker {
         let snapshot = entry.snapshot(Some(unix_millis()));
         let mut closed = lock(&self.closed);
         closed.push_front(snapshot);
-        closed.truncate(MAX_CLOSED_CONNECTIONS);
+        trim_closed(&mut closed);
+    }
+}
+
+fn is_large(connection: &ConnectionSnapshot) -> bool {
+    connection.upload.saturating_add(connection.download) >= LARGE_CONNECTION_BYTES
+}
+
+/// Drops one closed connection once the list is over its size: the oldest
+/// small one, so large connections survive a burst of small ones, or the
+/// oldest large one when more than [`MAX_KEPT_LARGE_CONNECTIONS`] are kept.
+/// The newest connection is never the one dropped while an older one can go.
+fn trim_closed(closed: &mut VecDeque<ConnectionSnapshot>) {
+    while closed.len() > MAX_CLOSED_CONNECTIONS {
+        let large = closed
+            .iter()
+            .filter(|connection| is_large(connection))
+            .count();
+        let evict = if large > MAX_KEPT_LARGE_CONNECTIONS {
+            (0..closed.len()).rev().find(|&i| is_large(&closed[i]))
+        } else {
+            (1..closed.len()).rev().find(|&i| !is_large(&closed[i]))
+        };
+        closed.remove(evict.unwrap_or(closed.len() - 1));
     }
 }
 
