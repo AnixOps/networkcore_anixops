@@ -10,17 +10,29 @@
 //! (`GET /v1/inbounds/{tag}/destinations?reset=true`) and folds hosts into
 //! registrable domains itself.
 //!
+//! UDP flows ([`UdpDestinations`]) count the same way per target, over
+//! `quic` when the client's first datagram is a QUIC Initial and `udp`
+//! otherwise. For an address target the SNI of the QUIC ClientHello
+//! ([`crate::quic`]) names the host; until it shows (at most a few
+//! datagrams) the flow's bytes wait. Replies are charged to the flow whose
+//! address they come from, else to the session's last flow.
+//!
+//! TCP sessions of a Mux.Cool connection count like connections, its UDP
+//! sessions like flows.
+//!
 //! A user keeps at most [`MAX_PER_USER`] hosts in a window; the bytes of
-//! further hosts count under an empty host ("other"). Mux.Cool sessions and
-//! UDP are not counted.
+//! further hosts count under an empty host ("other").
 
 use std::collections::HashMap;
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use engine_outbound::{sniff, TargetAddr};
 use serde::{Deserialize, Serialize};
+
+use crate::quic::{self, QuicHello, Sniffed};
+use crate::UserEntry;
 
 /// Hosts one user keeps in a window before the rest count as "other".
 pub const MAX_PER_USER: usize = 256;
@@ -144,6 +156,181 @@ impl Drop for DestinationGuard {
     fn drop(&mut self) {
         let _stats = self.table.lock();
         self.stat.open.fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
+/// The destination of one relayed byte stream (a TCP connection or a
+/// Mux.Cool TCP session) of a user: the target until the first byte decides
+/// it, then its counters.
+pub(crate) enum StreamDestination {
+    Pending(Arc<UserEntry>, Option<TargetAddr>),
+    Counting(DestinationGuard),
+    None,
+}
+
+impl StreamDestination {
+    pub(crate) fn new(user: Option<&Arc<UserEntry>>, target: Option<&TargetAddr>) -> Self {
+        match user {
+            Some(user) => Self::Pending(user.clone(), target.cloned()),
+            None => Self::None,
+        }
+    }
+
+    /// Charges `first.len()` client bytes; the first ones decide.
+    pub(crate) fn up(&mut self, first: &[u8]) {
+        if let Some(guard) = self.decide(first) {
+            guard.add_up(first.len() as u64);
+        }
+    }
+
+    /// Charges `bytes` sent to the client.
+    pub(crate) fn down(&mut self, bytes: u64) {
+        if bytes > 0 {
+            if let Some(guard) = self.decide(&[]) {
+                guard.add_down(bytes);
+            }
+        }
+    }
+
+    fn decide(&mut self, first: &[u8]) -> Option<&DestinationGuard> {
+        if let Self::Pending(user, target) = self {
+            *self = match host_of(target.as_ref(), first) {
+                Some(host) => Self::Counting(user.open_destination(host, protocol_of(first))),
+                None => Self::None,
+            };
+        }
+        match self {
+            Self::Counting(guard) => Some(guard),
+            _ => None,
+        }
+    }
+}
+
+/// Flows one UDP session tracks; the rest count as "other".
+const MAX_FLOWS: usize = 64;
+
+/// The destinations of one user's UDP session: a flow per target.
+pub(crate) struct UdpDestinations {
+    user: Option<Arc<UserEntry>>,
+    flows: HashMap<TargetAddr, Flow>,
+    /// The flow of each address target, for replies.
+    by_source: HashMap<SocketAddr, TargetAddr>,
+    last: Option<TargetAddr>,
+    other: Option<DestinationGuard>,
+}
+
+enum Flow {
+    /// Waiting for the SNI of a QUIC ClientHello to an address.
+    Sniffing {
+        hello: QuicHello,
+        address: String,
+        up: u64,
+        down: u64,
+    },
+    Counting(DestinationGuard),
+}
+
+impl UdpDestinations {
+    pub(crate) fn new(user: Option<Arc<UserEntry>>) -> Self {
+        Self {
+            user,
+            flows: HashMap::new(),
+            by_source: HashMap::new(),
+            last: None,
+            other: None,
+        }
+    }
+
+    /// Charges a client datagram to `target`.
+    pub(crate) fn up(&mut self, target: &TargetAddr, payload: &[u8]) {
+        let Some(user) = &self.user else {
+            return;
+        };
+        let bytes = payload.len() as u64;
+        if !self.flows.contains_key(target) {
+            if self.flows.len() >= MAX_FLOWS {
+                let other = self
+                    .other
+                    .get_or_insert_with(|| user.open_destination(String::new(), "udp"));
+                other.add_up(bytes);
+                return;
+            }
+            let protocol = if quic::is_initial(payload) {
+                "quic"
+            } else {
+                "udp"
+            };
+            let flow = match target {
+                TargetAddr::Domain(..) => match host_of(Some(target), &[]) {
+                    Some(host) => Flow::Counting(user.open_destination(host, protocol)),
+                    None => return,
+                },
+                TargetAddr::Ip(address) => {
+                    let source = SocketAddr::new(canonical(address.ip()), address.port());
+                    self.by_source.insert(source, target.clone());
+                    let host = canonical(address.ip()).to_string();
+                    if protocol == "quic" {
+                        Flow::Sniffing {
+                            hello: QuicHello::default(),
+                            address: host,
+                            up: 0,
+                            down: 0,
+                        }
+                    } else {
+                        Flow::Counting(user.open_destination(host, protocol))
+                    }
+                }
+            };
+            self.flows.insert(target.clone(), flow);
+        }
+        self.last = Some(target.clone());
+        let Some(flow) = self.flows.get_mut(target) else {
+            return;
+        };
+        let decided = match flow {
+            Flow::Counting(guard) => {
+                guard.add_up(bytes);
+                None
+            }
+            Flow::Sniffing {
+                hello,
+                address,
+                up,
+                down,
+            } => {
+                *up += bytes;
+                let host = match hello.push(payload) {
+                    Sniffed::Pending => return,
+                    Sniffed::Name(name) => name,
+                    Sniffed::None => std::mem::take(address),
+                };
+                let guard = user.open_destination(host, "quic");
+                guard.add_up(*up);
+                guard.add_down(*down);
+                Some(guard)
+            }
+        };
+        if let Some(guard) = decided {
+            *flow = Flow::Counting(guard);
+        }
+    }
+
+    /// Charges a reply datagram from `source`.
+    pub(crate) fn down(&mut self, source: SocketAddr, bytes: u64) {
+        if self.user.is_none() {
+            return;
+        }
+        let source = SocketAddr::new(canonical(source.ip()), source.port());
+        let key = self.by_source.get(&source).or(self.last.as_ref());
+        match key.and_then(|key| self.flows.get_mut(key)) {
+            Some(Flow::Counting(guard)) => guard.add_down(bytes),
+            Some(Flow::Sniffing { down, .. }) => *down += bytes,
+            None => {
+                if let Some(other) = &self.other {
+                    other.add_down(bytes);
+                }
+            }
+        }
     }
 }
 

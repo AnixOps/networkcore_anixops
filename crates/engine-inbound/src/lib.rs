@@ -24,6 +24,7 @@ pub mod health;
 pub mod limit;
 mod mux;
 pub mod qos;
+mod quic;
 pub mod registry;
 pub mod replay;
 pub mod server;

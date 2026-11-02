@@ -24,7 +24,7 @@ use std::collections::HashMap;
 use std::io;
 use std::net::SocketAddr;
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use engine_outbound::{BoxStream, TargetAddr, TcpOutbound};
 use futures_util::stream::{FuturesUnordered, StreamExt};
@@ -32,8 +32,9 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::sync::mpsc;
 
 use crate::addr::{read_port_addr, write_port_addr, VMESS};
+use crate::destinations::{StreamDestination, UdpDestinations};
 use crate::server::{InboundStats, ServeSettings};
-use crate::udp::{UdpOutbound, MAX_DATAGRAM, UDP_IDLE_TIMEOUT};
+use crate::udp::{lock, UdpOutbound, MAX_DATAGRAM, UDP_IDLE_TIMEOUT};
 use crate::UserEntry;
 
 const STATUS_NEW: u8 = 1;
@@ -294,12 +295,14 @@ async fn tcp_session(
         return;
     };
     let (mut remote_reader, mut remote_writer) = tokio::io::split(remote);
+    let destination = Mutex::new(StreamDestination::new(meter.user, Some(&target)));
     let up = async {
         while let Some(input) = inputs.recv().await {
             if remote_writer.write_all(&input.data).await.is_err() {
                 return;
             }
             meter.up(input.data.len());
+            lock(&destination).up(&input.data);
         }
         // The client ended the session.
         let _ = remote_writer.shutdown().await;
@@ -315,6 +318,7 @@ async fn tcp_session(
                 return;
             }
             meter.down(n);
+            lock(&destination).down(n as u64);
         }
         let _ = frames.send(end_frame(id, false)).await;
     };
@@ -346,10 +350,12 @@ async fn udp_session(
         let _ = frames.send(end_frame(id, true)).await;
         return;
     };
+    let destinations = Mutex::new(UdpDestinations::new(meter.user.cloned()));
     let up = async {
         while let Some(input) = inputs.recv().await {
             let target = input.target.as_ref().unwrap_or(&target);
             meter.up(input.data.len());
+            lock(&destinations).up(target, &input.data);
             // A refused target drops this datagram only.
             let _ = socket.send_to(&input.data, target).await;
         }
@@ -369,6 +375,7 @@ async fn udp_session(
                 return;
             }
             meter.down(n);
+            lock(&destinations).down(source, n as u64);
         }
         let _ = frames.send(end_frame(id, false)).await;
     };

@@ -827,6 +827,7 @@ version = "0.2.0"
 dependencies = [
  "engine-outbound",
  "futures-util",
+ "ring",
  "serde",
  "serde_json",
  "tokio",
