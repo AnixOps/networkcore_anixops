@@ -19,6 +19,7 @@
 //! reasons. Implementations must keep credentials out of both.
 
 pub mod addr;
+pub mod destinations;
 pub mod health;
 pub mod limit;
 mod mux;
@@ -39,6 +40,7 @@ use tokio::io::AsyncReadExt;
 
 use crate::stream::PrefixedStream;
 
+pub use destinations::DestinationTraffic;
 pub use users::{OnlineUser, User, UserEntry, UserStore, UserTraffic};
 
 /// A client that passed the protocol handshake.

@@ -6,6 +6,7 @@
 
 ### Added
 
+- 按用户、按目标的访问统计（`engine_inbound::destinations`，管理 API `GET /v1/inbounds/{tag}/destinations[?reset=true]`）：有用户的 TCP 连接在第一个字节时按目标主机与嗅探协议（`tls`/`http`/`bittorrent`）开一个计数，主机取客户端请求的域名，地址目标优先用首包的 TLS SNI / HTTP Host，否则用地址；每用户每个窗口最多 256 个主机，其余计为空主机（其他）。anix-agent 读取后折算成可注册域名并经 `destinations.v1` 上报，恢复面板“访问统计”（换用 anx-node 后一直无数据）。Mux.Cool 会话与 UDP 暂不计入。
 - 流量优先级与按类别限速（`engine_inbound::qos`，管理 API `GET`/`PUT /v1/qos`，feature `qos`）：面板把流量类别（视频、下载……）的优先级（high/normal/low）和每用户上限（如 Steam 下载 5 Mbit/s）下发为类别的域名、网段与嗅探协议。连接在转发时按目标名称/地址或客户端首包（TLS SNI、HTTP Host、BitTorrent 握手）归类，只调度下载方向：节点调度器以 `egress_mbps` 为容量、每个限速用户以其限速为容量，按短窗口测量各优先级速率，低优先级只用高优先级剩下的部分（至少 `min_share_percent`，默认 10%），空闲时可跑满；有 `limit_mbps` 的类别对每个用户的该类连接合计限速。Mux.Cool 会话与 UDP 暂不调度。管理 API 请求体上限提高到 32 MiB 以容纳规则列表。
 
 ### Changed

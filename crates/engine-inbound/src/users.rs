@@ -20,6 +20,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Notify;
 
+use crate::destinations::{DestinationGuard, DestinationTraffic, Destinations};
 use crate::limit::RateLimiter;
 use crate::registry::BuildError;
 
@@ -117,6 +118,7 @@ pub struct UserEntry {
     online: Mutex<HashMap<IpAddr, u32>>,
     revoked: AtomicBool,
     revoke: Notify,
+    destinations: Arc<Destinations>,
 }
 
 impl UserEntry {
@@ -130,6 +132,7 @@ impl UserEntry {
             online: Mutex::new(HashMap::new()),
             revoked: AtomicBool::new(false),
             revoke: Notify::new(),
+            destinations: Arc::default(),
         }
     }
 
@@ -157,6 +160,16 @@ impl UserEntry {
 
     pub fn add_down(&self, bytes: u64) {
         self.down.fetch_add(bytes, Ordering::Relaxed);
+    }
+
+    /// Counts one connection of the user to `host` over `protocol` for the
+    /// destination statistics until the guard drops.
+    pub(crate) fn open_destination(
+        &self,
+        host: String,
+        protocol: &'static str,
+    ) -> DestinationGuard {
+        self.destinations.open(host, protocol)
     }
 
     /// Current `(up, down)` without resetting.
@@ -448,6 +461,19 @@ impl UserStore {
             .into_iter()
             .map(|(name, (up, down))| UserTraffic { name, up, down })
             .collect()
+    }
+
+    /// Each user's traffic by destination ([`crate::destinations`]),
+    /// sorted by user, host and protocol. With `reset` the counters restart
+    /// from zero, so each byte is reported once.
+    pub fn destinations(&self, reset: bool) -> Vec<DestinationTraffic> {
+        let table = self.read();
+        let mut out = Vec::new();
+        for (name, entry) in &table.users {
+            entry.destinations.traffic(name, reset, &mut out);
+        }
+        out.sort_by(|a, b| (&a.name, &a.host, &a.protocol).cmp(&(&b.name, &b.host, &b.protocol)));
+        out
     }
 
     /// Every (user, IP) pair with an open connection, sorted.

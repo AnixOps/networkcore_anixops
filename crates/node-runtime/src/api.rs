@@ -12,6 +12,7 @@
 //! | `GET /v1/inbounds/{tag}/users` | | `{"names": [..]}` |
 //! | `GET /v1/inbounds/{tag}/traffic[?reset=true]` | | `{"traffic": [UserTraffic], "inbound": InboundTraffic}` |
 //! | `GET /v1/inbounds/{tag}/online` | | `{"online": [OnlineUser]}` |
+//! | `GET /v1/inbounds/{tag}/destinations[?reset=true]` | | `{"destinations": [DestinationTraffic]}` |
 //! | `GET /v1/inbounds/{tag}/targets` | | `{"targets": [TargetHealth]}` |
 //! | `GET /v1/egress` | | `EgressStatus` |
 //! | `PUT /v1/egress` | `EgressConfig` | `EgressStatus` |
@@ -353,6 +354,14 @@ async fn route(node: &Node, request: Request) -> Response {
                     json!({ "traffic": traffic, "inbound": inbound }),
                 ))
             })
+        }
+        ("GET", ["v1", "inbounds", tag, "destinations"]) => {
+            let reset = request
+                .query
+                .split('&')
+                .any(|pair| pair == "reset=true" || pair == "reset=1");
+            node.users(tag)
+                .map(|users| Response::ok(json!({ "destinations": users.destinations(reset) })))
         }
         ("GET", ["v1", "inbounds", tag, "targets"]) => node
             .target_health(tag)

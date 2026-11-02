@@ -14,6 +14,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, ReadBuf};
 use tokio::net::TcpListener;
 use tokio::sync::Semaphore;
 
+use crate::destinations::{self, DestinationGuard};
 use crate::limit::Throttle;
 use crate::qos::Classing;
 use crate::udp::{relay_datagrams, UdpOutbound};
@@ -436,6 +437,15 @@ struct Metered<'s, S> {
     up: Throttle,
     down: Throttle,
     qos: Option<Classing>,
+    /// The connection's destination for the user's statistics: the target
+    /// until the first byte decides it, then its counters.
+    destination: Destination,
+}
+
+enum Destination {
+    Pending(Option<TargetAddr>),
+    Counting(DestinationGuard),
+    None,
 }
 
 impl<'s, S> Metered<'s, S> {
@@ -447,11 +457,34 @@ impl<'s, S> Metered<'s, S> {
     ) -> Self {
         Self {
             inner,
-            user,
             stats,
             up: Throttle::default(),
             down: Throttle::default(),
             qos: Classing::start(target),
+            destination: if user.is_some() {
+                Destination::Pending(target.cloned())
+            } else {
+                Destination::None
+            },
+            user,
+        }
+    }
+
+    /// Decides the destination on the connection's first byte: `first` is
+    /// what the client sent, empty when the server spoke first.
+    fn destination(&mut self, first: &[u8]) -> Option<&DestinationGuard> {
+        if let Destination::Pending(target) = &self.destination {
+            let decided = match (&self.user, destinations::host_of(target.as_ref(), first)) {
+                (Some(user), Some(host)) => Destination::Counting(
+                    user.open_destination(host, destinations::protocol_of(first)),
+                ),
+                _ => Destination::None,
+            };
+            self.destination = decided;
+        }
+        match &self.destination {
+            Destination::Counting(guard) => Some(guard),
+            _ => None,
         }
     }
 }
@@ -474,6 +507,9 @@ impl<S: AsyncRead + Unpin> AsyncRead for Metered<'_, S> {
                 qos.first_bytes(&buf.filled()[before..]);
             }
             this.stats.bytes_up.fetch_add(read, Ordering::Relaxed);
+            if let Some(destination) = this.destination(&buf.filled()[before..]) {
+                destination.add_up(read);
+            }
             if let Some(user) = &this.user {
                 user.add_up(read);
                 this.up.charge(user.up_limiter(), read as usize);
@@ -499,6 +535,11 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for Metered<'_, S> {
             this.stats
                 .bytes_down
                 .fetch_add(written as u64, Ordering::Relaxed);
+            if written > 0 {
+                if let Some(destination) = this.destination(&[]) {
+                    destination.add_down(written as u64);
+                }
+            }
             let mut wait = None;
             if let Some(user) = &this.user {
                 user.add_down(written as u64);
