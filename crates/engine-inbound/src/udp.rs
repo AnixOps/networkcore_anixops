@@ -30,6 +30,7 @@ use tokio::io::{AsyncRead, AsyncWriteExt};
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
 
+use crate::destinations::UdpDestinations;
 use crate::server::InboundStats;
 use crate::UserEntry;
 
@@ -97,6 +98,7 @@ pub async fn relay_datagrams(
         last_active.store(started.elapsed().as_millis() as u64, Ordering::Relaxed);
     };
     let (mut reader, mut writer) = tokio::io::split(stream);
+    let destinations = Mutex::new(UdpDestinations::new(user.clone()));
 
     let uplink = async {
         while let Ok(Some((target, payload))) = codec.read(&mut reader).await {
@@ -106,6 +108,7 @@ pub async fn relay_datagrams(
             if let Some(user) = &user {
                 user.add_up(bytes);
             }
+            lock(&destinations).up(&target, &payload);
             // A refused target drops this datagram only.
             let _ = session.send_to(&payload, &target).await;
         }
@@ -127,6 +130,7 @@ pub async fn relay_datagrams(
             if let Some(user) = &user {
                 user.add_down(bytes);
             }
+            lock(&destinations).down(source, bytes);
         }
     };
     let idle = async {
@@ -210,6 +214,7 @@ impl Drop for CloseOnDrop {
 
 struct RelayEntry {
     socket: Arc<dyn UdpSession>,
+    destinations: Arc<Mutex<UdpDestinations>>,
     last_active: Arc<AtomicU64>,
     downlink: JoinHandle<()>,
 }
@@ -251,12 +256,12 @@ impl SessionRelay {
         }
         let existing = self.lock().get(&session).map(|entry| {
             entry.last_active.store(self.now(), Ordering::Relaxed);
-            entry.socket.clone()
+            (entry.socket.clone(), entry.destinations.clone())
         });
-        let socket = match existing {
-            Some(socket) => socket,
+        let (socket, destinations) = match existing {
+            Some(existing) => existing,
             None => match self.open(session, user.cloned()).await {
-                Some(socket) => socket,
+                Some(opened) => opened,
                 None => return,
             },
         };
@@ -265,6 +270,7 @@ impl SessionRelay {
         if let Some(user) = user {
             user.add_up(bytes);
         }
+        lock(&destinations).up(target, payload);
         // A refused target drops this datagram only.
         let _ = socket.send_to(payload, target).await;
     }
@@ -299,7 +305,7 @@ impl SessionRelay {
         self: &Arc<Self>,
         session: u64,
         user: Option<Arc<UserEntry>>,
-    ) -> Option<Arc<dyn UdpSession>> {
+    ) -> Option<(Arc<dyn UdpSession>, Arc<Mutex<UdpDestinations>>)> {
         if self.lock().len() >= MAX_SESSIONS {
             return None;
         }
@@ -308,21 +314,25 @@ impl SessionRelay {
             return None;
         };
         let last_active = Arc::new(AtomicU64::new(self.now()));
-        let downlink =
-            tokio::spawn(
-                self.clone()
-                    .downlink(session, socket.clone(), user, last_active.clone()),
-            );
+        let destinations = Arc::new(Mutex::new(UdpDestinations::new(user.clone())));
+        let downlink = tokio::spawn(self.clone().downlink(
+            session,
+            socket.clone(),
+            user,
+            destinations.clone(),
+            last_active.clone(),
+        ));
         let previous = self.lock().insert(
             session,
             RelayEntry {
                 socket: socket.clone(),
+                destinations: destinations.clone(),
                 last_active,
                 downlink,
             },
         );
         drop(previous);
-        Some(socket)
+        Some((socket, destinations))
     }
 
     async fn downlink(
@@ -330,6 +340,7 @@ impl SessionRelay {
         session: u64,
         socket: Arc<dyn UdpSession>,
         user: Option<Arc<UserEntry>>,
+        destinations: Arc<Mutex<UdpDestinations>>,
         last_active: Arc<AtomicU64>,
     ) {
         let mut buf = vec![0u8; MAX_DATAGRAM];
@@ -371,6 +382,7 @@ impl SessionRelay {
             if let Some(user) = &user {
                 user.add_down(bytes);
             }
+            lock(&destinations).down(source, bytes);
         }
         // Only this session's own entry: a newer one under the same id
         // has another socket.
@@ -394,6 +406,13 @@ impl SessionRelay {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
+}
+
+/// Locks `mutex`, recovering it when a holder panicked.
+pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// Unfiltered UDP outbound with one socket per session on a fixed local
