@@ -40,6 +40,7 @@ pub mod fetch;
 pub mod ffi;
 #[cfg(any(feature = "local-proxy", feature = "dns-tls"))]
 pub mod http1;
+pub(crate) mod icmp;
 #[cfg(feature = "local-proxy")]
 pub mod local_proxy;
 #[cfg(feature = "mitm")]
