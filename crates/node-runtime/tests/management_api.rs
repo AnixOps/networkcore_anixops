@@ -142,6 +142,10 @@ async fn agent_workflow() {
         .unwrap()
         .contains(&json!("block_rules")));
     assert!(body["features"].as_array().unwrap().contains(&json!("qos")));
+    assert!(body["features"]
+        .as_array()
+        .unwrap()
+        .contains(&json!("destinations")));
 
     // Traffic priorities: an invalid entry refuses the body, a valid one
     // answers its classes, `{}` turns them off.

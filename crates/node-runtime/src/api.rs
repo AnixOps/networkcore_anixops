@@ -54,7 +54,8 @@
 //!
 //! `features` names what this kernel takes beyond the base API, so an agent
 //! can tell before sending it: `user_limits` (the user members below),
-//! `block_rules` (`/v1/rules`), `qos` (`/v1/qos`).
+//! `block_rules` (`/v1/rules`), `qos` (`/v1/qos`), `destinations`
+//! (`/v1/inbounds/{tag}/destinations`).
 //!
 //! A user may carry `speed_limit` (Mbit/s for each direction, shared by
 //! all of its connections) and `device_limit` (most client IPs online at

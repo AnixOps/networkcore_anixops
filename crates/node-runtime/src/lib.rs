@@ -209,6 +209,7 @@ pub const FEATURES: &[&str] = &[
     "user_limits",
     "block_rules",
     "qos",
+    "destinations",
     #[cfg(feature = "reverse_proxy")]
     "reverse_proxy",
 ];
