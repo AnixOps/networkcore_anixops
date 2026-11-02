@@ -1,0 +1,3 @@
+hostname = %APPEND% m.qx.example.com
+^https?:\/\/m\.qx\.example\.com\/splash url reject-dict
+^https?:\/\/m\.qx\.example\.com\/home url script-response-body https://scripts.example.com/qx-home.js

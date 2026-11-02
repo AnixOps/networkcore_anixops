@@ -3,3 +3,7 @@ p0-full-ad-block.plugin full
 p0-partial-mixed.plugin partial
 p1-script-only.plugin full
 p1-map-local-body-rewrite.plugin full
+qx-rewrite-local.snippet full
+qx-headerless.snippet full
+qx-mixed.snippet partial
+surge-module.sgmodule full

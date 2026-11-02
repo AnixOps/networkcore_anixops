@@ -17,6 +17,16 @@
 //! `<url> response-body-replace-regex <regex> <replacement>` rule per pair.
 //! The first rule replaces the original line and the rest are appended, and
 //! core diagnostics are mapped back to the original line numbers.
+//!
+//! Surge modules and Quantumult X resources go through the same import.
+//! Quantumult X `[rewrite_local]` / `[mitm]` sections, also behind commented
+//! headers (`#[rewrite_local]`) or with no headers at all, are read; its
+//! `<url> url script-*` lines become `[Script]` lines, and `url response-body`
+//! lines become url-first body rewrites. Surge `[URL Rewrite]` lines
+//! (`<url> <replacement> <type>`) and phase-prefixed `[Header Rewrite]` lines
+//! are translated for the core. Lines with no equivalent yet (QX
+//! `echo-response`, header-block regexes, `[task_local]`) are graded
+//! unsupported and kept away from the core.
 
 use crate::loon_map_local::{map_local_pattern_accepted, parse_map_local_line, pattern_source_len};
 use crate::loon_syntax::{quote, tokens};
@@ -413,6 +423,10 @@ enum Section {
     Script,
     MapLocal,
     Mitm,
+    /// Scheduled and event scripts (Quantumult X `[task_local]`).
+    Task,
+    /// Surge `[Panel]`: UI only.
+    Panel,
     Other,
 }
 
@@ -422,13 +436,36 @@ impl Section {
             "plugin" => Self::Plugin,
             "argument" => Self::Argument,
             "rule" => Self::Rule,
-            "rewrite" | "url rewrite" | "remote rewrite" => Self::Rewrite,
+            "rewrite" | "url rewrite" | "remote rewrite" | "rewrite_local" | "rewrite local" => {
+                Self::Rewrite
+            }
             "header rewrite" | "remote header rewrite" => Self::HeaderRewrite,
             "body rewrite" | "remote body rewrite" => Self::BodyRewrite,
             "script" => Self::Script,
             "map local" => Self::MapLocal,
             "mitm" => Self::Mitm,
+            "task_local" | "task-local" => Self::Task,
+            "panel" => Self::Panel,
             _ => Self::Other,
+        }
+    }
+
+    /// Quantumult X resources often comment their section headers out
+    /// (`#[rewrite_local]`) so other clients skip them; only those names are
+    /// read as headers when commented.
+    fn is_quantumult_header(name: &str) -> bool {
+        matches!(
+            name.trim().to_ascii_lowercase().as_str(),
+            "rewrite_local" | "rewrite_remote" | "mitm" | "task_local" | "filter_local"
+        )
+    }
+
+    /// Header the core and [`merged_plugin_source`] read for this section.
+    fn canonical_header(self) -> Option<&'static str> {
+        match self {
+            Self::Rewrite => Some("Rewrite"),
+            Self::Mitm => Some("MITM"),
+            _ => None,
         }
     }
 }
@@ -465,12 +502,32 @@ pub fn import_loon_plugin(text: &str) -> DomainResult<LoonPluginImport> {
             parser.metadata_line(line_number, &section_name, meta);
             continue;
         }
-        if line.starts_with('#') || line.starts_with(';') || line.starts_with("//") {
+        let header = if line.starts_with('[') && line.ends_with(']') {
+            Some((line[1..line.len() - 1].trim(), false))
+        } else {
+            line.strip_prefix('#')
+                .map(str::trim_start)
+                .filter(|rest| rest.starts_with('[') && rest.ends_with(']'))
+                .map(|rest| rest[1..rest.len() - 1].trim())
+                .filter(|name| Section::is_quantumult_header(name))
+                .map(|name| (name, true))
+        };
+        if header.is_none()
+            && (line.starts_with('#') || line.starts_with(';') || line.starts_with("//"))
+        {
             continue;
         }
-        if line.starts_with('[') && line.ends_with(']') {
-            section_name = line[1..line.len() - 1].trim().to_string();
+        if let Some((name, commented)) = header {
+            section_name = name.to_string();
             section = Section::parse(&section_name);
+            if commented || !name.eq_ignore_ascii_case(section.canonical_header().unwrap_or(name)) {
+                let replacement = match section.canonical_header() {
+                    Some(canonical) => format!("[{canonical}]"),
+                    None if commented => line.to_string(),
+                    None => format!("[{name}]"),
+                };
+                parser.replaced.insert(line_number, replacement);
+            }
             if section == Section::Other {
                 parser.push(
                     line_number,
@@ -484,6 +541,13 @@ pub fn import_loon_plugin(text: &str) -> DomainResult<LoonPluginImport> {
         }
 
         match section {
+            // A Quantumult X snippet may have no section headers at all.
+            Section::Preamble if is_quantumult_rewrite(line) => {
+                parser.rewrite_line(line_number, "rewrite_local", line, true)
+            }
+            Section::Preamble if is_hostname_line(line) => {
+                parser.mitm_line(line_number, "mitm", line)
+            }
             Section::Preamble | Section::Plugin => parser.push(
                 line_number,
                 &section_name,
@@ -494,8 +558,22 @@ pub fn import_loon_plugin(text: &str) -> DomainResult<LoonPluginImport> {
             Section::Argument => parser.argument_line(line_number, &section_name, line),
             Section::Rule => parser.rule_line(line_number, &section_name, line),
             Section::Rewrite | Section::HeaderRewrite => {
-                parser.rewrite_line(line_number, &section_name, line)
+                parser.rewrite_line(line_number, &section_name, line, false)
             }
+            Section::Task => parser.push(
+                line_number,
+                &section_name,
+                LoonLineStatus::Unsupported,
+                LoonLineHandler::None,
+                "task.scheduler_unsupported",
+            ),
+            Section::Panel => parser.push(
+                line_number,
+                &section_name,
+                LoonLineStatus::Ignored,
+                LoonLineHandler::None,
+                "section.panel_ignored",
+            ),
             Section::BodyRewrite => parser.body_rewrite_line(line_number, &section_name, line),
             Section::Script => parser.script_line(line_number, &section_name, line),
             Section::MapLocal => {
@@ -809,23 +887,76 @@ impl Parser {
         }
     }
 
-    fn rewrite_line(&mut self, line: usize, section: &str, text: &str) {
-        let mut tokens = text.split_whitespace();
-        let first = tokens.next().unwrap_or("");
-        // Quantumult X style lines start with `url`.
-        let action = if first.eq_ignore_ascii_case("url") {
-            tokens.nth(1)
-        } else {
-            tokens.next()
-        }
-        .unwrap_or("")
-        .to_ascii_lowercase();
+    /// Grades a url-first rewrite line. Quantumult X (`<url> url <action>`)
+    /// and Surge (`<url> <replacement> <type>`, `http-request <url>
+    /// header-add ...`) forms are translated to what the core reads. With
+    /// `preamble`, the line stood outside any section and moves to an
+    /// appended `[Rewrite]` section.
+    fn rewrite_line(&mut self, line: usize, section: &str, text: &str, preamble: bool) {
+        let parts = tokens(text);
+        let lower = |index: usize| {
+            parts
+                .get(index)
+                .map(|token| token.to_ascii_lowercase())
+                .unwrap_or_default()
+        };
+        let first = lower(0);
 
-        if action == "mock-response-body" && !first.eq_ignore_ascii_case("url") {
+        if first != "url"
+            && lower(1) == "url"
+            && self.quantumult_rewrite_line(line, section, text, &parts, preamble)
+        {
+            return;
+        }
+        if matches!(first.as_str(), "http-request" | "http-response") && parts.len() >= 3 {
+            let action = lower(2);
+            if matches!(
+                action.as_str(),
+                "header-add" | "header-del" | "header-replace" | "header-replace-regex"
+            ) {
+                let action = if first == "http-response" {
+                    format!("response-{action}")
+                } else {
+                    action
+                };
+                let mut rule = format!("{} {action}", quote(&parts[1]));
+                for token in &parts[3..] {
+                    rule.push(' ');
+                    rule.push_str(&quote(token));
+                }
+                self.grade_rewrite(line, section, &action);
+                self.emit_core_line(line, text, Some(rule), preamble);
+                return;
+            }
+        }
+
+        let action = if first == "url" || lower(1) == "url" {
+            lower(2)
+        } else {
+            let second = lower(1);
+            // Surge `[URL Rewrite]`: `<url> <replacement> <302|reject|header>`.
+            if classify_rewrite_action(&second).1 == "rewrite.action_unsupported"
+                && parts.len() >= 3
+                && classify_rewrite_action(&lower(2)).1 != "rewrite.action_unsupported"
+            {
+                lower(2)
+            } else {
+                second
+            }
+        };
+
+        if action == "mock-response-body" && first != "url" && lower(1) != "url" {
             self.mock_response_body_line(line, section, text);
             return;
         }
-        let (status, reason, response) = classify_rewrite_action(&action);
+        self.grade_rewrite(line, section, &action);
+        if preamble {
+            self.emit_core_line(line, text, None, true);
+        }
+    }
+
+    fn grade_rewrite(&mut self, line: usize, section: &str, action: &str) {
+        let (status, reason, response) = classify_rewrite_action(action);
         if status != LoonLineStatus::Unsupported {
             if response {
                 self.has_response_actions = true;
@@ -839,6 +970,142 @@ impl Parser {
             LoonLineHandler::PolicyEngine
         };
         self.push(line, section, status, handler, reason);
+    }
+
+    /// Hands `rule` (or the line as written) to the core: in place, or for a
+    /// line outside any section, in an appended `[Rewrite]` section.
+    fn emit_core_line(&mut self, line: usize, text: &str, rule: Option<String>, preamble: bool) {
+        let rule = rule.unwrap_or_else(|| text.to_string());
+        if preamble {
+            self.replaced.insert(line, format!("# {text}"));
+            self.appended.push(("Rewrite", rule, line));
+        } else {
+            self.replaced.insert(line, rule);
+        }
+    }
+
+    /// Quantumult X `<url> url <action> ...` lines whose meaning differs from
+    /// the core's reading. Returns false for actions the core reads as is.
+    fn quantumult_rewrite_line(
+        &mut self,
+        line: usize,
+        section: &str,
+        text: &str,
+        parts: &[String],
+        preamble: bool,
+    ) -> bool {
+        let action = parts
+            .get(2)
+            .map(|token| token.to_ascii_lowercase())
+            .unwrap_or_default();
+        let pattern = &parts[0];
+        match action.as_str() {
+            "script-request-header"
+            | "script-request-body"
+            | "script-response-header"
+            | "script-response-body" => {
+                self.replaced.insert(line, format!("# {text}"));
+                let Some(path) = parts.get(3).filter(|path| !path.is_empty()) else {
+                    self.push(
+                        line,
+                        section,
+                        LoonLineStatus::Unsupported,
+                        LoonLineHandler::None,
+                        "script.path_missing",
+                    );
+                    return true;
+                };
+                let response = action.starts_with("script-response");
+                let tag = path
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or(path)
+                    .trim_end_matches(".js")
+                    .replace(',', "_");
+                let script = format!(
+                    "{} {} script-path={}, requires-body={}, tag={}",
+                    if response {
+                        "http-response"
+                    } else {
+                        "http-request"
+                    },
+                    quote(pattern),
+                    path.replace(',', "%2C"),
+                    action.ends_with("-body"),
+                    if tag.is_empty() { "script" } else { &tag },
+                );
+                let before = self.lines.len();
+                self.script_line(line, section, &script);
+                if self.lines[before..]
+                    .iter()
+                    .all(|report| report.status != LoonLineStatus::Unsupported)
+                {
+                    self.appended.push(("Script", script, line));
+                }
+                true
+            }
+            // `$done` there returns the response itself, not `{response}`.
+            "script-echo-response" | "script-analyze-echo-response" => {
+                self.replaced.insert(line, format!("# {text}"));
+                self.push(
+                    line,
+                    section,
+                    LoonLineStatus::Unsupported,
+                    LoonLineHandler::None,
+                    "script.echo_response_unsupported",
+                );
+                true
+            }
+            // The body is fetched from a URL, which Map Local does not do yet.
+            "echo-response" => {
+                self.replaced.insert(line, format!("# {text}"));
+                self.push(
+                    line,
+                    section,
+                    LoonLineStatus::Unsupported,
+                    LoonLineHandler::None,
+                    "rewrite.echo_response_remote",
+                );
+                true
+            }
+            // `<url> url response-body <regex> response-body <replacement>`.
+            "request-body" | "response-body" => {
+                let (Some(pattern_body), Some(replacement)) = (parts.get(3), parts.get(5)) else {
+                    self.replaced.insert(line, format!("# {text}"));
+                    self.push(
+                        line,
+                        section,
+                        LoonLineStatus::Unsupported,
+                        LoonLineHandler::None,
+                        "rewrite.invalid",
+                    );
+                    return true;
+                };
+                let core_action = format!("{action}-replace-regex");
+                let rule = format!(
+                    "{} {core_action} {} {}",
+                    quote(pattern),
+                    quote(pattern_body),
+                    quote(replacement)
+                );
+                self.grade_rewrite(line, section, &core_action);
+                self.emit_core_line(line, text, Some(rule), preamble);
+                true
+            }
+            // Regex over the whole header block has no core equivalent.
+            "request-header" | "response-header" => {
+                self.replaced.insert(line, format!("# {text}"));
+                self.push(
+                    line,
+                    section,
+                    LoonLineStatus::Unsupported,
+                    LoonLineHandler::None,
+                    "rewrite.header_block_unsupported",
+                );
+                true
+            }
+            _ => false,
+        }
     }
 
     /// `<url> mock-response-body <map local attributes>` answers like a
@@ -906,7 +1173,7 @@ impl Parser {
                 && classify_rewrite_action(&tokens[1].to_ascii_lowercase()).1
                     != "rewrite.action_unsupported" =>
             {
-                self.rewrite_line(line, section, text);
+                self.rewrite_line(line, section, text, false);
                 return;
             }
             _ => {
@@ -1099,6 +1366,18 @@ impl Parser {
         }
         None
     }
+}
+
+/// A Quantumult X rewrite line outside any section: `<url> url <action>`.
+fn is_quantumult_rewrite(line: &str) -> bool {
+    tokens(line)
+        .get(1)
+        .is_some_and(|token| token.eq_ignore_ascii_case("url"))
+}
+
+fn is_hostname_line(line: &str) -> bool {
+    line.split_once('=')
+        .is_some_and(|(key, _)| key.trim().eq_ignore_ascii_case("hostname"))
 }
 
 fn script_attribute_enabled(lower_line: &str, name: &str) -> bool {

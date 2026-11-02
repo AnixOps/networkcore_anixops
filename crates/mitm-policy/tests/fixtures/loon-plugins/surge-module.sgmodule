@@ -1,0 +1,20 @@
+#!name=Surge Module Fixture
+#!desc=URL Rewrite, Header Rewrite, Script and Panel in Surge module syntax
+#!arguments=mode:clean
+
+[URL Rewrite]
+^https?:\/\/ad\.surge\.example\.com - reject
+^https?:\/\/old\.surge\.example\.com\/(.*) https://new.surge.example.com/$1 302
+
+[Header Rewrite]
+http-request ^https?:\/\/api\.surge\.example\.com header-del X-Tracking
+http-response ^https?:\/\/api\.surge\.example\.com header-add X-Module surge
+
+[Script]
+feed = type=http-response,pattern=^https?:\/\/api\.surge\.example\.com\/feed,requires-body=1,script-path=https://scripts.example.com/surge-feed.js
+
+[Panel]
+status = script-name=feed,update-interval=3600
+
+[MITM]
+hostname = %APPEND% api.surge.example.com, ad.surge.example.com, old.surge.example.com
