@@ -799,8 +799,30 @@ fn bind_tcp(address: SocketAddr) -> io::Result<TcpListener> {
         }
         bound => bound?,
     };
+    #[cfg(target_os = "linux")]
+    prefer_congestion_control(&socket);
     socket.listen(1024)?;
     TcpListener::from_std(socket.into())
+}
+
+/// Congestion control asked for on inbound listeners (accepted connections
+/// inherit it): BBR keeps a long-lived connection fast under random loss,
+/// where CUBIC drops to roughly MSS/RTT x 1.22/sqrt(p). Set per socket, so it
+/// works without changing the host default (and inside network namespaces);
+/// `ANIXOPS_TCP_CONGESTION` picks another algorithm, empty or `default`
+/// keeps the host's. Failure (module not available, not permitted) is
+/// ignored: the host default applies.
+#[cfg(target_os = "linux")]
+const DEFAULT_CONGESTION: &str = "bbr";
+
+#[cfg(target_os = "linux")]
+fn prefer_congestion_control(socket: &socket2::Socket) {
+    let name =
+        std::env::var("ANIXOPS_TCP_CONGESTION").unwrap_or_else(|_| DEFAULT_CONGESTION.to_string());
+    if name.is_empty() || name == "default" {
+        return;
+    }
+    let _ = socket.set_tcp_congestion(name.as_bytes());
 }
 
 /// Binds a UDP socket like [`bind_tcp`].
