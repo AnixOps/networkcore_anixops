@@ -1,0 +1,17 @@
+{
+  "invocation": {
+    "phase": "response",
+    "scriptName": "qx-counter",
+    "request": { "url": "https://api.example.test/", "method": "GET" },
+    "response": { "status": 201, "body": "" }
+  },
+  "store": { "counter": "6", "obsolete": "x" },
+  "expect": {
+    "status": "done",
+    "mutation": { "body": "7,201,object" },
+    "store": { "counter": "7" },
+    "notifications": [
+      { "title": "Counter", "subtitle": "qx", "content": "count=7", "openUrl": "https://example.test/qx" }
+    ]
+  }
+}

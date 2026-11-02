@@ -28,6 +28,10 @@
 
   define("$request", context.request);
   if (context.response) {
+    // Quantumult X scripts read `statusCode`, Loon and Surge `status`.
+    if (context.response.statusCode === undefined) {
+      context.response.statusCode = context.response.status;
+    }
     define("$response", context.response);
   }
   define("$argument", context.argument);
@@ -76,6 +80,33 @@
         url: url
       }));
     }
+  });
+
+  // Quantumult X equivalents of the store and notification APIs. They do not
+  // change host detection: scripts tell Quantumult X apart by `$task`.
+  define("$prefs", {
+    valueForKey: function (key) {
+      return global.$persistentStore.read(key);
+    },
+    setValueForKey: function (value, key) {
+      return global.$persistentStore.write(value, key);
+    },
+    removeValueForKey: function (key) {
+      return global.$persistentStore.remove(key);
+    },
+    removeAllValues: function () {
+      return false;
+    }
+  });
+
+  define("$notify", function (title, subtitle, content, options) {
+    var url = "";
+    if (typeof options === "string") {
+      url = options;
+    } else if (options && typeof options === "object") {
+      url = text(options["open-url"] || options.openUrl || options.url);
+    }
+    global.$notification.post(title, subtitle, content, url);
   });
 
   function format(args) {
@@ -152,6 +183,37 @@
     };
   });
   define("$httpClient", client);
+
+  // Quantumult X `$task.fetch`. Defined only for scripts written for
+  // Quantumult X alone (see `run_script`): cross-client scripts check `$task`
+  // first and would otherwise take their Quantumult X branch.
+  Object.defineProperty(global, "__nc_quantumult", {
+    value: function () {
+      define("$task", {
+        fetch: function (options) {
+          var opts = typeof options === "string" ? { url: options } : options || {};
+          return new Promise(function (resolve, reject) {
+            request(text(opts.method || "GET").toUpperCase(), opts, function (error, response, body) {
+              if (error !== null && error !== undefined) {
+                reject({ error: String(error) });
+              } else {
+                resolve({
+                  statusCode: response.status,
+                  status: response.status,
+                  headers: response.headers,
+                  body: body
+                });
+              }
+            });
+          });
+        }
+      });
+      delete global.__nc_quantumult;
+    },
+    writable: false,
+    configurable: true,
+    enumerable: false
+  });
 
   Object.defineProperty(global, "__nc_dispatch", {
     value: function (event) {

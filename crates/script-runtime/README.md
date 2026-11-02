@@ -13,6 +13,10 @@ The `$`-API is implemented once in Rust (`ScriptHost`):
 | `$persistentStore.read/write/remove` | Shared key-value store; key ≤ 256 B, value ≤ 512 KiB, total ≤ 8 MiB. A missing key uses `networkcore.script.<tag>`. |
 | `$notification.post` | Collected in the outcome (16 at most). |
 | `$httpClient.get/post/...` | Goes to a `ScriptHttpClient`; `DisabledScriptHttpClient` (the default) returns an error to the callback. |
+| `$prefs.valueForKey/setValueForKey/removeValueForKey` | Quantumult X names for `$persistentStore`; same store. `removeAllValues` returns `false`. |
+| `$notify(title, subtitle, content, options)` | Quantumult X name for `$notification.post`; `options["open-url"]` is the URL. |
+| `$task.fetch(options)` | Quantumult X; a promise over `$httpClient` resolving `{statusCode, headers, body}` or rejecting `{error}`. Defined only when the script uses `$task` and never names `$loon`, because cross-client scripts (Env.js) check `$task` first and must take their Loon branch. |
+| `$response.statusCode` | Same as `$response.status`, for Quantumult X scripts. |
 | `console.*`, `setTimeout`, `clearTimeout` | Logs are collected (128 lines); timers run inside the dispatch budget. |
 | `$loon`, `$script` | `NetworkCore/<version>`; script name and type. |
 

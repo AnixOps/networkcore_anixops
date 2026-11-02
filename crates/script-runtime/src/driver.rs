@@ -46,6 +46,9 @@ pub fn run_script<E: JsEngineContext + ?Sized>(
     deadline: Instant,
 ) -> Result<(), JsEngineError> {
     engine.eval(SCRIPT_PRELUDE, PRELUDE_FILENAME)?;
+    if is_quantumult_only(script) {
+        engine.eval("__nc_quantumult();", PRELUDE_FILENAME)?;
+    }
     engine.eval(script, script_name)?;
     engine.run_jobs()?;
     loop {
@@ -90,6 +93,14 @@ pub fn run_script<E: JsEngineContext + ?Sized>(
             HostEvent::Idle => return Ok(()),
         }
     }
+}
+
+/// A script that uses `$task` and never mentions `$loon` was written for
+/// Quantumult X alone. Cross-client scripts (Env.js and similar) mention both
+/// and detect `$task` first, so they only get `$task` when they cannot run
+/// without it.
+fn is_quantumult_only(script: &str) -> bool {
+    script.contains("$task") && !script.contains("$loon")
 }
 
 fn http_error(id: u64, error: &str) -> serde_json::Value {
