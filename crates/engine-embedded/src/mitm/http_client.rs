@@ -271,6 +271,9 @@ mod tests {
     use std::sync::Mutex;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+    /// Every connection the canned outbound saw: target and request bytes.
+    type Seen = Arc<Mutex<Vec<(TargetAddr, Vec<u8>)>>>;
+
     #[test]
     fn parses_urls_and_refuses_others() {
         let url = RequestUrl::parse("https://API.example.test/v1?x=1#frag").unwrap();
@@ -303,7 +306,7 @@ mod tests {
     /// request bytes it received.
     struct Canned {
         response: &'static [u8],
-        seen: Arc<Mutex<Vec<(TargetAddr, Vec<u8>)>>>,
+        seen: Seen,
     }
 
     impl TcpOutbound for Canned {
@@ -336,12 +339,7 @@ mod tests {
         }
     }
 
-    fn client(
-        response: &'static [u8],
-    ) -> (
-        TunnelScriptHttpClient,
-        Arc<Mutex<Vec<(TargetAddr, Vec<u8>)>>>,
-    ) {
+    fn client(response: &'static [u8]) -> (TunnelScriptHttpClient, Seen) {
         let seen = Arc::new(Mutex::new(Vec::new()));
         let outbound = Arc::new(OnceLock::new());
         let _ = outbound.set(Arc::new(Canned {
