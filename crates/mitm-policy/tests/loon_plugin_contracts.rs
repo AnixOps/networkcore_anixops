@@ -12,7 +12,7 @@ use mitm_policy::loon_plugin::{
 };
 use mitm_policy::{
     AnixOpsMitmPluginService, AnixOpsMitmPolicyEngine, MitmPolicyMitmDecisionType, MitmPolicyPhase,
-    MitmPolicyRewriteAction,
+    MitmPolicyRewriteAction, MitmPolicyScriptKind,
 };
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -20,6 +20,10 @@ use std::path::Path;
 const FULL_FIXTURE: &str = include_str!("fixtures/loon-plugins/p0-full-ad-block.plugin");
 const PARTIAL_FIXTURE: &str = include_str!("fixtures/loon-plugins/p0-partial-mixed.plugin");
 const SCRIPT_ONLY_FIXTURE: &str = include_str!("fixtures/loon-plugins/p1-script-only.plugin");
+const QX_REWRITE_FIXTURE: &str = include_str!("fixtures/loon-plugins/qx-rewrite-local.snippet");
+const QX_HEADERLESS_FIXTURE: &str = include_str!("fixtures/loon-plugins/qx-headerless.snippet");
+const QX_MIXED_FIXTURE: &str = include_str!("fixtures/loon-plugins/qx-mixed.snippet");
+const SURGE_MODULE_FIXTURE: &str = include_str!("fixtures/loon-plugins/surge-module.sgmodule");
 
 #[test]
 fn full_p0_plugin_imports_metadata_hostnames_rules_and_rewrites() {
@@ -356,7 +360,14 @@ fn loon_plugin_corpus_matches_expected_support_levels() {
     let plugin_files = std::fs::read_dir(&corpus)
         .expect("corpus directory should list")
         .filter_map(Result::ok)
-        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "plugin"))
+        .filter(|entry| {
+            entry.path().extension().is_some_and(|ext| {
+                matches!(
+                    ext.to_str(),
+                    Some("plugin" | "sgmodule" | "snippet" | "conf")
+                )
+            })
+        })
         .count();
     assert_eq!(
         graded, plugin_files,
@@ -413,4 +424,183 @@ fn merged_plugins_load_as_one_policy_with_combined_rewrites_and_hosts() {
 
     let empty = merged_plugin_source("Nothing", &[]);
     assert!(!empty.contains("[MITM]"), "{empty}");
+}
+
+fn loaded_engine(source: &str) -> AnixOpsMitmPolicyEngine {
+    let mut engine = AnixOpsMitmPolicyEngine::new().expect("policy engine should allocate");
+    engine
+        .load_config(source)
+        .expect("translated plugin source should load");
+    engine
+}
+
+#[test]
+fn quantumult_x_rewrite_local_translates_to_core_rules_and_scripts() {
+    let plugin = import_loon_plugin(QX_REWRITE_FIXTURE).expect("QX snippet should import");
+    assert_eq!(
+        plugin.report.level,
+        LoonSupportLevel::Full,
+        "{}",
+        plugin.report.render_text("qx-rewrite-local")
+    );
+    assert_eq!(
+        plugin.mitm_hostnames.include,
+        vec!["api.qx.example.com", "old.qx.example.com"]
+    );
+
+    for source in [
+        plugin.source().to_string(),
+        merged_plugin_source("QX", &[&plugin]),
+    ] {
+        let engine = loaded_engine(&source);
+        let reject = engine
+            .evaluate_url_rewrite("https://api.qx.example.com/ad", MitmPolicyPhase::Request)
+            .expect("reject should evaluate");
+        assert_eq!(reject.action, MitmPolicyRewriteAction::Reject, "{source}");
+
+        let redirect = engine
+            .evaluate_url_rewrite("https://old.qx.example.com/a/b", MitmPolicyPhase::Request)
+            .expect("redirect should evaluate");
+        assert_eq!(
+            redirect.action,
+            MitmPolicyRewriteAction::Redirect,
+            "{source}"
+        );
+        assert_eq!(redirect.value, "https://new.qx.example.com/a/b");
+
+        let feed = engine
+            .evaluate_script("https://api.qx.example.com/feed", MitmPolicyPhase::Response)
+            .expect("response script should evaluate");
+        assert_eq!(feed.kind, MitmPolicyScriptKind::HttpResponse, "{source}");
+        assert!(feed.requires_body);
+        assert_eq!(feed.script_path, "https://scripts.example.com/qx-feed.js");
+
+        let sign = engine
+            .evaluate_script("https://api.qx.example.com/sign", MitmPolicyPhase::Request)
+            .expect("request script should evaluate");
+        assert_eq!(sign.kind, MitmPolicyScriptKind::HttpRequest, "{source}");
+        assert!(!sign.requires_body);
+
+        let (body, _) = engine
+            .apply_body_chain(
+                "https://api.qx.example.com/config",
+                MitmPolicyPhase::Response,
+                "{ads_enabled=1}",
+            )
+            .expect("body rewrite should apply");
+        assert_eq!(body, "{ads_enabled=0}", "{source}");
+    }
+
+    let package = plugin
+        .plugin_package("qx.rewrite", "1")
+        .expect("QX snippet should build a package");
+    assert_eq!(
+        package.manifest.hooks,
+        vec![HookPoint::Request, HookPoint::Response]
+    );
+}
+
+#[test]
+fn quantumult_x_snippet_without_section_headers_is_read_as_rewrite_and_mitm() {
+    let plugin =
+        import_loon_plugin(QX_HEADERLESS_FIXTURE).expect("headerless snippet should import");
+    assert_eq!(
+        plugin.report.level,
+        LoonSupportLevel::Full,
+        "{}",
+        plugin.report.render_text("qx-headerless")
+    );
+    assert_eq!(plugin.mitm_hostnames.include, vec!["m.qx.example.com"]);
+
+    let engine = loaded_engine(&merged_plugin_source("QX", &[&plugin]));
+    let reject = engine
+        .evaluate_url_rewrite("https://m.qx.example.com/splash", MitmPolicyPhase::Request)
+        .expect("reject should evaluate");
+    assert_eq!(reject.action, MitmPolicyRewriteAction::Reject);
+    let home = engine
+        .evaluate_script("https://m.qx.example.com/home", MitmPolicyPhase::Response)
+        .expect("script should evaluate");
+    assert_eq!(home.kind, MitmPolicyScriptKind::HttpResponse);
+    assert_eq!(home.script_path, "https://scripts.example.com/qx-home.js");
+}
+
+#[test]
+fn quantumult_x_lines_without_an_equivalent_are_graded_and_left_out() {
+    let plugin = import_loon_plugin(QX_MIXED_FIXTURE).expect("mixed snippet should import");
+    let reasons = plugin
+        .report
+        .lines
+        .iter()
+        .filter(|line| line.status != LoonLineStatus::Ignored)
+        .map(|line| (line.reason.as_str(), line.status))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        reasons,
+        vec![
+            ("rewrite.reject", LoonLineStatus::Supported),
+            ("rewrite.echo_response_remote", LoonLineStatus::Unsupported),
+            (
+                "rewrite.header_block_unsupported",
+                LoonLineStatus::Unsupported
+            ),
+            ("task.scheduler_unsupported", LoonLineStatus::Unsupported),
+            ("mitm.hostname", LoonLineStatus::Supported),
+        ],
+        "{}",
+        plugin.report.render_text("qx-mixed")
+    );
+    assert_eq!(plugin.report.level, LoonSupportLevel::Partial);
+
+    // The echo-response URL must never be served as a literal body.
+    let engine = loaded_engine(plugin.source());
+    let echo = engine
+        .evaluate_url_rewrite("https://x.qx.example.com/b", MitmPolicyPhase::Request)
+        .expect("echo line should evaluate");
+    assert_eq!(echo.action, MitmPolicyRewriteAction::None);
+}
+
+#[test]
+fn surge_module_rewrites_headers_and_scripts_are_supported() {
+    let plugin = import_loon_plugin(SURGE_MODULE_FIXTURE).expect("Surge module should import");
+    assert_eq!(
+        plugin.report.level,
+        LoonSupportLevel::Full,
+        "{}",
+        plugin.report.render_text("surge-module")
+    );
+    assert_eq!(
+        plugin.metadata.arguments,
+        vec![("mode".to_string(), "clean".to_string())]
+    );
+    let header_reasons = plugin
+        .report
+        .lines
+        .iter()
+        .filter(|line| line.section == "Header Rewrite")
+        .map(|line| line.reason.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        header_reasons,
+        vec!["rewrite.request_header", "rewrite.response_header"]
+    );
+
+    let engine = loaded_engine(&merged_plugin_source("Surge", &[&plugin]));
+    let reject = engine
+        .evaluate_url_rewrite("https://ad.surge.example.com/x", MitmPolicyPhase::Request)
+        .expect("reject should evaluate");
+    assert_eq!(reject.action, MitmPolicyRewriteAction::Reject);
+    let redirect = engine
+        .evaluate_url_rewrite("https://old.surge.example.com/p", MitmPolicyPhase::Request)
+        .expect("redirect should evaluate");
+    assert_eq!(redirect.action, MitmPolicyRewriteAction::Redirect);
+    assert_eq!(redirect.status_code, 302);
+    assert_eq!(redirect.value, "https://new.surge.example.com/p");
+    let feed = engine
+        .evaluate_script(
+            "https://api.surge.example.com/feed",
+            MitmPolicyPhase::Response,
+        )
+        .expect("script should evaluate");
+    assert_eq!(feed.kind, MitmPolicyScriptKind::HttpResponse);
+    assert!(feed.requires_body);
 }

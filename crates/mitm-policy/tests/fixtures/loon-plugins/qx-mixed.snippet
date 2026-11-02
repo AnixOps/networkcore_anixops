@@ -1,0 +1,12 @@
+#!name = Quantumult X Mixed Fixture
+
+[rewrite_local]
+^https?:\/\/x\.qx\.example\.com\/a url reject
+^https?:\/\/x\.qx\.example\.com\/b url echo-response text/json echo-response https://scripts.example.com/b.json
+^https?:\/\/x\.qx\.example\.com\/c url request-header (\r\n)User-Agent:.+(\r\n) request-header $1User-Agent:X$2
+
+[task_local]
+0 9 * * * https://scripts.example.com/checkin.js, tag=checkin, enabled=true
+
+[mitm]
+hostname = x.qx.example.com

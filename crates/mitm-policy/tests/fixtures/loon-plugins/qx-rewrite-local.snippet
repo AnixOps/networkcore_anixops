@@ -1,0 +1,12 @@
+#!name = Quantumult X Rewrite Fixture
+#!desc = rewrite_local and mitm sections behind commented headers, as QX resources ship them
+
+#[rewrite_local]
+^https?:\/\/api\.qx\.example\.com\/ad url reject-200
+^https?:\/\/old\.qx\.example\.com\/(.*) url 302 https://new.qx.example.com/$1
+^https?:\/\/api\.qx\.example\.com\/feed url script-response-body https://scripts.example.com/qx-feed.js
+^https?:\/\/api\.qx\.example\.com\/sign url script-request-header https://scripts.example.com/qx-sign.js
+^https?:\/\/api\.qx\.example\.com\/config url response-body ads_enabled=1 response-body ads_enabled=0
+
+#[mitm]
+hostname = api.qx.example.com, old.qx.example.com
