@@ -6,8 +6,9 @@
 //! callback on the tunnel thread. TCP flows are relayed through the
 //! [`Dispatcher`], which routes and tracks them; the host name sniffed from a
 //! flow's first bytes (TLS SNI or HTTP `Host`) goes along for domain rules.
-//! UDP/53 is answered from the DNS hosts or forwarded to the upstream the DNS
-//! policy picks (over TCP, TLS or HTTPS), and other UDP goes through the
+//! UDP/53 is answered from the DNS hosts, from the DNS cache, or forwarded to
+//! the upstream the DNS policy picks (over TCP, TLS or HTTPS, on kept
+//! connections; see [`crate::dns_cache`]), and other UDP goes through the
 //! outbound's UDP flows, one per app socket and destination. An outbound
 //! without UDP drops those datagrams, so QUIC falls back to TCP. A WireGuard
 //! tunnel (`Tunnel::start_wireguard`) skips the stack and seals packets
@@ -35,6 +36,7 @@ use tokio::sync::{mpsc, oneshot, Semaphore};
 use crate::config::DnsVia;
 use crate::connections::{Dispatcher, Mode};
 use crate::dns::{self, OutboundFailure};
+use crate::dns_cache::{CacheKey, DnsCache, Lookup, UpstreamPool, Waiter};
 use crate::dns_policy::{DnsPolicy, Plan};
 use crate::sniff;
 #[cfg(feature = "wireguard")]
@@ -109,6 +111,7 @@ pub struct TunnelStats {
     pub(crate) udp_failed: AtomicU64,
     pub(crate) dns_queries: AtomicU64,
     pub(crate) dns_failed: AtomicU64,
+    pub(crate) dns_cached: AtomicU64,
     pub(crate) bytes_up: AtomicU64,
     pub(crate) bytes_down: AtomicU64,
     /// Last `OutboundFailure` code, 0 for none.
@@ -134,6 +137,9 @@ pub struct TunnelStatsSnapshot {
     pub udp_failed: u64,
     pub dns_queries: u64,
     pub dns_failed: u64,
+    /// Queries answered from the DNS cache (fresh or stale) or joined to an
+    /// identical query in flight; counted in `dns_queries` too.
+    pub dns_cached: u64,
     pub bytes_up: u64,
     pub bytes_down: u64,
     pub dns_last_failure: Option<&'static str>,
@@ -158,6 +164,7 @@ impl TunnelStats {
             udp_failed: get(&self.udp_failed),
             dns_queries: get(&self.dns_queries),
             dns_failed: get(&self.dns_failed),
+            dns_cached: get(&self.dns_cached),
             bytes_up: get(&self.bytes_up),
             bytes_down: get(&self.bytes_down),
             dns_last_failure: last_failure(&self.dns_last_failure),
@@ -418,6 +425,8 @@ fn spawn_tasks(
         }
     });
     let dns_permits = Arc::new(Semaphore::new(settings.max_dns_in_flight));
+    let dns_state = Arc::new(std::sync::Mutex::new(DnsCache::default()));
+    let upstream_pool = Arc::new(std::sync::Mutex::new(UpstreamPool::default()));
     let mut flows = UdpFlows::default();
     tokio::spawn(async move {
         while let Some((payload, src, dst)) = udp_rx.next().await {
@@ -438,38 +447,200 @@ fn spawn_tasks(
                 }
                 Plan::Forward(server) => server,
             };
+            bump(&stats.dns_queries);
+            let proxied = matches!(policy_via(&settings, server), DnsVia::Proxy)
+                && dispatcher.mode() != Mode::Direct;
+            let question = dns::question(&payload);
+            let key = question.as_ref().map(|question| CacheKey {
+                name: question.name.clone(),
+                qtype: question.qtype,
+                server,
+                proxied,
+            });
+            if let (Some(key), Some(question)) = (&key, &question) {
+                let mut state = dns_state.lock().unwrap_or_else(|e| e.into_inner());
+                match state.lookup(key, &payload, question.end, std::time::Instant::now()) {
+                    Lookup::Fresh(reply) => {
+                        drop(state);
+                        bump(&stats.dns_cached);
+                        if reply_tx.try_send((reply, dst, src)).is_err() {
+                            bump(&stats.dns_failed);
+                        }
+                        continue;
+                    }
+                    Lookup::Stale(reply) => {
+                        // Answer now; refresh unless a refresh is already running.
+                        let refresh = state.begin(key, None);
+                        drop(state);
+                        bump(&stats.dns_cached);
+                        if reply_tx.try_send((reply, dst, src)).is_err() {
+                            bump(&stats.dns_failed);
+                        }
+                        if !refresh {
+                            continue;
+                        }
+                        let Ok(permit) = dns_permits.clone().try_acquire_owned() else {
+                            dns_state
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .finish(key);
+                            continue;
+                        };
+                        spawn_dns_exchange(DnsExchange {
+                            payload,
+                            app: None,
+                            resolver: dst,
+                            key: Some(key.clone()),
+                            server,
+                            proxied,
+                            permit,
+                            dispatcher: dispatcher.clone(),
+                            policy: settings.dns.clone(),
+                            stats: stats.clone(),
+                            reply_tx: reply_tx.clone(),
+                            state: dns_state.clone(),
+                            pool: upstream_pool.clone(),
+                        });
+                        continue;
+                    }
+                    Lookup::Miss => {
+                        let waiter = Waiter {
+                            query: payload.clone(),
+                            question_end: question.end,
+                            app: src,
+                            resolver: dst,
+                        };
+                        if !state.begin(key, Some(waiter)) {
+                            bump(&stats.dns_cached);
+                            continue;
+                        }
+                    }
+                }
+            }
             let Ok(permit) = dns_permits.clone().try_acquire_owned() else {
+                if let Some(key) = &key {
+                    dns_state
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .finish(key);
+                }
                 bump(&stats.dns_failed);
                 continue;
             };
-            bump(&stats.dns_queries);
-            // DNS queries are the tunnel's own traffic, not listed connections.
-            let policy = settings.dns.clone();
-            let outbound = match policy.servers()[server].via {
-                DnsVia::Proxy if dispatcher.mode() != Mode::Direct => dispatcher.outbound(),
-                _ => dispatcher.direct(),
-            }
-            .clone();
-            let stats = stats.clone();
-            let reply_tx = reply_tx.clone();
-            tokio::spawn(async move {
-                let _permit = permit;
-                let upstream = &policy.servers()[server].upstream;
-                match dns::exchange(upstream, outbound.as_ref(), &payload, policy.timeout()).await {
-                    // The reply goes back from the address the app queried.
-                    Ok(response) => {
-                        let _ = reply_tx.send((response, dst, src)).await;
-                    }
-                    Err(failure) => {
-                        bump(&stats.dns_failed);
-                        record(&stats.dns_last_failure, failure);
-                    }
-                }
+            spawn_dns_exchange(DnsExchange {
+                payload,
+                app: Some(src),
+                resolver: dst,
+                key,
+                server,
+                proxied,
+                permit,
+                dispatcher: dispatcher.clone(),
+                policy: settings.dns.clone(),
+                stats: stats.clone(),
+                reply_tx: reply_tx.clone(),
+                state: dns_state.clone(),
+                pool: upstream_pool.clone(),
             });
         }
     });
 
     Ok(())
+}
+
+fn policy_via(settings: &TunnelSettings, server: usize) -> DnsVia {
+    settings.dns.servers()[server].via
+}
+
+/// One query to send upstream and who gets the answer.
+struct DnsExchange {
+    payload: Vec<u8>,
+    /// The app that asked, `None` for a background refresh of a stale answer.
+    app: Option<SocketAddr>,
+    /// The address the app queried; replies come from it.
+    resolver: SocketAddr,
+    /// The cache entry and in-flight slot, `None` when the question did not parse.
+    key: Option<CacheKey>,
+    server: usize,
+    proxied: bool,
+    permit: tokio::sync::OwnedSemaphorePermit,
+    dispatcher: Arc<Dispatcher>,
+    policy: Arc<DnsPolicy>,
+    stats: Arc<TunnelStats>,
+    reply_tx: mpsc::Sender<UdpMsg>,
+    state: Arc<std::sync::Mutex<DnsCache>>,
+    pool: Arc<std::sync::Mutex<UpstreamPool>>,
+}
+
+fn spawn_dns_exchange(job: DnsExchange) {
+    // DNS queries are the tunnel's own traffic, not listed connections.
+    let outbound = if job.proxied {
+        job.dispatcher.outbound()
+    } else {
+        job.dispatcher.direct()
+    }
+    .clone();
+    tokio::spawn(async move {
+        let DnsExchange {
+            payload,
+            app,
+            resolver,
+            key,
+            server,
+            permit: _permit,
+            policy,
+            stats,
+            reply_tx,
+            state,
+            pool,
+            ..
+        } = job;
+        let upstream = &policy.servers()[server].upstream;
+        // Kept connections belong to one server through one outbound.
+        let pool_key = (server, Arc::as_ptr(&outbound) as *const () as usize);
+        let result = dns::exchange(
+            upstream,
+            outbound.as_ref(),
+            &payload,
+            policy.timeout(),
+            Some((&pool, pool_key)),
+        )
+        .await;
+        let waiters = match &key {
+            Some(key) => {
+                let mut state = state.lock().unwrap_or_else(|e| e.into_inner());
+                if let (Ok(response), Some(question)) = (&result, dns::question(&payload)) {
+                    state.insert(key.clone(), &question, response, std::time::Instant::now());
+                }
+                state.finish(key)
+            }
+            None => Vec::new(),
+        };
+        match result {
+            Ok(response) => {
+                // Queries that joined this exchange get the answer with their
+                // own id and question.
+                for waiter in waiters {
+                    if let Some(reply) = crate::dns_cache::reply_from(
+                        &response,
+                        &waiter.query,
+                        waiter.question_end,
+                        None,
+                    ) {
+                        let _ = reply_tx.send((reply, waiter.resolver, waiter.app)).await;
+                    }
+                }
+                // The reply goes back from the address the app queried.
+                if let Some(app) = app {
+                    let _ = reply_tx.send((response, resolver, app)).await;
+                }
+            }
+            Err(failure) => {
+                bump(&stats.dns_failed);
+                record(&stats.dns_last_failure, failure);
+            }
+        }
+    });
 }
 
 /// Open UDP flows keyed by (app socket, destination). Owned by the task that

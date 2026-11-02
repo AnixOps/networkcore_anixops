@@ -3,6 +3,7 @@
 use std::collections::BTreeMap;
 use std::io::{self, Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, UdpSocket};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -272,6 +273,71 @@ fn ask(tunnel: &Tunnel, rx: &Receiver<Vec<u8>>, query: &[u8]) -> Vec<u8> {
         }
         _ => None,
     })
+}
+
+/// DNS-over-TCP server that answers every query on a connection (the query
+/// itself, QR bit set) and counts connections and queries.
+fn start_counting_dns_server() -> (SocketAddr, Arc<(AtomicUsize, AtomicUsize)>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let counts = Arc::new((AtomicUsize::new(0), AtomicUsize::new(0)));
+    let server_counts = counts.clone();
+    thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { return };
+            server_counts.0.fetch_add(1, Ordering::SeqCst);
+            let counts = server_counts.clone();
+            thread::spawn(move || loop {
+                let mut length = [0u8; 2];
+                if stream.read_exact(&mut length).is_err() {
+                    return;
+                }
+                let mut query = vec![0u8; usize::from(u16::from_be_bytes(length))];
+                if stream.read_exact(&mut query).is_err() {
+                    return;
+                }
+                counts.1.fetch_add(1, Ordering::SeqCst);
+                query[2] |= 0x80;
+                let _ = stream.write_all(&length);
+                let _ = stream.write_all(&query);
+            });
+        }
+    });
+    (addr, counts)
+}
+
+#[test]
+fn dns_answers_are_cached_and_connections_kept() {
+    let (server, counts) = start_counting_dns_server();
+    let (sink, rx) = capture();
+    let mut tunnel = Tunnel::start(settings(), Arc::new(Redirect(server)), sink).unwrap();
+
+    let first = dns_query();
+    let response = ask(&tunnel, &rx, &first);
+    assert_eq!(&response[..2], &first[..2]);
+
+    // The same question again, another id and letter case: from the cache.
+    let mut again = dns_query();
+    again[..2].copy_from_slice(&[0x56, 0x78]);
+    again[13] = b'E';
+    let response = ask(&tunnel, &rx, &again);
+    assert_eq!(&response[..2], &[0x56, 0x78]);
+    assert_eq!(&response[12..again.len()], &again[12..]);
+    assert_eq!(counts.1.load(Ordering::SeqCst), 1, "one query upstream");
+    assert_eq!(tunnel.stats().dns_cached, 1);
+
+    // Another name goes upstream on the kept connection.
+    let mut other = dns_query();
+    other[..2].copy_from_slice(&[0x9a, 0xbc]);
+    other[13] = b'x';
+    let response = ask(&tunnel, &rx, &other);
+    assert_eq!(&response[..2], &[0x9a, 0xbc]);
+    assert_eq!(counts.1.load(Ordering::SeqCst), 2);
+    assert_eq!(counts.0.load(Ordering::SeqCst), 1, "connection reused");
+    let stats = tunnel.stats();
+    assert_eq!(stats.dns_queries, 3);
+    assert_eq!(stats.dns_failed, 0);
+    tunnel.stop();
 }
 
 #[test]

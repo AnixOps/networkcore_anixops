@@ -7,10 +7,13 @@
 
 use std::io;
 use std::net::{IpAddr, SocketAddr};
+use std::sync::Mutex;
 use std::time::Duration;
 
 use engine_outbound::{BoxStream, TargetAddr, TcpOutbound};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+use crate::dns_cache::{PoolKey, UpstreamPool};
 
 /// Smallest valid DNS message: the fixed header.
 const DNS_HEADER_LEN: usize = 12;
@@ -96,8 +99,8 @@ impl OutboundFailure {
 }
 
 /// Where a query goes: DNS over TCP, over TLS (RFC 7858) or over HTTPS
-/// (RFC 8484, HTTP/1.1 POST), each on a connection of its own through an
-/// outbound.
+/// (RFC 8484, HTTP/1.1 POST) through an outbound; connections are kept for
+/// later queries (see [`crate::dns_cache::UpstreamPool`]).
 #[derive(Clone)]
 pub enum Upstream {
     Tcp(TargetAddr),
@@ -255,17 +258,49 @@ fn bracketed(host: &str) -> String {
 }
 
 /// Sends one query to `upstream` through `outbound` and returns the reply,
-/// whose id must match the query's.
+/// whose id must match the query's. With a `pool`, an idle connection kept
+/// there for `key` is tried first (for at most half of `timeout`, falling
+/// back to a new connection), and the connection is kept there afterwards
+/// when it can carry another query.
 pub async fn exchange(
     upstream: &Upstream,
     outbound: &dyn TcpOutbound,
     query: &[u8],
     timeout: Duration,
+    pool: Option<(&Mutex<UpstreamPool>, PoolKey)>,
 ) -> Result<Vec<u8>, OutboundFailure> {
     if query.len() < DNS_HEADER_LEN || query.len() > MAX_QUERY_LEN {
         return Err(OutboundFailure::QueryInvalid);
     }
-    let deadline = tokio::time::Instant::now() + timeout;
+    let started = tokio::time::Instant::now();
+    let deadline = started + timeout;
+    let take = |pool: &Mutex<UpstreamPool>, key| {
+        pool.lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take(key, std::time::Instant::now())
+    };
+    let put = |stream: BoxStream| {
+        if let Some((pool, key)) = pool {
+            pool.lock().unwrap_or_else(|e| e.into_inner()).put(
+                key,
+                stream,
+                std::time::Instant::now(),
+            );
+        }
+    };
+    if let Some(mut stream) = pool.and_then(|(pool, key)| take(pool, key)) {
+        // A kept connection the server has closed fails fast; one that went
+        // silent costs at most half the budget before a new connection.
+        let budget = started + timeout / 2;
+        if let Ok(Ok((response, reusable))) =
+            tokio::time::timeout_at(budget, exchange_on(&mut stream, upstream, query)).await
+        {
+            if reusable {
+                put(stream);
+            }
+            return Ok(response);
+        }
+    }
     let connect = async {
         let stream = match outbound.connect(upstream.target()).await {
             Ok(stream) => stream,
@@ -285,34 +320,49 @@ pub async fn exchange(
         Ok(Err(failure)) => return Err(failure),
         Err(_) => return Err(OutboundFailure::ConnectTimeout),
     };
-    let exchange = async {
-        #[cfg(feature = "dns-tls")]
-        let response = if let Upstream::Https { host, path, .. } = upstream {
-            https_exchange(&mut stream, host, path, query).await?
-        } else {
-            framed_exchange(&mut stream, query).await?
-        };
-        #[cfg(not(feature = "dns-tls"))]
-        let response = framed_exchange(&mut stream, query).await?;
-        if response.len() < DNS_HEADER_LEN {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "DNS response is too short",
-            ));
+    match tokio::time::timeout_at(deadline, exchange_on(&mut stream, upstream, query)).await {
+        Ok(Ok((response, reusable))) => {
+            if reusable {
+                put(stream);
+            }
+            Ok(response)
         }
-        if response[..2] != query[..2] {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "DNS response id does not match the query",
-            ));
-        }
-        Ok(response)
-    };
-    match tokio::time::timeout_at(deadline, exchange).await {
-        Ok(Ok(response)) => Ok(response),
         Ok(Err(err)) => Err(OutboundFailure::reply(&err)),
         Err(_) => Err(OutboundFailure::ReplyTimeout),
     }
+}
+
+/// One query on an open connection: the checked reply, and whether the
+/// connection can carry another query.
+async fn exchange_on(
+    stream: &mut BoxStream,
+    upstream: &Upstream,
+    query: &[u8],
+) -> io::Result<(Vec<u8>, bool)> {
+    #[cfg(feature = "dns-tls")]
+    let (response, reusable) = if let Upstream::Https { host, path, .. } = upstream {
+        https_exchange(stream, host, path, query).await?
+    } else {
+        (framed_exchange(stream, query).await?, true)
+    };
+    #[cfg(not(feature = "dns-tls"))]
+    let (response, reusable) = {
+        let _ = upstream;
+        (framed_exchange(stream, query).await?, true)
+    };
+    if response.len() < DNS_HEADER_LEN {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "DNS response is too short",
+        ));
+    }
+    if response[..2] != query[..2] {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "DNS response id does not match the query",
+        ));
+    }
+    Ok((response, reusable))
 }
 
 /// DNS over TCP or TLS: each message behind a two-byte length.
@@ -334,16 +384,19 @@ async fn framed_exchange(stream: &mut BoxStream, query: &[u8]) -> io::Result<Vec
 #[cfg(feature = "dns-tls")]
 const MAX_HTTPS_RESPONSE: usize = crate::http1::MAX_HEAD_BYTES + 65_535;
 
-/// DNS over HTTPS: one POST of `application/dns-message`.
+/// DNS over HTTPS: one POST of `application/dns-message` on a kept-alive
+/// connection. The flag says whether the connection can carry another
+/// request: the answer was framed by `Content-Length`, nothing followed it,
+/// and the server did not ask to close.
 #[cfg(feature = "dns-tls")]
 async fn https_exchange(
     stream: &mut BoxStream,
     host: &str,
     path: &str,
     query: &[u8],
-) -> io::Result<Vec<u8>> {
+) -> io::Result<(Vec<u8>, bool)> {
     let mut request = format!(
-        "POST {path} HTTP/1.1\r\nHost: {host}\r\nContent-Type: application/dns-message\r\nAccept: application/dns-message\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        "POST {path} HTTP/1.1\r\nHost: {host}\r\nContent-Type: application/dns-message\r\nAccept: application/dns-message\r\nContent-Length: {}\r\n\r\n",
         query.len()
     )
     .into_bytes();
@@ -376,12 +429,44 @@ async fn https_exchange(
     if raw.is_empty() {
         return Err(io::ErrorKind::UnexpectedEof.into());
     }
-    crate::http1::parse_response(&raw, 65_535).map_err(|_| {
+    let reusable = keeps_alive(&raw);
+    let body = crate::http1::parse_response(&raw, 65_535).map_err(|_| {
         io::Error::new(
             io::ErrorKind::InvalidData,
             "DNS over HTTPS answer was not a 200 dns-message",
         )
-    })
+    })?;
+    Ok((body, reusable))
+}
+
+/// Whether the connection that carried the HTTP/1.1 response `raw` can carry
+/// another request: `Content-Length` framing with nothing after the body,
+/// and no `Connection: close`.
+#[cfg(feature = "dns-tls")]
+fn keeps_alive(raw: &[u8]) -> bool {
+    let Some(head_end) = raw.windows(4).position(|window| window == b"\r\n\r\n") else {
+        return false;
+    };
+    let Ok(head) = std::str::from_utf8(&raw[..head_end]) else {
+        return false;
+    };
+    if !head.starts_with("HTTP/1.1 ") {
+        return false;
+    }
+    let mut length = None;
+    for line in head.split("\r\n").skip(1) {
+        let Some((name, value)) = line.split_once(':') else {
+            continue;
+        };
+        let (name, value) = (name.trim(), value.trim());
+        if name.eq_ignore_ascii_case("connection") && value.eq_ignore_ascii_case("close") {
+            return false;
+        }
+        if name.eq_ignore_ascii_case("content-length") {
+            length = value.parse::<usize>().ok();
+        }
+    }
+    length.is_some_and(|length| raw.len() == head_end + 4 + length)
 }
 
 /// The first question of a query: the name in lower case without the final
@@ -620,6 +705,21 @@ mod tests {
             upstream.target(),
             &TargetAddr::Domain("dns.alidns.com".into(), 853)
         );
+    }
+
+    #[cfg(feature = "dns-tls")]
+    #[test]
+    fn https_connections_are_kept_only_when_framed() {
+        let ok = b"HTTP/1.1 200 OK\r\nContent-Type: application/dns-message\r\nContent-Length: 3\r\n\r\nabc";
+        assert!(keeps_alive(ok));
+        let close = b"HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: 3\r\n\r\nabc";
+        assert!(!keeps_alive(close));
+        let chunked = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabc\r\n0\r\n\r\n";
+        assert!(!keeps_alive(chunked));
+        let extra = b"HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nabcd";
+        assert!(!keeps_alive(extra));
+        let old = b"HTTP/1.0 200 OK\r\nContent-Length: 3\r\n\r\nabc";
+        assert!(!keeps_alive(old));
     }
 
     #[cfg(not(feature = "dns-tls"))]

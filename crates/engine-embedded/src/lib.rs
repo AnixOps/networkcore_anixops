@@ -33,6 +33,7 @@ pub mod control;
 pub mod delay;
 pub mod direct;
 pub mod dns;
+pub mod dns_cache;
 pub mod dns_policy;
 #[cfg(feature = "local-proxy")]
 pub mod fetch;
