@@ -142,6 +142,10 @@ async fn agent_workflow() {
         .unwrap()
         .contains(&json!("block_rules")));
     assert!(body["features"].as_array().unwrap().contains(&json!("qos")));
+    assert!(body["features"]
+        .as_array()
+        .unwrap()
+        .contains(&json!("destinations")));
 
     // Traffic priorities: an invalid entry refuses the body, a valid one
     // answers its classes, `{}` turns them off.
@@ -205,6 +209,31 @@ async fn agent_workflow() {
     // The relay charges a write just after handing it to the socket, so the
     // client can see the echo a moment before it is counted.
     tokio::time::sleep(Duration::from_millis(50)).await;
+    let (_, body) = call(api, "GET", "/v1/inbounds/ss/destinations?reset=true", None).await;
+    let destinations: Vec<(String, String, u64, u64, u64)> = body["destinations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| {
+            (
+                entry["name"].as_str().unwrap().to_owned(),
+                entry["host"].as_str().unwrap().to_owned(),
+                entry["up"].as_u64().unwrap(),
+                entry["down"].as_u64().unwrap(),
+                entry["connections"].as_u64().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        destinations,
+        vec![
+            ("1001".into(), "127.0.0.1".into(), 5, 5, 1),
+            ("1002".into(), "127.0.0.1".into(), 4, 4, 1),
+        ]
+    );
+    let (_, body) = call(api, "GET", "/v1/inbounds/ss/destinations", None).await;
+    assert_eq!(body["destinations"], json!([]));
+
     let (_, body) = call(api, "GET", "/v1/inbounds/ss/traffic?reset=true", None).await;
     let mut traffic: Vec<(String, u64, u64)> = body["traffic"]
         .as_array()
