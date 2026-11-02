@@ -161,7 +161,6 @@ jobs:
             test -f crates/platform-linux/Cargo.toml
           fi
           if [[ "${APPLE_CHANGED}" == true ]]; then
-            test -f crates/platform-ios/Cargo.toml
             test -f crates/engine-embedded/include/networkcore_ios_runtime.h
             test -f crates/node-import/include/networkcore_import.h
           fi
@@ -410,7 +409,6 @@ jobs:
             crates/mitm-policy/tests/mitm_policy_contracts.rs
             crates/mitm-policy/tests/managed_sdwan_policy_contracts.rs
             crates/config-core/tests/sdwan_delivery_contracts.rs
-            crates/platform-ios/README.md
             crates/platform-linux/README.md
           )
 

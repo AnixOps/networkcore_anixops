@@ -152,7 +152,7 @@ HTTP/2、HTTP/3/QUIC、pinning bypass、streaming、无界 CONNECT session 和 b
 | [crates/engine-embedded](crates/engine-embedded)、[crates/node-import](crates/node-import) | 嵌入式引擎（桌面与 iOS/macOS 包隧道共用，协议按 cargo feature 增减）与订阅导入；两者另以 C ABI 静态库供 iOS/macOS 链接 |
 | [crates/engine-outbound](crates/engine-outbound) | 嵌入式引擎与协议 crate 共用的出站接口 |
 | [crates/mitm-anixops-sys](crates/mitm-anixops-sys)、[crates/mitm-policy](crates/mitm-policy) | `mitm_anixops` FFI 与 safe wrapper / 插件 adapter |
-| [crates/platform-linux](crates/platform-linux)、[crates/platform-windows](crates/platform-windows)、[crates/platform-ios](crates/platform-ios) | 各平台能力 adapter |
+| [crates/platform-linux](crates/platform-linux)、[crates/platform-windows](crates/platform-windows) | 各平台能力 adapter |
 
 客户端源码（`apps/windows-gui`、`apps/windows-service`、`apps/linux-gui`、`apps/ios`、`installer/windows`）已连同历史迁到 [AnixOps/anixops-net](https://github.com/AnixOps/anixops-net)。
 
