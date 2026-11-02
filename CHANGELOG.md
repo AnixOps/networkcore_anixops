@@ -4,6 +4,10 @@
 
 ## Unreleased
 
+### Removed
+
+- 删除 `crates/platform-ios`：工作区内没有任何 crate 依赖它，iOS 的 FFI 边界在 `engine-embedded`/`node-import`。workspace member、`Cargo.lock` 条目、CI 的文件存在性检查和文档引用一并去掉。
+
 ### Added
 
 - 访问统计补齐 UDP 与 Mux.Cool：每个用户的 UDP 会话（VLESS/VMess/Trojan 的 UDP、XUDP、Shadowsocks UDP、TUIC/Hysteria 2 等 QUIC 会话）按目标计数，协议为 `quic`（首个数据报是 QUIC Initial）或 `udp`；目标是地址时解密 QUIC v1/v2 Initial 包（RFC 9001/9369，只需 DCID）重组 CRYPTO 帧读出 ClientHello 的 SNI，最多看 4 个数据报，名字出来前的流量挂在该流上一并计入。回包按来源地址归到对应流，域名目标归到会话最近的流；每个会话最多 64 个流，其余计为“其他”。Mux.Cool 的 TCP 会话像连接一样计数，UDP 会话像流一样计数。`engine-inbound` 新增依赖 `ring`（工作区已有）。

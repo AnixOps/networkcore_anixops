@@ -2298,13 +2298,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "19f132c84eca552bf34cab8ec81f1c1dcc229b811638f9d283dceabe58c5569e"
 
 [[package]]
-name = "platform-ios"
-version = "0.2.0"
-dependencies = [
- "control-domain",
-]
-
-[[package]]
 name = "platform-linux"
 version = "0.2.0"
 dependencies = [

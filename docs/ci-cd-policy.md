@@ -38,7 +38,7 @@
 | 根 `Cargo.toml`、`Cargo.lock`、共享 `crates/**`（非平台特定）、`.github/workflows/**`、CI 脚本、发布关键合同、无法分类的路径 | `full_matrix`（Linux、macOS、Windows 完整 Rust 矩阵） |
 | `apps/windows-cli/**`、`crates/platform-windows/**` | Windows Rust 验证 |
 | `apps/linux-cli/**`、`crates/platform-linux/**`、Linux 架构文件 | Ubuntu Rust 验证 |
-| `crates/platform-ios/**`、Swift/Package.swift/Xcode/entitlement/privacy manifest、Apple workflow 文件 | macOS Rust 验证与 `iOS runtime static libraries` |
+| Swift/Package.swift/Xcode/entitlement/privacy manifest、Apple workflow 文件 | macOS Rust 验证与 `iOS runtime static libraries` |
 | tag 与手动触发 | 始终完整验证，不允许被路径过滤跳过 |
 
 Full CI 保留 Linux、macOS、Windows Rust 覆盖、Rust dependency audit、`iOS runtime static libraries`
@@ -103,7 +103,7 @@ CI 的静态治理检查（`verify-repository-policy.sh` 与 `ci.yml` 中的文�
     - `MITM_CERTIFICATE_LIFECYCLE_GATE` artifact-lifecycle-active/profile-trust-artifact-active/trust-mutation-blocked
     - `MITM_BROWSER_CAPTURE_GATE` pac-policy-profile-prefs-active/system-mutation-blocked
     - `MITM_HTTP_TLS_DATA_PLANE_GATE` plain-http-live-data-plane-active/tls-decryption-blocked
-- **iOS/macOS 运行时**：embedded runtime FFI boundary、`platform-ios` crate README 与合同测试，以及 `engine-embedded`/`node-import` 的 C header 存在性；iOS/macOS App、Swift/Xcode、entitlement、Privacy Manifest、App Review 与 TestFlight 合同已迁到 AnixOps/anixops-net。
+- **iOS/macOS 运行时**：embedded runtime FFI boundary，以及 `engine-embedded`/`node-import` 的 C header 存在性；iOS/macOS App、Swift/Xcode、entitlement、Privacy Manifest、App Review 与 TestFlight 合同已迁到 AnixOps/anixops-net。
 - **Linux 发布链路**：Linux artifact 发布前设计、platform adapter 设计与 crate README、CLI entrypoint 与 runtime
   wiring、artifact 安装/卸载/回滚、package artifact manifest、license/NOTICE confirmation source contract；
   Linux artifact release state consistency（README、ROADMAP、TODO、CHANGELOG、release strategy、license/NOTICE

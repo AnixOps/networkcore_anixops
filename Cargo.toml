@@ -38,7 +38,6 @@ members = [
     "crates/outbound-tuic",
     "crates/outbound-vless",
     "crates/outbound-vmess",
-    "crates/platform-ios",
     "crates/platform-linux",
     "crates/platform-windows",
     "crates/script-runtime",
