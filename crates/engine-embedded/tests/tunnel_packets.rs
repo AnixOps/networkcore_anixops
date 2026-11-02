@@ -410,6 +410,31 @@ fn dns_rules_send_names_to_a_direct_server() {
 }
 
 #[test]
+fn quic_is_refused_with_icmp_when_the_outbound_has_no_udp() {
+    let (sink, rx) = capture();
+    let mut tunnel =
+        Tunnel::start(settings(), Arc::new(Redirect(start_echo_server())), sink).unwrap();
+    let mut packet = Vec::new();
+    PacketBuilder::ipv4(APP, REMOTE, 64)
+        .udp(40002, 443)
+        .write(&mut packet, &[0xc0; 1200])
+        .unwrap();
+    assert!(tunnel.input_packet(&packet));
+
+    let quoted = wait_for(&rx, |sliced| match &sliced.transport {
+        Some(TransportSlice::Icmpv4(icmp)) => Some(icmp.slice().to_vec()),
+        _ => None,
+    });
+    assert_eq!(&quoted[..2], &[3, 3], "port unreachable");
+    // The quoted IPv4 header and UDP ports name the refused flow.
+    assert_eq!(&quoted[8 + 12..8 + 16], &APP);
+    assert_eq!(&quoted[8 + 16..8 + 20], &REMOTE);
+    assert_eq!(&quoted[8 + 20..8 + 22], &40002u16.to_be_bytes());
+    assert_eq!(&quoted[8 + 22..8 + 24], &443u16.to_be_bytes());
+    tunnel.stop();
+}
+
+#[test]
 fn udp_is_dropped_when_the_outbound_has_no_udp() {
     let (sink, _rx) = capture();
     let mut tunnel =

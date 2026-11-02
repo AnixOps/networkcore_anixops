@@ -10,7 +10,8 @@
 //! the upstream the DNS policy picks (over TCP, TLS or HTTPS, on kept
 //! connections; see [`crate::dns_cache`]), and other UDP goes through the
 //! outbound's UDP flows, one per app socket and destination. An outbound
-//! without UDP drops those datagrams, so QUIC falls back to TCP. A WireGuard
+//! without UDP drops those datagrams; QUIC (UDP 443) is also answered with
+//! ICMP port unreachable so it falls back to TCP at once. A WireGuard
 //! tunnel (`Tunnel::start_wireguard`) skips the stack and seals packets
 //! straight to its peer.
 
@@ -362,13 +363,16 @@ fn spawn_tasks(
 
     let (mut stack_sink, mut stack_stream) = stack.split();
 
-    // Stack -> TUN.
+    // Stack -> TUN. The UDP path also writes ICMP errors straight to the
+    // sink (see [`crate::icmp`]); everything runs on the tunnel thread.
+    let sink: Arc<PacketSink> = Arc::new(sink);
+    let raw_sink = sink.clone();
     let out_stats = stats.clone();
     tokio::spawn(async move {
         while let Some(packet) = stack_stream.next().await {
             if let Ok(packet) = packet {
                 bump(&out_stats.packets_out);
-                sink(&packet);
+                (*sink)(&packet);
             }
         }
     });
@@ -431,7 +435,16 @@ fn spawn_tasks(
     tokio::spawn(async move {
         while let Some((payload, src, dst)) = udp_rx.next().await {
             if dst.port() != DNS_PORT {
-                flows.forward(payload, src, dst, &dispatcher, &stats, &reply_tx, &settings);
+                flows.forward(
+                    payload,
+                    src,
+                    dst,
+                    &dispatcher,
+                    &stats,
+                    &reply_tx,
+                    &raw_sink,
+                    &settings,
+                );
                 continue;
             }
             let rule_sets = dispatcher
@@ -658,6 +671,7 @@ impl UdpFlows {
         dispatcher: &Arc<Dispatcher>,
         stats: &Arc<TunnelStats>,
         replies: &mpsc::Sender<UdpMsg>,
+        raw: &Arc<PacketSink>,
         settings: &TunnelSettings,
     ) {
         let key = (src, dst);
@@ -692,13 +706,22 @@ impl UdpFlows {
             dispatcher.clone(),
             stats.clone(),
             replies.clone(),
+            raw.clone(),
             settings.connect_timeout,
         ));
     }
 }
 
+/// QUIC's port: a flow there that cannot be opened is refused with ICMP so
+/// the app falls back to TCP at once.
+const QUIC_PORT: u16 = 443;
+/// ICMP errors sent per refused flow (QUIC clients resend their first
+/// packet a few times).
+const MAX_ICMP_PER_FLOW: u32 = 4;
+
 /// Relays one UDP flow until it idles out or either side ends. Replies go
 /// back to the app from the destination it sent to.
+#[allow(clippy::too_many_arguments)]
 async fn run_udp_flow(
     mut packets: mpsc::Receiver<Vec<u8>>,
     app: SocketAddr,
@@ -706,6 +729,7 @@ async fn run_udp_flow(
     dispatcher: Arc<Dispatcher>,
     stats: Arc<TunnelStats>,
     replies: mpsc::Sender<UdpMsg>,
+    raw: Arc<PacketSink>,
     connect_timeout: Duration,
 ) {
     let target = TargetAddr::Ip(destination);
@@ -714,9 +738,22 @@ async fn run_udp_flow(
     let Ok(Ok(UdpFlow { mut send, mut recv })) = opened else {
         bump(&stats.udp_failed);
         // Stay mapped and drop this flow's datagrams until it goes quiet, so
-        // an outbound without UDP is not asked again for every packet.
-        while let Ok(Some(_)) = tokio::time::timeout(UDP_IDLE_TIMEOUT, packets.recv()).await {
+        // an outbound without UDP is not asked again for every packet. QUIC
+        // is refused with ICMP port unreachable, so it falls back to TCP
+        // instead of waiting for its handshake to time out.
+        let mut refused = 0;
+        while let Ok(Some(datagram)) = tokio::time::timeout(UDP_IDLE_TIMEOUT, packets.recv()).await
+        {
             bump(&stats.udp_dropped);
+            if destination.port() == QUIC_PORT && refused < MAX_ICMP_PER_FLOW {
+                if let Some(packet) =
+                    crate::icmp::port_unreachable(app, destination, datagram.len())
+                {
+                    refused += 1;
+                    bump(&stats.packets_out);
+                    (*raw)(&packet);
+                }
+            }
         }
         return;
     };
