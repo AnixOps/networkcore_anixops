@@ -16,8 +16,8 @@ use control_domain::{
 };
 use script_runtime::{
     DisabledScriptHttpClient, JsonFileScriptStore, MemoryScriptStore, QuickJsScriptRuntime,
-    ScriptInvocation, ScriptLimits, ScriptPhase, ScriptRequest, ScriptResponse, ScriptRunStatus,
-    ScriptStore,
+    ScriptHttpClient, ScriptInvocation, ScriptLimits, ScriptPhase, ScriptRequest, ScriptResponse,
+    ScriptRunStatus, ScriptStore,
 };
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -47,6 +47,7 @@ pub struct NativeQuickJsScriptRuntimeConfig {
 pub struct NativeQuickJsScriptExecutor {
     config: NativeQuickJsScriptRuntimeConfig,
     script_asset_hashes: BTreeMap<String, String>,
+    store: Arc<dyn ScriptStore>,
     runtime: QuickJsScriptRuntime,
 }
 
@@ -84,8 +85,16 @@ impl NativeQuickJsScriptExecutor {
         Ok(Self {
             config,
             script_asset_hashes,
-            runtime: QuickJsScriptRuntime::new(store, Arc::new(DisabledScriptHttpClient)),
+            runtime: QuickJsScriptRuntime::new(store.clone(), Arc::new(DisabledScriptHttpClient)),
+            store,
         })
+    }
+
+    /// Gives `$httpClient` (and `$task.fetch`) network access through
+    /// `client`; without it every request fails with an error the script sees.
+    pub fn with_http_client(mut self, client: Arc<dyn ScriptHttpClient>) -> Self {
+        self.runtime = QuickJsScriptRuntime::new(self.store.clone(), client);
+        self
     }
 
     pub fn config(&self) -> &NativeQuickJsScriptRuntimeConfig {

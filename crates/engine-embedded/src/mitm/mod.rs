@@ -19,16 +19,20 @@
 //! consented local copies in `script_assets`, on the blocking pool so a
 //! script never stalls the tunnel's single-threaded runtime. Each dispatch
 //! gets [`SCRIPT_MEMORY_LIMIT_BYTES`] of heap and at most
-//! [`SCRIPT_MAX_TIMEOUT_MS`]; `$httpClient` is disabled.
+//! [`SCRIPT_MAX_TIMEOUT_MS`]. `$httpClient` requests go through the tunnel's
+//! dispatcher (see `FlowInterceptor::set_script_outbound`), one HTTP/1.1 request
+//! per connection with a [`MAX_BODY_BYTES`] answer.
 
 mod http1;
+#[cfg(feature = "scripts")]
+mod http_client;
 
 use std::collections::HashMap;
 use std::io;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::task::{Context, Poll};
 use std::time::Duration;
 
@@ -74,6 +78,9 @@ pub struct MitmEngine {
     hook: Arc<NativeHttpMitmPluginHook>,
     /// Whether the hook can run scripts, which must leave the runtime thread.
     scripts: bool,
+    /// Where script `$httpClient` requests go: the tunnel's dispatcher, so
+    /// they follow the same routing as the device's own connections.
+    script_outbound: Arc<OnceLock<Arc<dyn TcpOutbound>>>,
     issuer: Issuer<'static, KeyPair>,
     upstream: Arc<ClientConfig>,
     leaves: Mutex<HashMap<String, Arc<ServerConfig>>>,
@@ -134,26 +141,30 @@ impl MitmEngine {
                 },
             )
             .map_err(|_| "mitm policy is invalid")?;
+        let upstream = Arc::new(
+            transport_tls::client_config(&transport_tls::TlsSettings {
+                server_name: String::new(),
+                alpn: vec!["http/1.1".to_string()],
+                insecure: false,
+            })
+            .map_err(|_| "mitm upstream TLS is unavailable")?,
+        );
+        let script_outbound = Arc::new(OnceLock::new());
         let hook = NativeHttpMitmPluginHook::new(instance.clone(), service.clone());
         let scripts = !config.script_assets.is_empty();
         let hook = if scripts {
-            with_scripts(hook, config)?
+            with_scripts(hook, config, &script_outbound, &upstream)?
         } else {
             hook
         };
-        let upstream = transport_tls::client_config(&transport_tls::TlsSettings {
-            server_name: String::new(),
-            alpn: vec!["http/1.1".to_string()],
-            insecure: false,
-        })
-        .map_err(|_| "mitm upstream TLS is unavailable")?;
         Ok(Self {
             service,
             instance,
             hook: Arc::new(hook),
             scripts,
+            script_outbound,
             issuer,
-            upstream: Arc::new(upstream),
+            upstream,
             leaves: Mutex::new(HashMap::new()),
             decisions: Mutex::new(HashMap::new()),
             next_request: AtomicU64::new(1),
@@ -459,6 +470,12 @@ impl MitmEngine {
 }
 
 impl FlowInterceptor for MitmEngine {
+    /// Script `$httpClient` requests go through `outbound`, set once; until
+    /// it is set they fail with an error the script sees.
+    fn set_script_outbound(&self, outbound: Arc<dyn TcpOutbound>) {
+        let _ = self.script_outbound.set(outbound);
+    }
+
     fn claim(&self, first: &[u8], target: SocketAddr) -> Option<String> {
         if target.port() != HTTPS_PORT {
             return None;
@@ -598,6 +615,8 @@ fn remove(headers: &mut Vec<(String, String)>, name: &str) {
 fn with_scripts(
     hook: NativeHttpMitmPluginHook,
     config: &MitmConfig,
+    outbound: &Arc<OnceLock<Arc<dyn TcpOutbound>>>,
+    tls: &Arc<ClientConfig>,
 ) -> Result<NativeHttpMitmPluginHook, &'static str> {
     let executor = NativeQuickJsScriptExecutor::new(NativeQuickJsScriptRuntimeConfig {
         script_assets: config.script_assets.clone(),
@@ -606,7 +625,11 @@ fn with_scripts(
         max_body_bytes: MAX_BODY_BYTES,
         memory_limit_bytes: SCRIPT_MEMORY_LIMIT_BYTES,
     })
-    .map_err(|_| "mitm scripts are unavailable")?;
+    .map_err(|_| "mitm scripts are unavailable")?
+    .with_http_client(Arc::new(http_client::TunnelScriptHttpClient::new(
+        outbound.clone(),
+        tls.clone(),
+    )));
     Ok(hook.with_quickjs_script_executor(executor))
 }
 
@@ -614,6 +637,8 @@ fn with_scripts(
 fn with_scripts(
     _hook: NativeHttpMitmPluginHook,
     _config: &MitmConfig,
+    _outbound: &Arc<OnceLock<Arc<dyn TcpOutbound>>>,
+    _tls: &Arc<ClientConfig>,
 ) -> Result<NativeHttpMitmPluginHook, &'static str> {
     Err("mitm scripts are not supported by this build")
 }

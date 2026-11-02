@@ -44,6 +44,10 @@ pub use quickjs_script::{
     NativeQuickJsScriptExecutor, NativeQuickJsScriptRuntimeConfig,
     ENGINE_NATIVE_QUICKJS_SCRIPT_CONFIG_INVALID_CODE,
 };
+/// Types an embedder needs to give scripts network access
+/// ([`NativeQuickJsScriptExecutor::with_http_client`]).
+#[cfg(feature = "quickjs")]
+pub use script_runtime::{ScriptHttpClient, ScriptHttpClientRequest, ScriptResponse};
 
 pub use h2_mitm::{
     run_native_h2_mitm_session, NativeH2MitmSessionConfig, NativeH2MitmSessionReport,
