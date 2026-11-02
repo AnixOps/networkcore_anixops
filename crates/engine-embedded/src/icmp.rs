@@ -10,7 +10,6 @@
 use std::net::{IpAddr, SocketAddr};
 
 const IPV4_HEADER: usize = 20;
-const IPV6_HEADER: usize = 40;
 const UDP_HEADER: usize = 8;
 const TTL: u8 = 64;
 
