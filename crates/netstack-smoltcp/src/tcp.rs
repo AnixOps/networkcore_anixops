@@ -34,6 +34,18 @@ use crate::{
     Runner,
 };
 
+/// Largest staging buffer between a smoltcp socket and its [`TcpStream`].
+///
+/// The TCP window lives in the smoltcp socket buffers; these only hand bytes
+/// to and from the stream's reader and writer, which move at most a few KiB
+/// per call. Upstream sized them like the window, doubling every
+/// connection's memory (4 x 64 KiB at the tunnel's default window).
+const STREAM_BUFFER_MAX: usize = 16 * 1024;
+
+fn stream_buffer_size(window: u32) -> usize {
+    (window as usize).min(STREAM_BUFFER_MAX)
+}
+
 /// Longest park of the socket loop when no socket has anything scheduled.
 const IDLE_PARK: Duration = Duration::from_secs(10);
 
@@ -157,9 +169,15 @@ impl TcpListenerRunner {
                 trace!("created TCP connection for {} <-> {}", src_addr, dst_addr);
 
                 let control = Arc::new(SpinMutex::new(TcpSocketControl {
-                    send_buffer: RingBuffer::new(vec![0u8; tcp_send_buffer_size as usize]),
+                    send_buffer: RingBuffer::new(vec![
+                        0u8;
+                        stream_buffer_size(tcp_send_buffer_size)
+                    ]),
                     send_waker: None,
-                    recv_buffer: RingBuffer::new(vec![0u8; tcp_recv_buffer_size as usize]),
+                    recv_buffer: RingBuffer::new(vec![
+                        0u8;
+                        stream_buffer_size(tcp_recv_buffer_size)
+                    ]),
                     recv_waker: None,
                     recv_state: TcpSocketState::Normal,
                     send_state: TcpSocketState::Normal,

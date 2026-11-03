@@ -11,3 +11,5 @@ Changes against 0.2.4 are listed here; measure each one with the
 
 - `tcp.rs`: with nothing scheduled the socket loop parks until notified (10 s
   backstop) instead of re-polling every 5 ms.
+- `tcp.rs`: the staging buffers between a smoltcp socket and its `TcpStream`
+  are at most 16 KiB instead of one window each.
