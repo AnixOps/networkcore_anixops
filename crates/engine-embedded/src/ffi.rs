@@ -13,13 +13,16 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::ptr;
 use std::sync::Mutex;
 
+use crate::tunnel::{PacketWriter, MAX_WRITE_BATCH};
 use crate::{EmbeddedRuntime, RuntimeErrorCode};
 
 pub const NETWORKCORE_IOS_ABI_VERSION: u32 = 1;
 pub const NETWORKCORE_IOS_SCHEMA_VERSION: u32 = crate::config::CONFIG_SCHEMA_VERSION;
 /// 2 added `networkcore_ios_runtime_control`, 3 added
-/// `networkcore_ios_mitm_inspect_plugin`.
-pub const NETWORKCORE_IOS_FEATURE_SET_VERSION: u32 = 3;
+/// `networkcore_ios_mitm_inspect_plugin`, 4 added
+/// `networkcore_ios_runtime_start_tunnel_batched` and
+/// `networkcore_ios_runtime_input_packets`.
+pub const NETWORKCORE_IOS_FEATURE_SET_VERSION: u32 = 4;
 
 pub const NETWORKCORE_IOS_OK: i32 = 0;
 pub const NETWORKCORE_IOS_ERR_ARTIFACT_MISSING: i32 = 1;
@@ -75,6 +78,20 @@ impl NetworkCoreBuffer {
 pub type NetworkCorePacketWriter =
     extern "C" fn(context: *mut c_void, packet: *const u8, len: usize);
 
+/// One IP packet borrowed for the duration of a call.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct NetworkCorePacket {
+    pub ptr: *const u8,
+    pub len: usize,
+}
+
+/// Writes a burst of IP packets to the TUN interface, in order (feature set
+/// 4). Called on the tunnel thread until `networkcore_ios_runtime_stop_tunnel`
+/// returns; `count` is 1 to 64. The packets are valid only for the call.
+pub type NetworkCorePacketBatchWriter =
+    extern "C" fn(context: *mut c_void, packets: *const NetworkCorePacket, count: usize);
+
 /// Opaque runtime handle as seen from C. It points at a `RuntimeCell`.
 #[repr(C)]
 pub struct NetworkCoreRuntime {
@@ -95,6 +112,38 @@ unsafe impl Sync for WriterContext {}
 impl WriterContext {
     fn get(&self) -> *mut c_void {
         self.0
+    }
+}
+
+/// Hands each burst of the tunnel's packets to a C batch writer at once.
+struct BatchWriter {
+    writer: NetworkCorePacketBatchWriter,
+    context: WriterContext,
+}
+
+impl PacketWriter for BatchWriter {
+    fn write(&self, packet: &[u8]) {
+        let one = NetworkCorePacket {
+            ptr: packet.as_ptr(),
+            len: packet.len(),
+        };
+        (self.writer)(self.context.get(), &one, 1);
+    }
+
+    fn write_batch(&self, packets: &[Vec<u8>]) {
+        for chunk in packets.chunks(MAX_WRITE_BATCH) {
+            let mut views = [NetworkCorePacket {
+                ptr: ptr::null(),
+                len: 0,
+            }; MAX_WRITE_BATCH];
+            for (view, packet) in views.iter_mut().zip(chunk) {
+                *view = NetworkCorePacket {
+                    ptr: packet.as_ptr(),
+                    len: packet.len(),
+                };
+            }
+            (self.writer)(self.context.get(), views.as_ptr(), chunk.len());
+        }
     }
 }
 
@@ -208,6 +257,83 @@ pub unsafe extern "C" fn networkcore_ios_runtime_start_tunnel(
             match runtime.start(sink) {
                 Ok(()) => NETWORKCORE_IOS_OK,
                 Err(err) => code_for(err.code),
+            }
+        })
+    })
+}
+
+/// Starts the tunnel like `networkcore_ios_runtime_start_tunnel`, handing
+/// the packets that are ready together to `writer` in one call (feature set
+/// 4), so the host can write them with one `writePackets`.
+///
+/// # Safety
+///
+/// As for `networkcore_ios_runtime_start_tunnel`.
+#[no_mangle]
+pub unsafe extern "C" fn networkcore_ios_runtime_start_tunnel_batched(
+    handle: *mut NetworkCoreRuntime,
+    writer: Option<NetworkCorePacketBatchWriter>,
+    context: *mut c_void,
+) -> i32 {
+    guarded(|| {
+        let Some(writer) = writer else {
+            return NETWORKCORE_IOS_ERR_INVALID_ARGUMENT;
+        };
+        with_runtime(handle, |runtime| {
+            let sink = BatchWriter {
+                writer,
+                context: WriterContext(context),
+            };
+            match runtime.start(sink) {
+                Ok(()) => NETWORKCORE_IOS_OK,
+                Err(err) => code_for(err.code),
+            }
+        })
+    })
+}
+
+/// Queues the IP packets of one `readPackets` callback (feature set 4) and
+/// writes how many were queued to `out_accepted`; the rest were dropped
+/// because the queue was full or invalid. Takes the runtime lock once.
+///
+/// # Safety
+///
+/// `handle` must come from `networkcore_ios_runtime_init`, `packets` must
+/// point to `count` packets that each point to `len` readable bytes, and
+/// `out_accepted` must be null or writable.
+#[no_mangle]
+pub unsafe extern "C" fn networkcore_ios_runtime_input_packets(
+    handle: *mut NetworkCoreRuntime,
+    packets: *const NetworkCorePacket,
+    count: usize,
+    out_accepted: *mut usize,
+) -> i32 {
+    guarded(|| {
+        if packets.is_null() || count == 0 {
+            return NETWORKCORE_IOS_ERR_INVALID_ARGUMENT;
+        }
+        // SAFETY: the caller guarantees `count` packets.
+        let packets = unsafe { std::slice::from_raw_parts(packets, count) };
+        with_runtime(handle, |runtime| {
+            let mut accepted = 0usize;
+            for packet in packets {
+                if packet.ptr.is_null() || packet.len == 0 || packet.len > MAX_PACKET_LEN {
+                    continue;
+                }
+                // SAFETY: the caller guarantees `len` readable bytes.
+                let bytes = unsafe { std::slice::from_raw_parts(packet.ptr, packet.len) };
+                if runtime.input_packet(bytes) {
+                    accepted += 1;
+                }
+            }
+            if !out_accepted.is_null() {
+                // SAFETY: checked non-null; the caller guarantees it is writable.
+                unsafe { *out_accepted = accepted };
+            }
+            if accepted == count {
+                NETWORKCORE_IOS_OK
+            } else {
+                NETWORKCORE_IOS_ERR_PACKET_DROPPED
             }
         })
     })
