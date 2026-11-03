@@ -9,4 +9,5 @@ tuned for phones. The upstream examples and integration tests are not copied.
 Changes against 0.2.4 are listed here; measure each one with the
 `Tunnel perf` workflow (`crates/engine-embedded/examples/tunnel_bench.rs`).
 
-- (none yet)
+- `tcp.rs`: with nothing scheduled the socket loop parks until notified (10 s
+  backstop) instead of re-polling every 5 ms.
