@@ -34,6 +34,9 @@ use crate::{
     Runner,
 };
 
+/// Longest park of the socket loop when no socket has anything scheduled.
+const IDLE_PARK: Duration = Duration::from_secs(10);
+
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 enum TcpSocketState {
     Normal,
@@ -349,14 +352,21 @@ impl TcpListenerRunner {
             // arm: one core pins flat at 100% and new inbound connections are
             // starved (observed as connect timeouts with no SYN-ACK). A
             // cooperative `yield_now()` keeps the re-poll just as prompt while
-            // letting `handle_packet` make progress. The timed-park path and the
-            // 5 ms idle fallback are unchanged, so there is no missed-wake risk.
+            // letting `handle_packet` make progress.
+            //
+            // With nothing scheduled (`poll_delay` is `None`: no socket has a
+            // timer or data due) the loop parks until something calls
+            // `notify_one`: a new packet, a new socket, or a stream reading,
+            // writing, shutting down or dropping. `Notify` keeps that permit
+            // when no one is waiting yet, so a wake between the poll and the
+            // park is not lost. Upstream re-polled every 5 ms here, about 200
+            // wakeups a second on an idle phone; IDLE_PARK is only a backstop.
             if iface_ingress_tx_avail.load(Ordering::Acquire) {
                 tokio::task::yield_now().await;
             } else {
                 let next_duration = iface
                     .poll_delay(before_poll, &socket_set)
-                    .unwrap_or(Duration::from_millis(5));
+                    .unwrap_or(IDLE_PARK);
                 if next_duration != Duration::ZERO {
                     let _ = tokio::time::timeout(
                         tokio::time::Duration::from(next_duration),
