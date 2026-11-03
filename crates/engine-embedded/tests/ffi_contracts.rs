@@ -37,7 +37,7 @@ extern "C" fn count_packets(context: *mut c_void, _packet: *const u8, _len: usiz
 fn versions_match_the_swift_handshake() {
     assert_eq!(networkcore_ios_abi_version(), 1);
     assert_eq!(networkcore_ios_schema_version(), 1);
-    assert_eq!(networkcore_ios_feature_set_version(), 2);
+    assert_eq!(networkcore_ios_feature_set_version(), 3);
 }
 
 #[test]
@@ -339,6 +339,7 @@ fn header_declares_every_exported_symbol() {
         "networkcore_ios_runtime_collect_status",
         "networkcore_ios_runtime_control",
         "networkcore_ios_measure_delay",
+        "networkcore_ios_mitm_inspect_plugin",
         "networkcore_ios_runtime_free_buffer",
         "networkcore_ios_runtime_free_handle",
     ] {
@@ -543,4 +544,39 @@ fn measure_delay_maps_failures_to_stable_codes() {
         },
         NETWORKCORE_IOS_ERR_INVALID_ARGUMENT
     );
+}
+
+#[cfg(feature = "mitm")]
+#[test]
+fn mitm_inspect_plugin_describes_a_plugin_without_a_runtime() {
+    let text = "#!name = FFI\n[Rewrite]\n^https?://a\\.test/ad reject\n[MITM]\nhostname = a.test\n";
+    let mut buffer = NetworkCoreBuffer {
+        ptr: ptr::null_mut(),
+        len: 0,
+        cap: 0,
+    };
+    let code =
+        unsafe { networkcore_ios_mitm_inspect_plugin(text.as_ptr(), text.len(), &mut buffer) };
+    assert_eq!(code, NETWORKCORE_IOS_OK);
+    let json: serde_json::Value =
+        serde_json::from_slice(unsafe { std::slice::from_raw_parts(buffer.ptr, buffer.len) })
+            .unwrap();
+    unsafe { networkcore_ios_runtime_free_buffer(buffer) };
+    assert_eq!(json["name"], "FFI");
+    assert_eq!(json["level"], "full");
+    assert_eq!(json["hostnames"], serde_json::json!(["a.test"]));
+    assert_eq!(json["resources"], serde_json::json!([]));
+
+    let mut buffer = NetworkCoreBuffer {
+        ptr: ptr::null_mut(),
+        len: 0,
+        cap: 0,
+    };
+    let empty = unsafe { networkcore_ios_mitm_inspect_plugin(text.as_ptr(), 0, &mut buffer) };
+    assert_eq!(empty, NETWORKCORE_IOS_ERR_INVALID_ARGUMENT);
+    assert_eq!(buffer.len, 0);
+    unsafe { networkcore_ios_runtime_free_buffer(buffer) };
+    let no_out =
+        unsafe { networkcore_ios_mitm_inspect_plugin(text.as_ptr(), text.len(), ptr::null_mut()) };
+    assert_eq!(no_out, NETWORKCORE_IOS_ERR_INVALID_ARGUMENT);
 }

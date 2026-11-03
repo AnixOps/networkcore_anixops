@@ -87,6 +87,7 @@ XCFramework 只能由 GitHub Actions `macos-26` runner 从同一 commit 的受�
 | `networkcore_ios_runtime_free_handle` | Swift -> Rust | 释放 opaque runtime handle |
 | `networkcore_ios_measure_delay` | Swift -> Rust | 节点 HTTP 真连接延迟：经节点出站请求测试 URL，返回到首个响应行的毫秒数；不需要 handle，主 App 在隧道未启动时也可调用 |
 | `networkcore_ios_runtime_control` | Swift -> Rust | 运行时控制（feature set 2）：一个 JSON 请求 `{"cmd": ...}`，JSON 应答写入 Rust-owned buffer；见下节 |
+| `networkcore_ios_mitm_inspect_plugin` | Swift -> Rust | MITM 插件检查（feature set 3）：导入一份 Loon / Surge / Quantumult X 插件文本，JSON 写入 Rust-owned buffer：名称、支持等级、hostname、行计数与需下载的远程资源（`script` 需用户同意，`map_local_data` 下载后经 `mitm.resource_assets` 传入）；不需要 handle，主 App 导入插件时调用 |
 
 所有 exported symbol 必须使用明确前缀 `networkcore_ios_`，避免和 Apple SDK、系统库或第三方内核冲突。所有 ABI
 struct 必须采用 C-compatible layout，字段必须固定大小、对齐和 ownership；Swift-only object layout 不得作为 ABI。

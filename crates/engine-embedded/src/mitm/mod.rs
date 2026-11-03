@@ -30,6 +30,7 @@
 mod http1;
 #[cfg(feature = "scripts")]
 mod http_client;
+pub mod inspect;
 
 use std::collections::{BTreeMap, HashMap};
 use std::io;
