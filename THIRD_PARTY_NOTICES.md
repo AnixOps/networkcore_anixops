@@ -24,6 +24,10 @@ Rust 依赖的许可证由 CI `rust-security-audit` job 中的 `cargo deny check
 
 `crates/script-runtime` 通过 rquickjs（https://github.com/DelSkayn/rquickjs ，MIT）把 QuickJS-ng（https://github.com/quickjs-ng/quickjs ，MIT）编译进桌面端二进制，用于运行 Loon `[Script]` 脚本。二者以 crates.io 源码包形式由 Cargo 获取，不 vendor 进本仓库；发布产物需要附带其 MIT 许可证文本。iOS 不链接 QuickJS，M4 改用系统 JavaScriptCore。
 
+## Vendored Rust 源码
+
+`crates/netstack-smoltcp` 来自 netstack-smoltcp 0.2.4（https://github.com/cavivie/netstack-smoltcp ，MIT OR Apache-2.0），为了按手机的耗电和内存调优而并入本仓库；许可证文本随目录保留，改动记录在该目录的 README.md。
+
 ## 自有子模块
 
 `third_party/mitm_anixops` 指向 AnixOps 自有仓库 https://github.com/AnixOps/mitm_anixops，不属于第三方代码。

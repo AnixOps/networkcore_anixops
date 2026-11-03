@@ -43,7 +43,7 @@ engine-outbound = { path = "../engine-outbound" }
 futures = "0.3"
 inbound-mixed = { path = "../inbound-mixed", optional = true }
 mitm-policy = { path = "../mitm-policy", optional = true }
-netstack-smoltcp = "0.2"
+netstack-smoltcp = { path = "../netstack-smoltcp" }
 node-import = { path = "../node-import" }
 outbound-http = { path = "../outbound-http", optional = true }
 outbound-hysteria2 = { path = "../outbound-hysteria2", optional = true }
