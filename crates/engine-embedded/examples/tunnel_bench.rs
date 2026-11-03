@@ -313,8 +313,7 @@ mod linux {
             libc::getrusage(libc::RUSAGE_SELF, &mut usage);
             usage
         };
-        let micros =
-            |time: libc::timeval| time.tv_sec as u64 * 1_000_000 + time.tv_usec as u64;
+        let micros = |time: libc::timeval| time.tv_sec as u64 * 1_000_000 + time.tv_usec as u64;
         json!({
             "rss_kb": field("VmRSS:"),
             "hwm_kb": field("VmHWM:"),
@@ -348,7 +347,10 @@ mod linux {
             .args(args)
             .stdout(Stdio::piped())
             .spawn()?;
-        let stdout = child.stdout.take().ok_or_else(|| io::Error::other("no stdout"))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| io::Error::other("no stdout"))?;
         let mut line = String::new();
         BufReader::new(stdout).read_line(&mut line)?;
         let words: Vec<String> = line.split_whitespace().map(str::to_string).collect();
@@ -405,7 +407,10 @@ mod linux {
         ];
         let forwarded: Vec<(String, String)> = ["tun", "window-kib", "max-conns", "mtu"]
             .iter()
-            .filter_map(|key| args.get(*key).map(|value| (format!("--{key}"), value.clone())))
+            .filter_map(|key| {
+                args.get(*key)
+                    .map(|value| (format!("--{key}"), value.clone()))
+            })
             .collect();
         for (key, value) in &forwarded {
             tunnel_args.push(key.as_str());
