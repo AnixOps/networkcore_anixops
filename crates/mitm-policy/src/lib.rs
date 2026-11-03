@@ -274,6 +274,15 @@ impl AnixOpsMitmPolicyEngine {
 
         let status = unsafe {
             sys::anixops_engine_clear(self.raw.as_ptr());
+            // Clearing resets the engine to POSIX regex. Plugins are written
+            // against Perl-style engines (NSRegularExpression, PCRE), so use
+            // PCRE2 whenever this build has it.
+            if sys::anixops_regex_backend_available(sys::AnixOpsRegexBackend::Pcre2) != 0 {
+                sys::anixops_engine_set_regex_backend(
+                    self.raw.as_ptr(),
+                    sys::AnixOpsRegexBackend::Pcre2,
+                );
+            }
             sys::anixops_engine_load_config(self.raw.as_ptr(), config.as_ptr())
         };
         let rule_diagnostics = self.rule_diagnostics();
@@ -328,6 +337,12 @@ impl AnixOpsMitmPolicyEngine {
         }
 
         Ok(())
+    }
+
+    /// True when rules are compiled with PCRE2 rather than POSIX regex.
+    pub fn uses_pcre2_regex(&self) -> bool {
+        let backend = unsafe { sys::anixops_engine_regex_backend(self.raw.as_ptr()) };
+        backend == sys::AnixOpsRegexBackend::Pcre2
     }
 
     pub fn jq_max_input_bytes(&self) -> usize {

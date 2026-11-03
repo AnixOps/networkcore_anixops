@@ -7,6 +7,16 @@ repository.workspace = true
 description = "Unsafe C ABI bindings for the vendored mitm_anixops core."
 links = "mitm_anixops"
 
+[features]
+default = ["pcre2"]
+# Build the C core with the PCRE2 regex backend (lookahead, \b, backreferences
+# and the other Perl syntax that Loon / Surge / Quantumult X rules use).
+pcre2 = ["dep:pcre2-sys"]
+
+[dependencies]
+# Pinned exactly: vendor/pcre2/pcre2.h must match the library it builds.
+pcre2-sys = { version = "=0.2.9", optional = true }
+
 [build-dependencies]
 cc = "1"
 

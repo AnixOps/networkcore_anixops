@@ -9,6 +9,13 @@ The narrow policy capability query mirrors the released C ABI only:
 deterministic V1 policy-core mask. They do not describe host TLS, certificate,
 network, storage, script, consent, or platform capabilities.
 
+With the default `pcre2` feature the C core is built with
+`ANIXOPS_ENABLE_PCRE2`: `pcre2-sys` (pinned `=0.2.9`, PCRE2 10.43) compiles and
+links PCRE2 statically (`.cargo/config.toml` sets `PCRE2_SYS_STATIC=1`), and
+`vendor/pcre2/pcre2.h` is that version's header. `mitm-policy` switches each
+engine to the PCRE2 backend before loading a config. Without the feature the
+core falls back to POSIX regex.
+
 This crate is intentionally low-level. Safe policy and domain adapter APIs must
 live in the `mitm-policy` crate.
 
