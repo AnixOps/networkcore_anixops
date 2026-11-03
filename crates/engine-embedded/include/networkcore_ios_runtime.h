@@ -10,7 +10,7 @@
  *     networkcore_ios_runtime_free_buffer.
  *   - The runtime handle is released with networkcore_ios_runtime_free_handle.
  *   - networkcore_ios_measure_delay is also linked into the containing app, which tests
- *     nodes with it without starting a tunnel.
+ *     nodes with it without starting a tunnel; so is networkcore_ios_mitm_inspect_plugin.
  *   - The packet writer runs on the tunnel thread until stop_tunnel returns and must
  *     not call back into the library.
  */
@@ -71,6 +71,13 @@ int32_t networkcore_ios_runtime_control(NetworkCoreRuntime *handle, const uint8_
  * the node did not answer. */
 int32_t networkcore_ios_measure_delay(const uint8_t *config, size_t config_len, const uint8_t *url, size_t url_len,
                                       uint32_t timeout_ms, uint32_t *out_millis);
+/* MITM plugin inspection (feature set 3): imports one Loon / Surge / Quantumult X plugin text
+ * (at most 1 MiB, UTF-8) and writes JSON to `out`: {"name", "level": "full|partial|unsupported",
+ * "hostnames", "excluded_hostnames", "lines": {"supported", "partial", "unsupported", "deferred"},
+ * "resources": [{"url", "kind": "script|map_local_data", "line"}], "report"}. Download the
+ * "map_local_data" resources and pass them as mitm.resource_assets; scripts need the user's
+ * consent first. Needs no runtime handle. */
+int32_t networkcore_ios_mitm_inspect_plugin(const uint8_t *text, size_t text_len, NetworkCoreBuffer *out);
 void networkcore_ios_runtime_free_buffer(NetworkCoreBuffer buffer);
 void networkcore_ios_runtime_free_handle(NetworkCoreRuntime *handle);
 

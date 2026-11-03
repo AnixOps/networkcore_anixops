@@ -17,8 +17,9 @@ use crate::{EmbeddedRuntime, RuntimeErrorCode};
 
 pub const NETWORKCORE_IOS_ABI_VERSION: u32 = 1;
 pub const NETWORKCORE_IOS_SCHEMA_VERSION: u32 = crate::config::CONFIG_SCHEMA_VERSION;
-/// 2 added `networkcore_ios_runtime_control`.
-pub const NETWORKCORE_IOS_FEATURE_SET_VERSION: u32 = 2;
+/// 2 added `networkcore_ios_runtime_control`, 3 added
+/// `networkcore_ios_mitm_inspect_plugin`.
+pub const NETWORKCORE_IOS_FEATURE_SET_VERSION: u32 = 3;
 
 pub const NETWORKCORE_IOS_OK: i32 = 0;
 pub const NETWORKCORE_IOS_ERR_ARTIFACT_MISSING: i32 = 1;
@@ -388,6 +389,46 @@ pub unsafe extern "C" fn networkcore_ios_runtime_control(
             }
             Err(err) => code_for(err.code),
         })
+    })
+}
+
+/// Imports one Loon / Surge / Quantumult X plugin text and writes a JSON
+/// description to `out` (see [`crate::mitm::inspect`]): name, support level,
+/// hostnames, line counts and the remote files to download. Needs no runtime
+/// handle. Text that is empty, too long or not UTF-8 returns
+/// `NETWORKCORE_IOS_ERR_INVALID_ARGUMENT`.
+///
+/// # Safety
+///
+/// `text` must point to `text_len` readable bytes and `out` must be a valid
+/// pointer to writable storage for one `NetworkCoreBuffer`. The buffer must be
+/// released with `networkcore_ios_runtime_free_buffer`.
+#[cfg(feature = "mitm")]
+#[no_mangle]
+pub unsafe extern "C" fn networkcore_ios_mitm_inspect_plugin(
+    text: *const u8,
+    text_len: usize,
+    out: *mut NetworkCoreBuffer,
+) -> i32 {
+    guarded(|| {
+        if out.is_null() {
+            return NETWORKCORE_IOS_ERR_INVALID_ARGUMENT;
+        }
+        // SAFETY: checked non-null above.
+        unsafe { out.write(NetworkCoreBuffer::from_vec(Vec::new())) };
+        if text.is_null() || text_len == 0 || text_len > crate::mitm::inspect::MAX_PLUGIN_LEN {
+            return NETWORKCORE_IOS_ERR_INVALID_ARGUMENT;
+        }
+        // SAFETY: the caller guarantees `text_len` readable bytes.
+        let text = unsafe { std::slice::from_raw_parts(text, text_len) };
+        match crate::mitm::inspect::inspect_plugin_json(text) {
+            Some(bytes) => {
+                // SAFETY: checked non-null above; the empty placeholder owns no memory.
+                unsafe { out.write(NetworkCoreBuffer::from_vec(bytes)) };
+                NETWORKCORE_IOS_OK
+            }
+            None => NETWORKCORE_IOS_ERR_INVALID_ARGUMENT,
+        }
     })
 }
 
