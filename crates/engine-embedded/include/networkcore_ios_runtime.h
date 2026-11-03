@@ -50,6 +50,15 @@ typedef struct NetworkCoreBuffer {
 
 typedef void (*NetworkCorePacketWriter)(void *context, const uint8_t *packet, size_t len);
 
+/* One IP packet borrowed for the duration of a call (feature set 4). */
+typedef struct NetworkCorePacket {
+    const uint8_t *ptr;
+    size_t len;
+} NetworkCorePacket;
+
+/* Receives a burst of 1...64 packets in order; valid only during the call (feature set 4). */
+typedef void (*NetworkCorePacketBatchWriter)(void *context, const NetworkCorePacket *packets, size_t count);
+
 uint32_t networkcore_ios_abi_version(void);
 uint32_t networkcore_ios_schema_version(void);
 uint32_t networkcore_ios_feature_set_version(void);
@@ -57,6 +66,14 @@ uint32_t networkcore_ios_feature_set_version(void);
 int32_t networkcore_ios_runtime_init(const uint8_t *config, size_t config_len, NetworkCoreRuntime **out_handle);
 int32_t networkcore_ios_runtime_start_tunnel(NetworkCoreRuntime *handle, NetworkCorePacketWriter writer, void *context);
 int32_t networkcore_ios_runtime_input_packet(NetworkCoreRuntime *handle, const uint8_t *packet, size_t len);
+/* Batched packet I/O (feature set 4): the tunnel hands packets that are ready together to `writer`
+ * in one call, and input_packets queues one readPackets result under one lock. input_packets
+ * writes the number queued to `out_accepted` (may be NULL) and returns
+ * NETWORKCORE_IOS_ERR_PACKET_DROPPED when any packet was dropped. */
+int32_t networkcore_ios_runtime_start_tunnel_batched(NetworkCoreRuntime *handle, NetworkCorePacketBatchWriter writer,
+                                                     void *context);
+int32_t networkcore_ios_runtime_input_packets(NetworkCoreRuntime *handle, const NetworkCorePacket *packets, size_t count,
+                                              size_t *out_accepted);
 int32_t networkcore_ios_runtime_stop_tunnel(NetworkCoreRuntime *handle);
 int32_t networkcore_ios_runtime_collect_status(NetworkCoreRuntime *handle, NetworkCoreBuffer *out);
 /* Runtime control (feature set 2): one JSON request {"cmd": ...} in, one JSON answer in `out`.

@@ -2,8 +2,8 @@
 //!
 //! The tunnel owns one current-thread tokio runtime on a dedicated thread. IP
 //! packets from the TUN side enter through [`Tunnel::input_packet`]; packets
-//! produced by the userspace TCP/IP stack leave through the [`PacketSink`]
-//! callback on the tunnel thread. TCP flows are relayed through the
+//! produced by the userspace TCP/IP stack leave through the [`PacketWriter`]
+//! on the tunnel thread, a burst at a time. TCP flows are relayed through the
 //! [`Dispatcher`], which routes and tracks them; the host name sniffed from a
 //! flow's first bytes (TLS SNI or HTTP `Host`) goes along for domain rules.
 //! UDP/53 is answered from the DNS hosts, from the DNS cache, or forwarded to
@@ -26,7 +26,7 @@ use std::thread;
 use std::time::Duration;
 
 use engine_outbound::{BoxFuture, BoxStream, TargetAddr, TcpOutbound, UdpFlow};
-use futures::{SinkExt, StreamExt};
+use futures::{FutureExt, SinkExt, StreamExt};
 use netstack_smoltcp::udp::UdpMsg;
 use netstack_smoltcp::StackBuilder;
 use serde::Serialize;
@@ -45,6 +45,35 @@ use crate::wireguard::{self, WireGuardSettings};
 
 /// Receives every IP packet the stack emits. Called on the tunnel thread.
 pub type PacketSink = Box<dyn Fn(&[u8]) + Send + Sync + 'static>;
+
+/// Where the tunnel writes the IP packets it emits, on the tunnel thread.
+///
+/// Packets that are ready together arrive in one [`PacketWriter::write_batch`]
+/// call, so a host whose packet write is expensive (one
+/// `NEPacketTunnelFlow.writePackets` per call on iOS) pays once per burst.
+/// Every [`PacketSink`] closure is a writer that takes packets one by one.
+pub trait PacketWriter: Send + Sync + 'static {
+    fn write(&self, packet: &[u8]);
+
+    /// A burst of packets in order; the default writes them one by one.
+    fn write_batch(&self, packets: &[Vec<u8>]) {
+        for packet in packets {
+            self.write(packet);
+        }
+    }
+}
+
+impl<F> PacketWriter for F
+where
+    F: Fn(&[u8]) + Send + Sync + 'static,
+{
+    fn write(&self, packet: &[u8]) {
+        self(packet);
+    }
+}
+
+/// Most packets handed to [`PacketWriter::write_batch`] at once.
+pub const MAX_WRITE_BATCH: usize = 64;
 
 /// A TCP flow handed to a [`FlowInterceptor`]: the app's stream, the bytes it
 /// sent first, the host name the interceptor claimed and the destination.
@@ -205,7 +234,7 @@ impl Tunnel {
     pub fn start(
         settings: TunnelSettings,
         outbound: Arc<dyn TcpOutbound>,
-        sink: PacketSink,
+        sink: impl PacketWriter,
     ) -> io::Result<Self> {
         Self::start_with_interceptor(settings, outbound, None, sink)
     }
@@ -216,7 +245,7 @@ impl Tunnel {
         settings: TunnelSettings,
         outbound: Arc<dyn TcpOutbound>,
         interceptor: Option<Arc<dyn FlowInterceptor>>,
-        sink: PacketSink,
+        sink: impl PacketWriter,
     ) -> io::Result<Self> {
         let dispatcher = Arc::new(Dispatcher::single(outbound));
         Self::start_with_dispatcher(settings, dispatcher, interceptor, None, sink)
@@ -230,8 +259,9 @@ impl Tunnel {
         dispatcher: Arc<Dispatcher>,
         interceptor: Option<Arc<dyn FlowInterceptor>>,
         background: Option<BoxFuture<'static, ()>>,
-        sink: PacketSink,
+        sink: impl PacketWriter,
     ) -> io::Result<Self> {
+        let sink: Arc<dyn PacketWriter> = Arc::new(sink);
         Self::launch(move |packet_rx, stats| {
             spawn_tasks(settings, dispatcher, interceptor, sink, packet_rx, stats)?;
             if let Some(background) = background {
@@ -244,7 +274,11 @@ impl Tunnel {
     /// Starts a WireGuard tunnel to one peer. Resolving the endpoint and
     /// binding the UDP socket happen before this returns.
     #[cfg(feature = "wireguard")]
-    pub fn start_wireguard(settings: WireGuardSettings, sink: PacketSink) -> io::Result<Self> {
+    pub fn start_wireguard(
+        settings: WireGuardSettings,
+        sink: impl PacketWriter,
+    ) -> io::Result<Self> {
+        let sink: PacketSink = Box::new(move |packet: &[u8]| sink.write(packet));
         Self::launch(move |packet_rx, stats| {
             wireguard::spawn_tasks(settings, sink, packet_rx, stats)
         })
@@ -347,7 +381,7 @@ fn spawn_tasks(
     settings: TunnelSettings,
     dispatcher: Arc<Dispatcher>,
     interceptor: Option<Arc<dyn FlowInterceptor>>,
-    sink: PacketSink,
+    sink: Arc<dyn PacketWriter>,
     mut packet_rx: mpsc::Receiver<Vec<u8>>,
     stats: Arc<TunnelStats>,
 ) -> io::Result<()> {
@@ -371,15 +405,28 @@ fn spawn_tasks(
 
     // Stack -> TUN. The UDP path also writes ICMP errors straight to the
     // sink (see [`crate::icmp`]); everything runs on the tunnel thread.
-    let sink: Arc<PacketSink> = Arc::new(sink);
+    // Packets that are already waiting go out with the first one, in one
+    // batch of at most MAX_WRITE_BATCH.
     let raw_sink = sink.clone();
     let out_stats = stats.clone();
     tokio::spawn(async move {
-        while let Some(packet) = stack_stream.next().await {
-            if let Ok(packet) = packet {
-                bump(&out_stats.packets_out);
-                (*sink)(&packet);
+        let mut batch = Vec::with_capacity(MAX_WRITE_BATCH);
+        while let Some(first) = stack_stream.next().await {
+            batch.extend(first.ok());
+            while batch.len() < MAX_WRITE_BATCH {
+                match stack_stream.next().now_or_never() {
+                    Some(Some(packet)) => batch.extend(packet.ok()),
+                    Some(None) | None => break,
+                }
             }
+            if batch.is_empty() {
+                continue;
+            }
+            out_stats
+                .packets_out
+                .fetch_add(batch.len() as u64, Ordering::Relaxed);
+            sink.write_batch(&batch);
+            batch.clear();
         }
     });
 
@@ -677,7 +724,7 @@ impl UdpFlows {
         dispatcher: &Arc<Dispatcher>,
         stats: &Arc<TunnelStats>,
         replies: &mpsc::Sender<UdpMsg>,
-        raw: &Arc<PacketSink>,
+        raw: &Arc<dyn PacketWriter>,
         settings: &TunnelSettings,
     ) {
         let key = (src, dst);
@@ -735,7 +782,7 @@ async fn run_udp_flow(
     dispatcher: Arc<Dispatcher>,
     stats: Arc<TunnelStats>,
     replies: mpsc::Sender<UdpMsg>,
-    raw: Arc<PacketSink>,
+    raw: Arc<dyn PacketWriter>,
     connect_timeout: Duration,
 ) {
     let target = TargetAddr::Ip(destination);
@@ -757,7 +804,7 @@ async fn run_udp_flow(
                 {
                     refused += 1;
                     bump(&stats.packets_out);
-                    (*raw)(&packet);
+                    raw.write(&packet);
                 }
             }
         }

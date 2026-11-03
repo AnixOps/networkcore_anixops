@@ -72,7 +72,7 @@ use crate::config::{RuntimeConfig, TunnelMode};
 use crate::connections::Dispatcher;
 use crate::dns_policy::DnsPolicy;
 use crate::routing::RoutedOutbound;
-use crate::tunnel::{FlowInterceptor, PacketSink, Tunnel, TunnelSettings, TunnelStatsSnapshot};
+use crate::tunnel::{FlowInterceptor, PacketWriter, Tunnel, TunnelSettings, TunnelStatsSnapshot};
 #[cfg(feature = "wireguard")]
 use crate::wireguard::WireGuardSettings;
 
@@ -229,7 +229,7 @@ impl EmbeddedRuntime {
         }
     }
 
-    pub fn start(&mut self, sink: PacketSink) -> Result<(), RuntimeError> {
+    pub fn start(&mut self, sink: impl PacketWriter) -> Result<(), RuntimeError> {
         if self.tunnel.is_some() {
             return Err(self.fail(RuntimeError::new(
                 RuntimeErrorCode::InvalidArgument,

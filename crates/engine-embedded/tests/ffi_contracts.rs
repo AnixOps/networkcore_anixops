@@ -37,7 +37,7 @@ extern "C" fn count_packets(context: *mut c_void, _packet: *const u8, _len: usiz
 fn versions_match_the_swift_handshake() {
     assert_eq!(networkcore_ios_abi_version(), 1);
     assert_eq!(networkcore_ios_schema_version(), 1);
-    assert_eq!(networkcore_ios_feature_set_version(), 3);
+    assert_eq!(networkcore_ios_feature_set_version(), 4);
 }
 
 #[test]
@@ -207,6 +207,77 @@ fn invalid_vless_reality_settings_are_rejected() {
     assert_eq!(code, NETWORKCORE_IOS_ERR_CONFIG_REJECTED);
 }
 
+extern "C" fn count_batches(context: *mut c_void, packets: *const NetworkCorePacket, count: usize) {
+    assert!(!packets.is_null() && (1..=64).contains(&count));
+    let counter = unsafe { &*(context as *const AtomicUsize) };
+    counter.fetch_add(count, Ordering::Relaxed);
+}
+
+#[test]
+fn batched_packet_io_reports_what_was_queued() {
+    let (code, handle) = init(DIRECT_CONFIG);
+    assert_eq!(code, NETWORKCORE_IOS_OK);
+    let packets = Box::new(AtomicUsize::new(0));
+    let context = &*packets as *const AtomicUsize as *mut c_void;
+
+    assert_eq!(
+        unsafe { networkcore_ios_runtime_start_tunnel_batched(handle, None, context) },
+        NETWORKCORE_IOS_ERR_INVALID_ARGUMENT
+    );
+    assert_eq!(
+        unsafe {
+            networkcore_ios_runtime_start_tunnel_batched(handle, Some(count_batches), context)
+        },
+        NETWORKCORE_IOS_OK
+    );
+    assert_eq!(status_json(handle)["state"], "running");
+
+    let junk = [0u8; 20];
+    let batch = [
+        NetworkCorePacket {
+            ptr: junk.as_ptr(),
+            len: junk.len(),
+        },
+        NetworkCorePacket {
+            ptr: ptr::null(),
+            len: 20,
+        },
+        NetworkCorePacket {
+            ptr: junk.as_ptr(),
+            len: junk.len(),
+        },
+    ];
+    let mut accepted = 0usize;
+    assert_eq!(
+        unsafe {
+            networkcore_ios_runtime_input_packets(
+                handle,
+                batch.as_ptr(),
+                batch.len(),
+                &mut accepted,
+            )
+        },
+        NETWORKCORE_IOS_ERR_PACKET_DROPPED
+    );
+    assert_eq!(accepted, 2);
+    assert_eq!(
+        unsafe {
+            networkcore_ios_runtime_input_packets(handle, batch.as_ptr(), 1, ptr::null_mut())
+        },
+        NETWORKCORE_IOS_OK
+    );
+    assert_eq!(
+        unsafe { networkcore_ios_runtime_input_packets(handle, ptr::null(), 1, &mut accepted) },
+        NETWORKCORE_IOS_ERR_INVALID_ARGUMENT
+    );
+
+    assert_eq!(
+        unsafe { networkcore_ios_runtime_stop_tunnel(handle) },
+        NETWORKCORE_IOS_OK
+    );
+    unsafe { networkcore_ios_runtime_free_handle(handle) };
+}
+
 #[test]
 fn lifecycle_is_idempotent_and_null_safe() {
     let (code, handle) = init(DIRECT_CONFIG);
@@ -335,6 +406,8 @@ fn header_declares_every_exported_symbol() {
         "networkcore_ios_runtime_init",
         "networkcore_ios_runtime_start_tunnel",
         "networkcore_ios_runtime_input_packet",
+        "networkcore_ios_runtime_start_tunnel_batched",
+        "networkcore_ios_runtime_input_packets",
         "networkcore_ios_runtime_stop_tunnel",
         "networkcore_ios_runtime_collect_status",
         "networkcore_ios_runtime_control",
