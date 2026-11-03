@@ -1849,6 +1849,7 @@ name = "mitm-anixops-sys"
 version = "0.2.0"
 dependencies = [
  "cc",
+ "pcre2-sys",
 ]
 
 [[package]]
@@ -2247,6 +2248,17 @@ dependencies = [
  "base64ct",
  "rand_core 0.6.4",
  "subtle",
+]
+
+[[package]]
+name = "pcre2-sys"
+version = "0.2.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "550f5d18fb1b90c20b87e161852c10cde77858c3900c5059b5ad2a1449f11d8a"
+dependencies = [
+ "cc",
+ "libc",
+ "pkg-config",
 ]
 
 [[package]]
