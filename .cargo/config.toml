@@ -1,0 +1,5 @@
+[env]
+# Always compile PCRE2 from the vendored source in pcre2-sys instead of linking
+# a system libpcre2 found by pkg-config, so release binaries carry no runtime
+# PCRE2 dependency.
+PCRE2_SYS_STATIC = "1"

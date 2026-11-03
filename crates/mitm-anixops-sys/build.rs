@@ -33,6 +33,20 @@ fn main() {
         .flag_if_supported("-std=c99")
         .warnings(true);
 
+    // The PCRE2 library is compiled and linked by `pcre2-sys`; the C core only
+    // needs its header and the static-linking define.
+    if env::var_os("CARGO_FEATURE_PCRE2").is_some() {
+        let pcre2_include = manifest_dir.join("vendor/pcre2");
+        println!(
+            "cargo:rerun-if-changed={}",
+            pcre2_include.join("pcre2.h").display()
+        );
+        build
+            .include(&pcre2_include)
+            .define("ANIXOPS_ENABLE_PCRE2", None)
+            .define("PCRE2_STATIC", None);
+    }
+
     if let Some(prefix) = mingw_prefix.as_ref() {
         build.include(prefix.join("include"));
         build.compiler(prefix.join("bin").join("gcc.exe"));

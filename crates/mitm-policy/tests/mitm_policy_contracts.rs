@@ -550,3 +550,40 @@ fn assert_diagnostic(diagnostics: &[control_domain::Diagnostic], code: &str) {
         "expected diagnostic {code}, got {diagnostics:?}"
     );
 }
+
+/// Plugins are written for NSRegularExpression / PCRE, so lookahead, `\b`,
+/// `\d`, lazy quantifiers and inline flags must work, not only POSIX syntax.
+#[test]
+fn rewrite_rules_use_perl_compatible_regex() {
+    let mut engine = AnixOpsMitmPolicyEngine::new().expect("policy engine should allocate");
+    engine
+        .load_config(concat!(
+            "[URL Rewrite]\n",
+            "^https?://ads\\.pcre\\.example/(?!keep/) reject\n",
+            "^https?://old\\.pcre\\.example/(\\w+?)/(\\d+)\\b https://new.pcre.example/$2/$1 302\n",
+            "(?i)^https?://CASE\\.pcre\\.example/ reject\n",
+        ))
+        .expect("Perl-style rewrite rules should load");
+    assert!(engine.uses_pcre2_regex());
+
+    let rewrite = |url: &str| {
+        engine
+            .evaluate_url_rewrite(url, MitmPolicyPhase::Request)
+            .expect("rewrite should evaluate")
+    };
+    assert_eq!(
+        rewrite("https://ads.pcre.example/track").action,
+        MitmPolicyRewriteAction::Reject
+    );
+    assert_eq!(
+        rewrite("https://ads.pcre.example/keep/1").action,
+        MitmPolicyRewriteAction::None
+    );
+    let redirect = rewrite("https://old.pcre.example/item/42");
+    assert_eq!(redirect.action, MitmPolicyRewriteAction::Redirect);
+    assert_eq!(redirect.value, "https://new.pcre.example/42/item");
+    assert_eq!(
+        rewrite("https://case.pcre.example/x").action,
+        MitmPolicyRewriteAction::Reject
+    );
+}

@@ -3,6 +3,10 @@
 //! This crate deliberately exposes only the low-level ABI surface. Safe policy
 //! abstractions belong in the `mitm-policy` adapter crate.
 
+// Keep the PCRE2 static library on the link line: only the C core calls it.
+#[cfg(feature = "pcre2")]
+use pcre2_sys as _;
+
 use std::ffi::CStr;
 use std::os::raw::{c_char, c_int};
 
