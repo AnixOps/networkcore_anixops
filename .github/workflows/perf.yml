@@ -10,6 +10,7 @@ on:
     paths:
       - crates/engine-embedded/**
       - crates/engine-outbound/**
+      - crates/netstack-smoltcp/**
       - crates/outbound-shadowsocks/**
       - Cargo.lock
       - .github/workflows/perf.yml

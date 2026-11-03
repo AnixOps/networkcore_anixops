@@ -25,6 +25,7 @@ members = [
     "crates/inbound-vmess",
     "crates/mitm-anixops-sys",
     "crates/mitm-policy",
+    "crates/netstack-smoltcp",
     "crates/node-import",
     "crates/node-runtime",
     "crates/outbound-http",

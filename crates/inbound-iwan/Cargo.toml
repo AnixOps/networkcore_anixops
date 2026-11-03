@@ -11,7 +11,7 @@ engine-inbound = { path = "../engine-inbound" }
 engine-outbound = { path = "../engine-outbound" }
 futures = "0.3"
 # Terminates the tunnelled TCP and UDP for any destination address.
-netstack-smoltcp = "0.2"
+netstack-smoltcp = { path = "../netstack-smoltcp" }
 # Packet codec, password block and XOR mask shared with the client outbound.
 outbound-iwan = { path = "../outbound-iwan" }
 ring = "0.17"
