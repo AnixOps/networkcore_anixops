@@ -24,12 +24,21 @@
 //! `<url> url script-*` lines become `[Script]` lines, and `url response-body`
 //! lines become url-first body rewrites. Surge `[URL Rewrite]` lines
 //! (`<url> <replacement> <type>`) and phase-prefixed `[Header Rewrite]` lines
-//! are translated for the core. Lines with no equivalent yet (QX
-//! `echo-response`, header-block regexes, `[task_local]`) are graded
-//! unsupported and kept away from the core.
+//! are translated for the core. QX `echo-response` becomes a `[Map Local]`
+//! line. Lines with no equivalent yet (header-block regexes, `[task_local]`)
+//! are graded unsupported and kept away from the core.
+//!
+//! Remote files are never fetched here. [`LoonPluginImport::remote_resources`]
+//! lists the `script-path`s and the `[Map Local]` `data` URLs the plugin
+//! needs; the host downloads them and passes the bytes to
+//! [`import_loon_plugin_with_resources`], which inlines `[Map Local]` data. A
+//! `[Map Local]` line whose data was not supplied is graded unsupported.
 
-use crate::loon_map_local::{map_local_pattern_accepted, parse_map_local_line, pattern_source_len};
-use crate::loon_syntax::{quote, tokens};
+use crate::loon_map_local::{
+    inline_remote_data, map_local_pattern_accepted, parse_map_local_line, pattern_source_len,
+    remote_data_url,
+};
+use crate::loon_syntax::{attributes, quote, tokens};
 use crate::{AnixOpsMitmPolicyEngine, MitmPolicyRuleDiagnosticStatus};
 use config_core::routing::{parse_rule_line, PolicyTarget, RoutingModel, RoutingRule, RuleLine};
 use control_domain::{
@@ -249,6 +258,33 @@ pub struct LoonPluginRule {
     pub rule: RoutingRule,
 }
 
+/// What a remote file named by a plugin is used for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum LoonRemoteResourceKind {
+    /// A `script-path`, run only after the user consents to it.
+    Script,
+    /// A `[Map Local]` (or QX `echo-response`) body, served as data.
+    MapLocalData,
+}
+
+impl LoonRemoteResourceKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Script => "script",
+            Self::MapLocalData => "map_local_data",
+        }
+    }
+}
+
+/// A remote file the plugin needs, as written in the plugin.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LoonRemoteResource {
+    pub url: String,
+    pub kind: LoonRemoteResourceKind,
+    /// First plugin line that names it.
+    pub line: usize,
+}
+
 /// Result of importing one Loon plugin.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LoonPluginImport {
@@ -256,6 +292,8 @@ pub struct LoonPluginImport {
     pub mitm_hostnames: LoonMitmHostnames,
     pub rules: Vec<LoonPluginRule>,
     pub report: LoonPluginReport,
+    /// Remote files the plugin names, in plugin order without repeats.
+    pub remote_resources: Vec<LoonRemoteResource>,
     has_request_actions: bool,
     has_response_actions: bool,
     source: String,
@@ -476,6 +514,16 @@ const METADATA_KEYS: [&str; 6] = ["name", "desc", "author", "homepage", "icon", 
 /// consulted for the HTTP rewrite lines it owns; a plugin it refuses is graded
 /// unsupported as a whole.
 pub fn import_loon_plugin(text: &str) -> DomainResult<LoonPluginImport> {
+    import_loon_plugin_with_resources(text, &BTreeMap::new())
+}
+
+/// [`import_loon_plugin`] with downloaded remote files, by URL as written in
+/// the plugin. Only `[Map Local]` data is read from `resources`; scripts
+/// reach the script runtime on their own consented path.
+pub fn import_loon_plugin_with_resources(
+    text: &str,
+    resources: &BTreeMap<String, Vec<u8>>,
+) -> DomainResult<LoonPluginImport> {
     if text.len() > LOON_PLUGIN_MAX_BYTES {
         return Err(DomainError::new(
             LOON_PLUGIN_TOO_LARGE_CODE,
@@ -489,7 +537,10 @@ pub fn import_loon_plugin(text: &str) -> DomainResult<LoonPluginImport> {
         ));
     }
 
-    let mut parser = Parser::default();
+    let mut parser = Parser {
+        resources: Some(resources),
+        ..Parser::default()
+    };
     let mut section = Section::Preamble;
     let mut section_name = String::new();
     for (index, raw_line) in text.lines().enumerate() {
@@ -577,7 +628,11 @@ pub fn import_loon_plugin(text: &str) -> DomainResult<LoonPluginImport> {
             Section::BodyRewrite => parser.body_rewrite_line(line_number, &section_name, line),
             Section::Script => parser.script_line(line_number, &section_name, line),
             Section::MapLocal => {
-                parser.map_local_line(line_number, &section_name, line);
+                if let Some(effective) = parser.map_local_line(line_number, &section_name, line) {
+                    if effective != line {
+                        parser.replaced.insert(line_number, effective);
+                    }
+                }
             }
             Section::Mitm => parser.mitm_line(line_number, &section_name, line),
             Section::Other => parser.push(
@@ -602,6 +657,7 @@ pub fn import_loon_plugin(text: &str) -> DomainResult<LoonPluginImport> {
             lines: parser.lines,
             policy_load_error,
         },
+        remote_resources: parser.remote_resources,
         has_request_actions: parser.has_request_actions,
         has_response_actions: parser.has_response_actions,
         source,
@@ -609,7 +665,10 @@ pub fn import_loon_plugin(text: &str) -> DomainResult<LoonPluginImport> {
 }
 
 #[derive(Default)]
-struct Parser {
+struct Parser<'a> {
+    /// Downloaded remote files by URL.
+    resources: Option<&'a BTreeMap<String, Vec<u8>>>,
+    remote_resources: Vec<LoonRemoteResource>,
     metadata: LoonPluginMetadata,
     mitm_hostnames: LoonMitmHostnames,
     rules: Vec<LoonPluginRule>,
@@ -622,7 +681,21 @@ struct Parser {
     appended: Vec<(&'static str, String, usize)>,
 }
 
-impl Parser {
+impl Parser<'_> {
+    fn remote_resource(&mut self, line: usize, url: &str, kind: LoonRemoteResourceKind) {
+        if !self
+            .remote_resources
+            .iter()
+            .any(|resource| resource.url == url && resource.kind == kind)
+        {
+            self.remote_resources.push(LoonRemoteResource {
+                url: url.to_string(),
+                kind,
+                line,
+            });
+        }
+    }
+
     fn push(
         &mut self,
         line: usize,
@@ -1056,16 +1129,29 @@ impl Parser {
                 );
                 true
             }
-            // The body is fetched from a URL, which Map Local does not do yet.
+            // `<url> url echo-response <mime> echo-response <body url>`
+            // answers with a remote file: a `[Map Local]` line.
             "echo-response" => {
                 self.replaced.insert(line, format!("# {text}"));
-                self.push(
-                    line,
-                    section,
-                    LoonLineStatus::Unsupported,
-                    LoonLineHandler::None,
-                    "rewrite.echo_response_remote",
+                let (Some(mime), Some(url)) = (parts.get(3), parts.get(5)) else {
+                    self.push(
+                        line,
+                        section,
+                        LoonLineStatus::Unsupported,
+                        LoonLineHandler::None,
+                        "rewrite.echo_response_invalid",
+                    );
+                    return true;
+                };
+                let map_local = format!(
+                    "{} data-type=text data={} header={}",
+                    quote(pattern),
+                    quote(url),
+                    quote(&format!("Content-Type:{mime}")),
                 );
+                if let Some(effective) = self.map_local_line(line, section, &map_local) {
+                    self.appended.push(("Map Local", effective, line));
+                }
                 true
             }
             // `<url> url response-body <regex> response-body <replacement>`.
@@ -1119,14 +1205,36 @@ impl Parser {
         let pattern = tokens(text).into_iter().next().unwrap_or_default();
         let map_local = format!("{} {}", quote(&pattern), attributes.trim());
         self.replaced.insert(line, format!("# {text}"));
-        if self.map_local_line(line, section, &map_local) {
-            self.appended.push(("Map Local", map_local, line));
+        if let Some(effective) = self.map_local_line(line, section, &map_local) {
+            self.appended.push(("Map Local", effective, line));
         }
     }
 
-    /// Grades a `[Map Local]` line; returns whether it takes effect.
-    fn map_local_line(&mut self, line: usize, section: &str, text: &str) -> bool {
-        let (status, handler, reason) = match parse_map_local_line(text) {
+    /// Grades a `[Map Local]` line. Returns the line to keep when it takes
+    /// effect: `text`, or `text` with its remote data inlined.
+    fn map_local_line(&mut self, line: usize, section: &str, text: &str) -> Option<String> {
+        let mut effective = text.to_string();
+        if let Some(url) = remote_data_url(text) {
+            self.remote_resource(line, &url, LoonRemoteResourceKind::MapLocalData);
+            let inlined = match self.resources.and_then(|resources| resources.get(&url)) {
+                Some(body) => inline_remote_data(text, body),
+                None => Err("map_local.remote_data_missing"),
+            };
+            match inlined {
+                Ok(inlined) => effective = inlined,
+                Err(reason) => {
+                    self.push(
+                        line,
+                        section,
+                        LoonLineStatus::Unsupported,
+                        LoonLineHandler::None,
+                        reason,
+                    );
+                    return None;
+                }
+            }
+        }
+        let (status, handler, reason) = match parse_map_local_line(&effective) {
             Ok(rule) if map_local_pattern_accepted(&rule.pattern) => {
                 self.has_request_actions = true;
                 (
@@ -1143,7 +1251,7 @@ impl Parser {
             Err(reason) => (LoonLineStatus::Unsupported, LoonLineHandler::None, reason),
         };
         self.push(line, section, status, handler, reason);
-        status == LoonLineStatus::Supported
+        (status == LoonLineStatus::Supported).then_some(effective)
     }
 
     /// Translates Loon's action-first `[Body Rewrite]` lines; url-first lines
@@ -1299,6 +1407,14 @@ impl Parser {
                 "script.path_missing",
             );
             return;
+        }
+        if let Some(path) = attributes(text)
+            .into_iter()
+            .find(|(key, _)| key == "script-path" || key == "script_path")
+            .map(|(_, path)| path)
+            .filter(|path| !path.is_empty())
+        {
+            self.remote_resource(line, &path, LoonRemoteResourceKind::Script);
         }
         if response {
             self.has_response_actions = true;

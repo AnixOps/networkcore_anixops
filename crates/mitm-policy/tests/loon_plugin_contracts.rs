@@ -538,7 +538,7 @@ fn quantumult_x_lines_without_an_equivalent_are_graded_and_left_out() {
         reasons,
         vec![
             ("rewrite.reject", LoonLineStatus::Supported),
-            ("rewrite.echo_response_remote", LoonLineStatus::Unsupported),
+            ("map_local.remote_data_missing", LoonLineStatus::Unsupported),
             (
                 "rewrite.header_block_unsupported",
                 LoonLineStatus::Unsupported

@@ -7,9 +7,11 @@ use control_domain::{
 };
 use mitm_policy::loon_map_local::{match_map_local, parse_map_local_line};
 use mitm_policy::loon_plugin::{
-    import_loon_plugin, LoonLineHandler, LoonLineStatus, LoonPluginImport, LoonSupportLevel,
+    import_loon_plugin, import_loon_plugin_with_resources, merged_plugin_source, LoonLineHandler,
+    LoonLineStatus, LoonPluginImport, LoonRemoteResource, LoonRemoteResourceKind, LoonSupportLevel,
 };
 use mitm_policy::{AnixOpsMitmPluginService, MITM_POLICY_HTTP_EVENT_MAP_LOCAL_CODE};
+use std::collections::BTreeMap;
 
 const FIXTURE: &str = include_str!("fixtures/loon-plugins/p1-map-local-body-rewrite.plugin");
 
@@ -263,10 +265,7 @@ fn unsupported_map_local_and_body_rewrite_lines_are_graded() {
     assert_eq!(
         graded,
         vec![
-            (
-                "map_local.remote_data_unsupported",
-                LoonLineStatus::Unsupported
-            ),
+            ("map_local.remote_data_missing", LoonLineStatus::Unsupported),
             ("map_local.base64_invalid", LoonLineStatus::Unsupported),
             ("map_local.status_invalid", LoonLineStatus::Unsupported),
             (
@@ -313,4 +312,85 @@ fn map_local_base64_and_custom_content_type() {
             value: "text/x-test".to_string(),
         }]
     );
+}
+
+const REMOTE_RESOURCE_PLUGIN: &str = concat!(
+    "#!name = Remote Resources\n",
+    "[Map Local]\n",
+    "^https?://a\\.example\\.com/ad data-type=json data=\"https://cdn.example.com/empty.json\"\n",
+    "[Rewrite]\n",
+    "^https?://a\\.example\\.com/q url echo-response text/html echo-response https://cdn.example.com/page.html\n",
+    "[Script]\n",
+    "http-response ^https?://a\\.example\\.com/s script-path=https://cdn.example.com/s.js, requires-body=true, tag=s\n",
+    "[MITM]\n",
+    "hostname = a.example.com\n",
+);
+
+#[test]
+fn remote_resources_are_listed_and_map_local_data_is_inlined_when_supplied() {
+    let missing = import_loon_plugin(REMOTE_RESOURCE_PLUGIN).expect("plugin should import");
+    assert_eq!(
+        missing.remote_resources,
+        vec![
+            LoonRemoteResource {
+                url: "https://cdn.example.com/empty.json".to_string(),
+                kind: LoonRemoteResourceKind::MapLocalData,
+                line: 3,
+            },
+            LoonRemoteResource {
+                url: "https://cdn.example.com/page.html".to_string(),
+                kind: LoonRemoteResourceKind::MapLocalData,
+                line: 5,
+            },
+            LoonRemoteResource {
+                url: "https://cdn.example.com/s.js".to_string(),
+                kind: LoonRemoteResourceKind::Script,
+                line: 7,
+            },
+        ]
+    );
+    assert_eq!(missing.report.level, LoonSupportLevel::Partial);
+    let source = merged_plugin_source("Remote", &[&missing]);
+    assert!(match_map_local(&source, "https://a.example.com/ad")
+        .unwrap()
+        .is_none());
+
+    let resources = BTreeMap::from([
+        (
+            "https://cdn.example.com/empty.json".to_string(),
+            br#"{"ads":[]}"#.to_vec(),
+        ),
+        (
+            "https://cdn.example.com/page.html".to_string(),
+            b"<p>hi</p>".to_vec(),
+        ),
+    ]);
+    let plugin = import_loon_plugin_with_resources(REMOTE_RESOURCE_PLUGIN, &resources)
+        .expect("plugin should import");
+    assert_eq!(
+        plugin.report.level,
+        LoonSupportLevel::Full,
+        "{}",
+        plugin.report.render_text("remote")
+    );
+    assert_eq!(plugin.remote_resources, missing.remote_resources);
+    let source = merged_plugin_source("Remote", &[&plugin]);
+    assert!(!source.contains("https://cdn.example.com/empty.json"));
+
+    let json = match_map_local(&source, "https://a.example.com/ad")
+        .unwrap()
+        .expect("inlined JSON should answer");
+    assert_eq!(json.body, br#"{"ads":[]}"#);
+    assert!(json.headers.contains(&MetadataEntry {
+        key: "Content-Type".to_string(),
+        value: "application/json; charset=utf-8".to_string(),
+    }));
+    let html = match_map_local(&source, "https://a.example.com/q")
+        .unwrap()
+        .expect("QX echo-response should answer");
+    assert_eq!(html.body, b"<p>hi</p>");
+    assert!(html.headers.contains(&MetadataEntry {
+        key: "Content-Type".to_string(),
+        value: "text/html".to_string(),
+    }));
 }

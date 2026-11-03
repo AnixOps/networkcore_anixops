@@ -76,6 +76,7 @@ fn mitm_config(device_root: &Root) -> MitmConfig {
         ca_certificate: base64.encode(&device_root.certificate),
         ca_private_key: base64.encode(x963(&device_root.key)),
         script_assets: Default::default(),
+        resource_assets: Default::default(),
         script_store_path: None,
     }
 }
@@ -425,6 +426,7 @@ hostname = api.example.test\n";
             script.display().to_string(),
         )]
         .into(),
+        resource_assets: Default::default(),
         script_store_path: Some(dir.join("store.json").display().to_string()),
     };
     let engine = Arc::new(

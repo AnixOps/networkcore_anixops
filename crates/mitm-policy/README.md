@@ -81,7 +81,13 @@ The plugin as a whole is graded `full`, `partial`, or `unsupported`.
   matching request locally (`HttpMitmAction::Respond`) without contacting the
   origin. `data-type` may be `text`, `json`, `html`, `base64`, or `tiny-gif`;
   `status-code` and `header="Name:Value|..."` are honored. A remote `data` URL
-  is not fetched and is unsupported. The URL pattern is matched by the
+  is never fetched by the importer: `LoonPluginImport::remote_resources` lists
+  it (with every `script-path`), the host downloads it, and
+  `import_loon_plugin_with_resources` inlines the bytes (at most 256 KiB) as
+  base64 with the content type its `data-type` implies. Without the bytes the
+  line is graded `map_local.remote_data_missing`. Quantumult X
+  `<url> url echo-response <mime> echo-response <file url>` becomes the same
+  kind of `[Map Local]` line. The URL pattern is matched by the
   `mitm_anixops` core (`loon_map_local`).
 - `[Body Rewrite]` `http-request`/`http-response <url> <regex> <replacement>
   ...` lines are translated into the core's url-first
