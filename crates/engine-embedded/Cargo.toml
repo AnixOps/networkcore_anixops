@@ -88,6 +88,14 @@ inbound-mixed = { path = "../inbound-mixed" }
 inbound-shadowsocks = { path = "../inbound-shadowsocks" }
 tokio = { version = "1", default-features = false, features = ["rt", "rt-multi-thread", "net", "io-util", "time", "sync", "macros"] }
 
+# Linux TUN benchmark of the packet tunnel (.github/workflows/perf.yml).
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+libc = "0.2"
+
+[[example]]
+name = "tunnel_bench"
+required-features = ["shadowsocks"]
+
 [lib]
 path = "src/lib.rs"
 crate-type = ["lib", "staticlib"]
