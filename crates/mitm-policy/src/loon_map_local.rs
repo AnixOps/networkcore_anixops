@@ -4,7 +4,9 @@
 //! A line is `<url-regex> [data-type=text|json|html|base64|tiny-gif]
 //! [data="..."] [status-code=200] [header="Name:Value|Name:Value"]`. The URL
 //! regex is matched by the `mitm_anixops` core, so it has the same dialect as
-//! `[Rewrite]` patterns. Remote `data` URLs are not fetched.
+//! `[Rewrite]` patterns. A remote `data` URL is never fetched here: the host
+//! downloads it and the importer inlines the bytes with
+//! [`inline_remote_data`].
 
 use crate::loon_syntax::{attributes, quote, tokens};
 use crate::{AnixOpsMitmPolicyEngine, MitmPolicyPhase};
@@ -15,6 +17,9 @@ const TINY_GIF: [u8; 43] = [
     0xff, 0xff, 0xff, 0x21, 0xf9, 0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0x2c, 0x00, 0x00, 0x00, 0x00,
     0x01, 0x00, 0x01, 0x00, 0x00, 0x02, 0x02, 0x44, 0x01, 0x00, 0x3b,
 ];
+
+/// Largest remote `data` body that is inlined into a plugin.
+pub const MAP_LOCAL_REMOTE_DATA_MAX_BYTES: usize = 256 * 1024;
 
 /// One parsed `[Map Local]` line.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -78,16 +83,11 @@ pub fn parse_map_local_line(text: &str) -> Result<LoonMapLocalRule, &'static str
     {
         return Err("map_local.remote_data_unsupported");
     }
-    let (content_type, body) = match data_type.as_str() {
-        "text" => ("text/plain; charset=utf-8", data.into_bytes()),
-        "json" => ("application/json; charset=utf-8", data.into_bytes()),
-        "html" => ("text/html; charset=utf-8", data.into_bytes()),
-        "base64" => (
-            "application/octet-stream",
-            decode_base64(&data).ok_or("map_local.base64_invalid")?,
-        ),
-        "tiny-gif" | "gif" => ("image/gif", TINY_GIF.to_vec()),
-        _ => return Err("map_local.data_type_unsupported"),
+    let content_type = content_type(&data_type).ok_or("map_local.data_type_unsupported")?;
+    let body = match data_type.as_str() {
+        "base64" => decode_base64(&data).ok_or("map_local.base64_invalid")?,
+        "tiny-gif" | "gif" => TINY_GIF.to_vec(),
+        _ => data.into_bytes(),
     };
 
     let mut headers = Vec::new();
@@ -107,6 +107,113 @@ pub fn parse_map_local_line(text: &str) -> Result<LoonMapLocalRule, &'static str
         headers,
         body,
     })
+}
+
+fn content_type(data_type: &str) -> Option<&'static str> {
+    Some(match data_type {
+        "text" => "text/plain; charset=utf-8",
+        "json" => "application/json; charset=utf-8",
+        "html" => "text/html; charset=utf-8",
+        "base64" => "application/octet-stream",
+        "tiny-gif" | "gif" => "image/gif",
+        _ => return None,
+    })
+}
+
+/// The http(s) URL in a line's `data` attribute, which the host has to
+/// download before the line can answer. `None` for inline data and GIFs.
+pub fn remote_data_url(text: &str) -> Option<String> {
+    let rest = text
+        .trim_start()
+        .get(pattern_source_len(text.trim_start())..)?;
+    let attributes = attributes(rest);
+    let data_type = attributes
+        .iter()
+        .rev()
+        .find(|(key, _)| key == "data-type")
+        .map(|(_, value)| value.to_ascii_lowercase())
+        .unwrap_or_else(|| "text".to_string());
+    let data = attributes
+        .iter()
+        .rev()
+        .find(|(key, _)| key == "data")
+        .map(|(_, value)| value.trim())?;
+    let remote = data.starts_with("http://") || data.starts_with("https://");
+    (remote && !matches!(data_type.as_str(), "tiny-gif" | "gif")).then(|| data.to_string())
+}
+
+/// Rewrites a line whose `data` is a remote URL so that it carries `body`
+/// inline, as base64, keeping the status code, the headers and the content
+/// type its `data-type` implies. The error is a stable report reason.
+pub fn inline_remote_data(text: &str, body: &[u8]) -> Result<String, &'static str> {
+    if body.len() > MAP_LOCAL_REMOTE_DATA_MAX_BYTES {
+        return Err("map_local.remote_data_too_large");
+    }
+    let Some(pattern) = tokens(text).into_iter().next().filter(|p| !p.is_empty()) else {
+        return Err("map_local.pattern_missing");
+    };
+    let rest = text
+        .trim_start()
+        .get(pattern_source_len(text.trim_start())..)
+        .unwrap_or("");
+    let mut data_type = String::from("text");
+    let mut status_code = None;
+    let mut headers = Vec::new();
+    for (key, value) in attributes(rest) {
+        match key.as_str() {
+            "data-type" => data_type = value.to_ascii_lowercase(),
+            "status-code" => status_code = Some(value),
+            "header" => headers.push(value),
+            _ => {}
+        }
+    }
+    let content_type = content_type(&data_type).ok_or("map_local.data_type_unsupported")?;
+    let mut header = headers.join("|");
+    let has_content_type = header.split('|').any(|entry| {
+        entry
+            .split_once(':')
+            .is_some_and(|(name, _)| name.trim().eq_ignore_ascii_case("Content-Type"))
+    });
+    if !has_content_type {
+        if !header.is_empty() {
+            header.push('|');
+        }
+        header.push_str("Content-Type:");
+        header.push_str(content_type);
+    }
+    let mut line = format!(
+        "{} data-type=base64 data=\"{}\"",
+        quote(&pattern),
+        encode_base64(body)
+    );
+    if let Some(status_code) = status_code {
+        line.push_str(" status-code=");
+        line.push_str(&quote(&status_code));
+    }
+    line.push_str(" header=");
+    line.push_str(&quote(&header));
+    parse_map_local_line(&line)?;
+    Ok(line)
+}
+
+fn encode_base64(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut output = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let value = chunk.iter().enumerate().fold(0u32, |value, (index, byte)| {
+            value | (u32::from(*byte) << (16 - 8 * index))
+        });
+        for index in 0..4 {
+            if index <= chunk.len() {
+                output.push(char::from(
+                    ALPHABET[((value >> (18 - 6 * index)) & 0x3f) as usize],
+                ));
+            } else {
+                output.push('=');
+            }
+        }
+    }
+    output
 }
 
 /// Byte length of the first token as written, including its quotes.
@@ -254,6 +361,54 @@ mod tests {
         assert_eq!(decode_base64("aGVsbG8=").unwrap(), b"hello");
         assert_eq!(decode_base64("aGVsbG8").unwrap(), b"hello");
         assert!(decode_base64("aGVs*G8=").is_none());
+    }
+
+    #[test]
+    fn base64_round_trips() {
+        let inputs: [&[u8]; 6] = [b"", b"a", b"ab", b"abc", b"abcd", &[0xff, 0x00, 0x80]];
+        for input in inputs {
+            assert_eq!(decode_base64(&encode_base64(input)).unwrap(), input);
+        }
+        assert_eq!(encode_base64(b"hello"), "aGVsbG8=");
+    }
+
+    #[test]
+    fn remote_data_is_found_and_inlined_with_its_content_type() {
+        let line = r#"^https://a\.test/x data-type=json data="https://cdn.test/a.json" status-code=201 header="X-A:1""#;
+        assert_eq!(
+            remote_data_url(line).as_deref(),
+            Some("https://cdn.test/a.json")
+        );
+        assert!(remote_data_url(r#"^https://a\.test/x data="ok""#).is_none());
+        assert!(
+            remote_data_url("^https://a\\.test/x data-type=tiny-gif data=\"https://x\"").is_none()
+        );
+
+        let inlined = inline_remote_data(line, br#"{"ad":0}"#).unwrap();
+        assert!(remote_data_url(&inlined).is_none());
+        let rule = parse_map_local_line(&inlined).unwrap();
+        assert_eq!(rule.pattern, r"^https://a\.test/x");
+        assert_eq!(rule.status_code, 201);
+        assert_eq!(rule.body, br#"{"ad":0}"#);
+        let headers = rule
+            .headers
+            .iter()
+            .map(|header| (header.key.as_str(), header.value.as_str()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            headers,
+            vec![
+                ("X-A", "1"),
+                ("Content-Type", "application/json; charset=utf-8")
+            ]
+        );
+        assert_eq!(
+            inline_remote_data(
+                line,
+                "a".repeat(MAP_LOCAL_REMOTE_DATA_MAX_BYTES + 1).as_bytes()
+            ),
+            Err("map_local.remote_data_too_large")
+        );
     }
 
     #[test]

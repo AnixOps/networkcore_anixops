@@ -89,6 +89,12 @@ pub struct MitmConfig {
     /// the runtime starts. Needs the `scripts` feature.
     #[serde(default)]
     pub script_assets: BTreeMap<String, String>,
+    /// Remote `[Map Local]` / Quantumult X `echo-response` bodies the app
+    /// downloaded: URL as written in the plugin to the local file. Read
+    /// once at start and inlined into the plugin; a line whose file is
+    /// missing or too large is left out.
+    #[serde(default)]
+    pub resource_assets: BTreeMap<String, String>,
     /// JSON file backing `$persistentStore`; in memory when absent.
     #[serde(default)]
     pub script_store_path: Option<String>,

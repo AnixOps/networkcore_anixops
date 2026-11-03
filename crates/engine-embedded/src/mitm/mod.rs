@@ -15,6 +15,10 @@
 //! are. Intercepted requests ask for `Accept-Encoding: identity`, so body
 //! rules see plain text. Only HTTP/1.1 is offered to the client.
 //!
+//! Remote `[Map Local]` bodies (and Quantumult X `echo-response` files) are
+//! downloaded by the app and named in `resource_assets`; they are read once
+//! here and inlined into the plugin before it is imported.
+//!
 //! With the `scripts` feature, `[Script]` dispatches run in QuickJS from the
 //! consented local copies in `script_assets`, on the blocking pool so a
 //! script never stalls the tunnel's single-threaded runtime. Each dispatch
@@ -27,7 +31,7 @@ mod http1;
 #[cfg(feature = "scripts")]
 mod http_client;
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io;
 use std::net::SocketAddr;
 use std::pin::Pin;
@@ -47,7 +51,8 @@ use engine_native::{
 #[cfg(feature = "scripts")]
 use engine_native::{NativeQuickJsScriptExecutor, NativeQuickJsScriptRuntimeConfig};
 use engine_outbound::{BoxFuture, TargetAddr, TcpOutbound};
-use mitm_policy::loon_plugin::{import_loon_plugin, merged_plugin_source};
+use mitm_policy::loon_map_local::MAP_LOCAL_REMOTE_DATA_MAX_BYTES;
+use mitm_policy::loon_plugin::{import_loon_plugin_with_resources, merged_plugin_source};
 use mitm_policy::AnixOpsMitmPluginService;
 use rcgen::{
     CertificateParams, DistinguishedName, DnType, ExtendedKeyUsagePurpose, Issuer, KeyPair,
@@ -71,6 +76,32 @@ pub const SCRIPT_MAX_TIMEOUT_MS: usize = 3_000;
 const LEAF_CACHE_ENTRIES: usize = 64;
 const DECISION_CACHE_ENTRIES: usize = 512;
 const HTTPS_PORT: u16 = 443;
+
+/// Largest total of downloaded `[Map Local]` bodies read at start.
+const MAX_RESOURCE_BYTES: usize = 2 * 1024 * 1024;
+
+/// Reads the downloaded resource files. One that is missing, too large or
+/// over the total is skipped: its plugin line is then graded unsupported.
+fn read_resource_assets(assets: &BTreeMap<String, String>) -> BTreeMap<String, Vec<u8>> {
+    let mut total = 0;
+    let mut resources = BTreeMap::new();
+    for (url, path) in assets {
+        let Ok(metadata) = std::fs::metadata(path) else {
+            continue;
+        };
+        let len = usize::try_from(metadata.len()).unwrap_or(usize::MAX);
+        if len > MAP_LOCAL_REMOTE_DATA_MAX_BYTES || total + len > MAX_RESOURCE_BYTES {
+            continue;
+        }
+        if let Ok(body) = std::fs::read(path) {
+            if body.len() <= MAP_LOCAL_REMOTE_DATA_MAX_BYTES {
+                total += body.len();
+                resources.insert(url.clone(), body);
+            }
+        }
+    }
+    resources
+}
 
 pub struct MitmEngine {
     service: Arc<AnixOpsMitmPluginService>,
@@ -96,10 +127,14 @@ impl MitmEngine {
         if total > MAX_POLICY_BYTES {
             return Err("mitm policy is too large");
         }
+        let resources = read_resource_assets(&config.resource_assets);
         let imports = std::iter::once(&config.policy)
             .filter(|policy| !policy.trim().is_empty())
             .chain(&config.plugins)
-            .map(|text| import_loon_plugin(text).map_err(|_| "mitm plugin is invalid"))
+            .map(|text| {
+                import_loon_plugin_with_resources(text, &resources)
+                    .map_err(|_| "mitm plugin is invalid")
+            })
             .collect::<Result<Vec<_>, _>>()?;
         let accepted = imports
             .iter()
