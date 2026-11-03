@@ -60,6 +60,12 @@ pub trait FlowInterceptor: Send + Sync {
     /// The host name to take the flow for, judged from its first bytes.
     fn claim(&self, first: &[u8], target: SocketAddr) -> Option<String>;
 
+    /// Gives the interceptor the tunnel's dispatcher for connections it opens
+    /// on its own, e.g. script `$httpClient` requests. The default ignores it.
+    fn set_script_outbound(&self, outbound: Arc<dyn TcpOutbound>) {
+        let _ = outbound;
+    }
+
     /// Serves a claimed flow to the end, connecting through `outbound`.
     fn serve<'a>(
         &'a self,

@@ -199,6 +199,9 @@ impl EmbeddedRuntime {
                 TunnelMode::WireGuard(settings) => Engine::WireGuard(settings),
             },
         };
+        if let (Some(interceptor), Engine::Stack(dispatcher)) = (&interceptor, &engine) {
+            interceptor.set_script_outbound(dispatcher.clone());
+        }
         let mut runtime = Self::with_engine(config, engine);
         runtime.interceptor = interceptor;
         runtime.routed = routed;
