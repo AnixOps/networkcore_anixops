@@ -6,6 +6,8 @@
 
 ### Added
 
+- MITM 插件逐行隔离：`mitm_anixops` 核心拒绝的某一行（不认识的主机名写法、编不过的正则、cron 任务等）现在只注释掉这一行并在报告里标为 unsupported，插件其余部分照常生效，不再整个丢弃。`[MITM] hostname` 里核心读不了的通配写法（`*spclient.spotify.com`、`*.flyert.*`）被跳过并标为 partial；读不了的排除项会让整行失效，避免多解密。
+- 公开插件语料库（M-A0）：35 个 Loon/Surge/QX 插件按 commit + SHA-256 固定，`MITM plugin corpus` workflow 下载评分并输出覆盖率报告；完全支持比例门槛 17%。
 - `anixcore run -c -` 从 stdin 读配置，节点上不再需要写着协议与密钥的配置文件；`anixcore version` 多打一行 `features: config-stdin`，供 anix-agent 判断。
 
 ### Removed
