@@ -100,6 +100,16 @@ The corpus in `tests/fixtures/loon-plugins` has an expected level for each
 plugin, and `tests/loon_plugin_contracts.rs` prints the graded report for
 each one.
 
+A second, public corpus (M-A0) grades real Loon plugins, Surge modules and
+Quantumult X snippets from public repositories. `tests/fixtures/public-corpus/manifest.tsv`
+pins each one by repository, commit, path and SHA-256; the files themselves
+are not committed. The `MITM plugin corpus` workflow downloads them
+(`.github/scripts/fetch-mitm-corpus.sh`), runs `tests/public_corpus.rs` and
+writes the coverage report (levels per dialect, the reasons ranked by how many
+plugins they affect) to the job summary. The job fails only when the share of
+plugins graded `full` drops below the manifest's `min-full-percent` gate, which
+is raised as coverage improves. Add a plugin by appending a manifest line.
+
 ## Gates
 
 ```text
