@@ -30,8 +30,8 @@ struct Manifest {
 }
 
 fn manifest() -> Manifest {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/public-corpus/manifest.tsv");
+    let path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/public-corpus/manifest.tsv");
     let text = std::fs::read_to_string(path).expect("corpus manifest should be readable");
     let mut entries = Vec::new();
     let mut min_full_percent = None;
@@ -49,7 +49,10 @@ fn manifest() -> Manifest {
             value.len() == len && value.bytes().all(|b| b.is_ascii_hexdigit())
         };
         assert!(is_hex(columns[3], 40), "commit must be a full SHA: {line}");
-        assert!(is_hex(columns[5], 64), "sha256 must be 64 hex digits: {line}");
+        assert!(
+            is_hex(columns[5], 64),
+            "sha256 must be 64 hex digits: {line}"
+        );
         assert!(
             matches!(columns[1], "loon" | "surge" | "qx"),
             "dialect must be loon, surge or qx: {line}"
@@ -71,7 +74,10 @@ fn manifest() -> Manifest {
 #[test]
 fn public_corpus_manifest_is_well_formed() {
     let manifest = manifest();
-    assert!(manifest.entries.len() >= 30, "M-A0 asks for at least 30 plugins");
+    assert!(
+        manifest.entries.len() >= 30,
+        "M-A0 asks for at least 30 plugins"
+    );
     assert!(manifest.min_full_percent <= 100);
     let ids: BTreeSet<&str> = manifest.entries.iter().map(|e| e.id.as_str()).collect();
     assert_eq!(ids.len(), manifest.entries.len(), "ids must be unique");
@@ -170,7 +176,10 @@ fn public_corpus_coverage_report() {
                     "| {source} | {} | error: `{}` | | | | | | | |",
                     entry.dialect, error.code
                 );
-                println!("{}: import error {}: {}", entry.id, error.code, error.message);
+                println!(
+                    "{}: import error {}: {}",
+                    entry.id, error.code, error.message
+                );
                 let count = errors.entry(error.code.clone()).or_default();
                 count.lines += 1;
                 count.plugins.insert(entry.id.clone());
@@ -217,7 +226,10 @@ fn public_corpus_coverage_report() {
         );
     }
     if !errors.is_empty() {
-        let _ = writeln!(report, "\n### Plugins refused\n\n| Error | Plugins |\n|---|---|");
+        let _ = writeln!(
+            report,
+            "\n### Plugins refused\n\n| Error | Plugins |\n|---|---|"
+        );
         for (code, count) in &errors {
             let names: Vec<&str> = count.plugins.iter().map(String::as_str).collect();
             let _ = writeln!(report, "| `{code}` | {} |", names.join(", "));
