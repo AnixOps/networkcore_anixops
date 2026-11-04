@@ -1,0 +1,84 @@
+name: MITM plugin corpus
+
+# Grades public Loon, Surge and Quantumult X plugins against the plugin importer
+# (crates/mitm-policy/tests/public_corpus.rs). The plugins are pinned by commit
+# and SHA-256 in crates/mitm-policy/tests/fixtures/public-corpus/manifest.tsv and
+# downloaded here; they are third-party files and never committed. The report
+# goes to the job summary; the job fails only when the share of fully supported
+# plugins drops below the manifest's min-full-percent gate.
+
+on:
+  pull_request:
+    paths:
+      - crates/mitm-policy/**
+      - crates/mitm-anixops-sys/**
+      - third_party/mitm_anixops
+      - .github/workflows/mitm-corpus.yml
+      - .github/scripts/fetch-mitm-corpus.sh
+  push:
+    branches: [main]
+    paths:
+      - crates/mitm-policy/**
+      - crates/mitm-anixops-sys/**
+      - third_party/mitm_anixops
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mitm-corpus-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  corpus:
+    name: Public plugin corpus report
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CARGO_INCREMENTAL: "0"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          # mitm-policy builds the mitm_anixops C core from this submodule.
+          submodules: true
+
+      - name: Setup Rust
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Restore Rust build cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: mitm-corpus
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+
+      - name: Fetch the pinned plugins
+        shell: bash
+        run: .github/scripts/fetch-mitm-corpus.sh "$RUNNER_TEMP/mitm-corpus"
+
+      - name: Grade the corpus
+        shell: bash
+        env:
+          MITM_PUBLIC_CORPUS_DIR: ${{ runner.temp }}/mitm-corpus
+          MITM_PUBLIC_CORPUS_REPORT: ${{ runner.temp }}/mitm-corpus-report.md
+        run: |
+          set -euo pipefail
+          status=0
+          cargo test --locked -p mitm-policy --test public_corpus -- --nocapture --test-threads=1 || status=$?
+          if [ -f "$MITM_PUBLIC_CORPUS_REPORT" ]; then
+            cat "$MITM_PUBLIC_CORPUS_REPORT" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$status"
+
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mitm-corpus-report
+          path: ${{ runner.temp }}/mitm-corpus-report.md
+          if-no-files-found: ignore
