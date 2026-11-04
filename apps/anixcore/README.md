@@ -8,6 +8,7 @@ remove inbounds and users and collect per-user traffic and online IPs.
 
 ```text
 anixcore run -c config.json
+anixcore run -c -              # the config on stdin: no file holds it
 anixcore check -c config.json
 anixcore version
 ```

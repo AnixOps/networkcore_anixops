@@ -4,6 +4,10 @@
 
 ## Unreleased
 
+### Added
+
+- `anixcore run -c -` 从 stdin 读配置，节点上不再需要写着协议与密钥的配置文件；`anixcore version` 多打一行 `features: config-stdin`，供 anix-agent 判断。
+
 ### Removed
 
 - 删除 `crates/platform-ios`：工作区内没有任何 crate 依赖它，iOS 的 FFI 边界在 `engine-embedded`/`node-import`。workspace member、`Cargo.lock` 条目、CI 的文件存在性检查和文档引用一并去掉。
