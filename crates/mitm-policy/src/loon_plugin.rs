@@ -44,7 +44,7 @@ use config_core::routing::{parse_rule_line, PolicyTarget, RoutingModel, RoutingR
 use control_domain::{
     DomainError, DomainResult, HookPoint, PluginManifest, PluginPackage, PluginPermission,
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 
 pub const LOON_PLUGIN_MAX_BYTES: usize = 1024 * 1024;
@@ -645,8 +645,8 @@ pub fn import_loon_plugin_with_resources(
         }
     }
 
-    let (source, line_origins) = parser.translated_source(text);
-    let policy_load_error = parser.cross_check_with_policy_core(&source, &line_origins);
+    let (mut source, line_origins) = parser.translated_source(text);
+    let policy_load_error = parser.cross_check_with_policy_core(&mut source, &line_origins);
     let level = grade(&parser.lines, policy_load_error.is_some());
     Ok(LoonPluginImport {
         metadata: parser.metadata,
@@ -799,6 +799,11 @@ impl Parser<'_> {
         let key = key.trim().to_ascii_lowercase();
         match key.as_str() {
             "hostname" => {
+                let mut marker_seen = None;
+                let mut kept = Vec::new();
+                let mut dropped_include = false;
+                let mut dropped_exclude = false;
+                let mut accepted = Vec::new();
                 for item in value.split(',') {
                     let mut item = item.trim();
                     for marker in ["%APPEND%", "%INSERT%"] {
@@ -806,13 +811,43 @@ impl Parser<'_> {
                             .get(..marker.len())
                             .is_some_and(|prefix| prefix.eq_ignore_ascii_case(marker))
                         {
+                            marker_seen.get_or_insert(marker);
                             item = item[marker.len()..].trim();
                         }
                     }
                     if item.is_empty() {
                         continue;
                     }
-                    let pattern = item.to_ascii_lowercase();
+                    if !core_host_pattern(item) {
+                        if item.starts_with('-') || item.starts_with('!') {
+                            dropped_exclude = true;
+                        } else {
+                            dropped_include = true;
+                        }
+                        continue;
+                    }
+                    kept.push(item.to_string());
+                    accepted.push(item.to_ascii_lowercase());
+                }
+                if dropped_exclude || (dropped_include && kept.is_empty()) {
+                    // An exclusion the core cannot read would widen what the
+                    // plugin decrypts, so the whole line is dropped instead.
+                    self.replaced.insert(line, format!("# {text}"));
+                    self.push(
+                        line,
+                        section,
+                        LoonLineStatus::Unsupported,
+                        LoonLineHandler::None,
+                        "mitm.hostname_glob_unsupported",
+                    );
+                    return;
+                }
+                if dropped_include {
+                    let marker = marker_seen.map(|m| format!("{m} ")).unwrap_or_default();
+                    self.replaced
+                        .insert(line, format!("hostname = {marker}{}", kept.join(", ")));
+                }
+                for pattern in accepted {
                     if let Some(excluded) = pattern
                         .strip_prefix('-')
                         .or_else(|| pattern.strip_prefix('!'))
@@ -826,13 +861,24 @@ impl Parser<'_> {
                         self.mitm_hostnames.include.push(pattern);
                     }
                 }
-                self.push(
-                    line,
-                    section,
-                    LoonLineStatus::Supported,
-                    LoonLineHandler::MitmHostnames,
-                    "mitm.hostname",
-                );
+                if dropped_include {
+                    // Hosts named only by a glob are not decrypted.
+                    self.push(
+                        line,
+                        section,
+                        LoonLineStatus::Partial,
+                        LoonLineHandler::MitmHostnames,
+                        "mitm.hostname_glob_unsupported",
+                    );
+                } else {
+                    self.push(
+                        line,
+                        section,
+                        LoonLineStatus::Supported,
+                        LoonLineHandler::MitmHostnames,
+                        "mitm.hostname",
+                    );
+                }
             }
             // Certificate verification is never skipped for plugin hosts.
             "skip-server-cert-verify" => self.push(
@@ -1439,19 +1485,59 @@ impl Parser<'_> {
     }
 
     /// Loads the plugin into the policy core and downgrades lines it owns but
-    /// did not accept. Returns the load error when the core refuses the text.
+    /// did not accept.
+    ///
+    /// The core stops at the first line it cannot parse. Plugins in the wild
+    /// carry such lines (an odd host pattern, a regex only one engine reads, a
+    /// cron task), so instead of losing the whole plugin the refused line is
+    /// commented out of `source`, reported as unsupported, and the load is
+    /// retried. Returns the load error only when the core still refuses the
+    /// text and no single line can be blamed.
     fn cross_check_with_policy_core(
         &mut self,
-        text: &str,
+        source: &mut String,
         line_origins: &[usize],
     ) -> Option<String> {
         let mut engine = match AnixOpsMitmPolicyEngine::new() {
             Ok(engine) => engine,
             Err(error) => return Some(error.message),
         };
-        let report = match engine.load_config(text) {
-            Ok(report) => report,
-            Err(error) => return Some(error.message),
+        let mut disabled = BTreeSet::new();
+        let report = loop {
+            let error = match engine.load_config(source) {
+                Ok(report) => break report,
+                Err(error) => error,
+            };
+            let core_line = engine.last_error_line();
+            let lines: Vec<&str> = source.split('\n').collect();
+            let blamed = core_line
+                .checked_sub(1)
+                .filter(|index| {
+                    disabled.len() < MAX_REFUSED_LINES
+                        && !disabled.contains(index)
+                        && lines
+                            .get(*index)
+                            .is_some_and(|line| !line.trim_start().starts_with('['))
+                })
+                .and_then(|index| line_origins.get(index).map(|origin| (index, *origin)));
+            let Some((index, origin)) = blamed else {
+                return Some(error.message);
+            };
+            let rebuilt = lines
+                .iter()
+                .enumerate()
+                .map(|(at, line)| {
+                    if at == index {
+                        format!("# {line}")
+                    } else {
+                        (*line).to_string()
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            *source = rebuilt;
+            disabled.insert(index);
+            self.refuse_line(origin, refused_line_reason(&error.message));
         };
         for diagnostic in &report.rule_diagnostics {
             if diagnostic.status == MitmPolicyRuleDiagnosticStatus::Accepted {
@@ -1481,6 +1567,61 @@ impl Parser<'_> {
             }
         }
         None
+    }
+
+    /// Marks the plugin line the policy core refused as unsupported. A line
+    /// the importer had already graded unsupported keeps its own reason.
+    fn refuse_line(&mut self, origin: usize, reason: &str) {
+        let mut found = false;
+        for line in self.lines.iter_mut().filter(|line| line.line == origin) {
+            found = true;
+            if line.status != LoonLineStatus::Unsupported {
+                line.status = LoonLineStatus::Unsupported;
+                line.handler = LoonLineHandler::None;
+                line.reason = reason.to_string();
+            }
+        }
+        if !found {
+            self.push(
+                origin,
+                "policy_core",
+                LoonLineStatus::Unsupported,
+                LoonLineHandler::None,
+                reason,
+            );
+        }
+    }
+}
+
+/// Whether the policy core reads a `[MITM] hostname` item: `*`, or a host
+/// with at most a leading `*.`. Loon and Surge also accept `*` and `?` inside
+/// a label (`*spclient.spotify.com`, `*.flyert.*`), which the core does not.
+fn core_host_pattern(item: &str) -> bool {
+    let body = item.strip_prefix(['-', '!', '+']).unwrap_or(item).trim();
+    if body == "*" {
+        return true;
+    }
+    let rest = body.strip_prefix("*.").unwrap_or(body);
+    !rest.is_empty() && !rest.contains(['*', '?'])
+}
+
+/// Most plugin lines the policy core may refuse before the whole plugin is
+/// treated as refused.
+const MAX_REFUSED_LINES: usize = 256;
+
+/// Stable report reason for a line the policy core refused, from its message.
+fn refused_line_reason(message: &str) -> &'static str {
+    let message = message.to_ascii_lowercase();
+    if message.contains("hostname") {
+        "mitm.hostname_invalid"
+    } else if message.contains("cron") {
+        "task.cron_invalid"
+    } else if message.contains("regex") {
+        "pattern.regex_invalid"
+    } else if message.contains("rule") {
+        "rule.invalid"
+    } else {
+        "policy_core.refused_line"
     }
 }
 

@@ -612,6 +612,12 @@ impl AnixOpsMitmPolicyEngine {
         diagnostics
     }
 
+    /// 1-based config line the last failed call stopped at, 0 when the failure
+    /// was not tied to a line.
+    pub fn last_error_line(&self) -> usize {
+        self.last_error().line
+    }
+
     fn last_error(&self) -> MitmPolicyLastError {
         let mut status = sys::ANIXOPS_OK;
         let mut line = 0usize;
