@@ -2,6 +2,7 @@
 //!
 //! ```text
 //! anixcore run -c config.json     start the inbounds and the management API
+//! anixcore run -c -               the same, reading the config from stdin
 //! anixcore check -c config.json   parse the config and build every inbound
 //! anixcore version
 //! ```
@@ -20,6 +21,7 @@ fn main() -> ExitCode {
         Some("version") | Some("--version") => {
             println!("anixcore {}", env!("CARGO_PKG_VERSION"));
             println!("inbounds: {}", default_registry().type_names().join(", "));
+            println!("features: config-stdin");
             Ok(())
         }
         Some(command @ ("run" | "check")) => match config_path(&args[1..]) {
@@ -45,7 +47,15 @@ fn config_path(args: &[String]) -> Option<&str> {
 }
 
 fn load(path: &str) -> Result<NodeConfig, String> {
-    let bytes = std::fs::read(path).map_err(|error| format!("cannot read {path}: {error}"))?;
+    // "-" is stdin: the agent pipes the config so that no file holds it.
+    let bytes = if path == "-" {
+        let mut bytes = Vec::new();
+        std::io::Read::read_to_end(&mut std::io::stdin(), &mut bytes)
+            .map_err(|error| format!("cannot read the config from stdin: {error}"))?;
+        bytes
+    } else {
+        std::fs::read(path).map_err(|error| format!("cannot read {path}: {error}"))?
+    };
     // Only the position: serde messages can quote values such as passwords.
     serde_json::from_slice(&bytes).map_err(|error| {
         format!(
