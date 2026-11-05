@@ -376,7 +376,7 @@ fn glob_hostnames_are_kept_and_malformed_ones_left_out() {
         "[Rewrite]\n",
         "^https?://a\\.example\\.com/ads reject\n",
         "[MITM]\n",
-        "hostname = a.example.com, **, *..example.com, ad*.exa/mple.com\n",
+        "hostname = a.example.com, **, a*..example.com, ad*.exa/mple.com\n",
     ))
     .expect("plugin imports");
     assert_eq!(malformed.mitm_hostnames.include, vec!["a.example.com"]);
