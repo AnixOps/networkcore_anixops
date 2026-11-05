@@ -6,6 +6,7 @@
 
 ### Added
 
+- `mitm_anixops` 子模块升级到 distribution release `v1.4.8`（`3f26049`）：`[MITM] hostname` 支持在标签内任意位置写 `*`（任意字符，含点）和 `?`（单个字符），如 `*spclient.spotify.com`、`*.flyert.*`、`ad?.example.com`、排除项 `-redirector*.googlevideo.com`。导入器不再跳过这些写法，只跳过核心仍不认的（只有通配符、空标签、非主机字符）。
 - MITM 插件逐行隔离：`mitm_anixops` 核心拒绝的某一行（不认识的主机名写法、编不过的正则、cron 任务等）现在只注释掉这一行并在报告里标为 unsupported，插件其余部分照常生效，不再整个丢弃。`[MITM] hostname` 里核心读不了的通配写法（`*spclient.spotify.com`、`*.flyert.*`）被跳过并标为 partial；读不了的排除项会让整行失效，避免多解密。
 - 修复：QX 片段里没有 `[MITM]` 节的 `hostname =` 行此前不经核心校验，带通配（`*.xima*.*`）的主机进了合并后的运行时策略，会让核心加载整个 MITM 策略失败；现在同样跳过核心读不了的写法。
 - 公开插件语料库（M-A0）：35 个 Loon/Surge/QX 插件按 commit + SHA-256 固定，`MITM plugin corpus` workflow 下载评分并输出覆盖率报告；完全支持比例门槛 8%（QX 片段里的 hostname 通配此前被误判为完全支持，见下条）。

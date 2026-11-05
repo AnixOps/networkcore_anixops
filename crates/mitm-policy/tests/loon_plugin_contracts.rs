@@ -334,19 +334,28 @@ fn line_refused_by_the_policy_core_is_dropped_not_the_whole_plugin() {
 }
 
 #[test]
-fn glob_hostnames_the_core_cannot_read_are_left_out() {
+fn glob_hostnames_are_kept_and_malformed_ones_left_out() {
     let plugin = import_loon_plugin(concat!(
         "#!name = Glob Hosts\n",
         "[Rewrite]\n",
         "^https?://spclient\\.wg\\.spotify\\.com/ads reject\n",
         "[MITM]\n",
-        "hostname = %APPEND% spclient.wg.spotify.com, *spclient.spotify.com, *.flyert.*, *.example.com\n",
+        "hostname = %APPEND% spclient.wg.spotify.com, *spclient.spotify.com, *.flyert.*, ad?.example.com, -redirector*.googlevideo.com\n",
     ))
     .expect("plugin imports");
     assert_eq!(plugin.report.policy_load_error, None);
     assert_eq!(
         plugin.mitm_hostnames.include,
-        vec!["spclient.wg.spotify.com", "*.example.com"]
+        vec![
+            "spclient.wg.spotify.com",
+            "*spclient.spotify.com",
+            "*.flyert.*",
+            "ad?.example.com"
+        ]
+    );
+    assert_eq!(
+        plugin.mitm_hostnames.exclude,
+        vec!["redirector*.googlevideo.com"]
     );
     let hostname = plugin
         .report
@@ -354,19 +363,42 @@ fn glob_hostnames_the_core_cannot_read_are_left_out() {
         .iter()
         .find(|line| line.line == 5)
         .expect("hostname line is reported");
-    assert_eq!(hostname.status, LoonLineStatus::Partial);
-    assert_eq!(hostname.reason, "mitm.hostname_glob_unsupported");
-    assert!(plugin
+    assert_eq!(hostname.status, LoonLineStatus::Supported);
+    assert_eq!(plugin.report.level, LoonSupportLevel::Full);
+    // The policy core reads the glob hosts as they are.
+    AnixOpsMitmPolicyEngine::new()
+        .expect("engine")
+        .load_config(plugin.source())
+        .expect("glob hostnames load in the policy core");
+
+    // Globs the core cannot read are left out of an include list.
+    let malformed = import_loon_plugin(concat!(
+        "[Rewrite]\n",
+        "^https?://a\\.example\\.com/ads reject\n",
+        "[MITM]\n",
+        "hostname = a.example.com, **, *..example.com, ad*.exa/mple.com\n",
+    ))
+    .expect("plugin imports");
+    assert_eq!(malformed.mitm_hostnames.include, vec!["a.example.com"]);
+    let line = malformed
+        .report
+        .lines
+        .iter()
+        .find(|line| line.line == 4)
+        .expect("hostname line is reported");
+    assert_eq!(line.status, LoonLineStatus::Partial);
+    assert_eq!(line.reason, "mitm.hostname_glob_unsupported");
+    assert!(malformed
         .source()
-        .contains("hostname = %APPEND% spclient.wg.spotify.com, *.example.com"));
-    assert_eq!(plugin.report.level, LoonSupportLevel::Partial);
+        .lines()
+        .any(|line| line == "hostname = a.example.com"));
 
     // An exclusion the core cannot read would widen decryption: drop the line.
     let excluded = import_loon_plugin(concat!(
         "[Rewrite]\n",
         "^https?://a\\.example\\.com/ads reject\n",
         "[MITM]\n",
-        "hostname = *.example.com, -*pay*.example.com\n",
+        "hostname = *.example.com, -**\n",
     ))
     .expect("plugin imports");
     assert!(excluded.mitm_hostnames.include.is_empty());

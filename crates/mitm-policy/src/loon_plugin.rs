@@ -1593,16 +1593,32 @@ impl Parser<'_> {
     }
 }
 
-/// Whether the policy core reads a `[MITM] hostname` item: `*`, or a host
-/// with at most a leading `*.`. Loon and Surge also accept `*` and `?` inside
-/// a label (`*spclient.spotify.com`, `*.flyert.*`), which the core does not.
+/// Whether the policy core reads a `[MITM] hostname` item: `*`, a host with
+/// a leading `*.`, or a glob with `*` (any run, dots included) and `?` (one
+/// character) inside labels, such as `*spclient.spotify.com` or `*.flyert.*`.
+/// Mirrors the `mitm_anixops` core (v1.4.8 and later): a glob must stay a
+/// host name and name at least one literal character.
 fn core_host_pattern(item: &str) -> bool {
     let body = item.strip_prefix(['-', '!', '+']).unwrap_or(item).trim();
     if body == "*" {
         return true;
     }
     let rest = body.strip_prefix("*.").unwrap_or(body);
-    !rest.is_empty() && !rest.contains(['*', '?'])
+    if rest.is_empty() {
+        return false;
+    }
+    if !rest.contains(['*', '?']) {
+        return true;
+    }
+    let glob = body.strip_suffix('.').unwrap_or(body);
+    glob.len() <= 253
+        && !glob.starts_with('.')
+        && !glob.ends_with('.')
+        && !glob.contains("..")
+        && glob.bytes().any(|b| b.is_ascii_alphanumeric())
+        && glob
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'*' | b'?'))
 }
 
 /// Most plugin lines the policy core may refuse before the whole plugin is
