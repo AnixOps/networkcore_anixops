@@ -376,7 +376,7 @@ fn glob_hostnames_are_kept_and_malformed_ones_left_out() {
         "[Rewrite]\n",
         "^https?://a\\.example\\.com/ads reject\n",
         "[MITM]\n",
-        "hostname = a.example.com, **, a*..example.com, ad*.exa/mple.com\n",
+        "hostname = a.example.com, **, a*..example.com, ad*.exa/mple.com, a-zA-Z0-9_-.admobile.top\n",
     ))
     .expect("plugin imports");
     assert_eq!(malformed.mitm_hostnames.include, vec!["a.example.com"]);
@@ -387,7 +387,7 @@ fn glob_hostnames_are_kept_and_malformed_ones_left_out() {
         .find(|line| line.line == 4)
         .expect("hostname line is reported");
     assert_eq!(line.status, LoonLineStatus::Partial);
-    assert_eq!(line.reason, "mitm.hostname_glob_unsupported");
+    assert_eq!(line.reason, "mitm.hostname_pattern_unsupported");
     assert!(malformed
         .source()
         .lines()

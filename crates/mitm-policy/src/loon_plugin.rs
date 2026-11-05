@@ -838,7 +838,7 @@ impl Parser<'_> {
                         section,
                         LoonLineStatus::Unsupported,
                         LoonLineHandler::None,
-                        "mitm.hostname_glob_unsupported",
+                        "mitm.hostname_pattern_unsupported",
                     );
                     return;
                 }
@@ -868,7 +868,7 @@ impl Parser<'_> {
                         section,
                         LoonLineStatus::Partial,
                         LoonLineHandler::MitmHostnames,
-                        "mitm.hostname_glob_unsupported",
+                        "mitm.hostname_pattern_unsupported",
                     );
                 } else {
                     self.push(
@@ -1596,8 +1596,9 @@ impl Parser<'_> {
 /// Whether the policy core reads a `[MITM] hostname` item: `*`, a host with
 /// a leading `*.`, or a glob with `*` (any run, dots included) and `?` (one
 /// character) inside labels, such as `*spclient.spotify.com` or `*.flyert.*`.
-/// Mirrors the `mitm_anixops` core (v1.4.8 and later): a glob must stay a
-/// host name and name at least one literal character.
+/// Mirrors the `mitm_anixops` core (v1.4.8 and later): a plain host needs
+/// valid labels, and a glob must stay a host name and name at least one
+/// literal character.
 fn core_host_pattern(item: &str) -> bool {
     let body = item.strip_prefix(['-', '!', '+']).unwrap_or(item).trim();
     if body == "*" {
@@ -1608,7 +1609,24 @@ fn core_host_pattern(item: &str) -> bool {
         return false;
     }
     if !rest.contains(['*', '?']) {
-        return true;
+        // IPv6 literals and `host:port` are left to the core.
+        if rest.contains(':') {
+            return true;
+        }
+        // Plain host: labels of letters, digits and inner hyphens, as the
+        // core checks them. Lists carry broken items such as
+        // `a-zA-Z0-9_-.admobile.top`; one would make the core refuse the line.
+        let host = rest.strip_suffix('.').unwrap_or(rest);
+        return host.split('.').all(|label| {
+            let bytes = label.as_bytes();
+            !bytes.is_empty()
+                && bytes.len() <= 63
+                && bytes[0].is_ascii_alphanumeric()
+                && bytes[bytes.len() - 1].is_ascii_alphanumeric()
+                && bytes
+                    .iter()
+                    .all(|b| b.is_ascii_alphanumeric() || *b == b'-')
+        });
     }
     let glob = body.strip_suffix('.').unwrap_or(body);
     glob.len() <= 253
