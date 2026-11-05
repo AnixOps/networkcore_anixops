@@ -95,6 +95,13 @@ pub struct ScriptInvocation {
 
 impl ScriptInvocation {
     /// Whether a request or response body is larger than `max_bytes`.
+    #[cfg_attr(
+        not(any(
+            feature = "quickjs",
+            all(feature = "javascriptcore", target_vendor = "apple")
+        )),
+        allow(dead_code)
+    )]
     pub(crate) fn body_exceeds(&self, max_bytes: usize) -> bool {
         let len = |body: Option<&str>| match body {
             None => 0,
