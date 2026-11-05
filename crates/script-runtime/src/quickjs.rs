@@ -62,13 +62,7 @@ impl QuickJsScriptRuntime {
         invocation: &ScriptInvocation,
         limits: &ScriptLimits,
     ) -> ScriptOutcome {
-        let request_body = invocation.request.body.as_deref().map_or(0, str::len);
-        let response_body = invocation
-            .response
-            .as_ref()
-            .and_then(|response| response.body.as_deref())
-            .map_or(0, str::len);
-        if request_body > limits.max_body_bytes || response_body > limits.max_body_bytes {
+        if invocation.body_exceeds(limits.max_body_bytes) {
             return ScriptOutcome::failed(ScriptFailure::BodyTooLarge);
         }
 

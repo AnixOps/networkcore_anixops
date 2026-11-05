@@ -65,6 +65,10 @@ fn invocation(value: &Value) -> ScriptInvocation {
             body: text(request.get("body")),
         },
         response: value.get("response").map(response),
+        binary_body: value
+            .get("binaryBody")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
     }
 }
 
@@ -291,6 +295,7 @@ mod javascriptcore {
                 body: None,
             },
             response: None,
+            binary_body: false,
         };
         let limits = ScriptLimits {
             timeout: Duration::from_millis(100),
@@ -396,6 +401,7 @@ fn concurrent_dispatches_share_only_the_store() {
                         body: None,
                     },
                     response: None,
+                    binary_body: false,
                 };
                 runtime.run(
                     "leaked = (typeof leaked === 'undefined') ? $argument : 'shared';\

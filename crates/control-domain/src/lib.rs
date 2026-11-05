@@ -1017,6 +1017,8 @@ pub struct HttpMitmScriptDispatch {
     pub script_path: String,
     pub tag: String,
     pub argument: String,
+    /// Loon/Surge `binary-body-mode`: the script gets the body as bytes.
+    pub binary_body_mode: bool,
 }
 
 /// MITM plugin mutation plan consumed by a future HTTP/TLS data plane.

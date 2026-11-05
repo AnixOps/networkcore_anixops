@@ -6,6 +6,7 @@
 
 ### Added
 
+- 脚本运行时支持 `binary-body-mode`：`ScriptInvocation::binary_body` 打开时，`$request.body`/`$response.body` 是 `Uint8Array`，Quantumult X 的 `bodyBytes` 是 `ArrayBuffer`；`$done` 接受 `Uint8Array`、`ArrayBuffer`、`bodyBytes`，文本按 UTF-8 写回。Rust 与引擎之间用字节串（每字节一个 U+0000–U+00FF 字符）传递，`binary_body_string`/`binary_body_bytes` 转换。`HttpMitmScriptDispatch` 新增 `binary_body_mode`，QuickJS 执行器据此不再要求 body 是 UTF-8。protobuf 类脚本（YouTube、Spotify 等）需要这一项；导入器在核心按 dispatch 报告该属性前仍标为 partial。
 - `mitm_anixops` 子模块升级到 distribution release `v1.4.8`（`3f26049`）：`[MITM] hostname` 支持在标签内任意位置写 `*`（任意字符，含点）和 `?`（单个字符），如 `*spclient.spotify.com`、`*.flyert.*`、`ad?.example.com`、排除项 `-redirector*.googlevideo.com`。导入器不再跳过这些写法，只跳过核心仍不认的（只有通配符、空标签、非主机字符）；普通主机名也按核心的标签规则预检，列表里混进的坏条目（如 `a-zA-Z0-9_-.admobile.top`）只跳过这一项，不再让核心拒掉整行 hostname。报告原因改名为 `mitm.hostname_pattern_unsupported`。
 - MITM 插件逐行隔离：`mitm_anixops` 核心拒绝的某一行（不认识的主机名写法、编不过的正则、cron 任务等）现在只注释掉这一行并在报告里标为 unsupported，插件其余部分照常生效，不再整个丢弃。`[MITM] hostname` 里核心读不了的通配写法（`*spclient.spotify.com`、`*.flyert.*`）被跳过并标为 partial；读不了的排除项会让整行失效，避免多解密。
 - 修复：QX 片段里没有 `[MITM]` 节的 `hostname =` 行此前不经核心校验，带通配（`*.xima*.*`）的主机进了合并后的运行时策略，会让核心加载整个 MITM 策略失败；现在同样跳过核心读不了的写法。
