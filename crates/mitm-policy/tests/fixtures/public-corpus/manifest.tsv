@@ -3,7 +3,7 @@
 # grades it (tests/public_corpus.rs). Columns are tab-separated:
 # id	dialect	repo	commit	path	sha256
 # Ratchet: the share of plugins graded "full" may not drop below this percentage.
-#! min-full-percent 8
+#! min-full-percent 14
 surge-youtube-enhance	surge	Maasea/sgmodule	65075cdb388fc5e3094afd7e7314c67b243f3525	YouTube.Enhance.sgmodule	9c7464733c54417da36aff09482d1287cee5ecd531ad856842912704b5b3f64d
 surge-bilibili-helper	surge	Maasea/sgmodule	65075cdb388fc5e3094afd7e7314c67b243f3525	Bilibili.Helper.sgmodule	b36c490e8363b56924601007ba4a3381c1415148edca080e6ac863ba64637983
 surge-sub-store	surge	sub-store-org/Sub-Store	352f01b7091c99f4e219c44e4ec96f3288059843	config/Surge.sgmodule	a894be168ab8250070159ede88973e10f6cfc3b8065ddd4c3fe59e7eb6e6b48b

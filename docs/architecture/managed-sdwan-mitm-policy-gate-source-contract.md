@@ -2,17 +2,17 @@
 
 ```text
 MANAGED_SDWAN_MITM_POLICY_GATE
-MITM_ANIXOPS_RELEASE_TAG=v1.4.7
-MITM_ANIXOPS_RELEASE_TAG_OBJECT=d339cc17d2fb8b875ffd278edb2f787aa6b5d4f8
-MITM_ANIXOPS_RELEASE_COMMIT=ee952234c35ddf36f2c63f8aa20f28ad744bd054
-MITM_ANIXOPS_RELEASE_MANIFEST_SHA256=3e224e94ae08bfc1a99cde886f84577ecbd5f246775b984ae477ee80dc9b3aac
+MITM_ANIXOPS_RELEASE_TAG=v1.4.8
+MITM_ANIXOPS_RELEASE_TAG_OBJECT=3f26049eaacaaf6d748f3bd38d92074925d8eb79
+MITM_ANIXOPS_RELEASE_COMMIT=3f26049eaacaaf6d748f3bd38d92074925d8eb79
+MITM_ANIXOPS_RELEASE_MANIFEST_SHA256=af28d0d81e37269f30ee1ead6310b323677f9dc2763a63a1f6917e08c80b2ad2
 ```
 
 ## Purpose and provenance
 
 `ManagedSdwanMitmPolicyGate` is a pure admission boundary for an already
 verified Plan B `VerifiedDeliveryEnvelope`. Its vendored source is pinned by
-the listed commit. The annotated release tag, public GitHub Release, and
+the listed commit. The release tag, public GitHub Release, and
 published manifest are provenance evidence; the commit hash is the source
 content pin and the tag alone is not treated as cryptographic immutability.
 

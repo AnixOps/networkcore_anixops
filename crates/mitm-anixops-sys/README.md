@@ -1,7 +1,7 @@
 # mitm-anixops-sys
 
 `mitm-anixops-sys` compiles the vendored `mitm_anixops` distribution release
-`v1.4.7` source commit `ee952234c35ddf36f2c63f8aa20f28ad744bd054` and exposes
+`v1.4.8` source commit `3f26049eaacaaf6d748f3bd38d92074925d8eb79` and exposes
 an unsafe Rust FFI boundary. The linked C core reports version `0.45.10`.
 
 The narrow policy capability query mirrors the released C ABI only:
