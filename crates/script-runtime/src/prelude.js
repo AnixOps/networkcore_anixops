@@ -25,6 +25,77 @@
   }
 
   var context = JSON.parse(call("context"));
+  var binaryBody = context.binaryBody === true;
+
+  // Binary bodies cross the host boundary as byte strings (one char per byte).
+  function bytesFromByteString(value) {
+    var bytes = new Uint8Array(value.length);
+    for (var i = 0; i < value.length; i++) {
+      bytes[i] = value.charCodeAt(i) & 0xff;
+    }
+    return bytes;
+  }
+
+  function byteStringFromBytes(bytes) {
+    var parts = [];
+    for (var i = 0; i < bytes.length; i += 0x8000) {
+      parts.push(String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000)));
+    }
+    return parts.join("");
+  }
+
+  function asBytes(value) {
+    if (value instanceof Uint8Array) {
+      return value;
+    }
+    if (value instanceof ArrayBuffer) {
+      return new Uint8Array(value);
+    }
+    if (ArrayBuffer.isView(value)) {
+      return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+    }
+    return null;
+  }
+
+  // Loon/Surge `binary-body-mode`: `body` is a Uint8Array; Quantumult X
+  // reads `bodyBytes`, an ArrayBuffer.
+  function exposeBinaryBody(message) {
+    if (binaryBody && message && typeof message.body === "string") {
+      var bytes = bytesFromByteString(message.body);
+      message.body = bytes;
+      message.bodyBytes = bytes.buffer;
+    }
+  }
+
+  // `$done` bodies in binary mode: bytes as they are, text as UTF-8.
+  function doneBody(message) {
+    if (!binaryBody || !message || typeof message !== "object") {
+      return message;
+    }
+    var copy = {};
+    for (var key in message) {
+      if (Object.prototype.hasOwnProperty.call(message, key)) {
+        copy[key] = message[key];
+      }
+    }
+    var body = copy.body !== undefined && copy.body !== null ? copy.body : copy.bodyBytes;
+    delete copy.bodyBytes;
+    if (body === undefined || body === null) {
+      return copy;
+    }
+    var bytes = asBytes(body);
+    if (bytes) {
+      copy.body = byteStringFromBytes(bytes);
+    } else if (typeof body === "string") {
+      copy.body = unescape(encodeURIComponent(body));
+    } else {
+      copy.body = body;
+    }
+    return copy;
+  }
+
+  exposeBinaryBody(context.request);
+  exposeBinaryBody(context.response);
 
   define("$request", context.request);
   if (context.response) {
@@ -45,7 +116,11 @@
   define("$done", function (value) {
     var payload;
     try {
-      payload = JSON.stringify(value === undefined || value === null ? {} : value);
+      var result = doneBody(value === undefined || value === null ? {} : value);
+      if (binaryBody && result && typeof result === "object" && result.response) {
+        result.response = doneBody(result.response);
+      }
+      payload = JSON.stringify(result);
     } catch (error) {
       payload = undefined;
     }

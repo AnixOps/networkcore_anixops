@@ -19,6 +19,7 @@ const SCRIPT_URL: &str = "https://scripts.networkcore.test/contract.js";
 
 struct ScriptDispatchingService {
     timeout_ms: usize,
+    binary_body_mode: bool,
 }
 
 impl MitmPluginService for ScriptDispatchingService {
@@ -70,6 +71,7 @@ impl MitmPluginService for ScriptDispatchingService {
                 script_path: SCRIPT_URL.to_string(),
                 tag: "contract".to_string(),
                 argument: "mode=contract".to_string(),
+                binary_body_mode: self.binary_body_mode,
             }),
             audits: Vec::new(),
             diagnostics: Vec::new(),
@@ -103,6 +105,14 @@ fn executor(script: &Path, store: Option<&Path>) -> NativeQuickJsScriptExecutor 
 }
 
 fn hook(executor: NativeQuickJsScriptExecutor, timeout_ms: usize) -> NativeHttpMitmPluginHook {
+    hook_with(executor, timeout_ms, false)
+}
+
+fn hook_with(
+    executor: NativeQuickJsScriptExecutor,
+    timeout_ms: usize,
+    binary_body_mode: bool,
+) -> NativeHttpMitmPluginHook {
     NativeHttpMitmPluginHook::new(
         PluginInstance {
             manifest: PluginManifest {
@@ -118,7 +128,10 @@ fn hook(executor: NativeQuickJsScriptExecutor, timeout_ms: usize) -> NativeHttpM
             },
             loaded_source: None,
         },
-        Arc::new(ScriptDispatchingService { timeout_ms }),
+        Arc::new(ScriptDispatchingService {
+            timeout_ms,
+            binary_body_mode,
+        }),
     )
     .with_quickjs_script_executor(executor)
 }
@@ -168,6 +181,31 @@ fn quickjs_response_script_rewrites_body_and_persists_store() {
         .any(|header| header.key == "X-Script" && header.value == "1"));
     let stored = std::fs::read_to_string(&store).expect("store file should be written");
     assert!(stored.contains("\"last\":\"seen\""), "{stored}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn quickjs_binary_body_mode_passes_bytes_both_ways() {
+    let dir = temp_dir("binary");
+    let script = dir.join("binary.js");
+    std::fs::write(
+        &script,
+        "var bytes = $response.body;\
+         if (!(bytes instanceof Uint8Array)) { throw new Error('not bytes'); }\
+         var out = new Uint8Array(bytes.length + 1);\
+         out.set(bytes); out[bytes.length] = 0xff;\
+         $done({ body: out });",
+    )
+    .unwrap();
+    let hook = hook_with(executor(&script, None), 1000, true);
+    let mut response = message(HttpMitmPhase::Response, "");
+    // Not UTF-8: a binary body the text mode would defer.
+    response.body = vec![0x08, 0x96, 0x01, 0x00, 0xc3];
+
+    let report = hook.plan_plain_http(&response);
+
+    assert!(report.script_dispatch_executed, "{:?}", report.diagnostics);
+    assert_eq!(report.body, vec![0x08, 0x96, 0x01, 0x00, 0xc3, 0xff]);
     let _ = std::fs::remove_dir_all(&dir);
 }
 

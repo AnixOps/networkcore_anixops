@@ -15,9 +15,9 @@ use control_domain::{
     MetadataEntry,
 };
 use script_runtime::{
-    DisabledScriptHttpClient, JsonFileScriptStore, MemoryScriptStore, QuickJsScriptRuntime,
-    ScriptHttpClient, ScriptInvocation, ScriptLimits, ScriptPhase, ScriptRequest, ScriptResponse,
-    ScriptRunStatus, ScriptStore,
+    binary_body_bytes, binary_body_string, DisabledScriptHttpClient, JsonFileScriptStore,
+    MemoryScriptStore, QuickJsScriptRuntime, ScriptHttpClient, ScriptInvocation, ScriptLimits,
+    ScriptPhase, ScriptRequest, ScriptResponse, ScriptRunStatus, ScriptStore,
 };
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -127,12 +127,16 @@ impl NativeQuickJsScriptExecutor {
                     "native HTTP script dispatch body exceeds the max-size limit",
                 );
             }
-            match std::str::from_utf8(&message.body) {
-                Ok(body) => Some(body.to_string()),
-                Err(_) => {
-                    return script_execution_deferred(
-                        "native HTTP script dispatch requires a UTF-8 buffered body",
-                    )
+            if dispatch.binary_body_mode {
+                Some(binary_body_string(&message.body))
+            } else {
+                match std::str::from_utf8(&message.body) {
+                    Ok(body) => Some(body.to_string()),
+                    Err(_) => {
+                        return script_execution_deferred(
+                            "native HTTP script dispatch requires a UTF-8 buffered body",
+                        )
+                    }
                 }
             }
         } else {
@@ -207,6 +211,7 @@ impl NativeQuickJsScriptExecutor {
             argument: dispatch.argument.clone(),
             request,
             response,
+            binary_body: dispatch.binary_body_mode,
         };
         let timeout_ms = bounded_script_timeout(dispatch.timeout_ms, self.config.max_timeout_ms);
         let limits = ScriptLimits {
@@ -246,14 +251,22 @@ impl NativeQuickJsScriptExecutor {
                 .map(|(key, value)| MetadataEntry { key, value })
                 .collect::<Vec<_>>()
         };
+        // The host only accepts byte strings for binary `$done` bodies.
+        let to_bytes = |body: String| {
+            if dispatch.binary_body_mode {
+                binary_body_bytes(&body).unwrap_or_default()
+            } else {
+                body.into_bytes()
+            }
+        };
         let response = mutation.response.map(|response| NativeHttpScriptResponse {
             status_code: response.status,
             headers: to_entries(response.headers),
-            body: response.body.unwrap_or_default().into_bytes(),
+            body: to_bytes(response.body.unwrap_or_default()),
         });
         let url = mutation.url;
         let headers = mutation.headers.map(to_entries);
-        let body = mutation.body.map(String::into_bytes);
+        let body = mutation.body.map(to_bytes);
         let status_code = mutation.status;
         let applied = url.is_some()
             || headers.is_some()

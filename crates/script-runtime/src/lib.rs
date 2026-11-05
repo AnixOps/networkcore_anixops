@@ -86,6 +86,36 @@ pub struct ScriptInvocation {
     pub request: ScriptRequest,
     /// Present in the response phase.
     pub response: Option<ScriptResponse>,
+    /// Loon/Surge `binary-body-mode`: the script sees bodies as `Uint8Array`
+    /// (and Quantumult X `bodyBytes`). Request, response and `$done` bodies
+    /// are then byte strings, one char (U+0000 to U+00FF) per byte; convert
+    /// with [`binary_body_string`] and [`binary_body_bytes`].
+    pub binary_body: bool,
+}
+
+impl ScriptInvocation {
+    /// Whether a request or response body is larger than `max_bytes`.
+    pub(crate) fn body_exceeds(&self, max_bytes: usize) -> bool {
+        let len = |body: Option<&str>| match body {
+            None => 0,
+            Some(body) if self.binary_body => body.chars().count(),
+            Some(body) => body.len(),
+        };
+        len(self.request.body.as_deref()) > max_bytes
+            || len(self.response.as_ref().and_then(|r| r.body.as_deref())) > max_bytes
+    }
+}
+
+/// Byte string for a binary body: one char per byte.
+pub fn binary_body_string(bytes: &[u8]) -> String {
+    bytes.iter().map(|&byte| char::from(byte)).collect()
+}
+
+/// Bytes of a byte string, or `None` when it holds a char above U+00FF.
+pub fn binary_body_bytes(text: &str) -> Option<Vec<u8>> {
+    text.chars()
+        .map(|ch| u8::try_from(u32::from(ch)).ok())
+        .collect()
 }
 
 /// Resource limits for one dispatch. They implement Loon's `timeout` and

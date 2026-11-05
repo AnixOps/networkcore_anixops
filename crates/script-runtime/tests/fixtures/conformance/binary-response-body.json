@@ -1,0 +1,16 @@
+{
+  "invocation": {
+    "phase": "response",
+    "binaryBody": true,
+    "request": { "url": "https://api.example.test/v1/feed", "method": "POST" },
+    "response": {
+      "status": 200,
+      "headers": { "Content-Type": "application/x-protobuf" },
+      "body": "\u0008\u0001\u0012\u0003ÿ\u0000\u0080"
+    }
+  },
+  "expect": {
+    "status": "done",
+    "mutation": { "body": "\u0012\u0003ÿ\u0000\u0080" }
+  }
+}

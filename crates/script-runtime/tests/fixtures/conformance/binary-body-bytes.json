@@ -1,0 +1,13 @@
+{
+  "invocation": {
+    "phase": "response",
+    "binaryBody": true,
+    "argument": "bytes",
+    "request": { "url": "https://api.example.test/v1/feed", "method": "GET" },
+    "response": { "status": 200, "body": "Ã©\u0000þ" }
+  },
+  "expect": {
+    "status": "done",
+    "mutation": { "body": "©\u0000þ" }
+  }
+}

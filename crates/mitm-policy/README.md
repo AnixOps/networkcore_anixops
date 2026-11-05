@@ -74,8 +74,9 @@ The plugin as a whole is graded `full`, `partial`, or `unsupported`.
   the user's node names.
 - `[Script]` `http-request` and `http-response` lines (P1) are planned by the
   `mitm_anixops` core and run on desktop in the in-process QuickJS runtime of
-  `crates/script-runtime`. `binary-body-mode` is partial (bodies reach scripts
-  as strings), and `cron`, `generic`, and other event scripts are unsupported.
+  `crates/script-runtime`. `binary-body-mode` stays partial until the core
+  reports it per dispatch: the runtime already hands such scripts a
+  `Uint8Array` body (`HttpMitmScriptDispatch::binary_body_mode`), and `cron`, `generic`, and other event scripts are unsupported.
   The iOS JavaScriptCore runtime arrives in M4.
 - `[Map Local]` lines, and `[Rewrite]` `mock-response-body` lines, answer a
   matching request locally (`HttpMitmAction::Respond`) without contacting the

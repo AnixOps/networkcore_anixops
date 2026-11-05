@@ -1360,6 +1360,7 @@ fn plain_http_rewrite_application_applies_header_body_and_defers_script_dispatch
             script_path: "https://scripts.example/networkcore-response.js".to_string(),
             tag: "networkcore.response".to_string(),
             argument: "Mode=rust".to_string(),
+            binary_body_mode: false,
         }),
         audits: Vec::new(),
         diagnostics: Vec::new(),
@@ -1450,6 +1451,7 @@ fn node_script_executor_runs_explicit_local_asset_with_persistent_store() {
         script_path: script_url.clone(),
         tag: "runtime.request".to_string(),
         argument: "Mode=networkcore".to_string(),
+        binary_body_mode: false,
     };
     let request = NativePlainHttpMessage {
         request_id: "node-runtime-request".to_string(),
@@ -1489,6 +1491,7 @@ fn node_script_executor_runs_explicit_local_asset_with_persistent_store() {
         script_path: script_url,
         tag: "runtime.response".to_string(),
         argument: "Mode=networkcore".to_string(),
+        binary_body_mode: false,
     };
     let response = NativePlainHttpMessage {
         request_id: "node-runtime-response".to_string(),
@@ -2363,6 +2366,7 @@ fn explicit_https_request_rewrite_preview_applies_headers_and_defers_body_and_sc
             script_path: "https://scripts.example/request.js".to_string(),
             tag: "networkcore.request".to_string(),
             argument: "Mode=preview".to_string(),
+            binary_body_mode: false,
         }),
         audits: Vec::new(),
         diagnostics: Vec::new(),
@@ -2469,6 +2473,7 @@ fn explicit_https_response_rewrite_preview_applies_headers_body_and_defers_scrip
             script_path: "https://scripts.example/response.js".to_string(),
             tag: "networkcore.response".to_string(),
             argument: "Mode=preview".to_string(),
+            binary_body_mode: false,
         }),
         audits: Vec::new(),
         diagnostics: Vec::new(),
@@ -5315,6 +5320,7 @@ impl MitmPluginService for ScriptDispatchingMitmPluginService {
                 script_path: self.script_url.clone(),
                 tag: "runtime.hook".to_string(),
                 argument: "Mode=hook".to_string(),
+                binary_body_mode: false,
             }),
             audits: Vec::new(),
             diagnostics: Vec::new(),

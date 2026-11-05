@@ -1087,6 +1087,7 @@ fn domain_script_dispatch_from_policy(
         script_path: script.script_path.clone(),
         tag: script.tag.clone(),
         argument: script.argument.clone(),
+        binary_body_mode: false,
     })
 }
 

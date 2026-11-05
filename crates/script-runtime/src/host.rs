@@ -42,6 +42,7 @@ pub(crate) struct HostResults {
 pub struct ScriptHost {
     context_json: String,
     phase: ScriptPhase,
+    binary_body: bool,
     default_store_key: String,
     max_output_bytes: usize,
     store: Arc<dyn ScriptStore>,
@@ -64,6 +65,7 @@ impl ScriptHost {
         Self {
             context_json: context_json(invocation),
             phase: invocation.phase,
+            binary_body: invocation.binary_body,
             default_store_key: format!("networkcore.script.{}", invocation.script_name),
             max_output_bytes: limits.max_output_bytes,
             store,
@@ -85,7 +87,12 @@ impl ScriptHost {
             "context" => Some(self.context_json.clone()),
             "done" => {
                 if self.done.is_none() {
-                    self.done = Some(parse_done(self.phase, payload, self.max_output_bytes));
+                    self.done = Some(parse_done(
+                        self.phase,
+                        payload,
+                        self.max_output_bytes,
+                        self.binary_body,
+                    ));
                 }
                 None
             }
@@ -254,6 +261,7 @@ fn context_json(invocation: &ScriptInvocation) -> String {
     context.insert("scriptName".into(), json!(invocation.script_name));
     context.insert("argument".into(), json!(invocation.argument));
     context.insert("environment".into(), json!(SCRIPT_ENVIRONMENT));
+    context.insert("binaryBody".into(), json!(invocation.binary_body));
     context.insert("request".into(), Value::Object(request));
     if let Some(response) = &invocation.response {
         let mut object = Map::new();
@@ -292,6 +300,7 @@ fn parse_done(
     phase: ScriptPhase,
     payload: &str,
     max_output_bytes: usize,
+    binary: bool,
 ) -> Result<ScriptMutation, String> {
     let value = serde_json::from_str::<Value>(payload)
         .map_err(|_| "$done argument is not JSON-serializable".to_string())?;
@@ -304,7 +313,7 @@ fn parse_done(
         mutation.headers = Some(parse_headers(headers)?);
     }
     if let Some(body) = present(&object, "body") {
-        mutation.body = Some(parse_body(body, max_output_bytes)?);
+        mutation.body = Some(parse_body(body, max_output_bytes, binary)?);
     }
     match phase {
         ScriptPhase::Request => {
@@ -318,7 +327,7 @@ fn parse_done(
                 mutation.url = Some(url.to_string());
             }
             if let Some(response) = present(&object, "response") {
-                mutation.response = Some(parse_response(response, max_output_bytes)?);
+                mutation.response = Some(parse_response(response, max_output_bytes, binary)?);
             }
         }
         ScriptPhase::Response => {
@@ -330,7 +339,11 @@ fn parse_done(
     Ok(mutation)
 }
 
-fn parse_response(value: &Value, max_output_bytes: usize) -> Result<ScriptResponse, String> {
+fn parse_response(
+    value: &Value,
+    max_output_bytes: usize,
+    binary: bool,
+) -> Result<ScriptResponse, String> {
     let Value::Object(object) = value else {
         return Err("$done response must be an object".to_string());
     };
@@ -343,7 +356,7 @@ fn parse_response(value: &Value, max_output_bytes: usize) -> Result<ScriptRespon
         None => Vec::new(),
     };
     let body = match present(object, "body") {
-        Some(body) => Some(parse_body(body, max_output_bytes)?),
+        Some(body) => Some(parse_body(body, max_output_bytes, binary)?),
         None => None,
     };
     Ok(ScriptResponse {
@@ -393,11 +406,25 @@ fn parse_headers(value: &Value) -> Result<Vec<(String, String)>, String> {
     Ok(headers)
 }
 
-fn parse_body(value: &Value, max_output_bytes: usize) -> Result<String, String> {
+/// A text body, or in binary mode a byte string (the prelude converts
+/// `Uint8Array`, `ArrayBuffer` and text bodies to one).
+fn parse_body(value: &Value, max_output_bytes: usize, binary: bool) -> Result<String, String> {
     let body = value.as_str().ok_or_else(|| {
-        "$done body must be a string; binary bodies are not supported".to_string()
+        if binary {
+            "$done body must be a string, Uint8Array or ArrayBuffer".to_string()
+        } else {
+            "$done body must be a string; binary bodies need binary-body-mode".to_string()
+        }
     })?;
-    if body.len() > max_output_bytes {
+    let len = if binary {
+        if body.chars().any(|ch| u32::from(ch) > 0xff) {
+            return Err("$done binary body is not a byte string".to_string());
+        }
+        body.chars().count()
+    } else {
+        body.len()
+    };
+    if len > max_output_bytes {
         return Err("$done body exceeds the output limit".to_string());
     }
     Ok(body.to_string())

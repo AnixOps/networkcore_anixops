@@ -7940,6 +7940,7 @@ mod script_runtime_security_tests {
                 script_path: script_url,
                 tag: "asset-hash-contract".to_string(),
                 argument: String::new(),
+                binary_body_mode: false,
             },
             &NativePlainHttpMessage {
                 request_id: "asset-hash-contract".to_string(),
@@ -7991,6 +7992,7 @@ mod script_runtime_security_tests {
                 script_path: script_url,
                 tag: "timeout".to_string(),
                 argument: String::new(),
+                binary_body_mode: false,
             },
             &NativePlainHttpMessage {
                 request_id: "timeout".to_string(),
@@ -8682,6 +8684,7 @@ mod controlled_tls_session_tests {
                     script_path: self.script_url.clone(),
                     tag: "controlled-tls-script".to_string(),
                     argument: "Mode=controlled-tls".to_string(),
+                    binary_body_mode: false,
                 }),
                 audits: Vec::new(),
                 diagnostics: Vec::new(),
