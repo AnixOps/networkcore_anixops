@@ -146,6 +146,10 @@ async fn agent_workflow() {
         .as_array()
         .unwrap()
         .contains(&json!("destinations")));
+    assert!(body["features"]
+        .as_array()
+        .unwrap()
+        .contains(&json!("block_cidrs")));
 
     // Traffic priorities: an invalid entry refuses the body, a valid one
     // answers its classes, `{}` turns them off.
@@ -332,6 +336,55 @@ async fn block_rules_refuse_domains_and_protocols() {
     assert_eq!(status, 200);
     echo_to(&alice, &by_name, b"named").await.unwrap();
     echo(&alice, target, http).await.unwrap();
+
+    // Address ranges are the process's, so only this test sets rules, and
+    // it blocks only an address no other test dials (every 127/8 address
+    // is local on Linux).
+    let blocked = if cfg!(target_os = "linux") {
+        let listener = TcpListener::bind("127.0.0.2:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let (mut reader, mut writer) = stream.split();
+                    let _ = tokio::io::copy(&mut reader, &mut writer).await;
+                });
+            }
+        });
+        echo(&alice, address, b"before").await.unwrap();
+        Some(address)
+    } else {
+        None
+    };
+    let rules = json!({"block_domains": [], "block_protocols": [],
+        "block_cidrs": ["127.0.0.2/32", "2001:db8::/32"]});
+    let (status, body) = call(api, "PUT", "/v1/rules", Some(rules.clone())).await;
+    assert_eq!((status, &body), (200, &rules));
+    echo(&alice, target, b"not blocked").await.unwrap();
+    if let Some(address) = blocked {
+        assert!(echo(&alice, address, b"blocked").await.is_err());
+        let (status, body) = call(api, "GET", "/v1/rules/counters?reset=true", None).await;
+        assert_eq!(status, 200);
+        assert!(body["blocked_cidrs"].as_u64().unwrap() >= 1, "{body}");
+    }
+    let (status, body) = call(api, "GET", "/v1/rules/counters", None).await;
+    assert_eq!((status, body), (200, json!({"blocked_cidrs": 0})));
+    let (status, _) = call(
+        api,
+        "PUT",
+        "/v1/rules",
+        Some(json!({"block_cidrs": ["127.0.0.2/33"]})),
+    )
+    .await;
+    assert_eq!(status, 400);
+    let (_, body) = call(api, "GET", "/v1/rules", None).await;
+    assert_eq!(body, rules);
+
+    let (status, _) = call(api, "PUT", "/v1/rules", Some(json!({}))).await;
+    assert_eq!(status, 200);
+    if let Some(address) = blocked {
+        echo(&alice, address, b"after").await.unwrap();
+    }
 }
 
 #[tokio::test]

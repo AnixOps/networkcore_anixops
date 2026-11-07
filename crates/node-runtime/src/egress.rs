@@ -26,6 +26,8 @@
 //! first bytes show a blocked protocol, is refused instead of connected.
 //! Protocol rules make every TCP connection wait for the client's first
 //! bytes (at most [`SNIFF_WAIT`]); domain rules only address-only ones.
+//! Blocked address ranges (`block_cidrs`) are not the router's: the direct
+//! outbound refuses them once a target is resolved.
 //!
 //! Everything no route matches leaves through
 //! the inbound's base outbound: the direct outbound, or one the embedding
@@ -52,6 +54,7 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
+use crate::direct::CidrSet;
 use crate::domains::{normalize, DomainCache};
 
 /// The only relay protocol today; an empty `protocol` means it.
@@ -62,6 +65,8 @@ pub const SNIFF_WAIT: Duration = Duration::from_millis(300);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_ROUTES: usize = 256;
 const MAX_DOMAINS: usize = 10_000;
+/// Blocked address ranges a node takes at once.
+const MAX_CIDRS: usize = 100_000;
 /// Routed UDP flows one client session keeps at once.
 const MAX_ROUTED_FLOWS: usize = 64;
 
@@ -259,6 +264,10 @@ pub struct RulesConfig {
     /// `tls`.
     #[serde(default)]
     pub block_protocols: Vec<String>,
+    /// Address ranges no direct dial of the process reaches: `a.b.c.d/n`,
+    /// `x::/n` or a bare address. Omitted from answers when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub block_cidrs: Vec<String>,
 }
 
 /// A protocol a block rule can name.
@@ -297,6 +306,8 @@ impl SniffedProtocol {
 pub(crate) struct BlockRules {
     domains: Vec<DomainMatcher>,
     protocols: Vec<SniffedProtocol>,
+    /// Handed to the direct outbound; the router ignores it.
+    pub(crate) cidrs: Option<CidrSet>,
 }
 
 impl BlockRules {
@@ -326,6 +337,11 @@ pub(crate) fn compile_rules(config: &RulesConfig) -> Result<BlockRules, String> 
     if config.block_domains.len() > MAX_DOMAINS {
         return Err(format!("rules: at most {MAX_DOMAINS} blocked domains"));
     }
+    if config.block_cidrs.len() > MAX_CIDRS {
+        return Err(format!("rules: at most {MAX_CIDRS} blocked address ranges"));
+    }
+    let cidrs =
+        CidrSet::parse(&config.block_cidrs).map_err(|message| format!("rules: {message}"))?;
     let domains = config
         .block_domains
         .iter()
@@ -340,10 +356,14 @@ pub(crate) fn compile_rules(config: &RulesConfig) -> Result<BlockRules, String> 
             protocols.push(protocol);
         }
     }
-    Ok(BlockRules { domains, protocols })
+    Ok(BlockRules {
+        domains,
+        protocols,
+        cidrs,
+    })
 }
 
-fn blocked() -> io::Error {
+pub(crate) fn blocked() -> io::Error {
     io::Error::new(io::ErrorKind::PermissionDenied, "blocked by a rule")
 }
 
@@ -756,8 +776,10 @@ mod tests {
         let rules = compile_rules(&RulesConfig {
             block_domains: vec!["ads.example".into(), r"regexp:^track\d+\.".into()],
             block_protocols: vec!["BitTorrent".into(), "bittorrent".into()],
+            ..RulesConfig::default()
         })
         .unwrap();
+        assert!(rules.cidrs.is_none());
         assert!(rules.blocks_host("ads.example"));
         assert!(rules.blocks_host("x.ads.example"));
         assert!(rules.blocks_host("track7.cdn.test"));
@@ -776,6 +798,66 @@ mod tests {
         .is_err());
         assert!(compile_rules(&RulesConfig {
             block_domains: vec!["regexp:(".into()],
+            ..RulesConfig::default()
+        })
+        .is_err());
+    }
+
+    #[test]
+    fn block_cidrs_compile_and_match() {
+        let cidrs = |entries: &[&str]| {
+            compile_rules(&RulesConfig {
+                block_cidrs: entries.iter().map(|entry| entry.to_string()).collect(),
+                ..RulesConfig::default()
+            })
+            .map(|rules| rules.cidrs)
+        };
+        let set = cidrs(&[
+            "203.0.113.0/24",
+            "203.0.113.16/28",
+            "198.51.100.7",
+            " 2001:db8::/32 ",
+            "192.0.2.255/24",
+        ])
+        .unwrap()
+        .unwrap();
+        // The /28 merges into the /24; host bits of an entry are ignored.
+        for blocked in [
+            "203.0.113.0",
+            "203.0.113.100",
+            "203.0.113.255",
+            "::ffff:203.0.113.9",
+            "198.51.100.7",
+            "2001:db8:1::1",
+            "192.0.2.1",
+        ] {
+            assert!(set.contains(blocked.parse().unwrap()), "{blocked}");
+        }
+        for open in [
+            "203.0.112.255",
+            "203.0.114.0",
+            "198.51.100.8",
+            "2001:db9::1",
+            "8.8.8.8",
+        ] {
+            assert!(!set.contains(open.parse().unwrap()), "{open}");
+        }
+        let all = cidrs(&["0.0.0.0/0", "::/0"]).unwrap().unwrap();
+        assert!(all.contains("1.2.3.4".parse().unwrap()));
+        assert!(all.contains("ffff::1".parse().unwrap()));
+        assert!(cidrs(&[]).unwrap().is_none());
+        for bad in [
+            "203.0.113.0/33",
+            "2001:db8::/129",
+            "example.com",
+            "1.2.3.4/",
+            "1.2.3/24",
+        ] {
+            assert!(cidrs(&[bad]).is_err(), "{bad}");
+        }
+        let too_many = vec!["198.51.100.1".to_string(); MAX_CIDRS + 1];
+        assert!(compile_rules(&RulesConfig {
+            block_cidrs: too_many,
             ..RulesConfig::default()
         })
         .is_err());

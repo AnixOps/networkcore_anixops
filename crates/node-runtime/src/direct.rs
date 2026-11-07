@@ -1,13 +1,103 @@
-//! Direct outbound with a private-target filter and an optional source
-//! address (a network-model egress, see [`crate::network`]).
+//! Direct outbound with a private-target filter, the process's blocked
+//! address ranges and an optional source address (a network-model egress,
+//! see [`crate::network`]).
+//!
+//! The blocked ranges (`block_cidrs` of `PUT /v1/rules`) apply to every
+//! direct dial of the process, after a domain target is resolved: users'
+//! connections, relays served on this node and port-forward targets alike.
 
 use std::io;
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, RwLock};
 
 use engine_inbound::udp::{UdpOutbound, UdpSession};
 use engine_outbound::{BoxFuture, BoxStream, TargetAddr, TcpOutbound};
 use tokio::net::{TcpSocket, TcpStream, UdpSocket};
+
+/// Address ranges as sorted, merged, inclusive ranges of IPv6 (IPv4 as
+/// IPv4-mapped) addresses.
+#[derive(Debug)]
+pub(crate) struct CidrSet {
+    ranges: Vec<(u128, u128)>,
+}
+
+impl CidrSet {
+    /// Parses `a.b.c.d/n`, `x::/n` or a bare address; `None` when there is
+    /// no entry.
+    pub(crate) fn parse(entries: &[String]) -> Result<Option<Self>, String> {
+        let mut ranges = Vec::with_capacity(entries.len());
+        for entry in entries {
+            let entry = entry.trim();
+            let invalid = || format!("{entry:?} is not an address block");
+            let (address, prefix) = match entry.split_once('/') {
+                Some((address, prefix)) => (address, Some(prefix)),
+                None => (entry, None),
+            };
+            let ip: IpAddr = address.parse().map_err(|_| invalid())?;
+            let bits = if ip.is_ipv4() { 32 } else { 128 };
+            let prefix: u32 = match prefix {
+                Some(prefix) => prefix.parse().map_err(|_| invalid())?,
+                None => bits,
+            };
+            if prefix > bits {
+                return Err(invalid());
+            }
+            let len = prefix + 128 - bits;
+            let mask = u128::MAX.checked_shl(128 - len).unwrap_or(0);
+            let start = key(ip) & mask;
+            ranges.push((start, start | !mask));
+        }
+        if ranges.is_empty() {
+            return Ok(None);
+        }
+        ranges.sort_unstable();
+        let mut merged: Vec<(u128, u128)> = Vec::with_capacity(ranges.len());
+        for (start, end) in ranges {
+            match merged.last_mut() {
+                Some(last) if start <= last.1.saturating_add(1) => last.1 = last.1.max(end),
+                _ => merged.push((start, end)),
+            }
+        }
+        Ok(Some(Self { ranges: merged }))
+    }
+
+    pub(crate) fn contains(&self, ip: IpAddr) -> bool {
+        let address = key(ip);
+        let after = self.ranges.partition_point(|range| range.0 <= address);
+        after > 0 && address <= self.ranges[after - 1].1
+    }
+}
+
+/// `ip` as an IPv6 number, IPv4 as IPv4-mapped.
+fn key(ip: IpAddr) -> u128 {
+    match ip.to_canonical() {
+        IpAddr::V4(v4) => v4.to_ipv6_mapped().into(),
+        IpAddr::V6(v6) => v6.into(),
+    }
+}
+
+static BLOCKED: RwLock<Option<Arc<CidrSet>>> = RwLock::new(None);
+static BLOCKED_COUNT: AtomicU64 = AtomicU64::new(0);
+
+/// Replaces the process's blocked address ranges; `None` blocks nothing.
+pub(crate) fn set_blocked_cidrs(set: Option<CidrSet>) {
+    *BLOCKED.write().unwrap_or_else(|p| p.into_inner()) = set.map(Arc::new);
+}
+
+/// TCP connections and UDP datagrams refused by the blocked ranges, since
+/// the last `reset`.
+pub(crate) fn blocked_count(reset: bool) -> u64 {
+    if reset {
+        BLOCKED_COUNT.swap(0, Ordering::Relaxed)
+    } else {
+        BLOCKED_COUNT.load(Ordering::Relaxed)
+    }
+}
+
+fn blocked_cidrs() -> Option<Arc<CidrSet>> {
+    BLOCKED.read().unwrap_or_else(|p| p.into_inner()).clone()
+}
 
 #[derive(Clone)]
 pub struct DirectOutbound {
@@ -66,6 +156,8 @@ impl TcpOutbound for DirectOutbound {
                     .await?
                     .collect(),
             };
+            let blocked = blocked_cidrs();
+            let mut refused = false;
             let mut last_error = None;
             for address in addresses {
                 if !self.permits(target, address.ip()) {
@@ -73,6 +165,17 @@ impl TcpOutbound for DirectOutbound {
                         io::ErrorKind::PermissionDenied,
                         "private target refused",
                     ));
+                    continue;
+                }
+                if blocked
+                    .as_ref()
+                    .is_some_and(|set| set.contains(address.ip()))
+                {
+                    if !refused {
+                        refused = true;
+                        BLOCKED_COUNT.fetch_add(1, Ordering::Relaxed);
+                    }
+                    last_error = Some(crate::egress::blocked());
                     continue;
                 }
                 if !self.reaches(&address) {
@@ -203,6 +306,10 @@ impl UdpSession for DirectUdp {
                     io::ErrorKind::PermissionDenied,
                     "private target refused",
                 ));
+            }
+            if blocked_cidrs().is_some_and(|set| set.contains(address.ip())) {
+                BLOCKED_COUNT.fetch_add(1, Ordering::Relaxed);
+                return Err(crate::egress::blocked());
             }
             let address = match (address, self.dual_stack) {
                 (SocketAddr::V4(v4), true) => {
