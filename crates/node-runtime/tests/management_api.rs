@@ -146,6 +146,10 @@ async fn agent_workflow() {
         .as_array()
         .unwrap()
         .contains(&json!("destinations")));
+    assert!(body["features"]
+        .as_array()
+        .unwrap()
+        .contains(&json!("block_cidrs")));
 
     // Traffic priorities: an invalid entry refuses the body, a valid one
     // answers its classes, `{}` turns them off.
@@ -332,25 +336,11 @@ async fn block_rules_refuse_domains_and_protocols() {
     assert_eq!(status, 200);
     echo_to(&alice, &by_name, b"named").await.unwrap();
     echo(&alice, target, http).await.unwrap();
-}
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn block_cidrs_refuse_addresses_and_count() {
-    let api = start_api(true).await;
-    let (_, body) = call(api, "GET", "/v1/status", None).await;
-    assert!(body["features"]
-        .as_array()
-        .unwrap()
-        .contains(&json!("block_cidrs")));
-    let (status, body) = call(api, "POST", "/v1/inbounds", Some(ss_inbound("ss"))).await;
-    assert_eq!(status, 201, "{body}");
-    let server: SocketAddr = body["listen"].as_str().unwrap().parse().unwrap();
-    let alice = client(server, ALICE_KEY);
-    let open = echo_server().await;
-    // The ranges are the process's: only this test blocks, and only an
-    // address no other test dials (every 127/8 address is local on Linux).
-    let linux = cfg!(target_os = "linux");
-    let blocked = if linux {
+    // Address ranges are the process's, so only this test sets rules, and
+    // it blocks only an address no other test dials (every 127/8 address
+    // is local on Linux).
+    let blocked = if cfg!(target_os = "linux") {
         let listener = TcpListener::bind("127.0.0.2:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         tokio::spawn(async move {
@@ -366,12 +356,11 @@ async fn block_cidrs_refuse_addresses_and_count() {
     } else {
         None
     };
-
     let rules = json!({"block_domains": [], "block_protocols": [],
         "block_cidrs": ["127.0.0.2/32", "2001:db8::/32"]});
     let (status, body) = call(api, "PUT", "/v1/rules", Some(rules.clone())).await;
     assert_eq!((status, &body), (200, &rules));
-    echo(&alice, open, b"not blocked").await.unwrap();
+    echo(&alice, target, b"not blocked").await.unwrap();
     if let Some(address) = blocked {
         assert!(echo(&alice, address, b"blocked").await.is_err());
         let (status, body) = call(api, "GET", "/v1/rules/counters?reset=true", None).await;
@@ -380,8 +369,6 @@ async fn block_cidrs_refuse_addresses_and_count() {
     }
     let (status, body) = call(api, "GET", "/v1/rules/counters", None).await;
     assert_eq!((status, body), (200, json!({"blocked_cidrs": 0})));
-
-    // A bad entry is refused and the rules in force stay.
     let (status, _) = call(
         api,
         "PUT",
