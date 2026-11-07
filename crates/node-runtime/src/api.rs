@@ -20,6 +20,7 @@
 //! | `PUT /v1/network` | `NetworkPlan` | `NetworkStatus` |
 //! | `GET /v1/rules` | | `RulesConfig` |
 //! | `PUT /v1/rules` | `RulesConfig` | `RulesConfig` |
+//! | `GET /v1/rules/counters[?reset=true]` | | `{"blocked_cidrs": n}` |
 //! | `GET /v1/qos` | | `QosStatus` |
 //! | `PUT /v1/qos` | `QosConfig` | `QosStatus` |
 //!
@@ -27,6 +28,15 @@
 //! ([`engine_inbound::qos`]); `{}` turns them off. An invalid entry refuses
 //! the whole body with 400. The status answers the classes' rule counts and
 //! the node scheduler's capacity and current rates per priority.
+//!
+//! `PUT /v1/rules` replaces the block rules: `block_domains`,
+//! `block_protocols` and `block_cidrs` (address ranges `a.b.c.d/n`, `x::/n`
+//! or a bare address, at most 100 000). An invalid entry refuses the whole
+//! body with 400. The ranges apply to every direct dial of the process once
+//! a target is resolved, so also to relays served on this node and to
+//! port-forward targets. `GET /v1/rules/counters` answers how many TCP
+//! connections and UDP datagrams the ranges refused since the last
+//! `reset=true` call.
 //!
 //! `PUT /v1/egress` replaces the domain egress routes and relays (the panel's
 //! `egress` member, see [`crate::egress`]); `{}` removes them all. An
@@ -55,7 +65,8 @@
 //! `features` names what this kernel takes beyond the base API, so an agent
 //! can tell before sending it: `user_limits` (the user members below),
 //! `block_rules` (`/v1/rules`), `qos` (`/v1/qos`), `destinations`
-//! (`/v1/inbounds/{tag}/destinations`).
+//! (`/v1/inbounds/{tag}/destinations`), `block_cidrs` (`block_cidrs` in
+//! `/v1/rules` and `/v1/rules/counters`).
 //!
 //! A user may carry `speed_limit` (Mbit/s for each direction, shared by
 //! all of its connections) and `device_limit` (most client IPs online at
@@ -291,6 +302,9 @@ async fn route(node: &Node, request: Request) -> Response {
             Err(response) => return response,
         },
         ("GET", ["v1", "rules"]) => Ok(Response::ok(json!(node.rules()))),
+        ("GET", ["v1", "rules", "counters"]) => Ok(Response::ok(
+            json!({ "blocked_cidrs": node.blocked_cidrs(wants_reset(&request)) }),
+        )),
         ("PUT", ["v1", "rules"]) => match parse::<RulesConfig>(&request.body) {
             Ok(config) => node
                 .apply_rules(&config)
@@ -344,10 +358,7 @@ async fn route(node: &Node, request: Request) -> Response {
             }
         }
         ("GET", ["v1", "inbounds", tag, "traffic"]) => {
-            let reset = request
-                .query
-                .split('&')
-                .any(|pair| pair == "reset=true" || pair == "reset=1");
+            let reset = wants_reset(&request);
             node.users(tag).and_then(|users| {
                 let traffic = users.traffic(reset);
                 let inbound = node.inbound_traffic(tag, reset)?;
@@ -357,10 +368,7 @@ async fn route(node: &Node, request: Request) -> Response {
             })
         }
         ("GET", ["v1", "inbounds", tag, "destinations"]) => {
-            let reset = request
-                .query
-                .split('&')
-                .any(|pair| pair == "reset=true" || pair == "reset=1");
+            let reset = wants_reset(&request);
             node.users(tag)
                 .map(|users| Response::ok(json!({ "destinations": users.destinations(reset) })))
         }
@@ -373,6 +381,13 @@ async fn route(node: &Node, request: Request) -> Response {
         _ => return Response::error(404, "no such endpoint"),
     };
     result.unwrap_or_else(Response::from)
+}
+
+fn wants_reset(request: &Request) -> bool {
+    request
+        .query
+        .split('&')
+        .any(|pair| pair == "reset=true" || pair == "reset=1")
 }
 
 async fn write_response(stream: &mut TcpStream, response: Response) -> io::Result<()> {

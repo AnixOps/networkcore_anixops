@@ -210,6 +210,7 @@ pub const FEATURES: &[&str] = &[
     "block_rules",
     "qos",
     "destinations",
+    "block_cidrs",
     #[cfg(feature = "reverse_proxy")]
     "reverse_proxy",
 ];
@@ -536,11 +537,13 @@ impl Node {
 
     /// Replaces the block rules with `config`: connections to a blocked
     /// domain, and connections whose first bytes are a blocked protocol,
-    /// are refused on every inbound. Nothing changes when an entry is
-    /// invalid; connections already open are not cut.
+    /// are refused on every inbound; direct dials to a blocked address
+    /// range are refused in the whole process. Nothing changes when an
+    /// entry is invalid; connections already open are not cut.
     pub fn apply_rules(&self, config: &RulesConfig) -> Result<RulesConfig, NodeError> {
-        let rules = egress::compile_rules(config).map_err(NodeError::Rules)?;
+        let mut rules = egress::compile_rules(config).map_err(NodeError::Rules)?;
         let mut current = self.rules.lock().unwrap_or_else(|p| p.into_inner());
+        direct::set_blocked_cidrs(rules.cidrs.take());
         self.egress.set_blocks(rules);
         *current = config.clone();
         Ok(current.clone())
@@ -560,6 +563,12 @@ impl Node {
     /// The traffic priorities in force and the node scheduler's rates.
     pub fn qos(&self) -> QosStatus {
         qos::status()
+    }
+
+    /// Direct dials refused by the blocked address ranges since the last
+    /// `reset`.
+    pub fn blocked_cidrs(&self, reset: bool) -> u64 {
+        direct::blocked_count(reset)
     }
 
     /// The block rules last applied.

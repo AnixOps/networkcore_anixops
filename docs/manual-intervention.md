@@ -337,6 +337,7 @@ Before describing VLESS + REALITY as usable on iOS, the maintainer records here
 ## 当前待处理
 
 - 首批运维上线环境尚未提供：真实邮件/Telegram 接收渠道、第三方独立 Control 监控、跨地域节点和设备以及维护负责人。当前自动化只能运行测试适配器与代码 CI，不能证明这些真实环境门槛。维护负责人补齐渠道与部署范围后，记录投递/监控/网络/设备及回滚演练证据，再由 CI/CD 推进获准的灰度发布；真实地址与密钥仅放部署系统或密码库。
+- 节点内核的地址段拦截（`PUT /v1/rules` 的 `block_cidrs`、`GET /v1/rules/counters`、feature `block_cidrs`）需要重新发布：内核发布包必须从包含 `block_cidrs` 的 networkcore 版本重新构建。发布前出口节点开启“拒绝中国大陆目标”时，Agent 只记一条警告，不下发、不计数。
 - NetworkCore 的首批诊断库不含宿主运行时事件接线。后续实现真实观察源、宿主认证身份和持久化发送适配后，需在 CI 中补 Agent/Control 的端到端验收，再安排环境演练。
 
 
