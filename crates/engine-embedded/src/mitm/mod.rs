@@ -78,9 +78,15 @@ use crate::tunnel::{FlowInterceptor, InterceptedFlow, TunnelSettings, TunnelStat
 pub const PLUGIN_ID: &str = "networkcore.ios.mitm";
 /// Largest request or response body the rewrite hook sees.
 pub const MAX_BODY_BYTES: usize = 1024 * 1024;
-const MAX_POLICY_BYTES: usize = 512 * 1024;
+/// Plugin texts handed to one tunnel, in total.
+const MAX_POLICY_BYTES: usize = 8 * 1024 * 1024;
 /// QuickJS heap per script dispatch; the extension's whole budget is ~50 MB.
+/// A large script gets more (6 bytes per source byte plus 4 MiB, at most
+/// 32 MiB), so a script of a few MiB parses.
 pub const SCRIPT_MEMORY_LIMIT_BYTES: usize = 8 * 1024 * 1024;
+/// Heap limits of the dispatches running at once, in total: four ordinary
+/// scripts side by side, or one script of a few MiB alone.
+pub const SCRIPT_MEMORY_BUDGET_BYTES: usize = 32 * 1024 * 1024;
 /// Upper bound for a script's own `timeout`.
 pub const SCRIPT_MAX_TIMEOUT_MS: usize = 3_000;
 const LEAF_CACHE_ENTRIES: usize = 64;
@@ -783,6 +789,7 @@ fn with_scripts(
         memory_limit_bytes: SCRIPT_MEMORY_LIMIT_BYTES,
     })
     .map_err(|_| "mitm scripts are unavailable")?
+    .with_memory_budget(SCRIPT_MEMORY_BUDGET_BYTES)
     .with_http_client(Arc::new(http_client::TunnelScriptHttpClient::new(
         outbound.clone(),
         tls.clone(),

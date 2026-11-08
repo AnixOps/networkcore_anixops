@@ -407,6 +407,23 @@ async fn rewrites_plain_http_without_a_mitm_hostname() {
 }
 
 #[test]
+fn plugins_over_one_mib_are_accepted() {
+    let device_root = root("NetworkCore Test Device Root");
+    let mut config = mitm_config(&device_root);
+    let mut large = String::from("#!name = Large\n[Rule]\n");
+    let mut index = 0;
+    while large.len() < 3 * 1024 * 1024 {
+        large.push_str(&format!("DOMAIN-SUFFIX,ads{index}.example.test,REJECT\n"));
+        index += 1;
+    }
+    large.push_str("[MITM]\nhostname = large.example.test\n");
+    config.plugins.push(large);
+    let engine = MitmEngine::new(&config).expect("a 3 MiB plugin loads");
+    assert!(engine.intercepts("large.example.test"));
+    assert_eq!(engine.plugin_rules().len(), index);
+}
+
+#[test]
 fn x963_keys_convert_to_ring_pkcs8() {
     let key = KeyPair::generate().unwrap();
     assert_eq!(

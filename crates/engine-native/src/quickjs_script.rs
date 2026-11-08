@@ -22,7 +22,7 @@ use script_runtime::{
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, VecDeque};
 use std::io::Read;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
 pub const ENGINE_NATIVE_QUICKJS_SCRIPT_CONFIG_INVALID_CODE: &str =
@@ -30,6 +30,12 @@ pub const ENGINE_NATIVE_QUICKJS_SCRIPT_CONFIG_INVALID_CODE: &str =
 
 const QUICKJS_DEFAULT_MEMORY_LIMIT_BYTES: usize = 32 * 1024 * 1024;
 const QUICKJS_MAX_SCRIPT_BYTES: u64 = 4 * 1024 * 1024;
+/// Heap a dispatch gets on top of its source, which QuickJS parses into
+/// several times its size before the first line runs.
+const QUICKJS_HEAP_PER_SOURCE_BYTE: usize = 6;
+const QUICKJS_HEAP_FOR_SOURCE_BASE_BYTES: usize = 4 * 1024 * 1024;
+/// Largest heap a large script raises a dispatch to.
+pub const QUICKJS_MAX_SCALED_MEMORY_LIMIT_BYTES: usize = 32 * 1024 * 1024;
 /// Notifications kept for the host to collect; older ones are dropped.
 pub const QUICKJS_MAX_PENDING_NOTIFICATIONS: usize = 64;
 /// Longest run a scheduled script may ask for.
@@ -82,6 +88,8 @@ pub struct NativeQuickJsScriptExecutor {
     store: Arc<dyn ScriptStore>,
     runtime: QuickJsScriptRuntime,
     notifications: Arc<Mutex<VecDeque<ScriptNotification>>>,
+    /// Shared cap on the heap limits of dispatches running at once.
+    budget: Option<Arc<MemoryBudget>>,
 }
 
 impl std::fmt::Debug for NativeQuickJsScriptExecutor {
@@ -121,7 +129,16 @@ impl NativeQuickJsScriptExecutor {
             runtime: QuickJsScriptRuntime::new(store.clone(), Arc::new(DisabledScriptHttpClient)),
             store,
             notifications: Arc::default(),
+            budget: None,
         })
+    }
+
+    /// Caps the heap limits of the dispatches that run at once at `bytes`;
+    /// a dispatch that does not fit waits for others to finish. Without it
+    /// dispatches run side by side, each within its own limit.
+    pub fn with_memory_budget(mut self, bytes: usize) -> Self {
+        self.budget = (bytes > 0).then(|| Arc::new(MemoryBudget::new(bytes)));
+        self
     }
 
     /// Gives `$httpClient` (and `$task.fetch`) network access through
@@ -229,16 +246,18 @@ impl NativeQuickJsScriptExecutor {
         let timeout_ms = bounded_script_timeout(dispatch.timeout_ms, self.config.max_timeout_ms);
         let limits = ScriptLimits {
             timeout: Duration::from_millis(timeout_ms as u64),
-            memory_limit_bytes: if self.config.memory_limit_bytes == 0 {
-                QUICKJS_DEFAULT_MEMORY_LIMIT_BYTES
-            } else {
-                self.config.memory_limit_bytes
-            },
+            memory_limit_bytes: self.memory_limit(source.len()),
             max_body_bytes,
             ..ScriptLimits::default()
         };
 
-        let outcome = self.runtime.run(&source, &invocation, &limits);
+        let outcome = {
+            let _grant = self
+                .budget
+                .as_ref()
+                .map(|budget| budget.acquire(limits.memory_limit_bytes));
+            self.runtime.run(&source, &invocation, &limits)
+        };
         self.queue_notifications(&outcome.notifications);
         if let ScriptRunStatus::Failed(failure) = &outcome.status {
             return NativeHttpScriptExecutionReport {
@@ -343,14 +362,16 @@ impl NativeQuickJsScriptExecutor {
             .clamp(1, QUICKJS_MAX_SCHEDULED_TIMEOUT_SECS);
         let limits = ScriptLimits {
             timeout: Duration::from_secs(u64::from(timeout_secs)),
-            memory_limit_bytes: if self.config.memory_limit_bytes == 0 {
-                QUICKJS_DEFAULT_MEMORY_LIMIT_BYTES
-            } else {
-                self.config.memory_limit_bytes
-            },
+            memory_limit_bytes: self.memory_limit(source.len()),
             ..ScriptLimits::default()
         };
-        let outcome = self.runtime.run(&source, &invocation, &limits);
+        let outcome = {
+            let _grant = self
+                .budget
+                .as_ref()
+                .map(|budget| budget.acquire(limits.memory_limit_bytes));
+            self.runtime.run(&source, &invocation, &limits)
+        };
         self.queue_notifications(&outcome.notifications);
         let status = match &outcome.status {
             ScriptRunStatus::Done => "done".to_string(),
@@ -363,6 +384,17 @@ impl NativeQuickJsScriptExecutor {
             notifications: outcome.notifications,
             logs: outcome.logs,
         }
+    }
+
+    /// The configured heap limit, raised for a large script so it can be
+    /// parsed at all, up to [`QUICKJS_MAX_SCALED_MEMORY_LIMIT_BYTES`].
+    fn memory_limit(&self, source_len: usize) -> usize {
+        let configured = if self.config.memory_limit_bytes == 0 {
+            QUICKJS_DEFAULT_MEMORY_LIMIT_BYTES
+        } else {
+            self.config.memory_limit_bytes
+        };
+        scaled_memory_limit(configured, source_len)
     }
 
     fn queue_notifications(&self, notifications: &[ScriptNotification]) {
@@ -396,6 +428,72 @@ impl NativeQuickJsScriptExecutor {
         }
         String::from_utf8(source)
             .map_err(|_| "native HTTP script runtime mapped local script asset is not UTF-8")
+    }
+}
+
+/// `configured`, or more for a source that needs it to parse.
+pub fn scaled_memory_limit(configured: usize, source_len: usize) -> usize {
+    let needed = source_len
+        .saturating_mul(QUICKJS_HEAP_PER_SOURCE_BYTE)
+        .saturating_add(QUICKJS_HEAP_FOR_SOURCE_BASE_BYTES)
+        .min(QUICKJS_MAX_SCALED_MEMORY_LIMIT_BYTES);
+    configured.max(needed)
+}
+
+/// Bytes of heap limit handed out to running dispatches, up to a total.
+#[derive(Debug)]
+struct MemoryBudget {
+    total: usize,
+    used: Mutex<usize>,
+    freed: Condvar,
+}
+
+impl MemoryBudget {
+    fn new(total: usize) -> Self {
+        Self {
+            total,
+            used: Mutex::new(0),
+            freed: Condvar::new(),
+        }
+    }
+
+    /// Waits until `bytes` (at most the whole budget) fit, then holds them
+    /// until the grant drops.
+    fn acquire(self: &Arc<Self>, bytes: usize) -> BudgetGrant {
+        let bytes = bytes.min(self.total);
+        let mut used = self
+            .used
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        while *used + bytes > self.total {
+            used = self
+                .freed
+                .wait(used)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+        *used += bytes;
+        BudgetGrant {
+            budget: self.clone(),
+            bytes,
+        }
+    }
+}
+
+struct BudgetGrant {
+    budget: Arc<MemoryBudget>,
+    bytes: usize,
+}
+
+impl Drop for BudgetGrant {
+    fn drop(&mut self) {
+        let mut used = self
+            .budget
+            .used
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        *used -= self.bytes;
+        drop(used);
+        self.budget.freed.notify_all();
     }
 }
 

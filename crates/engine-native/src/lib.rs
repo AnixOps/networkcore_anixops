@@ -40,11 +40,13 @@ mod h2_mitm;
 mod quickjs_script;
 
 #[cfg(feature = "quickjs")]
+pub use quickjs_script::scaled_memory_limit;
+#[cfg(feature = "quickjs")]
 pub use quickjs_script::{
     NativeQuickJsScriptExecutor, NativeQuickJsScriptRuntimeConfig, NativeScheduledScriptKind,
     NativeScheduledScriptReport, NativeScheduledScriptRun,
     ENGINE_NATIVE_QUICKJS_SCRIPT_CONFIG_INVALID_CODE, QUICKJS_MAX_PENDING_NOTIFICATIONS,
-    QUICKJS_MAX_SCHEDULED_TIMEOUT_SECS,
+    QUICKJS_MAX_SCALED_MEMORY_LIMIT_BYTES, QUICKJS_MAX_SCHEDULED_TIMEOUT_SECS,
 };
 /// Types an embedder needs to give scripts network access
 /// ([`NativeQuickJsScriptExecutor::with_http_client`]).
