@@ -7,9 +7,10 @@ use control_domain::{
     PluginPermission, PluginResult,
 };
 use engine_native::{
-    NativeHttpMitmPluginHook, NativePlainHttpMessage, NativeQuickJsScriptExecutor,
-    NativeQuickJsScriptRuntimeConfig, ENGINE_NATIVE_QUICKJS_SCRIPT_CONFIG_INVALID_CODE,
-    ENGINE_NATIVE_RUNTIME_HTTP_SCRIPT_FAILED_CODE,
+    scaled_memory_limit, NativeHttpMitmPluginHook, NativePlainHttpMessage,
+    NativeQuickJsScriptExecutor, NativeQuickJsScriptRuntimeConfig,
+    ENGINE_NATIVE_QUICKJS_SCRIPT_CONFIG_INVALID_CODE,
+    ENGINE_NATIVE_RUNTIME_HTTP_SCRIPT_FAILED_CODE, QUICKJS_MAX_SCALED_MEMORY_LIMIT_BYTES,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -226,6 +227,54 @@ fn quickjs_request_script_can_answer_without_the_origin() {
     assert_eq!(report.final_status_code, Some(403));
     assert_eq!(String::from_utf8(report.body).unwrap(), "blocked GET");
     assert_eq!(report.headers.len(), 1);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+const MIB: usize = 1024 * 1024;
+
+#[test]
+fn large_scripts_get_a_heap_that_fits_their_source() {
+    assert_eq!(scaled_memory_limit(8 * MIB, 100 * 1024), 8 * MIB);
+    assert_eq!(scaled_memory_limit(8 * MIB, MIB), 10 * MIB);
+    assert_eq!(scaled_memory_limit(8 * MIB, 3 * MIB), 22 * MIB);
+    assert_eq!(
+        scaled_memory_limit(8 * MIB, 64 * MIB),
+        QUICKJS_MAX_SCALED_MEMORY_LIMIT_BYTES
+    );
+    assert_eq!(scaled_memory_limit(48 * MIB, 3 * MIB), 48 * MIB);
+}
+
+#[test]
+fn a_script_of_a_few_mib_runs_under_a_small_configured_heap() {
+    let dir = temp_dir("large");
+    let script = dir.join("large.js");
+    let filler = "x".repeat(3 * MIB);
+    std::fs::write(
+        &script,
+        format!("var s = \"{filler}\";\n$done({{ body: String(s.length) }});"),
+    )
+    .unwrap();
+    let mut script_assets = BTreeMap::new();
+    script_assets.insert(SCRIPT_URL.to_string(), script.display().to_string());
+    let executor = NativeQuickJsScriptExecutor::new(NativeQuickJsScriptRuntimeConfig {
+        script_assets,
+        persistent_store_path: None,
+        max_timeout_ms: 5000,
+        max_body_bytes: 4096,
+        memory_limit_bytes: 8 * MIB,
+    })
+    .unwrap()
+    // Smaller than the dispatch's limit: it still runs, alone.
+    .with_memory_budget(MIB);
+    let hook = hook(executor, 5000);
+
+    let report = hook.plan_plain_http(&message(HttpMitmPhase::Response, "{}"));
+
+    assert!(report.script_dispatch_executed, "{:?}", report.diagnostics);
+    assert_eq!(
+        String::from_utf8(report.body).unwrap(),
+        (3 * MIB).to_string()
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 

@@ -8,12 +8,15 @@
 //! to the origin over a verifying TLS client, and its HTTP/1.1 messages pass
 //! through the same `mitm-policy` / `engine-native` rewrite hook the desktop
 //! engines use: URL reject and redirect, header and body rewrites, Map Local.
+//! Plain HTTP flows go through the same hook without TLS.
 //!
-//! Limits that keep the extension inside its memory budget: bodies above
-//! [`MAX_BODY_BYTES`], `text/event-stream` responses and protocol upgrades
-//! stop rewriting for the rest of the connection and are relayed as they
-//! are. Intercepted requests ask for `Accept-Encoding: identity`, so body
-//! rules see plain text. Only HTTP/1.1 is offered to the client.
+//! Limits that keep the extension inside its memory budget: a body that no
+//! body rule or script reads is forwarded as it arrives and only its head is
+//! planned. A body a rule reads is held whole up to [`MAX_BODY_BYTES`]; a
+//! larger one, `text/event-stream` responses and protocol upgrades stop
+//! rewriting for the rest of the connection and are relayed as they are.
+//! Requests whose response a rule reads ask for `Accept-Encoding: identity`,
+//! so body rules see plain text. Only HTTP/1.1 is offered to the client.
 //!
 //! Remote `[Map Local]` bodies (and Quantumult X `echo-response` files) are
 //! downloaded by the app and named in `resource_assets`; they are read once
@@ -78,9 +81,15 @@ use crate::tunnel::{FlowInterceptor, InterceptedFlow, TunnelSettings, TunnelStat
 pub const PLUGIN_ID: &str = "networkcore.ios.mitm";
 /// Largest request or response body the rewrite hook sees.
 pub const MAX_BODY_BYTES: usize = 1024 * 1024;
-const MAX_POLICY_BYTES: usize = 512 * 1024;
+/// Plugin texts handed to one tunnel, in total.
+const MAX_POLICY_BYTES: usize = 8 * 1024 * 1024;
 /// QuickJS heap per script dispatch; the extension's whole budget is ~50 MB.
+/// A large script gets more (6 bytes per source byte plus 4 MiB, at most
+/// 32 MiB), so a script of a few MiB parses.
 pub const SCRIPT_MEMORY_LIMIT_BYTES: usize = 8 * 1024 * 1024;
+/// Heap limits of the dispatches running at once, in total: four ordinary
+/// scripts side by side, or one script of a few MiB alone.
+pub const SCRIPT_MEMORY_BUDGET_BYTES: usize = 32 * 1024 * 1024;
 /// Upper bound for a script's own `timeout`.
 pub const SCRIPT_MAX_TIMEOUT_MS: usize = 3_000;
 const LEAF_CACHE_ENTRIES: usize = 64;
@@ -162,7 +171,14 @@ impl MitmEngine {
             .iter()
             .filter(|import| import.report.policy_load_error.is_none())
             .collect::<Vec<_>>();
-        let policy = merged_plugin_source("NetworkCore iOS MITM", &accepted);
+        let mut policy = merged_plugin_source("NetworkCore iOS MITM", &accepted);
+        // Loaded policy engines are reused by a fingerprint that samples a
+        // large policy; this last line makes each engine's policy distinct.
+        static POLICY_SERIAL: AtomicU64 = AtomicU64::new(1);
+        policy.push_str(&format!(
+            "\n# networkcore policy {}\n",
+            POLICY_SERIAL.fetch_add(1, Ordering::Relaxed)
+        ));
         let plugin_rules = accepted
             .iter()
             .flat_map(|import| import.routing_rules())
@@ -423,15 +439,22 @@ impl MitmEngine {
             };
             let (method, path, version) = split_request_line(&request.start_line)?;
             let request_framing = request.framing()?;
-            let request_body = match client.read_body(request_framing, MAX_BODY_BYTES).await? {
-                Body::Complete(body) => body,
-                Body::TooLarge(raw) => {
-                    origin.write_all(&request.encode()).await?;
-                    origin.write_all(&raw).await?;
-                    return passthrough(client, origin).await;
+            let url = format!("{scheme}://{authority}{path}");
+            // A body no rule reads is forwarded as it arrives, not held whole.
+            let stream_request = !self.needs_body(&url, HttpMitmPhase::Request);
+            let stream_response = !self.needs_body(&url, HttpMitmPhase::Response);
+            let request_body = if stream_request {
+                Vec::new()
+            } else {
+                match client.read_body(request_framing, MAX_BODY_BYTES).await? {
+                    Body::Complete(body) => body,
+                    Body::TooLarge(raw) => {
+                        origin.write_all(&request.encode()).await?;
+                        origin.write_all(&raw).await?;
+                        return passthrough(client, origin).await;
+                    }
                 }
             };
-            let url = format!("{scheme}://{authority}{path}");
             let request_id = self
                 .next_request
                 .fetch_add(1, Ordering::Relaxed)
@@ -448,18 +471,22 @@ impl MitmEngine {
                 })
                 .await?;
             let client_close = request.has_token("Connection", "close") || version == "HTTP/1.0";
+            let had_body = !matches!(request_framing, Framing::Length(0));
 
             if report.terminal_action.is_some() {
+                // A streamed body was never read, so the connection cannot
+                // carry another request after this answer.
+                let close = client_close || (stream_request && had_body);
                 let response = response_head(
                     report.final_status_code.unwrap_or(200),
                     &report.headers,
                     report.redirect_location.as_deref(),
                     report.body.len(),
-                    client_close,
+                    close,
                 );
                 client.write_all(&response.encode()).await?;
                 client.write_all(&report.body).await?;
-                if client_close {
+                if close {
                     return Ok(());
                 }
                 continue;
@@ -473,21 +500,30 @@ impl MitmEngine {
                 .filter(|rest| rest.starts_with('/'))
                 .unwrap_or(path.as_str())
                 .to_string();
-            let had_body = !matches!(request_framing, Framing::Length(0));
             let mut headers = from_metadata(&report.headers);
-            remove(&mut headers, "Transfer-Encoding");
-            remove(&mut headers, "Content-Length");
-            remove(&mut headers, "Accept-Encoding");
-            headers.push(("Accept-Encoding".to_string(), "identity".to_string()));
-            if had_body || !report.body.is_empty() {
-                headers.push(("Content-Length".to_string(), report.body.len().to_string()));
+            if !stream_request {
+                remove(&mut headers, "Transfer-Encoding");
+                remove(&mut headers, "Content-Length");
+                if had_body || !report.body.is_empty() {
+                    headers.push(("Content-Length".to_string(), report.body.len().to_string()));
+                }
+            }
+            if !stream_response {
+                // Rules read the response body as sent, so ask for it
+                // uncompressed.
+                remove(&mut headers, "Accept-Encoding");
+                headers.push(("Accept-Encoding".to_string(), "identity".to_string()));
             }
             let upstream_request = Head {
                 start_line: format!("{method} {path} HTTP/1.1"),
                 headers,
             };
             origin.write_all(&upstream_request.encode()).await?;
-            origin.write_all(&report.body).await?;
+            if stream_request {
+                client.copy_body(request_framing, &mut origin).await?;
+            } else {
+                origin.write_all(&report.body).await?;
+            }
 
             // Interim 1xx responses go straight to the client.
             let response = loop {
@@ -523,6 +559,48 @@ impl MitmEngine {
             } else {
                 response.framing()?
             };
+            let close = client_close
+                || framing == Framing::UntilClose
+                || response.has_token("Connection", "close");
+
+            if stream_response && !no_body {
+                // Only the head is planned; the body follows as it arrives.
+                let report = self
+                    .plan(NativePlainHttpMessage {
+                        request_id,
+                        url,
+                        method: Some(method.clone()),
+                        phase: HttpMitmPhase::Response,
+                        status_code: Some(status),
+                        headers: to_metadata(&response.headers),
+                        body: Vec::new(),
+                    })
+                    .await?;
+                if report.terminal_action.is_some() {
+                    let head = response_head(
+                        report.final_status_code.unwrap_or(status),
+                        &report.headers,
+                        report.redirect_location.as_deref(),
+                        report.body.len(),
+                        true,
+                    );
+                    client.write_all(&head.encode()).await?;
+                    client.write_all(&report.body).await?;
+                    return Ok(());
+                }
+                let final_status = report.final_status_code.unwrap_or(status);
+                let head = Head {
+                    start_line: format!("HTTP/1.1 {final_status} {}", reason(final_status)),
+                    headers: from_metadata(&report.headers),
+                };
+                client.write_all(&head.encode()).await?;
+                origin.copy_body(framing, &mut client).await?;
+                if close {
+                    return Ok(());
+                }
+                continue;
+            }
+
             let response_body = match origin.read_body(framing, MAX_BODY_BYTES).await? {
                 Body::Complete(body) => body,
                 Body::TooLarge(raw) => {
@@ -542,9 +620,6 @@ impl MitmEngine {
                     body: response_body,
                 })
                 .await?;
-            let close = client_close
-                || framing == Framing::UntilClose
-                || response.has_token("Connection", "close");
             let mut head = response_head(
                 report.final_status_code.unwrap_or(status),
                 &report.headers,
@@ -567,6 +642,14 @@ impl MitmEngine {
                 return Ok(());
             }
         }
+    }
+
+    /// Whether a rule reads the body of `url`'s messages in `phase`; when
+    /// unsure, it does.
+    fn needs_body(&self, url: &str, phase: HttpMitmPhase) -> bool {
+        self.service
+            .needs_body(&self.instance, url, phase)
+            .unwrap_or(true)
     }
 }
 
@@ -783,6 +866,7 @@ fn with_scripts(
         memory_limit_bytes: SCRIPT_MEMORY_LIMIT_BYTES,
     })
     .map_err(|_| "mitm scripts are unavailable")?
+    .with_memory_budget(SCRIPT_MEMORY_BUDGET_BYTES)
     .with_http_client(Arc::new(http_client::TunnelScriptHttpClient::new(
         outbound.clone(),
         tls.clone(),

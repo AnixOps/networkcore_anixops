@@ -722,12 +722,158 @@ impl From<sys::AnixOpsScriptKind> for MitmPolicyScriptKind {
     }
 }
 
+/// Loaded engines kept between HTTP events. Loading a policy parses it and
+/// compiles every rule, far more work than planning one message, and a
+/// policy with large plugins runs to megabytes.
+static ENGINE_POOL: std::sync::Mutex<Vec<PooledEngine>> = std::sync::Mutex::new(Vec::new());
+/// Idle engines kept; more run at once when messages are planned in
+/// parallel, and the extra ones are dropped afterwards.
+const ENGINE_POOL_MAX_IDLE: usize = 2;
+
+/// Policies up to this size are hashed whole; larger ones by samples, so a
+/// multi-megabyte policy costs little per message. The embedded data plane
+/// ends each policy it builds with a line unique to it, which the samples
+/// always cover.
+const POLICY_FULL_HASH_MAX_BYTES: usize = 256 * 1024;
+const POLICY_SAMPLE_BYTES: usize = 64 * 1024;
+const POLICY_STRIDE_SAMPLES: usize = 32;
+const POLICY_STRIDE_SAMPLE_BYTES: usize = 512;
+
+/// A policy's identity: its length and a hash of its text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PolicyFingerprint(usize, u64);
+
+impl PolicyFingerprint {
+    fn of(source: &str) -> Self {
+        use std::hash::Hasher;
+        let bytes = source.as_bytes();
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        if bytes.len() <= POLICY_FULL_HASH_MAX_BYTES {
+            hasher.write(bytes);
+        } else {
+            hasher.write(&bytes[..POLICY_SAMPLE_BYTES]);
+            hasher.write(&bytes[bytes.len() - POLICY_SAMPLE_BYTES..]);
+            let stride = bytes.len() / POLICY_STRIDE_SAMPLES;
+            for index in 0..POLICY_STRIDE_SAMPLES {
+                let start = index * stride;
+                let end = (start + POLICY_STRIDE_SAMPLE_BYTES).min(bytes.len());
+                hasher.write(&bytes[start..end]);
+            }
+        }
+        Self(bytes.len(), hasher.finish())
+    }
+}
+
+struct PooledEngine {
+    policy: PolicyFingerprint,
+    engine: AnixOpsMitmPolicyEngine,
+}
+
+// SAFETY: the mitm_anixops C engine keeps all its state in the engine value,
+// with no globals or thread-local data, so it may move between threads; the
+// pool hands each engine to one thread at a time.
+unsafe impl Send for PooledEngine {}
+
+/// An engine loaded with one policy, taken from the pool or loaded fresh.
+/// It goes back to the pool only after [`EngineLease::keep`], so an engine
+/// that saw an error is never reused.
+struct EngineLease {
+    pooled: Option<PooledEngine>,
+    keep: bool,
+}
+
+impl EngineLease {
+    fn acquire(source: &str) -> DomainResult<Self> {
+        let policy = PolicyFingerprint::of(source);
+        let pooled = ENGINE_POOL.lock().ok().and_then(|mut pool| {
+            let index = pool.iter().rposition(|entry| entry.policy == policy)?;
+            Some(pool.remove(index))
+        });
+        let pooled = match pooled {
+            Some(pooled) => pooled,
+            None => {
+                let mut engine = AnixOpsMitmPolicyEngine::new()?;
+                engine.load_config(source)?;
+                PooledEngine { policy, engine }
+            }
+        };
+        Ok(Self {
+            pooled: Some(pooled),
+            keep: false,
+        })
+    }
+
+    fn keep(&mut self) {
+        self.keep = true;
+    }
+}
+
+impl std::ops::Deref for EngineLease {
+    type Target = AnixOpsMitmPolicyEngine;
+
+    fn deref(&self) -> &Self::Target {
+        &self
+            .pooled
+            .as_ref()
+            .expect("a lease holds its engine")
+            .engine
+    }
+}
+
+impl std::ops::DerefMut for EngineLease {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self
+            .pooled
+            .as_mut()
+            .expect("a lease holds its engine")
+            .engine
+    }
+}
+
+impl Drop for EngineLease {
+    fn drop(&mut self) {
+        let Some(pooled) = self.pooled.take().filter(|_| self.keep) else {
+            return;
+        };
+        if let Ok(mut pool) = ENGINE_POOL.lock() {
+            pool.push(pooled);
+            while pool.len() > ENGINE_POOL_MAX_IDLE {
+                pool.remove(0);
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 pub struct AnixOpsMitmPluginService;
 
 impl AnixOpsMitmPluginService {
     pub const fn new() -> Self {
         Self
+    }
+
+    /// Whether planning a message to `url` in `phase` reads its body: a
+    /// body rewrite (including jq) or a script matches. When nothing does,
+    /// the data plane can forward the body as it arrives instead of holding
+    /// it whole, and only the head is planned.
+    pub fn needs_body(
+        &self,
+        plugin_instance: &PluginInstance,
+        url: &str,
+        phase: HttpMitmPhase,
+    ) -> DomainResult<bool> {
+        let Some(source) = plugin_instance.loaded_source.as_deref() else {
+            return Ok(false);
+        };
+        let mut engine = EngineLease::acquire(source)?;
+        let phase = policy_phase_from_domain(phase);
+        let (plan, _) = engine.build_rewrite_plan(url, phase, "")?;
+        let (_, chain) = engine.apply_body_chain(url, phase, "")?;
+        engine.keep();
+        Ok(plan.requires_body
+            || plan.script.kind != MitmPolicyScriptKind::None
+            || !chain.rewrites.is_empty()
+            || chain.truncated)
     }
 }
 
@@ -915,8 +1061,7 @@ impl MitmPluginService for AnixOpsMitmPluginService {
             });
         }
 
-        let mut engine = AnixOpsMitmPolicyEngine::new()?;
-        engine.load_config(source)?;
+        let mut engine = EngineLease::acquire(source)?;
         let phase = policy_phase_from_domain(http_event.phase);
         let body = String::from_utf8_lossy(&http_event.body);
         let (plan, _) = engine.build_rewrite_plan(&http_event.url, phase, &body)?;
@@ -953,6 +1098,7 @@ impl MitmPluginService for AnixOpsMitmPluginService {
             None
         };
         let script_dispatch = domain_script_dispatch_from_policy(&plan.script);
+        engine.keep();
 
         Ok(HttpMitmOutcome {
             action,

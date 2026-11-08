@@ -53,7 +53,7 @@ use control_domain::{
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 
-pub const LOON_PLUGIN_MAX_BYTES: usize = 1024 * 1024;
+pub const LOON_PLUGIN_MAX_BYTES: usize = 8 * 1024 * 1024;
 
 pub const LOON_PLUGIN_TOO_LARGE_CODE: &str = "mitm.policy.loon_plugin.too_large";
 pub const LOON_PLUGIN_EMPTY_CODE: &str = "mitm.policy.loon_plugin.empty";
