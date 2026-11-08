@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 
-use config_core::routing::{PolicyGroupSpec, RoutingSpec};
+use config_core::routing::{PolicyGroupSpec, RoutingRule, RoutingSpec};
 use config_core::rule_set::{BareDomain, RuleSet, RuleSetEntries, MAX_RULE_SET_ENTRIES};
 use engine_outbound::registry::{OutboundRegistry, Settings};
 use engine_outbound::{Dialer, OutboundDialer, TcpOutbound};
@@ -563,6 +563,17 @@ impl RuntimeConfig {
         registry: &OutboundRegistry,
         dialer: Arc<dyn Dialer>,
     ) -> Result<Option<Arc<RoutedOutbound>>, RuntimeError> {
+        self.build_routed_with_plugin_rules(registry, dialer, &[])
+    }
+
+    /// As [`RuntimeConfig::build_routed`], with MITM plugin rules ahead of
+    /// the user's rules (see [`RoutedOutbound::with_plugin_rules`]).
+    pub fn build_routed_with_plugin_rules(
+        &self,
+        registry: &OutboundRegistry,
+        dialer: Arc<dyn Dialer>,
+        plugin_rules: &[RoutingRule],
+    ) -> Result<Option<Arc<RoutedOutbound>>, RuntimeError> {
         let Some(routing) = self.routing.as_ref().filter(|_| self.outbound.is_none()) else {
             return Ok(None);
         };
@@ -620,7 +631,7 @@ impl RuntimeConfig {
         if let Some(global) = &routing.global {
             routed = routed.with_global(global)?;
         }
-        Ok(Some(Arc::new(routed)))
+        Ok(Some(Arc::new(routed.with_plugin_rules(plugin_rules))))
     }
 }
 

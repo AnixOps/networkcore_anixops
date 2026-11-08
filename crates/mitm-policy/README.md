@@ -64,14 +64,20 @@ The plugin as a whole is graded `full`, `partial`, or `unsupported`.
 - `[MITM] hostname` (`%APPEND%`/`%INSERT%`, `-host`/`!host` exclusions) goes
   to `LoonMitmHostnames::apply`. Plugins only add hosts.
   `skip-server-cert-verify` is always refused.
-- `[Rule]` DOMAIN, DOMAIN-SUFFIX, DOMAIN-KEYWORD, IP-CIDR, IP-CIDR6, and GEOIP lines with a
-  REJECT or DIRECT policy become routing rules. `routing_model_with_plugin_rules`
-  puts them before the user's rules.
-- URL-REGEX REJECT rules, reject variants, 301–308 redirects, and
-  request/response header rewrites stay in the source that the `mitm_anixops`
-  core evaluates.
-- Rules that name another policy cannot work, because a plugin does not know
-  the user's node names.
+- `[Rule]` lines that config-core reads (DOMAIN, DOMAIN-SUFFIX, DOMAIN-KEYWORD,
+  DOMAIN-WILDCARD, IP-CIDR, IP-CIDR6, GEOIP, DST-PORT, AND/OR/NOT, ...) become
+  routing rules. Surge options such as `pre-matching` are accepted and ignored.
+  REJECT and DIRECT keep their meaning. `PROXY` or any other policy name
+  resolves when the rules join the routing model: a user group with that name,
+  else the FINAL node or group, else the first group.
+  `routing_model_with_plugin_rules` and engine-embedded
+  (`FlowInterceptor::plugin_rules`) put them before the user's rules.
+- URL-REGEX REJECT rules (REJECT-DROP / REJECT-NO-DROP read as REJECT), reject
+  variants, 301–308 redirects, and request/response header rewrites stay in
+  the source that the `mitm_anixops` core evaluates.
+- Surge module arguments (`#!arguments=Name:default,...`) replace `{{{Name}}}`
+  with the default value before grading; a `#` default turns the line into a
+  comment.
 - `[Script]` `http-request` and `http-response` lines (P1) are planned by the
   `mitm_anixops` core and run on desktop in the in-process QuickJS runtime of
   `crates/script-runtime`. `binary-body-mode` is supported: the core reports
