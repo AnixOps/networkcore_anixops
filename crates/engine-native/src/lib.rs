@@ -41,13 +41,17 @@ mod quickjs_script;
 
 #[cfg(feature = "quickjs")]
 pub use quickjs_script::{
-    NativeQuickJsScriptExecutor, NativeQuickJsScriptRuntimeConfig,
-    ENGINE_NATIVE_QUICKJS_SCRIPT_CONFIG_INVALID_CODE,
+    NativeQuickJsScriptExecutor, NativeQuickJsScriptRuntimeConfig, NativeScheduledScriptKind,
+    NativeScheduledScriptReport, NativeScheduledScriptRun,
+    ENGINE_NATIVE_QUICKJS_SCRIPT_CONFIG_INVALID_CODE, QUICKJS_MAX_PENDING_NOTIFICATIONS,
+    QUICKJS_MAX_SCHEDULED_TIMEOUT_SECS,
 };
 /// Types an embedder needs to give scripts network access
 /// ([`NativeQuickJsScriptExecutor::with_http_client`]).
 #[cfg(feature = "quickjs")]
-pub use script_runtime::{ScriptHttpClient, ScriptHttpClientRequest, ScriptResponse};
+pub use script_runtime::{
+    ScriptHttpClient, ScriptHttpClientRequest, ScriptNotification, ScriptResponse,
+};
 
 pub use h2_mitm::{
     run_native_h2_mitm_session, NativeH2MitmSessionConfig, NativeH2MitmSessionReport,

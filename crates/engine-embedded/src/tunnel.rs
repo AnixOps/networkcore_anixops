@@ -101,6 +101,19 @@ pub trait FlowInterceptor: Send + Sync {
         Vec::new()
     }
 
+    /// Work the interceptor runs on the tunnel's runtime while it runs, such
+    /// as scheduled plugin scripts. The default has none.
+    fn background(self: Arc<Self>) -> Option<BoxFuture<'static, ()>> {
+        None
+    }
+
+    /// Answers a script control command; `None` when the interceptor runs
+    /// no scripts.
+    fn script_control(&self, request: &crate::control::ScriptControl) -> Option<serde_json::Value> {
+        let _ = request;
+        None
+    }
+
     /// Serves a claimed flow to the end, connecting through `outbound`.
     fn serve<'a>(
         &'a self,
@@ -268,9 +281,12 @@ impl Tunnel {
         sink: impl PacketWriter,
     ) -> io::Result<Self> {
         let sink: Arc<dyn PacketWriter> = Arc::new(sink);
+        let interceptor_background = interceptor
+            .clone()
+            .and_then(|interceptor| interceptor.background());
         Self::launch(move |packet_rx, stats| {
             spawn_tasks(settings, dispatcher, interceptor, sink, packet_rx, stats)?;
-            if let Some(background) = background {
+            for background in [background, interceptor_background].into_iter().flatten() {
                 tokio::spawn(background);
             }
             Ok(())

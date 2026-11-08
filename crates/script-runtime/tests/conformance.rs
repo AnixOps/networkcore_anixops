@@ -54,12 +54,15 @@ fn invocation(value: &Value) -> ScriptInvocation {
         phase: match value["phase"].as_str() {
             Some("request") => ScriptPhase::Request,
             Some("response") => ScriptPhase::Response,
+            Some("cron") => ScriptPhase::Cron,
+            Some("event") => ScriptPhase::Event,
+            Some("generic") => ScriptPhase::Generic,
             other => panic!("unknown phase {other:?}"),
         },
         script_name: text(value.get("scriptName")).unwrap_or_else(|| "fixture".to_string()),
         argument: text(value.get("argument")).unwrap_or_default(),
         request: ScriptRequest {
-            url: text(request.get("url")).unwrap(),
+            url: text(request.get("url")).unwrap_or_default(),
             method: text(request.get("method")).unwrap_or_else(|| "GET".to_string()),
             headers: headers(request.get("headers")),
             body: text(request.get("body")),
@@ -69,6 +72,7 @@ fn invocation(value: &Value) -> ScriptInvocation {
             .get("binaryBody")
             .and_then(Value::as_bool)
             .unwrap_or(false),
+        event: text(value.get("event")),
     }
 }
 
@@ -296,6 +300,7 @@ mod javascriptcore {
             },
             response: None,
             binary_body: false,
+            event: None,
         };
         let limits = ScriptLimits {
             timeout: Duration::from_millis(100),
@@ -402,6 +407,7 @@ fn concurrent_dispatches_share_only_the_store() {
                     },
                     response: None,
                     binary_body: false,
+                    event: None,
                 };
                 runtime.run(
                     "leaked = (typeof leaked === 'undefined') ? $argument : 'shared';\

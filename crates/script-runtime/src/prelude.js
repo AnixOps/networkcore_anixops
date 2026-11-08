@@ -97,7 +97,9 @@
   exposeBinaryBody(context.request);
   exposeBinaryBody(context.response);
 
-  define("$request", context.request);
+  if (context.request) {
+    define("$request", context.request);
+  }
   if (context.response) {
     // Quantumult X scripts read `statusCode`, Loon and Surge `status`.
     if (context.response.statusCode === undefined) {
@@ -109,9 +111,13 @@
   define("$loon", context.environment);
   define("$script", {
     name: context.scriptName,
-    type: context.phase === "response" ? "http-response" : "http-request",
+    type: context.phase === "response" ? "http-response"
+      : context.phase === "request" ? "http-request" : context.phase,
     startTime: new Date()
   });
+  if (context.event) {
+    define("$event", { name: context.event });
+  }
 
   define("$done", function (value) {
     var payload;

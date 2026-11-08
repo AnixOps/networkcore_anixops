@@ -9,6 +9,12 @@ description = "Safe mitm_anixops policy adapter for the AnixOps network control 
 [dependencies]
 config-core = { path = "../config-core" }
 control-domain = { path = "../control-domain" }
+# jq body rewrites; the mitm_anixops core is built without libjq.
+jaq-core = "3.1.2"
+jaq-json = "2.0.3"
+jaq-std = "3.0.4"
+# Local time for cron schedules; jaq-std already depends on it.
+jiff = "=0.2.38"
 mitm-anixops-sys = { path = "../mitm-anixops-sys" }
 time = { version = "0.3", features = ["parsing"] }
 

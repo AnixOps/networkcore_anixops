@@ -1,0 +1,16 @@
+{
+  "invocation": {
+    "phase": "cron",
+    "scriptName": "checkin",
+    "argument": "notify=true"
+  },
+  "store": { "runs": "2" },
+  "expect": {
+    "status": "done",
+    "mutation": {},
+    "store": { "runs": "3" },
+    "notifications": [
+      { "title": "Check-in", "subtitle": "cron", "content": "undefined,undefined,undefined,notify=true" }
+    ]
+  }
+}

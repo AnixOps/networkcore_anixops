@@ -137,6 +137,37 @@ fn mask_ip(address: IpAddr, prefix_len: u8) -> IpAddr {
     }
 }
 
+/// Values of a `PROTOCOL` rule. `QUIC` is UDP to port 443, `HTTPS` TCP to
+/// port 443 and `HTTP` TCP to port 80, as far as routing can tell before
+/// the first bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum RuleProtocol {
+    Tcp,
+    Udp,
+    Quic,
+    Http,
+    Https,
+}
+
+impl RuleProtocol {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Tcp => "TCP",
+            Self::Udp => "UDP",
+            Self::Quic => "QUIC",
+            Self::Http => "HTTP",
+            Self::Https => "HTTPS",
+        }
+    }
+}
+
+/// Transport of a connection being routed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum RouteNetwork {
+    Tcp,
+    Udp,
+}
+
 /// Connection property a rule matches against.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum RuleMatcher {
@@ -162,6 +193,8 @@ pub enum RuleMatcher {
     /// Lower-case name of the local process that opened the connection,
     /// when the platform can tell.
     ProcessName(String),
+    /// Transport of the connection, as Surge `PROTOCOL`.
+    Protocol(RuleProtocol),
     /// Every rule matches.
     And(Vec<RuleMatcher>),
     /// Any rule matches.
@@ -203,6 +236,7 @@ impl fmt::Display for RuleMatcher {
             Self::DstPort(start, end) if start == end => write!(formatter, "DST-PORT,{start}"),
             Self::DstPort(start, end) => write!(formatter, "DST-PORT,{start}-{end}"),
             Self::ProcessName(name) => write!(formatter, "PROCESS-NAME,{name}"),
+            Self::Protocol(protocol) => write!(formatter, "PROTOCOL,{}", protocol.name()),
             Self::And(rules) => write_logical(formatter, "AND", rules),
             Self::Or(rules) => write_logical(formatter, "OR", rules),
             Self::Not(rule) => write_logical(formatter, "NOT", std::slice::from_ref(rule)),
@@ -512,9 +546,22 @@ fn parse_matcher(kind: &str, value: &str) -> DomainResult<RuleMatcher> {
             RuleMatcher::DstPort(start, end)
         }
         "PROCESS-NAME" => RuleMatcher::ProcessName(value.trim().to_lowercase()),
+        "PROTOCOL" => RuleMatcher::Protocol(match value.trim().to_ascii_uppercase().as_str() {
+            "TCP" => RuleProtocol::Tcp,
+            "UDP" => RuleProtocol::Udp,
+            "QUIC" => RuleProtocol::Quic,
+            "HTTP" => RuleProtocol::Http,
+            "HTTPS" => RuleProtocol::Https,
+            _ => {
+                return Err(routing_error(
+                    ROUTING_RULE_VALUE_INVALID_CODE,
+                    "PROTOCOL rule value must be TCP, UDP, QUIC, HTTP, or HTTPS",
+                ))
+            }
+        }),
         _ => return Err(routing_error(
             ROUTING_RULE_TYPE_UNSUPPORTED_CODE,
-            "routing rule type must be DOMAIN, DOMAIN-SUFFIX, DOMAIN-KEYWORD, DOMAIN-WILDCARD, IP-CIDR, IP-CIDR6, GEOIP, GEOSITE, DST-PORT, PROCESS-NAME, RULE-SET, AND, OR, NOT, or FINAL",
+            "routing rule type must be DOMAIN, DOMAIN-SUFFIX, DOMAIN-KEYWORD, DOMAIN-WILDCARD, IP-CIDR, IP-CIDR6, GEOIP, GEOSITE, DST-PORT, PROCESS-NAME, PROTOCOL, RULE-SET, AND, OR, NOT, or FINAL",
         )),
     })
 }
@@ -658,6 +705,7 @@ impl RoutingModel {
                 ip,
                 port: query.port,
                 process: process.as_deref(),
+                network: query.network,
             };
             if rule_matches(&rule.matcher, &input, environment) {
                 return self.resolution(
@@ -767,6 +815,8 @@ pub struct RouteQuery {
     /// Name of the local process that opened the connection, for
     /// PROCESS-NAME rules, when the platform can tell.
     pub process: Option<String>,
+    /// Transport, for PROTOCOL rules; they never match without it.
+    pub network: Option<RouteNetwork>,
 }
 
 impl RouteQuery {
@@ -786,6 +836,11 @@ impl RouteQuery {
 
     pub fn with_port(mut self, port: u16) -> Self {
         self.port = Some(port);
+        self
+    }
+
+    pub fn with_network(mut self, network: RouteNetwork) -> Self {
+        self.network = Some(network);
         self
     }
 }
@@ -884,6 +939,7 @@ struct MatchInput<'a> {
     ip: Option<IpAddr>,
     port: Option<u16>,
     process: Option<&'a str>,
+    network: Option<RouteNetwork>,
 }
 
 fn rule_matches(
@@ -916,6 +972,17 @@ fn rule_matches(
             .port
             .is_some_and(|port| (*start..=*end).contains(&port)),
         RuleMatcher::ProcessName(name) => input.process == Some(name.as_str()),
+        RuleMatcher::Protocol(protocol) => {
+            let port = input.port;
+            match (protocol, input.network) {
+                (RuleProtocol::Tcp, Some(RouteNetwork::Tcp))
+                | (RuleProtocol::Udp, Some(RouteNetwork::Udp)) => true,
+                (RuleProtocol::Quic, Some(RouteNetwork::Udp))
+                | (RuleProtocol::Https, Some(RouteNetwork::Tcp)) => port == Some(443),
+                (RuleProtocol::Http, Some(RouteNetwork::Tcp)) => port == Some(80),
+                _ => false,
+            }
+        }
         RuleMatcher::And(rules) => rules
             .iter()
             .all(|rule| rule_matches(rule, input, environment)),

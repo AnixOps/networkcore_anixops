@@ -1,0 +1,14 @@
+{
+  "invocation": {
+    "phase": "event",
+    "scriptName": "net",
+    "event": "network-changed"
+  },
+  "expect": {
+    "status": "done",
+    "mutation": {},
+    "notifications": [
+      { "title": "event", "subtitle": "network-changed", "content": "undefined" }
+    ]
+  }
+}

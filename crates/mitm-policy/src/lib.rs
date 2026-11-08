@@ -5,6 +5,8 @@
 //! an alpha built-in ad-block plugin package. It does not apply live
 //! request/response mutations yet.
 
+pub mod loon_cron;
+pub mod loon_jq;
 pub mod loon_map_local;
 pub mod loon_plugin;
 mod loon_syntax;
@@ -888,14 +890,22 @@ impl MitmPluginService for AnixOpsMitmPluginService {
         // Every matching body rule applies in order, so one Loon
         // `[Body Rewrite]` line with several replacement pairs takes effect.
         let body_mutation = if plan.rewrite.action == MitmPolicyRewriteAction::BodyMutation {
-            let (chained_body, chain) = engine.apply_body_chain(&http_event.url, phase, &body)?;
-            (chain.rewritten
-                && !chain.truncated
-                && chained_body.as_bytes() != http_event.body.as_slice())
-            .then(|| HttpBodyMutation {
-                body: chained_body.into_bytes(),
-                truncated: false,
-            })
+            let (mut chained_body, chain) =
+                engine.apply_body_chain(&http_event.url, phase, &body)?;
+            let mut rewritten = chain.rewritten;
+            // The core matches jq rules but has no jq backend; jaq runs them.
+            if !chain.truncated {
+                if let Some(jq_body) = loon_jq::apply_jq_steps(source, phase, &chain, &chained_body)
+                {
+                    chained_body = jq_body;
+                    rewritten = true;
+                }
+            }
+            (rewritten && !chain.truncated && chained_body.as_bytes() != http_event.body.as_slice())
+                .then(|| HttpBodyMutation {
+                    body: chained_body.into_bytes(),
+                    truncated: false,
+                })
         } else {
             None
         };

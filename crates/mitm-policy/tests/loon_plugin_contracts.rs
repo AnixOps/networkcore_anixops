@@ -7,8 +7,8 @@ use control_domain::{
 };
 use mitm_policy::loon_plugin::{
     import_loon_plugin, merged_plugin_source, routing_model_with_plugin_rules, LoonLineHandler,
-    LoonLineStatus, LoonSupportLevel, LOON_PLUGIN_EMPTY_CODE, LOON_PLUGIN_ID_INVALID_CODE,
-    LOON_PLUGIN_MAX_BYTES, LOON_PLUGIN_TOO_LARGE_CODE,
+    LoonLineStatus, LoonScheduledTrigger, LoonSupportLevel, LOON_PLUGIN_EMPTY_CODE,
+    LOON_PLUGIN_ID_INVALID_CODE, LOON_PLUGIN_MAX_BYTES, LOON_PLUGIN_TOO_LARGE_CODE,
 };
 use mitm_policy::{
     AnixOpsMitmPluginService, AnixOpsMitmPolicyEngine, MitmPolicyMitmDecisionType, MitmPolicyPhase,
@@ -397,6 +397,22 @@ fn glob_hostnames_are_kept_and_malformed_ones_left_out() {
         .source()
         .lines()
         .any(|line| line == "hostname = a.example.com"));
+
+    // Items no host name can have lose nothing: the line stays supported.
+    let dead = import_loon_plugin(concat!(
+        "[Rewrite]\n",
+        "^https?://a\\.example\\.com/ads reject\n",
+        "[MITM]\n",
+        "hostname = a.example.com, a-zA-Z0-9_-.admobile.top, cupid.51job*.comhostname = img.example.com\n",
+    ))
+    .expect("plugin imports");
+    assert_eq!(dead.mitm_hostnames.include, vec!["a.example.com"]);
+    assert_eq!(dead.report.level, LoonSupportLevel::Full);
+    assert!(dead
+        .report
+        .lines
+        .iter()
+        .any(|line| line.reason == "mitm.hostname_dead_items_dropped"));
 
     // An exclusion the core cannot read would widen decryption: drop the line.
     let excluded = import_loon_plugin(concat!(
@@ -903,4 +919,118 @@ fn loon_conditional_scripts_become_http_scripts() {
         "{source}"
     );
     let _engine = loaded_engine(&merged_plugin_source("Script Hub", &[&plugin]));
+}
+
+#[test]
+fn policyless_rules_and_misfiled_lines_are_read() {
+    let plugin = import_loon_plugin(concat!(
+        "#!name = Misfiled\n",
+        "[Rule]\n",
+        "DOMAIN-SUFFIX,musical.ly\n",
+        "AND,((PROTOCOL,QUIC),(DOMAIN-SUFFIX,example.com)),REJECT\n",
+        "[Rewrite]\n",
+        "http-response ^https?://a\\.example\\.com/feed script-path=https://example.com/feed.js, requires-body=true, tag=feed\n",
+        "[Script]\n",
+        "^https?://a\\.example\\.com/adplace reject-dict\n",
+        "[MITM]\n",
+        "hostname = a.example.com\n",
+    ))
+    .expect("misfiled plugin should import");
+    assert_eq!(
+        plugin.report.level,
+        LoonSupportLevel::Full,
+        "{}",
+        plugin.report.render_text("misfiled")
+    );
+    let rules = plugin.routing_rules();
+    assert_eq!(rules[0].target, PolicyTarget::Group("PROXY".to_string()));
+    assert_eq!(rules[1].target, PolicyTarget::Reject);
+    let merged = merged_plugin_source("Misfiled", &[&plugin]);
+    assert!(
+        merged.contains("http-response ^https?://a\\.example\\.com/feed"),
+        "{merged}"
+    );
+    let engine = loaded_engine(&merged);
+    let ad = engine
+        .evaluate_url_rewrite("https://a.example.com/adplace", MitmPolicyPhase::Request)
+        .expect("reject should evaluate");
+    assert_eq!(ad.action, MitmPolicyRewriteAction::Reject);
+}
+
+#[test]
+fn scheduled_scripts_of_every_dialect_are_read() {
+    let loon = import_loon_plugin(concat!(
+        "#!name = Tasks\n",
+        "#!arguments = sync_cron:\"55 23 * * *\", notify:true\n",
+        "[Script]\n",
+        "cron \"0 9 * * *\" script-path=https://example.com/checkin.js, tag=checkin, timeout=120, argument=[{notify}]\n",
+        "cron {sync_cron} script-path=https://example.com/sync.js, tag=sync\n",
+        "network-changed script-path=https://example.com/net.js, tag=net\n",
+        "generic script-path=https://example.com/panel.js, tag=panel\n",
+        "cron \"0 1 * * *\" script-path=https://example.com/off.js, enable=false\n",
+        "cron \"not a cron\" script-path=https://example.com/bad.js\n",
+    ))
+    .expect("loon tasks should import");
+    let scripts = &loon.scheduled_scripts;
+    assert_eq!(scripts.len(), 4, "{scripts:?}");
+    assert_eq!(
+        scripts[0].trigger,
+        LoonScheduledTrigger::Cron("0 9 * * *".to_string())
+    );
+    assert_eq!(scripts[0].tag, "checkin");
+    assert_eq!(scripts[0].timeout_secs, 120);
+    assert_eq!(scripts[0].argument, "notify=true");
+    assert_eq!(
+        scripts[1].trigger,
+        LoonScheduledTrigger::Cron("55 23 * * *".to_string())
+    );
+    assert_eq!(scripts[2].trigger, LoonScheduledTrigger::NetworkChanged);
+    assert_eq!(scripts[3].trigger, LoonScheduledTrigger::Generic);
+    assert_eq!(scripts[3].timeout_secs, 60);
+    let reasons = loon
+        .report
+        .lines
+        .iter()
+        .map(|line| (line.reason.as_str(), line.status))
+        .collect::<Vec<_>>();
+    assert!(reasons.contains(&("script.disabled", LoonLineStatus::Ignored)));
+    assert!(reasons.contains(&("script.cron_invalid", LoonLineStatus::Unsupported)));
+    assert!(!loon.source().contains("\ncron "), "{}", loon.source());
+
+    let surge = import_loon_plugin(concat!(
+        "#!name = Surge tasks\n",
+        "[Script]\n",
+        "Sub-Store Sync = type=cron, cronexp=\"55 23 * * *\", wake-system=1, timeout=120, script-path=https://example.com/cron-sync.js\n",
+        "Net = type=event, event-name=network-changed, script-path=https://example.com/net.js\n",
+        "Notify = type=event, event-name=notification, script-path=https://example.com/n.js\n",
+    ))
+    .expect("surge tasks should import");
+    assert_eq!(surge.scheduled_scripts.len(), 2);
+    assert_eq!(surge.scheduled_scripts[0].tag, "Sub-Store Sync");
+    assert_eq!(
+        surge.scheduled_scripts[1].trigger,
+        LoonScheduledTrigger::NetworkChanged
+    );
+    assert!(surge
+        .report
+        .lines
+        .iter()
+        .any(|line| line.reason == "script.event_unsupported"));
+
+    let qx = import_loon_plugin(concat!(
+        "[task_local]\n",
+        "0 8 * * * https://example.com/qx-checkin.js, tag=qx checkin, enabled=true\n",
+        "event-network https://example.com/qx-net.js, tag=qx net\n",
+    ))
+    .expect("qx tasks should import");
+    assert_eq!(qx.scheduled_scripts.len(), 2, "{:?}", qx.report.lines);
+    assert_eq!(
+        qx.scheduled_scripts[0].script_url,
+        "https://example.com/qx-checkin.js"
+    );
+    assert_eq!(qx.scheduled_scripts[0].tag, "qx checkin");
+    assert_eq!(
+        qx.scheduled_scripts[1].trigger,
+        LoonScheduledTrigger::NetworkChanged
+    );
 }

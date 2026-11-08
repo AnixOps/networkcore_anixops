@@ -340,7 +340,9 @@ impl EmbeddedRuntime {
     /// WireGuard tunnel has no flows to control and rejects every request.
     pub fn control_json(&self, request: &[u8]) -> Result<Vec<u8>, RuntimeError> {
         match &self.engine {
-            Engine::Stack(dispatcher) => control::handle(dispatcher, request),
+            Engine::Stack(dispatcher) => {
+                control::handle_with_interceptor(dispatcher, self.interceptor.as_deref(), request)
+            }
             #[cfg(feature = "wireguard")]
             Engine::WireGuard(_) => {
                 let _ = request;

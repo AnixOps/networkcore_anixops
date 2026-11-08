@@ -459,3 +459,101 @@ hostname = api.example.test\n";
     assert!(MitmEngine::new(&missing).is_err());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[cfg(feature = "scripts")]
+#[tokio::test]
+async fn scheduled_scripts_run_by_hand_and_on_network_changes() {
+    use engine_embedded::control::ScriptControl;
+
+    let dir = std::env::temp_dir().join(format!("networkcore-mitm-cron-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let checkin = dir.join("checkin.js");
+    std::fs::write(
+        &checkin,
+        "$notification.post('Check-in', $script.type, typeof $request + ',' + $argument);\n$done();",
+    )
+    .unwrap();
+    let net = dir.join("net.js");
+    std::fs::write(
+        &net,
+        "$notification.post('Net', $event.name, '');\n$done();",
+    )
+    .unwrap();
+    let plugin = "#!name = Tasks\n\
+[Script]\n\
+cron \"0 9 * * *\" script-path=https://scripts.example.test/checkin.js, tag=checkin, argument=a=1\n\
+network-changed script-path=https://scripts.example.test/net.js, tag=net\n\
+\n\
+[MITM]\n\
+hostname = api.example.test\n";
+    let device_root = root("NetworkCore Test Device Root");
+    let base64 = base64::engine::general_purpose::STANDARD;
+    let config = MitmConfig {
+        policy: String::new(),
+        plugins: vec![plugin.to_string()],
+        ca_certificate: base64.encode(&device_root.certificate),
+        ca_private_key: base64.encode(x963(&device_root.key)),
+        script_assets: [
+            (
+                "https://scripts.example.test/checkin.js".to_string(),
+                checkin.display().to_string(),
+            ),
+            (
+                "https://scripts.example.test/net.js".to_string(),
+                net.display().to_string(),
+            ),
+        ]
+        .into(),
+        resource_assets: Default::default(),
+        script_store_path: None,
+    };
+    let engine = Arc::new(MitmEngine::new(&config).unwrap());
+    let scripts = engine.script_control(&ScriptControl::Scripts).unwrap();
+    assert_eq!(scripts["scripts"][0]["tag"], "checkin");
+    assert_eq!(scripts["scripts"][0]["trigger"], "cron");
+    assert!(
+        scripts["scripts"][0]["next_run"].as_str().is_some(),
+        "{scripts}"
+    );
+    assert_eq!(scripts["scripts"][1]["trigger"], "network-changed");
+
+    let background = engine.clone().background().expect("scheduled scripts run");
+    tokio::spawn(background);
+    let run = engine
+        .script_control(&ScriptControl::Run {
+            tag: "checkin".to_string(),
+        })
+        .unwrap();
+    assert_eq!(run["scheduled"], true);
+    let changed = engine
+        .script_control(&ScriptControl::NetworkChanged)
+        .unwrap();
+    assert_eq!(changed["scheduled"], 1);
+
+    let mut seen = Vec::new();
+    for _ in 0..200 {
+        let notifications = engine
+            .script_control(&ScriptControl::Notifications)
+            .unwrap();
+        for notification in notifications["notifications"].as_array().unwrap() {
+            seen.push(format!(
+                "{}|{}|{}",
+                notification["title"].as_str().unwrap(),
+                notification["subtitle"].as_str().unwrap(),
+                notification["content"].as_str().unwrap()
+            ));
+        }
+        if seen.len() >= 2 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(
+        seen,
+        ["Check-in|cron|undefined,a=1", "Net|network-changed|"],
+        "notifications"
+    );
+    let scripts = engine.script_control(&ScriptControl::Scripts).unwrap();
+    assert_eq!(scripts["scripts"][0]["last_status"], "done");
+    let _ = std::fs::remove_dir_all(&dir);
+}

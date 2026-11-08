@@ -25,8 +25,12 @@
 //! lines become url-first body rewrites. Surge `[URL Rewrite]` lines
 //! (`<url> <replacement> <type>`) and phase-prefixed `[Header Rewrite]` lines
 //! are translated for the core. QX `echo-response` becomes a `[Map Local]`
-//! line. Lines with no equivalent yet (header-block regexes, `[task_local]`)
-//! are graded unsupported and kept away from the core.
+//! line. Scheduled and event scripts (`cron`, `network-changed`, `generic`,
+//! QX `[task_local]`) leave the core's source and are listed in
+//! [`LoonPluginImport::scheduled_scripts`] for the host's scheduler; jq body
+//! rewrites stay in the core, which matches them, and run in Rust. Lines with
+//! no equivalent yet (header-block regexes) are graded unsupported and kept
+//! away from the core.
 //!
 //! Remote files are never fetched here. [`LoonPluginImport::remote_resources`]
 //! lists the `script-path`s and the `[Map Local]` `data` URLs the plugin
@@ -34,6 +38,7 @@
 //! [`import_loon_plugin_with_resources`], which inlines `[Map Local]` data. A
 //! `[Map Local]` line whose data was not supplied is graded unsupported.
 
+use crate::loon_cron::CronSchedule;
 use crate::loon_map_local::{
     inline_remote_data, map_local_pattern_accepted, parse_map_local_line, pattern_source_len,
     remote_data_url,
@@ -285,6 +290,31 @@ pub struct LoonRemoteResource {
     pub line: usize,
 }
 
+/// What starts a [`LoonScheduledScript`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LoonScheduledTrigger {
+    /// A cron expression ([`crate::loon_cron::CronSchedule`]), local time.
+    Cron(String),
+    /// The device's network changed.
+    NetworkChanged,
+    /// Run on demand (Surge panels and `generic` scripts).
+    Generic,
+}
+
+/// A script that runs outside any HTTP flow, such as a daily check-in.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LoonScheduledScript {
+    pub trigger: LoonScheduledTrigger,
+    /// `script-path`; also listed in `remote_resources`.
+    pub script_url: String,
+    pub tag: String,
+    /// `$argument`, with argument templates resolved.
+    pub argument: String,
+    pub timeout_secs: u32,
+    /// Plugin line that declares it.
+    pub line: usize,
+}
+
 /// Result of importing one Loon plugin.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LoonPluginImport {
@@ -294,6 +324,8 @@ pub struct LoonPluginImport {
     pub report: LoonPluginReport,
     /// Remote files the plugin names, in plugin order without repeats.
     pub remote_resources: Vec<LoonRemoteResource>,
+    /// Cron, network-change and generic scripts, which run outside HTTP flows.
+    pub scheduled_scripts: Vec<LoonScheduledScript>,
     has_request_actions: bool,
     has_response_actions: bool,
     source: String,
@@ -655,13 +687,7 @@ pub fn import_loon_plugin_with_resources(
             Section::Rewrite | Section::HeaderRewrite => {
                 parser.rewrite_line(line_number, &section_name, line, false)
             }
-            Section::Task => parser.push(
-                line_number,
-                &section_name,
-                LoonLineStatus::Unsupported,
-                LoonLineHandler::None,
-                "task.scheduler_unsupported",
-            ),
+            Section::Task => parser.scheduled_script_line(line_number, &section_name, line),
             Section::Panel => parser.push(
                 line_number,
                 &section_name,
@@ -703,6 +729,7 @@ pub fn import_loon_plugin_with_resources(
             policy_load_error,
         },
         remote_resources: parser.remote_resources,
+        scheduled_scripts: parser.scheduled,
         has_request_actions: parser.has_request_actions,
         has_response_actions: parser.has_response_actions,
         source,
@@ -724,6 +751,7 @@ struct Parser<'a> {
     replaced: BTreeMap<usize, String>,
     /// Lines appended after the plugin: section, line, original line number.
     appended: Vec<(&'static str, String, usize)>,
+    scheduled: Vec<LoonScheduledScript>,
 }
 
 impl Parser<'_> {
@@ -872,6 +900,7 @@ impl Parser<'_> {
                 let mut marker_seen = None;
                 let mut kept = Vec::new();
                 let mut dropped_include = false;
+                let mut dropped_live_include = false;
                 let mut dropped_exclude = false;
                 let mut accepted = Vec::new();
                 for item in value.split(',') {
@@ -893,6 +922,7 @@ impl Parser<'_> {
                             dropped_exclude = true;
                         } else {
                             dropped_include = true;
+                            dropped_live_include |= !host_item_never_matches(item);
                         }
                         continue;
                     }
@@ -931,7 +961,18 @@ impl Parser<'_> {
                         self.mitm_hostnames.include.push(pattern);
                     }
                 }
-                if dropped_include {
+                if dropped_include && !dropped_live_include {
+                    // Only items no real host can have, such as
+                    // `a-zA-Z0-9_-.admobile.top` or two lines run together:
+                    // nothing is lost.
+                    self.push(
+                        line,
+                        section,
+                        LoonLineStatus::Supported,
+                        LoonLineHandler::MitmHostnames,
+                        "mitm.hostname_dead_items_dropped",
+                    );
+                } else if dropped_include {
                     // Hosts named only by a glob are not decrypted.
                     self.push(
                         line,
@@ -987,6 +1028,18 @@ impl Parser<'_> {
                 LoonLineHandler::None,
                 "rule.final_in_plugin",
             ),
+            // A Loon plugin rule may leave the policy out; it then takes the
+            // policy the user picks for the plugin, which is the proxy here.
+            "AND" | "OR" | "NOT" => self.routing_rule_line(line, section, text),
+            _ if text
+                .split(',')
+                .filter(|field| !field.trim().is_empty())
+                .count()
+                == 2 =>
+            {
+                let with_policy = format!("{},PROXY", text.trim().trim_end_matches(','));
+                self.routing_rule_line(line, section, &with_policy)
+            }
             _ => self.routing_rule_line(line, section, text),
         }
     }
@@ -1097,6 +1150,40 @@ impl Parser<'_> {
                 .unwrap_or_default()
         };
         let first = lower(0);
+
+        // A script line filed under `[Rewrite]` belongs to `[Script]`.
+        if matches!(first.as_str(), "http-request" | "http-response")
+            && text.to_ascii_lowercase().contains("script-path=")
+        {
+            self.replaced.insert(line, format!("# {text}"));
+            let before = self.lines.len();
+            self.script_line(line, section, text);
+            if self.lines[before..]
+                .iter()
+                .all(|report| report.status != LoonLineStatus::Unsupported)
+            {
+                self.appended.push(("Script", text.to_string(), line));
+            }
+            return;
+        }
+
+        // jq body rewrites run with jaq after the core matches them.
+        if let Some((rule, response)) = jq_rewrite(&parts) {
+            if response {
+                self.has_response_actions = true;
+            } else {
+                self.has_request_actions = true;
+            }
+            self.push(
+                line,
+                section,
+                LoonLineStatus::Supported,
+                LoonLineHandler::PolicyEngine,
+                "rewrite.jq",
+            );
+            self.emit_core_line(line, text, Some(rule), preamble);
+            return;
+        }
 
         if first != "url"
             && lower(1) == "url"
@@ -1382,16 +1469,15 @@ impl Parser<'_> {
         let response = match kind.as_str() {
             "http-request" => false,
             "http-response" => true,
-            "http-request-jq" | "http-response-jq" => {
-                // The core is built without jq.
-                self.replaced.insert(line, format!("# {text}"));
-                self.push(
-                    line,
-                    section,
-                    LoonLineStatus::Unsupported,
-                    LoonLineHandler::None,
-                    "body_rewrite.jq_unavailable",
-                );
+            "http-request-jq"
+            | "http-response-jq"
+            | "http-request-json-del"
+            | "http-response-json-del"
+            | "http-request-json-add"
+            | "http-response-json-add"
+            | "http-request-json-replace"
+            | "http-response-json-replace" => {
+                self.rewrite_line(line, section, text, false);
                 return;
             }
             _ if tokens.len() >= 2
@@ -1490,12 +1576,24 @@ impl Parser<'_> {
         (source, origins)
     }
 
-    /// HTTP scripts run in the script runtime; scheduled and event scripts
-    /// (`cron`, `generic`, `network-changed`) have no runtime yet.
+    /// HTTP scripts run in the script runtime per flow; scheduled and event
+    /// scripts go to `scheduled_script_line`.
     fn script_line(&mut self, line: usize, section: &str, text: &str) {
         if let Some(translated) = loon_conditional_script(text) {
             self.replaced.insert(line, translated.clone());
             return self.script_line(line, section, &translated);
+        }
+        // A rewrite line filed under `[Script]` (`<url> reject-dict`) belongs
+        // to `[Rewrite]`.
+        let parts = tokens(text);
+        if parts.len() >= 2
+            && !parts[0].contains('=')
+            && !parts[0].to_ascii_lowercase().starts_with("http-")
+            && !parts[0].eq_ignore_ascii_case("cron")
+            && classify_rewrite_action(&parts[1].to_ascii_lowercase()).0
+                != LoonLineStatus::Unsupported
+        {
+            return self.rewrite_line(line, section, text, true);
         }
         let lower = text.to_ascii_lowercase();
         let first = lower
@@ -1509,13 +1607,7 @@ impl Parser<'_> {
             _ if lower.contains("type=http-request") => false,
             _ if lower.contains("type=http-response") => true,
             _ => {
-                self.push(
-                    line,
-                    section,
-                    LoonLineStatus::Unsupported,
-                    LoonLineHandler::None,
-                    "script.type_unsupported",
-                );
+                self.scheduled_script_line(line, section, text);
                 return;
             }
         };
@@ -1556,6 +1648,216 @@ impl Parser<'_> {
             LoonLineHandler::ScriptRuntime,
             reason,
         );
+    }
+
+    /// Scheduled and event scripts: Loon `cron "expr" script-path=...`,
+    /// `network-changed`/`generic script-path=...`; Surge `name =
+    /// type=cron|event|generic, ...`; Quantumult X `[task_local]`
+    /// `<cron> <url>, tag=...` and `event-network <url>`. They run outside
+    /// any HTTP flow, so the line leaves the core's source.
+    fn scheduled_script_line(&mut self, line: usize, section: &str, text: &str) {
+        let (status, reason) = match self.scheduled_script(text) {
+            Ok(Some(script)) => {
+                self.remote_resource(line, &script.script_url, LoonRemoteResourceKind::Script);
+                let reason = match script.trigger {
+                    LoonScheduledTrigger::Cron(_) => "script.cron",
+                    LoonScheduledTrigger::NetworkChanged => "script.network_changed",
+                    LoonScheduledTrigger::Generic => "script.generic",
+                };
+                self.scheduled.push(LoonScheduledScript { line, ..script });
+                (LoonLineStatus::Supported, reason)
+            }
+            Ok(None) => (LoonLineStatus::Ignored, "script.disabled"),
+            Err(reason) => (LoonLineStatus::Unsupported, reason),
+        };
+        self.replaced.insert(line, format!("# {text}"));
+        self.push(
+            line,
+            section,
+            status,
+            LoonLineHandler::ScriptRuntime,
+            reason,
+        );
+    }
+
+    /// `Ok(None)` for a script the plugin turns off (`enabled=false`).
+    fn scheduled_script(&self, text: &str) -> Result<Option<LoonScheduledScript>, &'static str> {
+        let text = text.trim();
+        let lower = text.to_ascii_lowercase();
+        let (trigger, name, attributes) = if let Some(rest) = lower
+            .starts_with("cron ")
+            .then(|| text["cron ".len()..].trim_start())
+        {
+            // Loon: the expression is quoted or an `{argument}`.
+            let (expression, rest) = match rest.chars().next() {
+                Some(quote @ ('"' | '\'')) => {
+                    let end = rest[1..].find(quote).ok_or("script.cron_invalid")? + 1;
+                    (rest[1..end].to_string(), &rest[end + 1..])
+                }
+                Some('{') => {
+                    let end = rest.find('}').ok_or("script.cron_invalid")?;
+                    (self.resolve_arguments(&rest[..=end]), &rest[end + 1..])
+                }
+                _ => return Err("script.cron_invalid"),
+            };
+            (
+                LoonScheduledTrigger::Cron(expression),
+                String::new(),
+                attributes(rest),
+            )
+        } else if let Some(rest) = ["network-changed ", "event-network "]
+            .iter()
+            .find(|prefix| lower.starts_with(*prefix))
+            .map(|prefix| text[prefix.len()..].trim_start())
+        {
+            (
+                LoonScheduledTrigger::NetworkChanged,
+                String::new(),
+                url_first_attributes(rest),
+            )
+        } else if lower.starts_with("generic ") {
+            (
+                LoonScheduledTrigger::Generic,
+                String::new(),
+                attributes(&text["generic ".len()..]),
+            )
+        } else if let Some((name, rest)) = text
+            .split_once('=')
+            .filter(|(_, rest)| rest.to_ascii_lowercase().contains("type="))
+        {
+            // Surge: `name = type=cron, cronexp="...", script-path=...`.
+            let attributes = attributes(rest);
+            let value = |key: &str| {
+                attributes
+                    .iter()
+                    .find(|(name, _)| name == key)
+                    .map(|(_, value)| value.clone())
+            };
+            let trigger = match value("type")
+                .unwrap_or_default()
+                .to_ascii_lowercase()
+                .as_str()
+            {
+                "cron" => {
+                    LoonScheduledTrigger::Cron(value("cronexp").ok_or("script.cron_invalid")?)
+                }
+                "event" => match value("event-name").unwrap_or_default().as_str() {
+                    "network-changed" => LoonScheduledTrigger::NetworkChanged,
+                    _ => return Err("script.event_unsupported"),
+                },
+                "generic" => LoonScheduledTrigger::Generic,
+                _ => return Err("script.type_unsupported"),
+            };
+            (trigger, name.trim().to_string(), attributes)
+        } else {
+            // Quantumult X `[task_local]`: cron fields, then the script URL.
+            let words = text.split_whitespace().collect::<Vec<_>>();
+            let at = words
+                .iter()
+                .position(|word| word.starts_with("http://") || word.starts_with("https://"))
+                .ok_or("script.type_unsupported")?;
+            if !(5..=6).contains(&at) {
+                return Err("script.type_unsupported");
+            }
+            let expression = words[..at].join(" ");
+            let start = text.find(words[at]).unwrap_or(0);
+            (
+                LoonScheduledTrigger::Cron(expression),
+                String::new(),
+                url_first_attributes(&text[start..]),
+            )
+        };
+        let value = |key: &str| {
+            attributes
+                .iter()
+                .find(|(name, _)| name == key)
+                .map(|(_, value)| value.clone())
+        };
+        if value("enabled")
+            .or_else(|| value("enable"))
+            .is_some_and(|enabled| matches!(enabled.as_str(), "false" | "0"))
+        {
+            return Ok(None);
+        }
+        if let LoonScheduledTrigger::Cron(expression) = &trigger {
+            if CronSchedule::parse(expression).is_none() {
+                return Err("script.cron_invalid");
+            }
+        }
+        let script_url = value("script-path")
+            .or_else(|| value("script_path"))
+            .or_else(|| value("url"))
+            .filter(|url| !url.is_empty())
+            .ok_or("script.path_missing")?;
+        let tag = value("tag").filter(|tag| !tag.is_empty()).unwrap_or(name);
+        let tag = if tag.is_empty() {
+            script_url
+                .rsplit('/')
+                .next()
+                .unwrap_or("script")
+                .trim_end_matches(".js")
+                .to_string()
+        } else {
+            tag
+        };
+        let timeout_secs = value("timeout")
+            .and_then(|timeout| timeout.parse::<u32>().ok())
+            .filter(|timeout| *timeout > 0)
+            .unwrap_or(60);
+        Ok(Some(LoonScheduledScript {
+            trigger,
+            script_url,
+            tag,
+            argument: self.resolve_arguments(&value("argument").unwrap_or_default()),
+            timeout_secs,
+            line: 0,
+        }))
+    }
+
+    /// Loon argument templates: `[{a},{b}]` becomes `a=x&b=y`; `{a}` and
+    /// `{{{a}}}` elsewhere become the declared default.
+    fn resolve_arguments(&self, template: &str) -> String {
+        let value = |name: &str| {
+            self.metadata
+                .arguments
+                .iter()
+                .find(|(declared, _)| declared == name.trim())
+                .map(|(_, value)| value.clone())
+                .unwrap_or_default()
+        };
+        let trimmed = template.trim();
+        if trimmed.starts_with('[') && trimmed.ends_with(']') {
+            return trimmed[1..trimmed.len() - 1]
+                .split(',')
+                .filter_map(|item| {
+                    let name = item.trim().strip_prefix('{')?.strip_suffix('}')?;
+                    Some(format!("{name}={}", value(name)))
+                })
+                .collect::<Vec<_>>()
+                .join("&");
+        }
+        let mut out = String::new();
+        let mut rest = template;
+        while let Some(start) = rest.find('{') {
+            out.push_str(&rest[..start]);
+            let (open, close) = if rest[start..].starts_with("{{{") {
+                ("{{{", "}}}")
+            } else {
+                ("{", "}")
+            };
+            match rest[start + open.len()..].find(close) {
+                Some(end) => {
+                    out.push_str(&value(&rest[start + open.len()..start + open.len() + end]));
+                    rest = &rest[start + open.len() + end + close.len()..];
+                }
+                None => {
+                    out.push_str(&rest[start..]);
+                    rest = "";
+                }
+            }
+        }
+        out.push_str(rest);
+        out
     }
 
     /// Loads the plugin into the policy core and downgrades lines it owns but
@@ -1673,6 +1975,24 @@ impl Parser<'_> {
 /// Mirrors the `mitm_anixops` core (v1.4.8 and later): a plain host needs
 /// valid labels, and a glob must stay a host name and name at least one
 /// literal character.
+/// True for a hostname list item that no host name can match: it holds
+/// whitespace or other characters a host name cannot have, or (without
+/// wildcards) a label that is empty or starts or ends with `-`.
+fn host_item_never_matches(item: &str) -> bool {
+    let body = item.trim();
+    if body.chars().any(|ch| {
+        !(ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | '*' | '?' | ':' | '[' | ']'))
+    }) {
+        return true;
+    }
+    if body.contains(['*', '?', ':']) {
+        return false;
+    }
+    let host = body.strip_suffix('.').unwrap_or(body);
+    host.split('.')
+        .any(|label| label.is_empty() || label.starts_with('-') || label.ends_with('-'))
+}
+
 fn core_host_pattern(item: &str) -> bool {
     let body = item.strip_prefix(['-', '!', '+']).unwrap_or(item).trim();
     if body == "*" {
@@ -1826,6 +2146,189 @@ fn substitute_module_arguments(line: &str, arguments: &BTreeMap<String, String>)
     out.trim().to_string()
 }
 
+/// A jq body rewrite in any dialect as the core's
+/// `<url> request-body-jq|response-body-jq <filter>` line, and whether it
+/// rewrites the response:
+/// - Surge / Loon `http-response-jq <url> <filter>`;
+/// - Loon `<url> response-body-json-jq <filter>`;
+/// - Quantumult X `<url> url jsonjq-response-body <filter>`;
+/// - Loon JSON edits `<url> response-body-json-del <path>...`,
+///   `-json-add`/`-json-replace <path> <value>...` and their `[Body Rewrite]`
+///   form `http-response-json-del <url> <path>...`, written as jq.
+fn jq_rewrite(parts: &[String]) -> Option<(String, bool)> {
+    let lower = |index: usize| {
+        parts
+            .get(index)
+            .map(|token| token.to_ascii_lowercase())
+            .unwrap_or_default()
+    };
+    // (response, edit) for an action token.
+    let action = |token: &str| -> Option<(bool, &'static str)> {
+        let (response, rest) = if let Some(rest) = token.strip_prefix("response-body-") {
+            (true, rest)
+        } else if let Some(rest) = token.strip_prefix("request-body-") {
+            (false, rest)
+        } else if let Some(rest) = token.strip_prefix("http-response-") {
+            (true, rest)
+        } else if let Some(rest) = token.strip_prefix("http-request-") {
+            (false, rest)
+        } else {
+            return match token {
+                "jsonjq-response-body" => Some((true, "jq")),
+                "jsonjq-request-body" => Some((false, "jq")),
+                _ => None,
+            };
+        };
+        let edit = match rest {
+            "jq" | "json-jq" => "jq",
+            "json-del" => "del",
+            "json-add" => "add",
+            "json-replace" => "replace",
+            _ => return None,
+        };
+        Some((response, edit))
+    };
+    let first = lower(0);
+    let (pattern, (response, edit), arguments) = if first.starts_with("http-") {
+        // `[Body Rewrite]` action-first form; plain regex body rewrites
+        // (`http-response <url> <regex> <replacement>`) are not jq.
+        (parts.get(1)?, action(&first)?, &parts[2..])
+    } else if lower(1) == "url" {
+        (parts.first()?, action(&lower(2))?, parts.get(3..)?)
+    } else {
+        (parts.first()?, action(&lower(1))?, parts.get(2..)?)
+    };
+    let filter = match edit {
+        "jq" => arguments.first()?.clone(),
+        // The core reads `json-replace` with its own JSON path syntax.
+        "replace" if !first.starts_with("http-") => return None,
+        _ => json_edit_filter(edit, arguments)?,
+    };
+    if pattern.is_empty() || filter.trim().is_empty() {
+        return None;
+    }
+    let action = if response {
+        "response-body-jq"
+    } else {
+        "request-body-jq"
+    };
+    Some((
+        format!("{} {action} {}", quote(pattern), quote(&filter)),
+        response,
+    ))
+}
+
+/// Loon's JSON edit lines as a jq filter: `del` takes paths; `add` sets each
+/// `path value` pair; `replace` sets a path only when it holds a value.
+fn json_edit_filter(edit: &str, arguments: &[String]) -> Option<String> {
+    if arguments.is_empty() {
+        return None;
+    }
+    if edit == "del" {
+        let paths = arguments
+            .iter()
+            .map(|path| json_path(path))
+            .collect::<Option<Vec<_>>>()?;
+        return Some(format!("delpaths([{}])", paths.join(",")));
+    }
+    if arguments.len() % 2 != 0 {
+        return None;
+    }
+    let steps = arguments
+        .chunks(2)
+        .map(|pair| {
+            let path = json_path(&pair[0])?;
+            let value = json_literal(&pair[1]);
+            Some(match edit {
+                "add" => format!("setpath({path}; {value})"),
+                _ => format!(
+                    "if (try getpath({path}) catch null) != null then setpath({path}; {value}) else . end"
+                ),
+            })
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some(steps.join(" | "))
+}
+
+/// `a.b[0].c` as the jq path array `["a","b",0,"c"]`.
+fn json_path(path: &str) -> Option<String> {
+    let mut keys = Vec::new();
+    for segment in path
+        .trim()
+        .trim_start_matches('$')
+        .trim_start_matches('.')
+        .split('.')
+    {
+        let (name, mut rest) = match segment.find('[') {
+            Some(at) => (&segment[..at], &segment[at..]),
+            None => (segment, ""),
+        };
+        if !name.is_empty() {
+            keys.push(json_string(name));
+        } else if rest.is_empty() {
+            return None;
+        }
+        while !rest.is_empty() {
+            let close = rest.find(']')?;
+            let index = rest.get(1..close)?;
+            if index.is_empty() || !index.bytes().all(|byte| byte.is_ascii_digit()) {
+                return None;
+            }
+            keys.push(index.to_string());
+            rest = rest.get(close + 1..)?;
+            if !rest.is_empty() && !rest.starts_with('[') {
+                return None;
+            }
+        }
+    }
+    (!keys.is_empty()).then(|| format!("[{}]", keys.join(",")))
+}
+
+/// A Loon JSON edit value: JSON as written (numbers, booleans, objects,
+/// quoted strings), anything else as a string.
+fn json_literal(value: &str) -> String {
+    let trimmed = value.trim();
+    let json_like = matches!(trimmed, "true" | "false" | "null")
+        || trimmed.parse::<f64>().is_ok_and(f64::is_finite)
+        || (trimmed.starts_with('{') && trimmed.ends_with('}'))
+        || (trimmed.starts_with('[') && trimmed.ends_with(']'))
+        || (trimmed.len() >= 2 && trimmed.starts_with('"') && trimmed.ends_with('"'));
+    if json_like {
+        trimmed.to_string()
+    } else {
+        json_string(trimmed)
+    }
+}
+
+fn json_string(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 2);
+    out.push('"');
+    for ch in text.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            ch if (ch as u32) < 0x20 => {
+                let _ = write!(out, "\\u{:04x}", ch as u32);
+            }
+            ch => out.push(ch),
+        }
+    }
+    out.push('"');
+    out
+}
+
+/// `<url>, key=value, ...` (Quantumult X task lines) as attributes, with the
+/// URL under `url`.
+fn url_first_attributes(text: &str) -> Vec<(String, String)> {
+    let text = text.trim();
+    let end = text
+        .find(|ch: char| ch == ',' || ch.is_whitespace())
+        .unwrap_or(text.len());
+    let mut attributes = attributes(&text[end..]);
+    attributes.insert(0, ("url".to_string(), text[..end].to_string()));
+    attributes
+}
+
 /// Loon's conditional script form,
 /// `request if ${url} ~= /re/i then script("url") with tag="t", timeout=300`,
 /// as the plain `http-request re script-path=url, ...` line. Only a URL
@@ -1928,10 +2431,14 @@ fn classify_rewrite_action(action: &str) -> (LoonLineStatus, &'static str, bool)
         {
             (LoonLineStatus::Supported, "rewrite.reject", false)
         }
-        // The core is built without jq.
-        "request-body-jq" | "response-body-jq" | "http-request-jq" | "http-response-jq" => {
-            (LoonLineStatus::Unsupported, "rewrite.jq_unavailable", false)
+        // Run with jaq (`loon_jq`).
+        "request-body-jq" | "request-body-json-jq" | "jsonjq-request-body" | "http-request-jq" => {
+            (LoonLineStatus::Supported, "rewrite.jq", false)
         }
+        "response-body-jq"
+        | "response-body-json-jq"
+        | "jsonjq-response-body"
+        | "http-response-jq" => (LoonLineStatus::Supported, "rewrite.jq", true),
         "request-body-replace-regex" | "request-body-json-replace" => {
             (LoonLineStatus::Supported, "rewrite.request_body", false)
         }

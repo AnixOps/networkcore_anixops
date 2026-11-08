@@ -825,3 +825,41 @@ fn domain_wildcard_rules_match_globs_and_surge_options_are_accepted() {
         );
     }
 }
+
+#[test]
+fn protocol_rules_match_the_transport_and_port() {
+    use config_core::routing::RouteNetwork;
+    let model = RoutingModel::from_spec(
+        &spec(
+            &[
+                "AND,((PROTOCOL,QUIC),(DOMAIN-SUFFIX,example.com)),REJECT",
+                "PROTOCOL,UDP,DIRECT",
+                "FINAL,REJECT",
+            ],
+            vec![],
+        ),
+        &node_ids(),
+    )
+    .unwrap();
+    let query = |port: u16, network: Option<RouteNetwork>| {
+        let query = RouteQuery::domain("a.example.com").with_port(port);
+        match network {
+            Some(network) => query.with_network(network),
+            None => query,
+        }
+    };
+    for (query, expected) in [
+        (query(443, Some(RouteNetwork::Udp)), RouteMatch::Rule(0)),
+        (query(53, Some(RouteNetwork::Udp)), RouteMatch::Rule(1)),
+        (query(443, Some(RouteNetwork::Tcp)), RouteMatch::Final),
+        // Unknown transport: PROTOCOL never matches.
+        (query(443, None), RouteMatch::Final),
+    ] {
+        let resolution = model.decide(&query, &StaticRoutingEnvironment);
+        assert_eq!(resolution.matched, expected, "{query:?}");
+    }
+    assert_eq!(
+        parse_rule_line("PROTOCOL,STUN,REJECT").unwrap_err().code,
+        ROUTING_RULE_VALUE_INVALID_CODE
+    );
+}
