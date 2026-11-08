@@ -30,6 +30,11 @@ pub enum JsEngineError {
 /// because Loon scripts commonly assign undeclared globals.
 pub trait JsEngineContext {
     fn eval(&mut self, source: &str, filename: &str) -> Result<(), JsEngineError>;
+    /// Evaluates the user's script. A binding may reuse its compiled form
+    /// across runs; the default compiles it every time.
+    fn eval_script(&mut self, source: &str, filename: &str) -> Result<(), JsEngineError> {
+        self.eval(source, filename)
+    }
     /// Runs queued promise jobs until the queue is empty.
     fn run_jobs(&mut self) -> Result<(), JsEngineError>;
 }
@@ -49,7 +54,7 @@ pub fn run_script<E: JsEngineContext + ?Sized>(
     if is_quantumult_only(script) {
         engine.eval("__nc_quantumult();", PRELUDE_FILENAME)?;
     }
-    engine.eval(script, script_name)?;
+    engine.eval_script(script, script_name)?;
     engine.run_jobs()?;
     loop {
         if host.borrow().is_done() {
