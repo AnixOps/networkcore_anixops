@@ -292,7 +292,7 @@ fn script_lines_without_an_http_runtime_are_graded() {
         reasons,
         vec![
             ("script.http_response", LoonLineStatus::Supported),
-            ("script.type_unsupported", LoonLineStatus::Unsupported),
+            ("script.cron", LoonLineStatus::Supported),
             ("script.path_missing", LoonLineStatus::Unsupported),
         ]
     );

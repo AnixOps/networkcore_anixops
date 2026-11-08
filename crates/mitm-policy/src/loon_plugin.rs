@@ -2437,14 +2437,23 @@ fn json_string(text: &str) -> String {
 }
 
 /// `<url>, key=value, ...` (Quantumult X task lines) as attributes, with the
-/// URL under `url`.
+/// URL under `url`. Values run to the next comma, so `tag=Daily check-in`
+/// keeps its spaces.
 fn url_first_attributes(text: &str) -> Vec<(String, String)> {
     let text = text.trim();
     let end = text
         .find(|ch: char| ch == ',' || ch.is_whitespace())
         .unwrap_or(text.len());
-    let mut attributes = attributes(&text[end..]);
-    attributes.insert(0, ("url".to_string(), text[..end].to_string()));
+    let mut attributes = vec![("url".to_string(), text[..end].to_string())];
+    attributes.extend(text[end..].split(',').filter_map(|item| {
+        let (key, value) = item.split_once('=')?;
+        let value = value.trim();
+        let value = value
+            .strip_prefix('"')
+            .and_then(|value| value.strip_suffix('"'))
+            .unwrap_or(value);
+        Some((key.trim().to_ascii_lowercase(), value.to_string()))
+    }));
     attributes
 }
 
