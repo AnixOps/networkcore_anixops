@@ -580,3 +580,36 @@ fn quantumult_x_header_block_rewrites_edit_headers_or_move_the_request() {
     assert!(untouched.header_mutations.is_empty());
     assert_eq!(untouched.action, HttpMitmAction::Continue);
 }
+
+#[test]
+fn reused_engines_follow_the_policy_of_each_instance() {
+    let first = import_loon_plugin(
+        "#!name = First\n[Rewrite]\n^https://a\\.example\\.test/ads reject\n[MITM]\nhostname = a.example.test\n",
+    )
+    .expect("first plugin imports");
+    let second = import_loon_plugin(
+        "#!name = Second\n[Rewrite]\n^https://a\\.example\\.test/feed reject\n[MITM]\nhostname = a.example.test\n",
+    )
+    .expect("second plugin imports");
+    let (service, first) = load(&first);
+    let (_, second) = load(&second);
+    let ads = event(HttpMitmPhase::Request, "https://a.example.test/ads", "");
+    let feed = event(HttpMitmPhase::Request, "https://a.example.test/feed", "");
+
+    // Alternating between two loaded policies, each plan sees only its own.
+    for _ in 0..3 {
+        let plan = |instance: &PluginInstance, event: &HttpMitmEvent| {
+            service
+                .handle_http_mitm_event(instance, event)
+                .expect("event should plan")
+                .action
+        };
+        assert_ne!(plan(&first, &ads), HttpMitmAction::Continue);
+        assert_eq!(plan(&first, &feed), HttpMitmAction::Continue);
+        assert_eq!(plan(&second, &ads), HttpMitmAction::Continue);
+        assert!(matches!(
+            plan(&second, &feed),
+            HttpMitmAction::Reject { .. }
+        ));
+    }
+}

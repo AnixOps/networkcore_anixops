@@ -6,6 +6,7 @@
 
 ### Added
 
+- MITM 策略引擎复用：此前每个 HTTP 请求和响应都新建一个 mitm_anixops 引擎，把合并后的整份插件策略重新解析、把所有规则重新编译一遍，插件有几 MB 时，每条消息都要付出这笔开销。现在已加载的引擎按策略（长度和哈希）放在池里复用，最多留 2 个空闲的；出过错的引擎不会放回池里。
 - QuickJS 脚本字节码缓存：不小于 16 KiB 的脚本只在第一次运行时编译，编译出的字节码由同一个运行时的后续运行复用（每次运行仍用全新的运行时和全局对象），缓存总量 8 MiB，满了就清空重来。大脚本因此不必每个请求都重新解析一遍，省下解析的 CPU 和那段时间的内存峰值。编译失败的脚本不进缓存，照常报 `script.exception`。`JsEngineContext` 新增 `eval_script`，默认实现照旧每次编译。
 - 超过 1 MiB 的 MITM 插件与脚本：单个插件上限由 1 MiB 提到 8 MiB（`LOON_PLUGIN_MAX_BYTES`，iOS 检查插件的 FFI 同步），嵌入式 MITM 一次交给隧道的插件总量由 512 KiB 提到 8 MiB。脚本仍以 4 MiB 为上限，但 QuickJS 的堆上限会按脚本大小放大（每字节源码 6 字节加 4 MiB，最多 32 MiB，`engine_native::scaled_memory_limit`），否则几 MiB 的脚本在 8 MiB 堆里连解析都过不了。新增 `NativeQuickJsScriptExecutor::with_memory_budget`：同时运行的脚本，堆上限之和不超过预算，放不下的排队等前面的跑完；嵌入式 MITM 设为 32 MiB，也就是四个普通脚本并行，或者一个大脚本单独跑，免得扩展超出约 50 MB 的内存额度。
 - 包隧道（engine-embedded）的 MITM 现在也处理明文 HTTP：任意端口上以常见方法（GET/POST/PUT/DELETE/HEAD/OPTIONS/PATCH/TRACE）开头、带 `Host` 的 TCP 流交给改写钩子，`http://` 的改写、Map Local 和脚本照 Loon/Surge 的做法生效，不需要该主机在 `[MITM] hostname` 里（例如 BoxJs 的 `http://boxjs.com`）。此前只接管 443 端口带 SNI 的 TLS，明文请求直接转发、插件不生效。接管的明文流仍按首个请求的 `User-Agent`/URL 分流。`CONNECT` 和其他协议不受影响。
