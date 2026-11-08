@@ -2336,7 +2336,7 @@ fn json_edit_filter(edit: &str, arguments: &[String]) -> Option<String> {
             .collect::<Option<Vec<_>>>()?;
         return Some(format!("delpaths([{}])", paths.join(",")));
     }
-    if arguments.len() % 2 != 0 {
+    if !arguments.len().is_multiple_of(2) {
         return None;
     }
     let steps = arguments
