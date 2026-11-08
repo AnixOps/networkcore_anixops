@@ -2530,7 +2530,7 @@ pub(crate) fn split_alternation(pattern: &str, max: usize) -> Option<Vec<String>
             open + 3
         } else if pattern[open..].starts_with("(?") {
             // Named or flagged groups keep their head with the prefix.
-            open + pattern[open..].find(|ch| ch == ':' || ch == '>')? + 1
+            open + pattern[open..].find([':', '>'])? + 1
         } else {
             open + 1
         };
