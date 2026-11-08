@@ -1467,10 +1467,9 @@ impl Parser<'_> {
         } else {
             self.has_request_actions = true;
         }
-        let (status, reason) = if script_attribute_enabled(&lower, "binary-body-mode") {
-            // Bodies reach scripts as strings only.
-            (LoonLineStatus::Partial, "script.binary_body_unsupported")
-        } else if response {
+        // `binary-body-mode` is reported per dispatch by the core and the
+        // script runtime hands such bodies over as `Uint8Array`.
+        let (status, reason) = if response {
             (LoonLineStatus::Supported, "script.http_response")
         } else {
             (LoonLineStatus::Supported, "script.http_request")
@@ -1669,14 +1668,6 @@ fn is_quantumult_rewrite(line: &str) -> bool {
 fn is_hostname_line(line: &str) -> bool {
     line.split_once('=')
         .is_some_and(|(key, _)| key.trim().eq_ignore_ascii_case("hostname"))
-}
-
-fn script_attribute_enabled(lower_line: &str, name: &str) -> bool {
-    lower_line.split(',').any(|attribute| {
-        attribute.split_once('=').is_some_and(|(key, value)| {
-            key.trim().ends_with(name) && matches!(value.trim(), "true" | "1")
-        })
-    })
 }
 
 fn is_reject_policy(target: &str) -> bool {

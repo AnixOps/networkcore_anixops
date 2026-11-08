@@ -223,6 +223,8 @@ pub struct MitmPolicyScriptDispatch {
     pub tag: String,
     pub argument: String,
     pub message: String,
+    /// The rule sets `binary-body-mode`: the script gets the body as bytes.
+    pub binary_body_mode: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1087,7 +1089,7 @@ fn domain_script_dispatch_from_policy(
         script_path: script.script_path.clone(),
         tag: script.tag.clone(),
         argument: script.argument.clone(),
-        binary_body_mode: false,
+        binary_body_mode: script.binary_body_mode,
     })
 }
 
@@ -1208,6 +1210,7 @@ fn script_dispatch_from_sys(result: &sys::AnixOpsScriptResult) -> MitmPolicyScri
         tag: ffi_string(&result.tag),
         argument: ffi_string(&result.argument),
         message: ffi_string(&result.message),
+        binary_body_mode: result.binary_body_mode != 0,
     }
 }
 
@@ -1355,6 +1358,7 @@ fn empty_script_result() -> sys::AnixOpsScriptResult {
         tag: [0 as c_char; sys::ANIXOPS_VALUE_CAP],
         argument: [0 as c_char; sys::ANIXOPS_ARGUMENT_CAP],
         message: [0 as c_char; sys::ANIXOPS_MESSAGE_CAP],
+        binary_body_mode: 0,
     }
 }
 

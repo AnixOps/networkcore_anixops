@@ -1,7 +1,7 @@
 # mitm-policy
 
 `mitm-policy` is the safe Rust adapter over the vendored `mitm_anixops`
-distribution release `v1.4.8` source commit. The linked C core ABI reports
+distribution release `v1.4.9` source commit. The linked C core ABI reports
 version `0.45.10`.
 
 ## What the crate provides
@@ -74,9 +74,10 @@ The plugin as a whole is graded `full`, `partial`, or `unsupported`.
   the user's node names.
 - `[Script]` `http-request` and `http-response` lines (P1) are planned by the
   `mitm_anixops` core and run on desktop in the in-process QuickJS runtime of
-  `crates/script-runtime`. `binary-body-mode` stays partial until the core
-  reports it per dispatch: the runtime already hands such scripts a
-  `Uint8Array` body (`HttpMitmScriptDispatch::binary_body_mode`), and `cron`, `generic`, and other event scripts are unsupported.
+  `crates/script-runtime`. `binary-body-mode` is supported: the core reports
+  it per dispatch and the runtime hands such scripts a `Uint8Array` body
+  (`HttpMitmScriptDispatch::binary_body_mode`). `cron`, `generic`, and other
+  event scripts are unsupported.
   The iOS JavaScriptCore runtime arrives in M4.
 - `[Map Local]` lines, and `[Rewrite]` `mock-response-body` lines, answer a
   matching request locally (`HttpMitmAction::Respond`) without contacting the

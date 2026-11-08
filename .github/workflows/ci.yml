@@ -1015,13 +1015,13 @@ jobs:
           grep -q "networkcore-linux managed-event list" CHANGELOG.md
           grep -q "networkcore-linux managed-event list" apps/linux-cli/README.md
           grep -q "networkcore-linux managed-event list" docs/alpha-release-feature-matrix.md
-          git submodule status third_party/mitm_anixops | grep -q "3f26049eaacaaf6d748f3bd38d92074925d8eb79"
-          grep -Fq "MITM_ANIXOPS_RELEASE_TAG=v1.4.8" docs/architecture/managed-sdwan-mitm-policy-gate-source-contract.md
-          grep -Fq "MITM_ANIXOPS_RELEASE_TAG_OBJECT=3f26049eaacaaf6d748f3bd38d92074925d8eb79" docs/architecture/managed-sdwan-mitm-policy-gate-source-contract.md
-          grep -Fq "MITM_ANIXOPS_RELEASE_COMMIT=3f26049eaacaaf6d748f3bd38d92074925d8eb79" docs/architecture/managed-sdwan-mitm-policy-gate-source-contract.md
-          grep -Fq "MITM_ANIXOPS_RELEASE_MANIFEST_SHA256=af28d0d81e37269f30ee1ead6310b323677f9dc2763a63a1f6917e08c80b2ad2" docs/architecture/managed-sdwan-mitm-policy-gate-source-contract.md
+          git submodule status third_party/mitm_anixops | grep -q "bb66dc7f1fd02259fd87fd9dd576e90bb9ad768b"
+          grep -Fq "MITM_ANIXOPS_RELEASE_TAG=v1.4.9" docs/architecture/managed-sdwan-mitm-policy-gate-source-contract.md
+          grep -Fq "MITM_ANIXOPS_RELEASE_TAG_OBJECT=bb66dc7f1fd02259fd87fd9dd576e90bb9ad768b" docs/architecture/managed-sdwan-mitm-policy-gate-source-contract.md
+          grep -Fq "MITM_ANIXOPS_RELEASE_COMMIT=bb66dc7f1fd02259fd87fd9dd576e90bb9ad768b" docs/architecture/managed-sdwan-mitm-policy-gate-source-contract.md
+          grep -Fq "MITM_ANIXOPS_RELEASE_MANIFEST_SHA256=4c8b69e82cc7ecf87ea9c6832f11590208a3936366568ebc3fad321c1fa8c776" docs/architecture/managed-sdwan-mitm-policy-gate-source-contract.md
           grep -Fq "MANAGED_SDWAN_MITM_POLICY_GATE" docs/architecture/managed-sdwan-mitm-policy-gate-source-contract.md
-          grep -q "v1.4.8" docs/architecture/mitm-anixops-adapter.md
+          grep -q "v1.4.9" docs/architecture/mitm-anixops-adapter.md
           grep -q "0.45.10" docs/architecture/mitm-anixops-adapter.md
           grep -q '"crates/mitm-policy"' Cargo.toml
           grep -q '^name = "mitm-policy"$' crates/mitm-policy/Cargo.toml
