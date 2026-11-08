@@ -551,7 +551,8 @@ hostname = api.example.test\n";
     assert_eq!(
         seen,
         ["Check-in|cron|undefined,a=1", "Net|network-changed|"],
-        "notifications"
+        "notifications; scripts: {}",
+        engine.script_control(&ScriptControl::Scripts).unwrap()
     );
     let scripts = engine.script_control(&ScriptControl::Scripts).unwrap();
     assert_eq!(scripts["scripts"][0]["last_status"], "done");
