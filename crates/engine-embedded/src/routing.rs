@@ -545,20 +545,23 @@ impl RoutedOutbound {
         sniffed: Option<&str>,
         process: Option<&str>,
     ) -> (RouteInfo, Option<Arc<dyn TcpOutbound>>) {
-        self.route_network_flow(target, sniffed, process, RouteNetwork::Tcp)
+        self.route_network_flow(target, sniffed, process, RouteNetwork::Tcp, None)
             .await
     }
 
     /// [`Self::route_flow`] for a flow of the given transport, which
-    /// `PROTOCOL` rules match.
+    /// `PROTOCOL` rules match, and the `User-Agent` sniffed from a plain HTTP
+    /// request, which `USER-AGENT` rules match.
     pub async fn route_network_flow(
         &self,
         target: &TargetAddr,
         sniffed: Option<&str>,
         process: Option<&str>,
         network: RouteNetwork,
+        user_agent: Option<&str>,
     ) -> (RouteInfo, Option<Arc<dyn TcpOutbound>>) {
         let mut query = query(target).with_network(network);
+        query.user_agent = user_agent.map(str::to_string);
         if query.domain.is_none() {
             query.domain = sniffed.map(str::to_string);
         }

@@ -598,6 +598,7 @@ impl Dispatcher {
         host: Option<&str>,
         process: Option<&str>,
         network: RouteNetwork,
+        user_agent: Option<&str>,
         guard: &ConnectionGuard,
     ) -> io::Result<Arc<dyn TcpOutbound>> {
         let (route, outbound) = match (self.mode(), &self.routed) {
@@ -605,7 +606,7 @@ impl Dispatcher {
             (Mode::Global, Some(routed)) => routed.route_global(),
             (Mode::Rule, Some(routed)) => {
                 routed
-                    .route_network_flow(target, host, process, network)
+                    .route_network_flow(target, host, process, network, user_agent)
                     .await
             }
             (_, None) => (single_route(&*self.outbound), Some(self.outbound.clone())),
@@ -638,9 +639,30 @@ impl Dispatcher {
         host: Option<&str>,
         process: Option<&str>,
     ) -> io::Result<BoxStream> {
+        self.connect_tcp(target, host, process, None).await
+    }
+
+    /// [`Self::connect_flow`] with the `User-Agent` of a plain HTTP request
+    /// sniffed from the flow's first bytes, for `USER-AGENT` rules.
+    pub async fn connect_http_flow(
+        &self,
+        target: &TargetAddr,
+        host: Option<&str>,
+        user_agent: Option<&str>,
+    ) -> io::Result<BoxStream> {
+        self.connect_tcp(target, host, None, user_agent).await
+    }
+
+    async fn connect_tcp(
+        &self,
+        target: &TargetAddr,
+        host: Option<&str>,
+        process: Option<&str>,
+        user_agent: Option<&str>,
+    ) -> io::Result<BoxStream> {
         let guard = self.tracker.open(Network::Tcp, target, host, process);
         let outbound = self
-            .route(target, host, process, RouteNetwork::Tcp, &guard)
+            .route(target, host, process, RouteNetwork::Tcp, user_agent, &guard)
             .await?;
         let stream = outbound.connect(target).await?;
         guard.connected();
@@ -658,7 +680,7 @@ impl Dispatcher {
     ) -> io::Result<UdpFlow> {
         let guard = self.tracker.open(Network::Udp, target, host, None);
         let outbound = self
-            .route(target, host, None, RouteNetwork::Udp, &guard)
+            .route(target, host, None, RouteNetwork::Udp, None, &guard)
             .await?;
         let flow = outbound.open_udp(target).await?;
         guard.connected();

@@ -10,10 +10,36 @@ pub fn host(first: &[u8]) -> Option<String> {
     client_hello_server_name(first).or_else(|| http_host(first))
 }
 
+/// The `User-Agent` header of a plain HTTP/1.x request that starts in
+/// `first`, for `USER-AGENT` rules.
+pub fn http_user_agent(first: &[u8]) -> Option<String> {
+    let value = http_header(first, "user-agent")?;
+    let value = value.trim();
+    (!value.is_empty() && value.len() <= 1024).then(|| value.to_string())
+}
+
 /// The `Host` header of an HTTP/1.x request that starts in `first`, without
 /// its port and lowercased. A request whose headers are cut short by the
 /// first read still yields the host when its line was complete.
 pub fn http_host(first: &[u8]) -> Option<String> {
+    let value = http_header(first, "host")?;
+    let value = value.trim();
+    let name = match value.strip_prefix('[') {
+        // An IPv6 literal is an address, not a name to route by.
+        Some(_) => return None,
+        None => value.rsplit_once(':').map_or(value, |(name, port)| {
+            if port.bytes().all(|b| b.is_ascii_digit()) {
+                name
+            } else {
+                value
+            }
+        }),
+    };
+    valid_name(name)
+}
+
+/// The first `name` header of an HTTP/1.x request that starts in `first`.
+fn http_header<'a>(first: &'a [u8], name: &str) -> Option<&'a str> {
     const METHODS: [&[u8]; 9] = [
         b"GET ",
         b"POST ",
@@ -37,25 +63,12 @@ pub fn http_host(first: &[u8]) -> Option<String> {
     let mut lines = headers.split("\r\n");
     lines.next()?;
     for line in lines {
-        let Some((name, value)) = line.split_once(':') else {
+        let Some((key, value)) = line.split_once(':') else {
             continue;
         };
-        if !name.trim().eq_ignore_ascii_case("host") {
-            continue;
+        if key.trim().eq_ignore_ascii_case(name) {
+            return Some(value);
         }
-        let value = value.trim();
-        let name = match value.strip_prefix('[') {
-            // An IPv6 literal is an address, not a name to route by.
-            Some(_) => return None,
-            None => value.rsplit_once(':').map_or(value, |(name, port)| {
-                if port.bytes().all(|b| b.is_ascii_digit()) {
-                    name
-                } else {
-                    value
-                }
-            }),
-        };
-        return valid_name(name);
     }
     None
 }
@@ -143,7 +156,7 @@ impl<'a> Reader<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::{client_hello_server_name, host, http_host};
+    use super::{client_hello_server_name, host, http_host, http_user_agent};
 
     fn client_hello(server_name: &str) -> Vec<u8> {
         let name = server_name.as_bytes();
@@ -230,5 +243,21 @@ mod tests {
             Some("http.example.test")
         );
         assert_eq!(host(&[0x16, 0x03]), None);
+    }
+
+    #[test]
+    fn user_agent_comes_from_plain_http_requests_only() {
+        assert_eq!(
+            http_user_agent(
+                b"GET / HTTP/1.1\r\nHost: a.example\r\nUser-Agent:  Instagram 300.0 \r\n\r\n"
+            )
+            .as_deref(),
+            Some("Instagram 300.0")
+        );
+        assert_eq!(
+            http_user_agent(b"GET / HTTP/1.1\r\nHost: a.example\r\n\r\n"),
+            None
+        );
+        assert_eq!(http_user_agent(b"\x16\x03\x01"), None);
     }
 }

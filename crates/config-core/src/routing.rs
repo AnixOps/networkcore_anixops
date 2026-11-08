@@ -195,6 +195,9 @@ pub enum RuleMatcher {
     ProcessName(String),
     /// Transport of the connection, as Surge `PROTOCOL`.
     Protocol(RuleProtocol),
+    /// Lower-case glob over the `User-Agent` of a plain HTTP request, as
+    /// Surge `USER-AGENT` (`*` and `?`). Other flows never match.
+    UserAgent(String),
     /// Every rule matches.
     And(Vec<RuleMatcher>),
     /// Any rule matches.
@@ -237,6 +240,7 @@ impl fmt::Display for RuleMatcher {
             Self::DstPort(start, end) => write!(formatter, "DST-PORT,{start}-{end}"),
             Self::ProcessName(name) => write!(formatter, "PROCESS-NAME,{name}"),
             Self::Protocol(protocol) => write!(formatter, "PROTOCOL,{}", protocol.name()),
+            Self::UserAgent(pattern) => write!(formatter, "USER-AGENT,{pattern}"),
             Self::And(rules) => write_logical(formatter, "AND", rules),
             Self::Or(rules) => write_logical(formatter, "OR", rules),
             Self::Not(rule) => write_logical(formatter, "NOT", std::slice::from_ref(rule)),
@@ -546,6 +550,16 @@ fn parse_matcher(kind: &str, value: &str) -> DomainResult<RuleMatcher> {
             RuleMatcher::DstPort(start, end)
         }
         "PROCESS-NAME" => RuleMatcher::ProcessName(value.trim().to_lowercase()),
+        "USER-AGENT" => {
+            let pattern = value.trim().trim_matches('"').to_lowercase();
+            if pattern.is_empty() {
+                return Err(routing_error(
+                    ROUTING_RULE_VALUE_INVALID_CODE,
+                    "USER-AGENT rule value must not be empty",
+                ));
+            }
+            RuleMatcher::UserAgent(pattern)
+        }
         "PROTOCOL" => RuleMatcher::Protocol(match value.trim().to_ascii_uppercase().as_str() {
             "TCP" => RuleProtocol::Tcp,
             "UDP" => RuleProtocol::Udp,
@@ -678,6 +692,7 @@ impl RoutingModel {
     ) -> RouteResolution {
         let domain = query.domain.as_deref().map(normalize_query_domain);
         let process = query.process.as_deref().map(str::to_lowercase);
+        let user_agent = query.user_agent.as_deref().map(str::to_lowercase);
         let mut ip = query.ip;
         let mut resolved_ip = None;
         let mut resolve_attempted = false;
@@ -706,6 +721,7 @@ impl RoutingModel {
                 port: query.port,
                 process: process.as_deref(),
                 network: query.network,
+                user_agent: user_agent.as_deref(),
             };
             if rule_matches(&rule.matcher, &input, environment) {
                 return self.resolution(
@@ -817,6 +833,8 @@ pub struct RouteQuery {
     pub process: Option<String>,
     /// Transport, for PROTOCOL rules; they never match without it.
     pub network: Option<RouteNetwork>,
+    /// `User-Agent` of a plain HTTP request, for USER-AGENT rules.
+    pub user_agent: Option<String>,
 }
 
 impl RouteQuery {
@@ -940,6 +958,7 @@ struct MatchInput<'a> {
     port: Option<u16>,
     process: Option<&'a str>,
     network: Option<RouteNetwork>,
+    user_agent: Option<&'a str>,
 }
 
 fn rule_matches(
@@ -983,6 +1002,9 @@ fn rule_matches(
                 _ => false,
             }
         }
+        RuleMatcher::UserAgent(pattern) => input
+            .user_agent
+            .is_some_and(|agent| wildcard_matches(pattern.as_bytes(), agent.as_bytes())),
         RuleMatcher::And(rules) => rules
             .iter()
             .all(|rule| rule_matches(rule, input, environment)),

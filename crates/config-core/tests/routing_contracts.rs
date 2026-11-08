@@ -863,3 +863,33 @@ fn protocol_rules_match_the_transport_and_port() {
         ROUTING_RULE_VALUE_INVALID_CODE
     );
 }
+
+#[test]
+fn user_agent_rules_match_a_glob_case_insensitively() {
+    let model = RoutingModel::from_spec(
+        &spec(&["USER-AGENT,Instagram*,REJECT", "FINAL,DIRECT"], vec![]),
+        &node_ids(),
+    )
+    .unwrap();
+    let with_agent = |agent: Option<&str>| RouteQuery {
+        user_agent: agent.map(str::to_string),
+        ..RouteQuery::domain("i.instagram.com")
+    };
+    for (query, expected) in [
+        (
+            with_agent(Some("instagram 300.0 (iPhone)")),
+            RouteMatch::Rule(0),
+        ),
+        (with_agent(Some("Mozilla/5.0")), RouteMatch::Final),
+        (with_agent(None), RouteMatch::Final),
+    ] {
+        let resolution = model.decide(&query, &StaticRoutingEnvironment);
+        assert_eq!(resolution.matched, expected, "{query:?}");
+    }
+    let RuleLine::Rule { matcher, .. } = parse_rule_line("USER-AGENT,Instagram*,REJECT").unwrap()
+    else {
+        panic!("USER-AGENT is a rule");
+    };
+    assert_eq!(matcher, RuleMatcher::UserAgent("instagram*".to_string()));
+    assert_eq!(matcher.to_string(), "USER-AGENT,instagram*");
+}

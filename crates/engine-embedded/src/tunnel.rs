@@ -907,8 +907,9 @@ async fn handle_tcp(
     }
 
     let host = sniff::host(&first);
+    let user_agent = sniff::http_user_agent(&first);
     let target = TargetAddr::Ip(target);
-    let connect = dispatcher.connect_flow(&target, host.as_deref());
+    let connect = dispatcher.connect_http_flow(&target, host.as_deref(), user_agent.as_deref());
     let mut remote = match tokio::time::timeout(settings.connect_timeout, connect).await {
         Ok(Ok(remote)) => remote,
         Ok(Err(err)) => {
