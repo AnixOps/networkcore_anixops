@@ -5,8 +5,8 @@
 
 评估时间：2026-07-08。
 
-参考 upstream distribution release：`v1.4.8`，source commit
-`3f26049eaacaaf6d748f3bd38d92074925d8eb79`。linked C core version 仍为
+参考 upstream distribution release：`v1.4.9`，source commit
+`bb66dc7f1fd02259fd87fd9dd576e90bb9ad768b`。linked C core version 仍为
 `0.45.10`；release tag、公开 release 和 manifest 是 provenance evidence，source
 content pin 是 commit hash。
 
@@ -92,7 +92,7 @@ crates/mitm-policy
 
 当前源码增量已新增 `crates/mitm-anixops-sys` 和 `crates/mitm-policy`：
 前者通过 Git submodule 固定 `third_party/mitm_anixops` 到 distribution release
-`v1.4.8` 的 source commit 并暴露低层 C ABI；后者用 RAII wrapper 加载 `PluginPackage.source`，
+`v1.4.9` 的 source commit 并暴露低层 C ABI；后者用 RAII wrapper 加载 `PluginPackage.source`，
 实现 `AnixOpsMitmPluginService`，提供内置
 `networkcore.adblock` alpha 去广告插件包，并把 0.45.10 的 URL rewrite、
 named header rewrite、bounded header-list application、body rewrite chain、

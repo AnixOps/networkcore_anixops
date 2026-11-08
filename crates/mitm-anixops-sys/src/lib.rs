@@ -237,6 +237,7 @@ pub struct AnixOpsScriptResult {
     pub tag: [c_char; ANIXOPS_VALUE_CAP],
     pub argument: [c_char; ANIXOPS_ARGUMENT_CAP],
     pub message: [c_char; ANIXOPS_MESSAGE_CAP],
+    pub binary_body_mode: c_int,
 }
 
 #[repr(C)]

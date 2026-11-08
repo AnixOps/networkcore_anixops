@@ -293,12 +293,19 @@ fn script_lines_without_an_http_runtime_are_graded() {
     assert_eq!(
         reasons,
         vec![
-            ("script.binary_body_unsupported", LoonLineStatus::Partial),
+            ("script.http_response", LoonLineStatus::Supported),
             ("script.type_unsupported", LoonLineStatus::Unsupported),
             ("script.path_missing", LoonLineStatus::Unsupported),
         ]
     );
     assert_eq!(plugin.report.level, LoonSupportLevel::Partial);
+
+    let feed = loaded_engine(plugin.source())
+        .evaluate_script("https://api.example.com/feed", MitmPolicyPhase::Response)
+        .expect("binary script should evaluate");
+    assert_eq!(feed.kind, MitmPolicyScriptKind::HttpResponse);
+    assert!(feed.binary_body_mode);
+    assert!(feed.requires_body);
 }
 
 #[test]
