@@ -6,6 +6,7 @@
 
 ### Added
 
+- 公开插件语料报告按 App 的方式下载 Map Local 远程数据（两遍：先列出数据 URL，下载后再评分；数据 URL 不固定版本，下载失败的仍记为 `map_local.remote_data_missing`）。
 - MITM 插件：Surge `[General] force-http-engine-hosts` 并入 MITM 主机名（BoxJs、Script Hub 的假域名因此能进脚本），其他 `[General]` 选项忽略；Quantumult X `script-echo-response`/`script-analyze-echo-response` 转为带 body 的 `http-request` 脚本，脚本运行时把请求阶段带 `status`、不带 `response` 的 `$done` 当作直接应答；Loon 条件写法 `request if ${url} ~= /re/i then script("url") with ...` 转为普通 `http-request` 行。
 - MITM 插件分流规则真正生效：此前插件 `[Rule]` 的分流规则只在报告里出现，生产路径（engine-embedded）从未应用。现在插件规则排在用户规则之前进入分流（仅分流模式；单出站配置不受影响）。`PROXY` 和其他策略名按用户配置解析：同名策略组，否则 FINAL 指向的节点或组，否则第一个组。新增 `DOMAIN-WILDCARD`（`*`/`?` 通配），Surge 的 `pre-matching`、`extended-matching` 选项被接受并忽略；`AND`/`OR`/`NOT` 逻辑规则按整体解析；URL-REGEX 的 `REJECT-DROP`/`REJECT-NO-DROP` 按 REJECT 交给核心，并且保留在合并后的运行时策略里（此前被丢掉）。Surge 模块参数 `#!arguments=` 的默认值替换 `{{{参数}}}`，默认值为 `#` 时该行注释掉。
 - 节点内核按地址段拦截（feature `block_cidrs`）：`PUT /v1/rules` 新增 `block_cidrs`（`a.b.c.d/n`、`x::/n` 或单个地址，最多 100 000 条，有一条无效则整体 400、规则不变；为空时 `GET`/`PUT` 的应答不含该字段）。直连出站在解析目标后拒绝落在这些地址段里的地址：TCP 连接按次计数（一次连接只计一次），UDP 数据报逐个计数；范围是整个进程的直连，包括本节点上的中转（relay）和端口转发目标。新增 `GET /v1/rules/counters[?reset=true]` 返回 `{"blocked_cidrs": n}`。出口节点据此可以拒绝中国大陆目标（默认关闭，由面板逐节点开启，地址列表随 Agent 发布）；旧内核忽略该字段。
