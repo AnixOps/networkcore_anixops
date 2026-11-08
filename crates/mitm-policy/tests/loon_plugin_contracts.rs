@@ -810,3 +810,94 @@ fn surge_module_arguments_substitute_and_surge_rule_options_are_read() {
         .expect("URL-REGEX reject should evaluate");
     assert_eq!(ad.action, MitmPolicyRewriteAction::Reject);
 }
+
+#[test]
+fn surge_force_http_engine_hosts_and_quantumult_echo_scripts_are_supported() {
+    let surge = import_loon_plugin(concat!(
+        "#!name=BoxJs\n",
+        "[General]\n",
+        "force-http-engine-hosts = %APPEND% boxjs.com, *.boxjs.com, lzmh.example.com:5090\n",
+        "skip-proxy = 192.168.0.0/16\n",
+        "[Script]\n",
+        "BoxJs = type=http-request,pattern=^https?:\\/\\/(.+\\.)?boxjs\\.com,script-path=https://example.com/box.js, requires-body=true, timeout=120\n",
+        "[MITM]\n",
+        "hostname = %APPEND% api.example.com\n",
+    ))
+    .expect("BoxJs module should import");
+    assert_eq!(
+        surge.report.level,
+        LoonSupportLevel::Full,
+        "{}",
+        surge.report.render_text("boxjs")
+    );
+    for host in [
+        "boxjs.com",
+        "*.boxjs.com",
+        "lzmh.example.com:5090",
+        "api.example.com",
+    ] {
+        assert!(
+            surge.mitm_hostnames.include.iter().any(|item| item == host),
+            "{host}: {:?}",
+            surge.mitm_hostnames
+        );
+    }
+    assert!(
+        !surge.source().contains("skip-proxy = 192"),
+        "{}",
+        surge.source()
+    );
+
+    let quantumult = import_loon_plugin(concat!(
+        "hostname = boxjs.com\n",
+        "\n",
+        "^https?:\\/\\/(.+\\.)?boxjs\\.com url script-analyze-echo-response https://example.com/chavy.boxjs.js\n",
+        "^https?:\\/\\/sub\\.store url script-echo-response https://example.com/sub-store.min.js\n",
+    ))
+    .expect("QX echo snippet should import");
+    assert_eq!(
+        quantumult.report.level,
+        LoonSupportLevel::Full,
+        "{}",
+        quantumult.report.render_text("echo")
+    );
+    let merged = merged_plugin_source("Echo", &[&quantumult]);
+    assert!(merged.contains("[Script]\nhttp-request "), "{merged}");
+    assert!(
+        merged.contains("script-path=https://example.com/chavy.boxjs.js, requires-body=true"),
+        "{merged}"
+    );
+    // The core must accept the translated scripts.
+    let _engine = loaded_engine(&merged);
+}
+
+#[test]
+fn loon_conditional_scripts_become_http_scripts() {
+    let plugin = import_loon_plugin(concat!(
+        "#!name=Script Hub\n",
+        "[Script]\n",
+        "request if ${url} ~= /^https?:\\/\\/script\\.hub\\/($|edit\\/|reload)/i then script(\"https://example.com/script-hub.js\") with tag=\"Script Hub: 前端\", timeout=300\n",
+        "response if ${url} ~= /^https:\\/\\/api\\.example\\.com\\/feed/ then script(\"https://example.com/feed.js\") with requires-body=true\n",
+        "[MITM]\n",
+        "hostname = script.hub, api.example.com\n",
+    ))
+    .expect("conditional scripts should import");
+    assert_eq!(
+        plugin.report.level,
+        LoonSupportLevel::Full,
+        "{}",
+        plugin.report.render_text("script-hub")
+    );
+    let source = plugin.source();
+    assert!(
+        source.contains(
+            "http-request (?i)^https?:\\/\\/script\\.hub\\/($|edit\\/|reload) script-path=https://example.com/script-hub.js, tag=\"Script Hub: 前端\", timeout=300, requires-body=true"
+        ),
+        "{source}"
+    );
+    assert!(
+        source.contains("http-response ^https:\\/\\/api\\.example\\.com\\/feed script-path=https://example.com/feed.js, requires-body=true"),
+        "{source}"
+    );
+    let _engine = loaded_engine(&merged_plugin_source("Script Hub", &[&plugin]));
+}

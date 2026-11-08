@@ -328,6 +328,13 @@ fn parse_done(
             }
             if let Some(response) = present(&object, "response") {
                 mutation.response = Some(parse_response(response, max_output_bytes, binary)?);
+            } else if present(&object, "status").is_some() {
+                // Quantumult X `script-echo-response`: `$done` gets the
+                // response itself (`{status: "HTTP/1.1 200 OK", headers, body}`).
+                let response = Value::Object(object.clone());
+                mutation.response = Some(parse_response(&response, max_output_bytes, binary)?);
+                mutation.headers = None;
+                mutation.body = None;
             }
         }
         ScriptPhase::Response => {
@@ -476,4 +483,34 @@ pub(crate) fn truncate_utf8(text: &str, max_bytes: usize) -> String {
         end -= 1;
     }
     text[..end].to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn request_done_with_a_status_is_a_quantumult_echo_response() {
+        let mutation = parse_done(
+            ScriptPhase::Request,
+            r#"{"status":"HTTP/1.1 200 OK","headers":{"Content-Type":"text/html"},"body":"ok"}"#,
+            1024,
+            false,
+        )
+        .expect("echo response should parse");
+        let response = mutation.response.expect("echo $done is a response");
+        assert_eq!(response.status, 200);
+        assert_eq!(response.body.as_deref(), Some("ok"));
+        assert_eq!(
+            response.headers,
+            vec![("Content-Type".to_string(), "text/html".to_string())]
+        );
+        assert!(mutation.headers.is_none() && mutation.body.is_none());
+
+        // A plain request mutation is unchanged.
+        let mutation = parse_done(ScriptPhase::Request, r#"{"body":"x"}"#, 1024, false)
+            .expect("request mutation should parse");
+        assert!(mutation.response.is_none());
+        assert_eq!(mutation.body.as_deref(), Some("x"));
+    }
 }

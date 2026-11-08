@@ -85,6 +85,15 @@ The plugin as a whole is graded `full`, `partial`, or `unsupported`.
   (`HttpMitmScriptDispatch::binary_body_mode`). `cron`, `generic`, and other
   event scripts are unsupported.
   The iOS JavaScriptCore runtime arrives in M4.
+  Loon's conditional form
+  `request if ${url} ~= /re/i then script("url") with tag=..., timeout=...`
+  becomes the plain `http-request` line (`i` is written as `(?i)`). Quantumult
+  X `script-echo-response` and `script-analyze-echo-response` become
+  `http-request` scripts with `requires-body=true`; the runtime reads a
+  request-phase `$done` that has a `status` but no `response` key as the
+  response itself.
+- Surge `[General] force-http-engine-hosts` joins the MITM hostnames (the core
+  reads the key the same way); other `[General]` options are ignored.
 - `[Map Local]` lines, and `[Rewrite]` `mock-response-body` lines, answer a
   matching request locally (`HttpMitmAction::Respond`) without contacting the
   origin. `data-type` may be `text`, `json`, `html`, `base64`, or `tiny-gif`;

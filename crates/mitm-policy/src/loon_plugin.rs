@@ -492,6 +492,8 @@ enum Section {
     Script,
     MapLocal,
     Mitm,
+    /// Surge `[General]`: only `force-http-engine-hosts` concerns a plugin.
+    General,
     /// Scheduled and event scripts (Quantumult X `[task_local]`).
     Task,
     /// Surge `[Panel]`: UI only.
@@ -513,6 +515,7 @@ impl Section {
             "script" => Self::Script,
             "map local" => Self::MapLocal,
             "mitm" => Self::Mitm,
+            "general" => Self::General,
             "task_local" | "task-local" => Self::Task,
             "panel" => Self::Panel,
             _ => Self::Other,
@@ -533,7 +536,9 @@ impl Section {
     fn canonical_header(self) -> Option<&'static str> {
         match self {
             Self::Rewrite => Some("Rewrite"),
-            Self::Mitm => Some("MITM"),
+            // `force-http-engine-hosts` joins the MITM hostnames, as the
+            // core reads it.
+            Self::Mitm | Self::General => Some("MITM"),
             _ => None,
         }
     }
@@ -674,6 +679,7 @@ pub fn import_loon_plugin_with_resources(
                 }
             }
             Section::Mitm => parser.mitm_line(line_number, &section_name, line),
+            Section::General => parser.general_line(line_number, &section_name, line),
             Section::Other => parser.push(
                 line_number,
                 &section_name,
@@ -820,6 +826,33 @@ impl Parser<'_> {
             "argument.invalid"
         };
         self.push(line, section, status, LoonLineHandler::Metadata, reason);
+    }
+
+    /// Surge `[General] force-http-engine-hosts` sends those hosts through
+    /// the HTTP engine; the core reads the list as MITM hostnames, so the
+    /// line becomes a `hostname` line. Other `[General]` options are the
+    /// user's, not a plugin's.
+    fn general_line(&mut self, line: usize, section: &str, text: &str) {
+        let key = text
+            .split_once('=')
+            .map(|(key, _)| key.trim().to_ascii_lowercase().replace('_', "-"));
+        match (key.as_deref(), text.split_once('=')) {
+            (Some("force-http-engine-hosts"), Some((_, value))) => {
+                let hostname = format!("hostname = {}", value.trim());
+                self.replaced.insert(line, hostname.clone());
+                self.mitm_line(line, section, &hostname);
+            }
+            _ => {
+                self.replaced.insert(line, format!("# {text}"));
+                self.push(
+                    line,
+                    section,
+                    LoonLineStatus::Ignored,
+                    LoonLineHandler::None,
+                    "general.option_ignored",
+                );
+            }
+        }
     }
 
     fn mitm_line(&mut self, line: usize, section: &str, text: &str) {
@@ -1163,10 +1196,15 @@ impl Parser<'_> {
             .unwrap_or_default();
         let pattern = &parts[0];
         match action.as_str() {
+            // `script-echo-response` answers the request itself: its `$done`
+            // object is the response (the runtime reads a request-phase
+            // `$done` with a `status` and no `response` key that way).
             "script-request-header"
             | "script-request-body"
             | "script-response-header"
-            | "script-response-body" => {
+            | "script-response-body"
+            | "script-echo-response"
+            | "script-analyze-echo-response" => {
                 self.replaced.insert(line, format!("# {text}"));
                 let Some(path) = parts.get(3).filter(|path| !path.is_empty()) else {
                     self.push(
@@ -1179,6 +1217,7 @@ impl Parser<'_> {
                     return true;
                 };
                 let response = action.starts_with("script-response");
+                let requires_body = action.ends_with("-body") || action.contains("echo");
                 let tag = path
                     .rsplit('/')
                     .next()
@@ -1194,7 +1233,7 @@ impl Parser<'_> {
                     },
                     quote(pattern),
                     path.replace(',', "%2C"),
-                    action.ends_with("-body"),
+                    requires_body,
                     if tag.is_empty() { "script" } else { &tag },
                 );
                 let before = self.lines.len();
@@ -1205,18 +1244,6 @@ impl Parser<'_> {
                 {
                     self.appended.push(("Script", script, line));
                 }
-                true
-            }
-            // `$done` there returns the response itself, not `{response}`.
-            "script-echo-response" | "script-analyze-echo-response" => {
-                self.replaced.insert(line, format!("# {text}"));
-                self.push(
-                    line,
-                    section,
-                    LoonLineStatus::Unsupported,
-                    LoonLineHandler::None,
-                    "script.echo_response_unsupported",
-                );
                 true
             }
             // `<url> url echo-response <mime> echo-response <body url>`
@@ -1466,6 +1493,10 @@ impl Parser<'_> {
     /// HTTP scripts run in the script runtime; scheduled and event scripts
     /// (`cron`, `generic`, `network-changed`) have no runtime yet.
     fn script_line(&mut self, line: usize, section: &str, text: &str) {
+        if let Some(translated) = loon_conditional_script(text) {
+            self.replaced.insert(line, translated.clone());
+            return self.script_line(line, section, &translated);
+        }
         let lower = text.to_ascii_lowercase();
         let first = lower
             .split(|ch: char| ch.is_whitespace() || ch == ',')
@@ -1793,6 +1824,78 @@ fn substitute_module_arguments(line: &str, arguments: &BTreeMap<String, String>)
     }
     out.push_str(rest);
     out.trim().to_string()
+}
+
+/// Loon's conditional script form,
+/// `request if ${url} ~= /re/i then script("url") with tag="t", timeout=300`,
+/// as the plain `http-request re script-path=url, ...` line. Only a URL
+/// regex condition is read; anything else stays unsupported.
+fn loon_conditional_script(text: &str) -> Option<String> {
+    let lower = text.to_ascii_lowercase();
+    let (kind, rest) = if lower.starts_with("request if ") {
+        ("http-request", &text["request if ".len()..])
+    } else if lower.starts_with("response if ") {
+        ("http-response", &text["response if ".len()..])
+    } else {
+        return None;
+    };
+    let rest = rest.trim_start().strip_prefix("${url}")?.trim_start();
+    let rest = rest.strip_prefix("~=")?.trim_start().strip_prefix('/')?;
+    let then = rest.find(" then ")?;
+    let (regex, flags) = rest[..then].trim_end().rsplit_once('/')?;
+    if regex.is_empty() || !flags.chars().all(|flag| matches!(flag, 'i' | 'g')) {
+        return None;
+    }
+    let call = rest[then + " then ".len()..].trim_start();
+    let call = call.strip_prefix("script(")?.trim_start();
+    let quote_char = call.chars().next().filter(|ch| matches!(ch, '"' | '\''))?;
+    let call = &call[1..];
+    let end = call.find(quote_char)?;
+    let path = &call[..end];
+    let rest = call[end + 1..].trim_start().strip_prefix(')')?.trim();
+    let options = match rest.strip_prefix("with") {
+        Some(options) => attributes(options),
+        None if rest.is_empty() => Vec::new(),
+        None => return None,
+    };
+    if path.is_empty() || path.contains(char::is_whitespace) {
+        return None;
+    }
+    let pattern = if flags.contains('i') {
+        format!("(?i){regex}")
+    } else {
+        regex.to_string()
+    };
+    let mut line = format!(
+        "{kind} {} script-path={}",
+        quote(&pattern),
+        path.replace(',', "%2C")
+    );
+    let mut requires_body = false;
+    for (key, value) in options {
+        match key.as_str() {
+            "requires-body" => requires_body = value.eq_ignore_ascii_case("true") || value == "1",
+            "tag" | "timeout" | "argument" | "binary-body-mode" | "max-size" | "enable" => {
+                let _ = write!(line, ", {key}={}", quote_attribute(&value));
+            }
+            _ => {}
+        }
+    }
+    // The condition form has no body option in most published plugins;
+    // their front-end scripts read form posts, so the body is buffered.
+    if kind == "http-request" || requires_body {
+        let _ = write!(line, ", requires-body=true");
+    }
+    Some(line)
+}
+
+/// An attribute value as [`attributes`] reads it back.
+fn quote_attribute(value: &str) -> String {
+    if value.is_empty() || value.contains([' ', ',', '"', '\'', '\t']) {
+        format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
+    } else {
+        value.to_string()
+    }
 }
 
 fn is_reject_policy(target: &str) -> bool {
