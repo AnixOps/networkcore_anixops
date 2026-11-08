@@ -452,6 +452,15 @@ pub fn parse_rule_line(line: &str) -> DomainResult<RuleLine> {
             "routing rule must have a type, a value, and a target",
         ));
     }
+    if kind == "URL-REGEX" {
+        // A standalone URL-REGEX is the MITM core's (its rejects run on the
+        // full URL of every intercepted request); only logical rules bring
+        // one here.
+        return Err(routing_error(
+            ROUTING_RULE_TYPE_UNSUPPORTED_CODE,
+            "URL-REGEX is a routing rule only inside AND, OR, or NOT",
+        ));
+    }
     let matcher = parse_matcher(&kind, parts[1])?;
     let no_resolve = parse_options(&parts[3..], &matcher)?;
     Ok(RuleLine::Rule {
@@ -635,7 +644,7 @@ fn parse_matcher(kind: &str, value: &str) -> DomainResult<RuleMatcher> {
         }),
         _ => return Err(routing_error(
             ROUTING_RULE_TYPE_UNSUPPORTED_CODE,
-            "routing rule type must be DOMAIN, DOMAIN-SUFFIX, DOMAIN-KEYWORD, DOMAIN-WILDCARD, IP-CIDR, IP-CIDR6, GEOIP, GEOSITE, DST-PORT, PROCESS-NAME, PROTOCOL, RULE-SET, AND, OR, NOT, or FINAL",
+            "routing rule type must be DOMAIN, DOMAIN-SUFFIX, DOMAIN-KEYWORD, DOMAIN-WILDCARD, IP-CIDR, IP-CIDR6, GEOIP, GEOSITE, DST-PORT, PROCESS-NAME, PROTOCOL, USER-AGENT, RULE-SET, AND, OR, NOT, or FINAL (URL-REGEX inside AND, OR, NOT)",
         )),
     })
 }

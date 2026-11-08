@@ -238,10 +238,7 @@ fn parses_rule_lines() {
         ("DOMAIN,example.com", ROUTING_RULE_LINE_INVALID_CODE),
         ("FINAL", ROUTING_RULE_LINE_INVALID_CODE),
         ("FINAL,Proxy,extra", ROUTING_RULE_LINE_INVALID_CODE),
-        (
-            "USER-AGENT,curl*,DIRECT",
-            ROUTING_RULE_TYPE_UNSUPPORTED_CODE,
-        ),
+        ("IN-PORT,6152,DIRECT", ROUTING_RULE_TYPE_UNSUPPORTED_CODE),
         (
             "DOMAIN,exa mple.com,DIRECT",
             ROUTING_RULE_VALUE_INVALID_CODE,
@@ -669,7 +666,7 @@ fn malformed_logical_and_port_rules_are_rejected() {
         "AND,((DOMAIN,a.com)(DOMAIN,b.com)),DIRECT",
         "AND,((DOMAIN,a.com,DIRECT)),DIRECT",
         "AND,((DOMAIN)),DIRECT",
-        "AND,((USER-AGENT,curl)),DIRECT",
+        "AND,((IN-PORT,6152)),DIRECT",
         "DST-PORT,99999,DIRECT",
         "DST-PORT,500-400,DIRECT",
         "GEOSITE,bad category,DIRECT",
@@ -926,4 +923,10 @@ fn url_regex_rules_match_plain_http_urls_inside_logical_rules() {
         assert_eq!(resolution.matched, expected, "{query:?}");
     }
     assert!(parse_rule_line("AND,((URL-REGEX,\"(\"),(DST-PORT,80)),REJECT").is_err());
+    assert_eq!(
+        parse_rule_line("URL-REGEX,^http://a/,REJECT")
+            .unwrap_err()
+            .code,
+        ROUTING_RULE_TYPE_UNSUPPORTED_CODE
+    );
 }
