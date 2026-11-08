@@ -982,6 +982,8 @@ fn scheduled_scripts_of_every_dialect_are_read() {
         LoonScheduledTrigger::Cron("55 23 * * *".to_string())
     );
     assert_eq!(scripts[2].trigger, LoonScheduledTrigger::NetworkChanged);
+    assert_eq!(scripts[2].script_url, "https://example.com/net.js");
+    assert_eq!(scripts[2].tag, "net");
     assert_eq!(scripts[3].trigger, LoonScheduledTrigger::Generic);
     assert_eq!(scripts[3].timeout_secs, 60);
     let reasons = loon

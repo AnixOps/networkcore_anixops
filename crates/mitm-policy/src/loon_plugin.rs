@@ -1822,10 +1822,17 @@ impl Parser<'_> {
             .find(|prefix| lower.starts_with(*prefix))
             .map(|prefix| text[prefix.len()..].trim_start())
         {
+            // Loon `network-changed script-path=...`; Quantumult X
+            // `event-network <url>, tag=...`.
+            let attributes = if rest.starts_with("http://") || rest.starts_with("https://") {
+                url_first_attributes(rest)
+            } else {
+                attributes(rest)
+            };
             (
                 LoonScheduledTrigger::NetworkChanged,
                 String::new(),
-                url_first_attributes(rest),
+                attributes,
             )
         } else if lower.starts_with("generic ") {
             (
