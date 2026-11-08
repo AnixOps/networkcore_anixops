@@ -1636,6 +1636,18 @@ impl Parser<'_> {
             lines.push(rule.clone());
             origins.push(*origin);
         }
+        // The core reads at most `MAX_CORE_PATTERN_LEN` bytes of a pattern:
+        // a longer one with a top-level alternation becomes several lines.
+        let (lines, origins): (Vec<_>, Vec<_>) = lines
+            .into_iter()
+            .zip(origins)
+            .flat_map(|(line, origin)| {
+                split_long_pattern_line(&line)
+                    .unwrap_or_else(|| vec![line])
+                    .into_iter()
+                    .map(move |line| (line, origin))
+            })
+            .unzip();
         let mut source = lines.join("\n");
         source.push('\n');
         (source, origins)
@@ -2392,6 +2404,160 @@ fn url_first_attributes(text: &str) -> Vec<(String, String)> {
     let mut attributes = attributes(&text[end..]);
     attributes.insert(0, ("url".to_string(), text[..end].to_string()));
     attributes
+}
+
+/// Longest pattern the core reads whole (its buffers hold 511 bytes; the
+/// rest is room for quotes and attribute syntax).
+const MAX_CORE_PATTERN_LEN: usize = 480;
+
+/// A line whose pattern is too long for the core, as several lines with the
+/// same meaning: the pattern's top-level alternation (`^https?://(a|b|...)/`
+/// or `a|b|...`) is spread over the copies. `None` when the line needs no
+/// split or its pattern has no alternation that can be split safely.
+fn split_long_pattern_line(line: &str) -> Option<Vec<String>> {
+    if line.len() <= MAX_CORE_PATTERN_LEN || line.trim_start().starts_with('#') {
+        return None;
+    }
+    // The pattern: Surge's `pattern=` attribute, the word after Loon's
+    // `http-request`/`http-response`, or a url-first line's first word.
+    let words = line.split_whitespace().collect::<Vec<_>>();
+    let first = words.first()?.to_ascii_lowercase();
+    let word = match words.iter().find(|word| word.starts_with("pattern=")) {
+        Some(word) => *word,
+        None if first == "http-request" || first == "http-response" => *words.get(1)?,
+        None => words[0],
+    };
+    let pattern = word.strip_prefix("pattern=").unwrap_or(word);
+    let pattern = pattern.strip_suffix(',').unwrap_or(pattern);
+    let pattern = pattern
+        .strip_prefix('"')
+        .and_then(|pattern| pattern.strip_suffix('"'))
+        .unwrap_or(pattern);
+    if pattern.len() <= MAX_CORE_PATTERN_LEN || line.matches(pattern).count() != 1 {
+        return None;
+    }
+    let chunks = split_alternation(pattern, MAX_CORE_PATTERN_LEN)?;
+    Some(
+        chunks
+            .into_iter()
+            .map(|chunk| line.replacen(pattern, &chunk, 1))
+            .collect(),
+    )
+}
+
+/// `pattern` as patterns of at most `max` bytes that together match what it
+/// matches. Only alternations that can be split without changing the
+/// meaning are used: the whole pattern's, or a top-level group that is not
+/// a lookaround and has no quantifier.
+pub(crate) fn split_alternation(pattern: &str, max: usize) -> Option<Vec<String>> {
+    let bytes = pattern.as_bytes();
+    // Top-level groups (open, close) and top-level `|` positions.
+    let mut groups = Vec::new();
+    let mut top_bars = Vec::new();
+    let mut depth = 0usize;
+    let mut open = 0usize;
+    let mut index = 0usize;
+    let mut in_class = false;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'\\' => index += 1,
+            b']' if in_class => in_class = false,
+            _ if in_class => {}
+            b'[' => in_class = true,
+            b'(' => {
+                if depth == 0 {
+                    open = index;
+                }
+                depth += 1;
+            }
+            b')' => {
+                depth = depth.checked_sub(1)?;
+                if depth == 0 {
+                    groups.push((open, index));
+                }
+            }
+            b'|' if depth == 0 => top_bars.push(index),
+            _ => {}
+        }
+        index += 1;
+    }
+    if depth != 0 || in_class {
+        return None;
+    }
+    let (prefix, content, suffix) = if !top_bars.is_empty() {
+        ("", pattern, "")
+    } else {
+        let (open, close) = groups
+            .into_iter()
+            .filter(|(open, close)| {
+                let head = &pattern[*open..];
+                let lookaround = ["(?=", "(?!", "(?<=", "(?<!"]
+                    .iter()
+                    .any(|prefix| head.starts_with(prefix));
+                let quantified = matches!(bytes.get(close + 1), Some(b'*' | b'+' | b'?' | b'{'));
+                !lookaround && !quantified
+            })
+            .max_by_key(|(open, close)| close - open)?;
+        let content_start = if pattern[open..].starts_with("(?:") {
+            open + 3
+        } else if pattern[open..].starts_with("(?") {
+            // Named or flagged groups keep their head with the prefix.
+            open + pattern[open..].find(|ch| ch == ':' || ch == '>')? + 1
+        } else {
+            open + 1
+        };
+        (
+            &pattern[..content_start],
+            &pattern[content_start..close],
+            &pattern[close..],
+        )
+    };
+    // Alternatives of `content` at its own level.
+    let content_bytes = content.as_bytes();
+    let mut alternatives = Vec::new();
+    let (mut depth, mut start, mut index, mut in_class) = (0usize, 0usize, 0usize, false);
+    while index < content_bytes.len() {
+        match content_bytes[index] {
+            b'\\' => index += 1,
+            b']' if in_class => in_class = false,
+            _ if in_class => {}
+            b'[' => in_class = true,
+            b'(' => depth += 1,
+            b')' => depth = depth.saturating_sub(1),
+            b'|' if depth == 0 => {
+                alternatives.push(&content[start..index]);
+                start = index + 1;
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    alternatives.push(&content[start..]);
+    if alternatives.len() < 2 {
+        return None;
+    }
+    let room = max.checked_sub(prefix.len() + suffix.len())?;
+    let mut chunks = Vec::new();
+    let mut current = String::new();
+    for alternative in alternatives {
+        if alternative.len() > room {
+            return None;
+        }
+        if !current.is_empty() && current.len() + 1 + alternative.len() > room {
+            chunks.push(std::mem::take(&mut current));
+        }
+        if !current.is_empty() {
+            current.push('|');
+        }
+        current.push_str(alternative);
+    }
+    chunks.push(current);
+    Some(
+        chunks
+            .into_iter()
+            .map(|chunk| format!("{prefix}{chunk}{suffix}"))
+            .collect(),
+    )
 }
 
 /// True when the core compiles the regex of a header-block rule.

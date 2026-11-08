@@ -1031,3 +1031,59 @@ fn scheduled_scripts_of_every_dialect_are_read() {
         LoonScheduledTrigger::NetworkChanged
     );
 }
+
+#[test]
+fn patterns_longer_than_the_core_reads_are_split_on_their_alternation() {
+    let hosts = (0..60)
+        .map(|index| format!("site{index:02}\\.example\\.com"))
+        .collect::<Vec<_>>();
+    let pattern = format!("^https?:\\/\\/({})\\/player", hosts.join("|"));
+    assert!(pattern.len() > 1000);
+    let plugin = import_loon_plugin(&format!(
+        "#!name=Long\n[Script]\nPlayer = type=http-response, pattern=\"{pattern}\", requires-body=1, script-path=https://scripts.example.com/player.js\nhttp-request {pattern} script-path=https://scripts.example.com/request.js\n[MITM]\nhostname = %APPEND% *.example.com\n"
+    ))
+    .expect("long patterns should import");
+    assert_eq!(
+        plugin.report.level,
+        LoonSupportLevel::Full,
+        "{}",
+        plugin.report.render_text("long")
+    );
+    let merged = merged_plugin_source("Long", &[&plugin]);
+    assert!(
+        merged
+            .lines()
+            .all(|line| line.len() < 600 || line.starts_with("hostname")),
+        "{merged}"
+    );
+    let engine = loaded_engine(&merged);
+    for host in ["site00", "site31", "site59"] {
+        let response = engine
+            .evaluate_script(
+                &format!("https://{host}.example.com/player"),
+                MitmPolicyPhase::Response,
+            )
+            .expect("script should evaluate");
+        assert_eq!(
+            response.script_path, "https://scripts.example.com/player.js",
+            "{host}"
+        );
+        let request = engine
+            .evaluate_script(
+                &format!("https://{host}.example.com/player"),
+                MitmPolicyPhase::Request,
+            )
+            .expect("script should evaluate");
+        assert_eq!(
+            request.script_path, "https://scripts.example.com/request.js",
+            "{host}"
+        );
+    }
+    let other = engine
+        .evaluate_script(
+            "https://site60.example.com/player",
+            MitmPolicyPhase::Response,
+        )
+        .expect("script should evaluate");
+    assert_eq!(other.kind, MitmPolicyScriptKind::None);
+}
