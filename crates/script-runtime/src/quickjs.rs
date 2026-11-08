@@ -44,16 +44,22 @@ impl SourceKey {
     }
 }
 
+#[derive(Default)]
+struct CacheEntries {
+    map: HashMap<SourceKey, Arc<Vec<u8>>>,
+    bytes: usize,
+}
+
 /// Bytecode of large scripts, shared by the runs of one runtime, so a script
 /// that answers many requests is parsed once instead of on every request.
 #[derive(Default)]
 struct BytecodeCache {
-    entries: Mutex<(HashMap<SourceKey, Arc<Vec<u8>>>, usize)>,
+    entries: Mutex<CacheEntries>,
 }
 
 impl BytecodeCache {
     fn get(&self, key: &SourceKey) -> Option<Arc<Vec<u8>>> {
-        self.entries.lock().ok()?.0.get(key).cloned()
+        self.entries.lock().ok()?.map.get(key).cloned()
     }
 
     fn insert(&self, key: SourceKey, bytecode: Vec<u8>) {
@@ -63,13 +69,13 @@ impl BytecodeCache {
         let Ok(mut entries) = self.entries.lock() else {
             return;
         };
-        if entries.1 + bytecode.len() > BYTECODE_CACHE_MAX_BYTES {
-            entries.0.clear();
-            entries.1 = 0;
+        if entries.bytes + bytecode.len() > BYTECODE_CACHE_MAX_BYTES {
+            entries.map.clear();
+            entries.bytes = 0;
         }
-        entries.1 += bytecode.len();
-        if let Some(old) = entries.0.insert(key, Arc::new(bytecode)) {
-            entries.1 -= old.len();
+        entries.bytes += bytecode.len();
+        if let Some(old) = entries.map.insert(key, Arc::new(bytecode)) {
+            entries.bytes -= old.len();
         }
     }
 
@@ -77,7 +83,7 @@ impl BytecodeCache {
     fn len(&self) -> usize {
         self.entries
             .lock()
-            .map(|entries| entries.0.len())
+            .map(|entries| entries.map.len())
             .unwrap_or(0)
     }
 }
