@@ -843,7 +843,10 @@ fn surge_force_http_engine_hosts_and_quantumult_echo_scripts_are_supported() {
         );
     }
     assert!(
-        !surge.source().contains("skip-proxy = 192"),
+        !surge
+            .source()
+            .lines()
+            .any(|line| line.starts_with("skip-proxy")),
         "{}",
         surge.source()
     );
