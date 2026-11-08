@@ -282,7 +282,9 @@ async fn decrypts_rewrites_and_relays_https_for_listed_hosts() {
     // Only the second request reached the origin, asking for an identity body.
     let head = requests.recv().await.unwrap();
     assert!(head.starts_with("GET /data HTTP/1.1"), "{head}");
-    assert!(head.contains("Accept-Encoding: identity"), "{head}");
+    // No rule reads this response, so it may arrive compressed and streams
+    // through as sent.
+    assert!(head.contains("Accept-Encoding: gzip, br"), "{head}");
     assert!(requests.try_recv().is_err());
     server.abort();
 }
@@ -290,6 +292,7 @@ async fn decrypts_rewrites_and_relays_https_for_listed_hosts() {
 /// A plain HTTP origin: answers every request head it reads with a fixed body.
 struct PlainOrigin {
     requests: mpsc::UnboundedSender<String>,
+    body: Vec<u8>,
 }
 
 impl TcpOutbound for PlainOrigin {
@@ -301,6 +304,7 @@ impl TcpOutbound for PlainOrigin {
         Box::pin(async move {
             let (near, mut far) = tokio::io::duplex(64 * 1024);
             let requests = self.requests.clone();
+            let body = self.body.clone();
             tokio::spawn(async move {
                 let mut buf = Vec::new();
                 let mut chunk = [0u8; 4096];
@@ -314,13 +318,12 @@ impl TcpOutbound for PlainOrigin {
                         let head = String::from_utf8_lossy(&buf[..end]).into_owned();
                         buf.drain(..end + 4);
                         requests.send(head).unwrap();
-                        let body = b"plain origin";
                         let response = format!(
                             "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n",
                             body.len()
                         );
                         far.write_all(response.as_bytes()).await.unwrap();
-                        far.write_all(body).await.unwrap();
+                        far.write_all(&body).await.unwrap();
                     }
                 }
             });
@@ -340,6 +343,7 @@ async fn rewrites_plain_http_without_a_mitm_hostname() {
     let (requests_tx, mut requests) = mpsc::unbounded_channel();
     let origin = Arc::new(PlainOrigin {
         requests: requests_tx,
+        body: b"plain origin".to_vec(),
     });
     let target: SocketAddr = "192.0.2.20:80".parse().unwrap();
 
@@ -403,6 +407,67 @@ async fn rewrites_plain_http_without_a_mitm_hostname() {
         requests.try_recv().is_err(),
         "the rejected request stayed local"
     );
+    server.abort();
+}
+
+#[tokio::test]
+async fn bodies_no_rule_reads_stream_past_the_body_limit_and_keep_the_connection() {
+    let device_root = root("NetworkCore Test Device Root");
+    let mut config = mitm_config(&device_root);
+    config.plugins.push(
+        "#!name = Plain\n[Rewrite]\n^http://plain\\.example\\.test/ads/ reject\n".to_string(),
+    );
+    let engine = Arc::new(MitmEngine::new(&config).unwrap());
+    let (requests_tx, mut requests) = mpsc::unbounded_channel();
+    // Twice the limit a body that rules read may have.
+    let large = vec![b'z'; 2 * 1024 * 1024];
+    let origin = Arc::new(PlainOrigin {
+        requests: requests_tx,
+        body: large.clone(),
+    });
+    let target: SocketAddr = "192.0.2.20:80".parse().unwrap();
+    let first = b"GET /video.bin HTTP/1.1\r\nHost: plain.example.test\r\n\r\n".to_vec();
+    let host = engine.claim(&first, target).expect("plain HTTP is claimed");
+    let (mut app, tunnel_side) = tokio::io::duplex(64 * 1024);
+    let flow = InterceptedFlow {
+        inbound: Box::new(tunnel_side),
+        first,
+        host,
+        target,
+    };
+    let server = tokio::spawn({
+        let engine = engine.clone();
+        let origin = origin.clone();
+        async move {
+            let _ = engine
+                .serve_flow(
+                    flow,
+                    origin.as_ref(),
+                    Duration::from_secs(5),
+                    Duration::from_secs(5),
+                )
+                .await;
+        }
+    });
+
+    let (head, body) = tokio::time::timeout(Duration::from_secs(10), read_response(&mut app))
+        .await
+        .expect("streamed in time");
+    assert!(head.starts_with("HTTP/1.1 200"), "{head}");
+    assert_eq!(body.len(), large.len());
+    assert!(body.bytes().all(|byte| byte == b'z'));
+
+    // The same connection still carries requests the rules act on.
+    app.write_all(b"GET /ads/banner.js HTTP/1.1\r\nHost: plain.example.test\r\n\r\n")
+        .await
+        .unwrap();
+    let (head, _) = tokio::time::timeout(Duration::from_secs(10), read_response(&mut app))
+        .await
+        .expect("rejected in time");
+    assert!(head.starts_with("HTTP/1.1 4"), "rejected: {head}");
+    let head = requests.recv().await.unwrap();
+    assert!(head.starts_with("GET /video.bin HTTP/1.1"), "{head}");
+    assert!(requests.try_recv().is_err());
     server.abort();
 }
 

@@ -178,6 +178,64 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Conn<S> {
         }
     }
 
+    /// Forwards one body to `dst` as it arrives, framed as on the wire, so
+    /// a body nobody rewrites is never held whole. Bytes past the body stay
+    /// buffered for the next message.
+    pub async fn copy_body<W>(&mut self, framing: Framing, dst: &mut Conn<W>) -> io::Result<()>
+    where
+        W: AsyncRead + AsyncWrite + Unpin,
+    {
+        match framing {
+            Framing::Length(length) => self.copy_exact(length, dst).await?,
+            Framing::Chunked => loop {
+                let mut line = Vec::new();
+                let size_text = self.read_line(&mut line).await?;
+                let size_text = size_text.split(';').next().unwrap_or("").trim();
+                let size = usize::from_str_radix(size_text, 16)
+                    .map_err(|_| invalid("invalid chunk size"))?;
+                dst.io.write_all(&line).await?;
+                if size == 0 {
+                    loop {
+                        let mut trailer = Vec::new();
+                        let done = self.read_line(&mut trailer).await?.is_empty();
+                        dst.io.write_all(&trailer).await?;
+                        if done {
+                            break;
+                        }
+                    }
+                    break;
+                }
+                self.copy_exact(size.saturating_add(2), dst).await?;
+            },
+            Framing::UntilClose => loop {
+                if !self.buf.is_empty() {
+                    dst.io.write_all(&self.buf).await?;
+                    self.buf.clear();
+                }
+                if self.fill().await? == 0 {
+                    break;
+                }
+            },
+        }
+        dst.io.flush().await
+    }
+
+    async fn copy_exact<W>(&mut self, mut remaining: usize, dst: &mut Conn<W>) -> io::Result<()>
+    where
+        W: AsyncRead + AsyncWrite + Unpin,
+    {
+        while remaining > 0 {
+            if self.buf.is_empty() && self.fill().await? == 0 {
+                return Err(io::ErrorKind::UnexpectedEof.into());
+            }
+            let take = remaining.min(self.buf.len());
+            dst.io.write_all(&self.buf[..take]).await?;
+            self.buf.drain(..take);
+            remaining -= take;
+        }
+        Ok(())
+    }
+
     /// One CRLF-terminated line without the CRLF; the raw bytes go to `raw`.
     async fn read_line(&mut self, raw: &mut Vec<u8>) -> io::Result<String> {
         loop {
@@ -284,6 +342,22 @@ mod tests {
             panic!("body should be too large");
         };
         assert_eq!(raw, b"4\r\nwiki\r\n5\r\n");
+    }
+
+    #[tokio::test]
+    async fn copies_bodies_as_framed_and_keeps_what_follows() {
+        let (out, mut far) = tokio::io::duplex(1024);
+        let mut dst = Conn::new(out, Vec::new());
+        let mut conn = buffered(b"abcdeNEXT");
+        conn.copy_body(Framing::Length(5), &mut dst).await.unwrap();
+        let mut conn2 = buffered(b"4\r\nwiki\r\n0\r\nTrailer: y\r\n\r\nREST");
+        conn2.copy_body(Framing::Chunked, &mut dst).await.unwrap();
+        drop(dst);
+        let mut copied = Vec::new();
+        far.read_to_end(&mut copied).await.unwrap();
+        assert_eq!(copied, b"abcde4\r\nwiki\r\n0\r\nTrailer: y\r\n\r\n");
+        assert_eq!(conn.into_parts().1, b"NEXT");
+        assert_eq!(conn2.into_parts().1, b"REST");
     }
 
     #[test]

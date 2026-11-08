@@ -730,16 +730,37 @@ static ENGINE_POOL: std::sync::Mutex<Vec<PooledEngine>> = std::sync::Mutex::new(
 /// parallel, and the extra ones are dropped afterwards.
 const ENGINE_POOL_MAX_IDLE: usize = 2;
 
-/// A policy's identity: its length and hash.
+/// Policies up to this size are hashed whole; larger ones by samples, so a
+/// multi-megabyte policy costs little per message. The embedded data plane
+/// ends each policy it builds with a line unique to it, which the samples
+/// always cover.
+const POLICY_FULL_HASH_MAX_BYTES: usize = 256 * 1024;
+const POLICY_SAMPLE_BYTES: usize = 64 * 1024;
+const POLICY_STRIDE_SAMPLES: usize = 32;
+const POLICY_STRIDE_SAMPLE_BYTES: usize = 512;
+
+/// A policy's identity: its length and a hash of its text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct PolicyFingerprint(usize, u64);
 
 impl PolicyFingerprint {
     fn of(source: &str) -> Self {
-        use std::hash::{Hash, Hasher};
+        use std::hash::Hasher;
+        let bytes = source.as_bytes();
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        source.hash(&mut hasher);
-        Self(source.len(), hasher.finish())
+        if bytes.len() <= POLICY_FULL_HASH_MAX_BYTES {
+            hasher.write(bytes);
+        } else {
+            hasher.write(&bytes[..POLICY_SAMPLE_BYTES]);
+            hasher.write(&bytes[bytes.len() - POLICY_SAMPLE_BYTES..]);
+            let stride = bytes.len() / POLICY_STRIDE_SAMPLES;
+            for index in 0..POLICY_STRIDE_SAMPLES {
+                let start = index * stride;
+                let end = (start + POLICY_STRIDE_SAMPLE_BYTES).min(bytes.len());
+                hasher.write(&bytes[start..end]);
+            }
+        }
+        Self(bytes.len(), hasher.finish())
     }
 }
 
@@ -829,6 +850,30 @@ pub struct AnixOpsMitmPluginService;
 impl AnixOpsMitmPluginService {
     pub const fn new() -> Self {
         Self
+    }
+
+    /// Whether planning a message to `url` in `phase` reads its body: a
+    /// body rewrite (including jq) or a script matches. When nothing does,
+    /// the data plane can forward the body as it arrives instead of holding
+    /// it whole, and only the head is planned.
+    pub fn needs_body(
+        &self,
+        plugin_instance: &PluginInstance,
+        url: &str,
+        phase: HttpMitmPhase,
+    ) -> DomainResult<bool> {
+        let Some(source) = plugin_instance.loaded_source.as_deref() else {
+            return Ok(false);
+        };
+        let mut engine = EngineLease::acquire(source)?;
+        let phase = policy_phase_from_domain(phase);
+        let (plan, _) = engine.build_rewrite_plan(url, phase, "")?;
+        let (_, chain) = engine.apply_body_chain(url, phase, "")?;
+        engine.keep();
+        Ok(plan.requires_body
+            || plan.script.kind != MitmPolicyScriptKind::None
+            || !chain.rewrites.is_empty()
+            || chain.truncated)
     }
 }
 
