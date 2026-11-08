@@ -1089,6 +1089,41 @@ fn patterns_longer_than_the_core_reads_are_split_on_their_alternation() {
 }
 
 #[test]
+fn quoted_surge_patterns_keep_their_backslashes() {
+    // Unquoted by the core, `\?` would become `?` and `(a|?b)` is no regex;
+    // `\.` would become `.` and match any character.
+    let plugin = import_loon_plugin(concat!(
+        "#!name=Quoted\n",
+        "[Script]\n",
+        "Search = type=http-response, pattern=\"^https?:\\/\\/(zhidao)\\.example\\.com\\/(question|\\?fr|\\?word)\", requires-body=1, script-path=https://scripts.example.com/search.js\n",
+        "[MITM]\n",
+        "hostname = %APPEND% zhidao.example.com\n",
+    ))
+    .expect("quoted patterns should import");
+    assert_eq!(
+        plugin.report.level,
+        LoonSupportLevel::Full,
+        "{}",
+        plugin.report.render_text("quoted")
+    );
+    let engine = loaded_engine(&merged_plugin_source("Quoted", &[&plugin]));
+    let hit = engine
+        .evaluate_script(
+            "https://zhidao.example.com/?word=a",
+            MitmPolicyPhase::Response,
+        )
+        .expect("script should evaluate");
+    assert_eq!(hit.script_path, "https://scripts.example.com/search.js");
+    let dot = engine
+        .evaluate_script(
+            "https://zhidaoXexample.com/question",
+            MitmPolicyPhase::Response,
+        )
+        .expect("script should evaluate");
+    assert_eq!(dot.kind, MitmPolicyScriptKind::None);
+}
+
+#[test]
 fn header_url_rewrites_become_redirects() {
     let plugin = import_loon_plugin(concat!(
         "#!name=Header\n",

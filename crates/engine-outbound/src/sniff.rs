@@ -38,8 +38,68 @@ pub fn http_host(first: &[u8]) -> Option<String> {
     valid_name(name)
 }
 
+/// What `USER-AGENT` and `URL-REGEX` rules see of a plain HTTP request.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct HttpRequestHead {
+    pub user_agent: Option<String>,
+    /// `http://host[:port]/path?query`, from the request line and `Host`.
+    pub url: Option<String>,
+}
+
+/// The [`HttpRequestHead`] of a plain HTTP/1.x request that starts in
+/// `first`.
+pub fn http_request_head(first: &[u8]) -> Option<HttpRequestHead> {
+    let head = HttpRequestHead {
+        user_agent: http_user_agent(first),
+        url: http_url(first),
+    };
+    (head != HttpRequestHead::default()).then_some(head)
+}
+
+/// The URL of a plain HTTP/1.x request that starts in `first`: the request
+/// target when it is absolute, otherwise `http://` + `Host` + the path.
+pub fn http_url(first: &[u8]) -> Option<String> {
+    let target = http_headers(first)?
+        .split("\r\n")
+        .next()?
+        .split(' ')
+        .nth(1)?;
+    if target.len() > 8192 {
+        return None;
+    }
+    if target.starts_with("http://") {
+        return Some(target.to_string());
+    }
+    if !target.starts_with('/') {
+        return None;
+    }
+    let host = http_header(first, "host")?.trim();
+    let valid = !host.is_empty()
+        && host.bytes().all(|b| {
+            b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b':' | b'[' | b']')
+        });
+    valid.then(|| format!("http://{}{target}", host.to_ascii_lowercase()))
+}
+
 /// The first `name` header of an HTTP/1.x request that starts in `first`.
 fn http_header<'a>(first: &'a [u8], name: &str) -> Option<&'a str> {
+    let headers = http_headers(first)?;
+    let mut lines = headers.split("\r\n");
+    lines.next()?;
+    for line in lines {
+        let Some((key, value)) = line.split_once(':') else {
+            continue;
+        };
+        if key.trim().eq_ignore_ascii_case(name) {
+            return Some(value);
+        }
+    }
+    None
+}
+
+/// The request line and headers of an HTTP/1.x request that starts in
+/// `first`.
+fn http_headers(first: &[u8]) -> Option<&str> {
     const METHODS: [&[u8]; 9] = [
         b"GET ",
         b"POST ",
@@ -59,18 +119,7 @@ fn http_header<'a>(first: &'a [u8], name: &str) -> Option<&'a str> {
         Ok(text) => text,
         Err(error) => std::str::from_utf8(&first[..error.valid_up_to()]).ok()?,
     };
-    let headers = text.split("\r\n\r\n").next()?;
-    let mut lines = headers.split("\r\n");
-    lines.next()?;
-    for line in lines {
-        let Some((key, value)) = line.split_once(':') else {
-            continue;
-        };
-        if key.trim().eq_ignore_ascii_case(name) {
-            return Some(value);
-        }
-    }
-    None
+    text.split("\r\n\r\n").next()
 }
 
 fn valid_name(name: &str) -> Option<String> {
@@ -156,7 +205,9 @@ impl<'a> Reader<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::{client_hello_server_name, host, http_host, http_user_agent};
+    use super::{
+        client_hello_server_name, host, http_host, http_request_head, http_url, http_user_agent,
+    };
 
     fn client_hello(server_name: &str) -> Vec<u8> {
         let name = server_name.as_bytes();
@@ -259,5 +310,20 @@ mod tests {
             None
         );
         assert_eq!(http_user_agent(b"\x16\x03\x01"), None);
+    }
+
+    #[test]
+    fn url_comes_from_the_request_line_and_host() {
+        assert_eq!(
+            http_url(b"GET /amdc/mobileDispatch?a=1 HTTP/1.1\r\nHost: Api.Example:8080\r\n\r\n")
+                .as_deref(),
+            Some("http://api.example:8080/amdc/mobileDispatch?a=1")
+        );
+        assert_eq!(
+            http_url(b"GET http://proxy.example/x HTTP/1.1\r\n\r\n").as_deref(),
+            Some("http://proxy.example/x")
+        );
+        assert_eq!(http_url(b"GET / HTTP/1.1\r\n\r\n"), None);
+        assert_eq!(http_request_head(b"\x16\x03\x01"), None);
     }
 }

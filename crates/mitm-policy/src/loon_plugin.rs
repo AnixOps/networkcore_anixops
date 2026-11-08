@@ -1716,6 +1716,13 @@ impl Parser<'_> {
                 return;
             }
         };
+        // The core drops every backslash of a quoted Surge attribute value,
+        // so `pattern="a\?b"` would reach it as `a?b`.
+        if !first.starts_with("http-") {
+            if let Some(escaped) = surge_pattern_for_core(text) {
+                self.replaced.insert(line, escaped);
+            }
+        }
         if !lower.contains("script-path") && !lower.contains("script_path") {
             self.push(
                 line,
@@ -2432,6 +2439,50 @@ fn url_first_attributes(text: &str) -> Vec<(String, String)> {
     let mut attributes = attributes(&text[end..]);
     attributes.insert(0, ("url".to_string(), text[..end].to_string()));
     attributes
+}
+
+/// A Surge script line whose quoted `pattern=` value has backslashes, with
+/// them doubled so the core, which unquotes `\x` to `x`, reads the regex
+/// unchanged. An escaped quote stays as it is (a literal quote either way).
+fn surge_pattern_for_core(line: &str) -> Option<String> {
+    let lower = line.to_ascii_lowercase();
+    let start = lower.match_indices("pattern").find_map(|(at, _)| {
+        let before = line[..at].chars().next_back();
+        if !before.is_some_and(|ch| ch == ',' || ch.is_whitespace()) {
+            return None;
+        }
+        let rest = line[at + "pattern".len()..].trim_start();
+        let rest = rest.strip_prefix('=')?.trim_start();
+        Some(line.len() - rest.len())
+    })?;
+    let mut chars = line[start..].char_indices();
+    let (_, quote) = chars.next().filter(|(_, ch)| matches!(ch, '"' | '\''))?;
+    let mut value = String::new();
+    let mut end = None;
+    let mut changed = false;
+    while let Some((at, ch)) = chars.next() {
+        if ch == quote {
+            end = Some(start + at);
+            break;
+        }
+        if ch == '\\' {
+            match chars.next() {
+                Some((_, next)) if next == quote => value.push_str(&format!("\\{quote}")),
+                Some((_, next)) => {
+                    value.push_str(if next == '\\' { "\\\\\\\\" } else { "\\\\" });
+                    if next != '\\' {
+                        value.push(next);
+                    }
+                    changed = true;
+                }
+                None => return None,
+            }
+            continue;
+        }
+        value.push(ch);
+    }
+    let end = end?;
+    changed.then(|| format!("{}{value}{}", &line[..start + 1], &line[end..]))
 }
 
 /// Longest pattern the core reads whole (its buffers hold 511 bytes; the

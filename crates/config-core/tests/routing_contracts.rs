@@ -893,3 +893,37 @@ fn user_agent_rules_match_a_glob_case_insensitively() {
     assert_eq!(matcher, RuleMatcher::UserAgent("instagram*".to_string()));
     assert_eq!(matcher.to_string(), "USER-AGENT,instagram*");
 }
+
+#[test]
+fn url_regex_rules_match_plain_http_urls_inside_logical_rules() {
+    let line = r#"AND,((URL-REGEX,"^http:\/\/.+\/amdc\/mobileDispatch"),(USER-AGENT,"%E9%97%B2*")),REJECT"#;
+    let model =
+        RoutingModel::from_spec(&spec(&[line, "FINAL,DIRECT"], vec![]), &node_ids()).unwrap();
+    let request = |url: Option<&str>, agent: &str| RouteQuery {
+        url: url.map(str::to_string),
+        user_agent: Some(agent.to_string()),
+        ..RouteQuery::domain("api.example")
+    };
+    for (query, expected) in [
+        (
+            request(
+                Some("http://api.example/amdc/mobileDispatch?x=1"),
+                "%E9%97%B2%E9%B1%BC/1",
+            ),
+            RouteMatch::Rule(0),
+        ),
+        (
+            request(Some("http://api.example/amdc/mobileDispatch"), "Other"),
+            RouteMatch::Final,
+        ),
+        (
+            request(Some("http://api.example/other"), "%E9%97%B2%E9%B1%BC/1"),
+            RouteMatch::Final,
+        ),
+        (request(None, "%E9%97%B2%E9%B1%BC/1"), RouteMatch::Final),
+    ] {
+        let resolution = model.decide(&query, &StaticRoutingEnvironment);
+        assert_eq!(resolution.matched, expected, "{query:?}");
+    }
+    assert!(parse_rule_line("AND,((URL-REGEX,\"(\"),(DST-PORT,80)),REJECT").is_err());
+}

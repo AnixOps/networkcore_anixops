@@ -168,6 +168,61 @@ pub enum RouteNetwork {
     Udp,
 }
 
+/// A compiled `URL-REGEX` pattern; rules compare by its source.
+#[derive(Clone)]
+pub struct UrlPattern {
+    source: String,
+    regex: regex::Regex,
+}
+
+impl UrlPattern {
+    pub fn new(source: &str) -> DomainResult<Self> {
+        let invalid = |message: &str| routing_error(ROUTING_RULE_VALUE_INVALID_CODE, message);
+        if source.is_empty() {
+            return Err(invalid("URL-REGEX rule value must not be empty"));
+        }
+        let regex = regex::RegexBuilder::new(source)
+            .size_limit(1 << 20)
+            .build()
+            .map_err(|_| invalid("URL-REGEX rule value is not a supported regex"))?;
+        Ok(Self {
+            source: source.to_string(),
+            regex,
+        })
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.source
+    }
+
+    pub fn is_match(&self, url: &str) -> bool {
+        self.regex.is_match(url)
+    }
+}
+
+impl fmt::Debug for UrlPattern {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_tuple("UrlPattern")
+            .field(&self.source)
+            .finish()
+    }
+}
+
+impl PartialEq for UrlPattern {
+    fn eq(&self, other: &Self) -> bool {
+        self.source == other.source
+    }
+}
+
+impl Eq for UrlPattern {}
+
+impl std::hash::Hash for UrlPattern {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.source.hash(state);
+    }
+}
+
 /// Connection property a rule matches against.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum RuleMatcher {
@@ -198,6 +253,9 @@ pub enum RuleMatcher {
     /// Lower-case glob over the `User-Agent` of a plain HTTP request, as
     /// Surge `USER-AGENT` (`*` and `?`). Other flows never match.
     UserAgent(String),
+    /// Regex over the URL of a plain HTTP request (`http://host/path`), as
+    /// Surge `URL-REGEX` inside a logical rule. Other flows never match.
+    UrlRegex(UrlPattern),
     /// Every rule matches.
     And(Vec<RuleMatcher>),
     /// Any rule matches.
@@ -241,6 +299,7 @@ impl fmt::Display for RuleMatcher {
             Self::ProcessName(name) => write!(formatter, "PROCESS-NAME,{name}"),
             Self::Protocol(protocol) => write!(formatter, "PROTOCOL,{}", protocol.name()),
             Self::UserAgent(pattern) => write!(formatter, "USER-AGENT,{pattern}"),
+            Self::UrlRegex(pattern) => write!(formatter, "URL-REGEX,{}", pattern.as_str()),
             Self::And(rules) => write_logical(formatter, "AND", rules),
             Self::Or(rules) => write_logical(formatter, "OR", rules),
             Self::Not(rule) => write_logical(formatter, "NOT", std::slice::from_ref(rule)),
@@ -560,6 +619,7 @@ fn parse_matcher(kind: &str, value: &str) -> DomainResult<RuleMatcher> {
             }
             RuleMatcher::UserAgent(pattern)
         }
+        "URL-REGEX" => RuleMatcher::UrlRegex(UrlPattern::new(value.trim().trim_matches('"'))?),
         "PROTOCOL" => RuleMatcher::Protocol(match value.trim().to_ascii_uppercase().as_str() {
             "TCP" => RuleProtocol::Tcp,
             "UDP" => RuleProtocol::Udp,
@@ -693,6 +753,7 @@ impl RoutingModel {
         let domain = query.domain.as_deref().map(normalize_query_domain);
         let process = query.process.as_deref().map(str::to_lowercase);
         let user_agent = query.user_agent.as_deref().map(str::to_lowercase);
+        let url = query.url.as_deref();
         let mut ip = query.ip;
         let mut resolved_ip = None;
         let mut resolve_attempted = false;
@@ -722,6 +783,7 @@ impl RoutingModel {
                 process: process.as_deref(),
                 network: query.network,
                 user_agent: user_agent.as_deref(),
+                url,
             };
             if rule_matches(&rule.matcher, &input, environment) {
                 return self.resolution(
@@ -835,6 +897,8 @@ pub struct RouteQuery {
     pub network: Option<RouteNetwork>,
     /// `User-Agent` of a plain HTTP request, for USER-AGENT rules.
     pub user_agent: Option<String>,
+    /// URL of a plain HTTP request, for URL-REGEX rules.
+    pub url: Option<String>,
 }
 
 impl RouteQuery {
@@ -959,6 +1023,7 @@ struct MatchInput<'a> {
     process: Option<&'a str>,
     network: Option<RouteNetwork>,
     user_agent: Option<&'a str>,
+    url: Option<&'a str>,
 }
 
 fn rule_matches(
@@ -1005,6 +1070,7 @@ fn rule_matches(
         RuleMatcher::UserAgent(pattern) => input
             .user_agent
             .is_some_and(|agent| wildcard_matches(pattern.as_bytes(), agent.as_bytes())),
+        RuleMatcher::UrlRegex(pattern) => input.url.is_some_and(|url| pattern.is_match(url)),
         RuleMatcher::And(rules) => rules
             .iter()
             .all(|rule| rule_matches(rule, input, environment)),

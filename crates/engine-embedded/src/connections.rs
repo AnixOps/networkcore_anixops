@@ -21,6 +21,7 @@ use std::task::{Context, Poll};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use config_core::routing::RouteNetwork;
+use engine_outbound::sniff::HttpRequestHead;
 use engine_outbound::{
     BoxFuture, BoxStream, DatagramRecv, DatagramSend, TargetAddr, TcpDialer, TcpOutbound, UdpFlow,
 };
@@ -598,7 +599,7 @@ impl Dispatcher {
         host: Option<&str>,
         process: Option<&str>,
         network: RouteNetwork,
-        user_agent: Option<&str>,
+        http: Option<&HttpRequestHead>,
         guard: &ConnectionGuard,
     ) -> io::Result<Arc<dyn TcpOutbound>> {
         let (route, outbound) = match (self.mode(), &self.routed) {
@@ -606,7 +607,7 @@ impl Dispatcher {
             (Mode::Global, Some(routed)) => routed.route_global(),
             (Mode::Rule, Some(routed)) => {
                 routed
-                    .route_network_flow(target, host, process, network, user_agent)
+                    .route_network_flow(target, host, process, network, http)
                     .await
             }
             (_, None) => (single_route(&*self.outbound), Some(self.outbound.clone())),
@@ -642,15 +643,15 @@ impl Dispatcher {
         self.connect_tcp(target, host, process, None).await
     }
 
-    /// [`Self::connect_flow`] with the `User-Agent` of a plain HTTP request
-    /// sniffed from the flow's first bytes, for `USER-AGENT` rules.
+    /// [`Self::connect_flow`] with the head of a plain HTTP request sniffed
+    /// from the flow's first bytes, for `USER-AGENT` and `URL-REGEX` rules.
     pub async fn connect_http_flow(
         &self,
         target: &TargetAddr,
         host: Option<&str>,
-        user_agent: Option<&str>,
+        http: Option<&HttpRequestHead>,
     ) -> io::Result<BoxStream> {
-        self.connect_tcp(target, host, None, user_agent).await
+        self.connect_tcp(target, host, None, http).await
     }
 
     async fn connect_tcp(
@@ -658,11 +659,11 @@ impl Dispatcher {
         target: &TargetAddr,
         host: Option<&str>,
         process: Option<&str>,
-        user_agent: Option<&str>,
+        http: Option<&HttpRequestHead>,
     ) -> io::Result<BoxStream> {
         let guard = self.tracker.open(Network::Tcp, target, host, process);
         let outbound = self
-            .route(target, host, process, RouteNetwork::Tcp, user_agent, &guard)
+            .route(target, host, process, RouteNetwork::Tcp, http, &guard)
             .await?;
         let stream = outbound.connect(target).await?;
         guard.connected();
