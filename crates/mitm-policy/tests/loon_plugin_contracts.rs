@@ -1,6 +1,6 @@
 use config_core::routing::{
-    PolicyTarget, RouteOutcome, RouteQuery, RoutingModel, RoutingSpec, RuleMatcher,
-    StaticRoutingEnvironment,
+    PolicyGroupSpec, PolicyTarget, RouteOutcome, RouteQuery, RoutingModel, RoutingSpec,
+    RuleMatcher, StaticRoutingEnvironment,
 };
 use control_domain::{
     CertificateTrustState, GrantedPermissions, HookPoint, MitmPluginService, PluginPermission,
@@ -215,8 +215,8 @@ fn mixed_plugin_reports_partial_deferred_and_unsupported_lines() {
     };
     assert_eq!(status_of("rule.routing"), Some(LoonLineStatus::Supported));
     assert_eq!(
-        status_of("rule.policy_unsupported"),
-        Some(LoonLineStatus::Unsupported)
+        status_of("rule.routing_policy"),
+        Some(LoonLineStatus::Supported)
     );
     assert_eq!(status_of("rewrite.reject"), Some(LoonLineStatus::Supported));
     assert_eq!(
@@ -232,20 +232,18 @@ fn mixed_plugin_reports_partial_deferred_and_unsupported_lines() {
         Some(LoonLineStatus::Unsupported)
     );
     let rules = plugin.routing_rules();
-    assert_eq!(
-        rules.len(),
-        1,
-        "PROXY rules must not enter the routing model"
-    );
+    assert_eq!(rules.len(), 2);
     assert_eq!(
         rules[0].matcher,
         RuleMatcher::DomainKeyword("adtrack".to_string())
     );
     assert_eq!(rules[0].target, PolicyTarget::Reject);
+    // PROXY names the user's proxy; it resolves when joining the model.
+    assert_eq!(rules[1].target, PolicyTarget::Group("PROXY".to_string()));
 
     let text = plugin.report.render_text("p0-partial-mixed");
     assert!(text.starts_with("p0-partial-mixed: partial"));
-    assert!(text.contains("rule.policy_unsupported"));
+    assert!(text.contains("mitm.skip_server_cert_verify_refused"));
 }
 
 #[test]
@@ -703,4 +701,206 @@ fn surge_module_rewrites_headers_and_scripts_are_supported() {
         .expect("script should evaluate");
     assert_eq!(feed.kind, MitmPolicyScriptKind::HttpResponse);
     assert!(feed.requires_body);
+}
+
+#[test]
+fn plugin_policy_names_resolve_to_a_user_group_or_the_proxy_fallback() {
+    let plugin = import_loon_plugin(concat!(
+        "#!name = Policies\n",
+        "[Rule]\n",
+        "DOMAIN,proxied.example.com,PROXY\n",
+        "DOMAIN,streaming.example.com,Streaming\n",
+        "DOMAIN-SUFFIX,direct.example.com,DIRECT\n",
+    ))
+    .expect("policy rules should import");
+    assert_eq!(plugin.report.level, LoonSupportLevel::Full);
+
+    let spec = |rules: &[&str], groups: Vec<PolicyGroupSpec>| RoutingSpec {
+        rules: rules.iter().map(|rule| rule.to_string()).collect(),
+        groups,
+    };
+    let group = |id: &str| PolicyGroupSpec {
+        id: id.to_string(),
+        kind: "select".to_string(),
+        members: vec!["node-a".to_string()],
+        default: None,
+        url: None,
+        interval_secs: None,
+        tolerance_ms: None,
+    };
+    let nodes = BTreeSet::from(["node-a".to_string()]);
+    let environment = StaticRoutingEnvironment;
+
+    let model = RoutingModel::from_spec(
+        &spec(&["FINAL,Proxy"], vec![group("Proxy"), group("Streaming")]),
+        &nodes,
+    )
+    .expect("user routing should validate");
+    let merged = routing_model_with_plugin_rules(&model, &[&plugin]);
+    assert_eq!(
+        merged.rules[0].target,
+        PolicyTarget::Group("Proxy".to_string())
+    );
+    assert_eq!(
+        merged.rules[1].target,
+        PolicyTarget::Group("Streaming".to_string())
+    );
+    assert_eq!(merged.rules[2].target, PolicyTarget::Direct);
+    let direct = merged.decide(&RouteQuery::domain("a.direct.example.com"), &environment);
+    assert_eq!(direct.outcome, RouteOutcome::Direct);
+
+    // With a DIRECT FINAL and no groups there is no proxy to name.
+    let bare = RoutingModel::from_spec(&spec(&["FINAL,DIRECT"], vec![]), &nodes)
+        .expect("user routing should validate");
+    let merged = routing_model_with_plugin_rules(&bare, &[&plugin]);
+    assert_eq!(merged.rules.len(), 1, "{:?}", merged.rules);
+    assert_eq!(merged.rules[0].target, PolicyTarget::Direct);
+}
+
+#[test]
+fn surge_module_arguments_substitute_and_surge_rule_options_are_read() {
+    let plugin = import_loon_plugin(concat!(
+        "#!name = Arguments\n",
+        "#!arguments=Policy:DIRECT,Block:DEST-PORT,Hosts:\"api.example.com,cdn.example.com\",Off:#\n",
+        "[Rule]\n",
+        "DOMAIN,bsbsb.top,{{{Policy}}}\n",
+        "{{{Block}}},4480,REJECT-NO-DROP,pre-matching\n",
+        "DOMAIN,dns.google,REJECT,pre-matching,extended-matching\n",
+        "DOMAIN-SUFFIX,ad-cdn_core.example.com,REJECT\n",
+        "DOMAIN-WILDCARD,*pcdn*.example.net,REJECT\n",
+        "AND,((DOMAIN-SUFFIX,chat.example.com),(OR,((DOMAIN-KEYWORD,stun),(DOMAIN-KEYWORD,p2p)))),REJECT\n",
+        "URL-REGEX,^https?://api\\.example\\.com/ads,REJECT-DROP\n",
+        "{{{Off}}}DOMAIN,off.example.com,REJECT\n",
+        "[MITM]\n",
+        "hostname = {{{Hosts}}}\n",
+    ))
+    .expect("argument plugin should import");
+    assert_eq!(
+        plugin.report.level,
+        LoonSupportLevel::Full,
+        "{}",
+        plugin.report.render_text("arguments")
+    );
+    let rules = plugin.routing_rules();
+    assert_eq!(rules.len(), 6, "{rules:?}");
+    assert_eq!(rules[0].target, PolicyTarget::Direct);
+    assert_eq!(rules[1].matcher, RuleMatcher::DstPort(4480, 4480));
+    assert_eq!(rules[1].target, PolicyTarget::Reject);
+    assert_eq!(
+        plugin.mitm_hostnames.include,
+        vec!["api.example.com", "cdn.example.com"]
+    );
+    assert!(
+        plugin.source().contains("# DOMAIN,bsbsb.top,DIRECT"),
+        "{}",
+        plugin.source()
+    );
+    assert!(
+        !plugin.source().contains("REJECT-DROP"),
+        "{}",
+        plugin.source()
+    );
+
+    let merged = merged_plugin_source("Arguments", &[&plugin]);
+    assert!(merged.contains("[Rule]\nURL-REGEX,"), "{merged}");
+    assert!(!merged.contains("bsbsb.top"), "{merged}");
+    let engine = loaded_engine(&merged);
+    let ad = engine
+        .evaluate_url_rewrite("https://api.example.com/ads", MitmPolicyPhase::Request)
+        .expect("URL-REGEX reject should evaluate");
+    assert_eq!(ad.action, MitmPolicyRewriteAction::Reject);
+}
+
+#[test]
+fn surge_force_http_engine_hosts_and_quantumult_echo_scripts_are_supported() {
+    let surge = import_loon_plugin(concat!(
+        "#!name=BoxJs\n",
+        "[General]\n",
+        "force-http-engine-hosts = %APPEND% boxjs.com, *.boxjs.com, lzmh.example.com:5090\n",
+        "skip-proxy = 192.168.0.0/16\n",
+        "[Script]\n",
+        "BoxJs = type=http-request,pattern=^https?:\\/\\/(.+\\.)?boxjs\\.com,script-path=https://example.com/box.js, requires-body=true, timeout=120\n",
+        "[MITM]\n",
+        "hostname = %APPEND% api.example.com\n",
+    ))
+    .expect("BoxJs module should import");
+    assert_eq!(
+        surge.report.level,
+        LoonSupportLevel::Full,
+        "{}",
+        surge.report.render_text("boxjs")
+    );
+    for host in [
+        "boxjs.com",
+        "*.boxjs.com",
+        "lzmh.example.com:5090",
+        "api.example.com",
+    ] {
+        assert!(
+            surge.mitm_hostnames.include.iter().any(|item| item == host),
+            "{host}: {:?}",
+            surge.mitm_hostnames
+        );
+    }
+    assert!(
+        !surge
+            .source()
+            .lines()
+            .any(|line| line.starts_with("skip-proxy")),
+        "{}",
+        surge.source()
+    );
+
+    let quantumult = import_loon_plugin(concat!(
+        "hostname = boxjs.com\n",
+        "\n",
+        "^https?:\\/\\/(.+\\.)?boxjs\\.com url script-analyze-echo-response https://example.com/chavy.boxjs.js\n",
+        "^https?:\\/\\/sub\\.store url script-echo-response https://example.com/sub-store.min.js\n",
+    ))
+    .expect("QX echo snippet should import");
+    assert_eq!(
+        quantumult.report.level,
+        LoonSupportLevel::Full,
+        "{}",
+        quantumult.report.render_text("echo")
+    );
+    let merged = merged_plugin_source("Echo", &[&quantumult]);
+    assert!(merged.contains("[Script]\nhttp-request "), "{merged}");
+    assert!(
+        merged.contains("script-path=https://example.com/chavy.boxjs.js, requires-body=true"),
+        "{merged}"
+    );
+    // The core must accept the translated scripts.
+    let _engine = loaded_engine(&merged);
+}
+
+#[test]
+fn loon_conditional_scripts_become_http_scripts() {
+    let plugin = import_loon_plugin(concat!(
+        "#!name=Script Hub\n",
+        "[Script]\n",
+        "request if ${url} ~= /^https?:\\/\\/script\\.hub\\/($|edit\\/|reload)/i then script(\"https://example.com/script-hub.js\") with tag=\"Script Hub: 前端\", timeout=300\n",
+        "response if ${url} ~= /^https:\\/\\/api\\.example\\.com\\/feed/ then script(\"https://example.com/feed.js\") with requires-body=true\n",
+        "[MITM]\n",
+        "hostname = script.hub, api.example.com\n",
+    ))
+    .expect("conditional scripts should import");
+    assert_eq!(
+        plugin.report.level,
+        LoonSupportLevel::Full,
+        "{}",
+        plugin.report.render_text("script-hub")
+    );
+    let source = plugin.source();
+    assert!(
+        source.contains(
+            "http-request (?i)^https?:\\/\\/script\\.hub\\/($|edit\\/|reload) script-path=https://example.com/script-hub.js, tag=\"Script Hub: 前端\", timeout=300, requires-body=true"
+        ),
+        "{source}"
+    );
+    assert!(
+        source.contains("http-response ^https:\\/\\/api\\.example\\.com\\/feed script-path=https://example.com/feed.js, requires-body=true"),
+        "{source}"
+    );
+    let _engine = loaded_engine(&merged_plugin_source("Script Hub", &[&plugin]));
 }

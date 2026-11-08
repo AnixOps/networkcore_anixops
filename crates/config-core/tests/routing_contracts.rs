@@ -788,3 +788,40 @@ fn spec_with_tolerance() -> RoutingSpec {
         }],
     )
 }
+
+#[test]
+fn domain_wildcard_rules_match_globs_and_surge_options_are_accepted() {
+    let model = RoutingModel::from_spec(
+        &spec(
+            &[
+                "DOMAIN-WILDCARD,*pcdn*.biliapi.net,REJECT",
+                "DOMAIN-WILDCARD,ad?.example.com,REJECT,pre-matching",
+                "DOMAIN,dns.google,REJECT,pre-matching,extended-matching",
+                "FINAL,DIRECT",
+            ],
+            vec![],
+        ),
+        &node_ids(),
+    )
+    .unwrap();
+    for (domain, rule) in [
+        ("upos-pcdn-1.biliapi.net", Some(0)),
+        ("pcdn.biliapi.net", Some(0)),
+        ("a.pcdn.b.biliapi.net", Some(0)),
+        ("ad1.example.com", Some(1)),
+        ("dns.google", Some(2)),
+        ("ad12.example.com", None),
+        ("api.biliapi.net", None),
+    ] {
+        let resolution = model.decide(&RouteQuery::domain(domain), &StaticRoutingEnvironment);
+        let expected = rule.map_or(RouteMatch::Final, RouteMatch::Rule);
+        assert_eq!(resolution.matched, expected, "{domain}");
+    }
+    for line in ["DOMAIN-WILDCARD,*?*,REJECT", "DOMAIN-WILDCARD,a b*,REJECT"] {
+        assert_eq!(
+            parse_rule_line(line).unwrap_err().code,
+            ROUTING_RULE_VALUE_INVALID_CODE,
+            "{line}"
+        );
+    }
+}

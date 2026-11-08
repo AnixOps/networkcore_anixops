@@ -8,9 +8,18 @@
 //!
 //! With `MITM_PUBLIC_CORPUS_REPORT` set, the Markdown report is also written to
 //! that file (the workflow appends it to the job summary).
+//!
+//! Map Local data is fetched by the App when a plugin is imported. The
+//! workflow does the same in two passes: with `MITM_PUBLIC_CORPUS_DATA_LIST`
+//! set the test only writes the data URLs it finds, one per line; the workflow
+//! downloads them into `MITM_PUBLIC_CORPUS_DATA_DIR` as `<n>` files listed in
+//! `index.tsv` (`<n>\t<url>`), and the graded pass hands them to
+//! `import_loon_plugin_with_resources`. The data URLs are not pinned; one that
+//! fails to download stays graded `map_local.remote_data_missing`.
 
 use mitm_policy::loon_plugin::{
-    import_loon_plugin, LoonLineStatus, LoonRemoteResourceKind, LoonSupportLevel,
+    import_loon_plugin, import_loon_plugin_with_resources, LoonLineStatus, LoonRemoteResourceKind,
+    LoonSupportLevel,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
@@ -94,6 +103,26 @@ fn public_corpus_manifest_is_well_formed() {
     }
 }
 
+/// Downloaded Map Local data by URL (see the module docs).
+fn downloaded_data() -> BTreeMap<String, Vec<u8>> {
+    let Some(dir) = std::env::var_os("MITM_PUBLIC_CORPUS_DATA_DIR") else {
+        return BTreeMap::new();
+    };
+    let dir = Path::new(&dir);
+    let Ok(index) = std::fs::read_to_string(dir.join("index.tsv")) else {
+        return BTreeMap::new();
+    };
+    index
+        .lines()
+        .filter_map(|line| line.split_once('\t'))
+        .filter_map(|(file, url)| {
+            std::fs::read(dir.join(file))
+                .ok()
+                .map(|bytes| (url.to_string(), bytes))
+        })
+        .collect()
+}
+
 #[derive(Default)]
 struct ReasonCount {
     lines: usize,
@@ -108,6 +137,9 @@ fn public_corpus_coverage_report() {
     };
     let dir = Path::new(&dir);
     let manifest = manifest();
+    let data_list = std::env::var_os("MITM_PUBLIC_CORPUS_DATA_LIST");
+    let data = downloaded_data();
+    let mut data_urls = BTreeSet::new();
 
     let mut rows = String::new();
     let mut levels: BTreeMap<&'static str, usize> = BTreeMap::new();
@@ -125,8 +157,20 @@ fn public_corpus_coverage_report() {
         );
         let dialect = by_dialect.entry(entry.dialect.as_str()).or_default();
         dialect.0 += 1;
-        match import_loon_plugin(&text) {
+        let imported = if data.is_empty() {
+            import_loon_plugin(&text)
+        } else {
+            import_loon_plugin_with_resources(&text, &data)
+        };
+        match imported {
             Ok(plugin) => {
+                data_urls.extend(
+                    plugin
+                        .remote_resources
+                        .iter()
+                        .filter(|r| r.kind == LoonRemoteResourceKind::MapLocalData)
+                        .map(|r| r.url.clone()),
+                );
                 let report = &plugin.report;
                 let level = report.level.as_str();
                 *levels.entry(level).or_default() += 1;
@@ -187,6 +231,13 @@ fn public_corpus_coverage_report() {
         }
     }
 
+    if let Some(path) = data_list {
+        let mut list = data_urls.into_iter().collect::<Vec<_>>().join("\n");
+        list.push('\n');
+        std::fs::write(path, list).expect("data list should be writable");
+        return;
+    }
+
     let total = manifest.entries.len();
     let full = levels.get("full").copied().unwrap_or(0);
     let full_percent = full * 100 / total;
@@ -195,11 +246,12 @@ fn public_corpus_coverage_report() {
     let _ = writeln!(report, "## MITM public plugin corpus\n");
     let _ = writeln!(
         report,
-        "{total} plugins: full {full} ({full_percent}%), partial {}, unsupported {}, import errors {}. Gate: full >= {}%.\n",
+        "{total} plugins: full {full} ({full_percent}%), partial {}, unsupported {}, import errors {}. Gate: full >= {}%. Map Local data downloaded: {}.\n",
         levels.get("partial").copied().unwrap_or(0),
         levels.get("unsupported").copied().unwrap_or(0),
         levels.get("error").copied().unwrap_or(0),
         manifest.min_full_percent,
+        data.len(),
     );
     let _ = writeln!(report, "| Dialect | Plugins | Full |\n|---|---|---|");
     for (dialect, (count, full)) in &by_dialect {

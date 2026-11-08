@@ -95,6 +95,12 @@ pub trait FlowInterceptor: Send + Sync {
         let _ = outbound;
     }
 
+    /// Routing rules the interceptor's plugins add ahead of the user's
+    /// rules. The default adds none.
+    fn plugin_rules(&self) -> Vec<config_core::routing::RoutingRule> {
+        Vec::new()
+    }
+
     /// Serves a claimed flow to the end, connecting through `outbound`.
     fn serve<'a>(
         &'a self,

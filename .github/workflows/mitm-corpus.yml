@@ -61,10 +61,36 @@ jobs:
         shell: bash
         run: .github/scripts/fetch-mitm-corpus.sh "$RUNNER_TEMP/mitm-corpus"
 
+      # The App downloads Map Local data when a plugin is imported; list the
+      # URLs the importer finds and fetch them the same way (not pinned: a
+      # failed download stays graded map_local.remote_data_missing).
+      - name: Fetch Map Local data
+        shell: bash
+        env:
+          MITM_PUBLIC_CORPUS_DIR: ${{ runner.temp }}/mitm-corpus
+          MITM_PUBLIC_CORPUS_DATA_LIST: ${{ runner.temp }}/mitm-corpus-data.txt
+        run: |
+          set -euo pipefail
+          cargo test --locked -p mitm-policy --test public_corpus public_corpus_coverage_report -- --test-threads=1
+          data="$RUNNER_TEMP/mitm-corpus-data"
+          mkdir -p "$data"
+          : > "$data/index.tsv"
+          n=0
+          while IFS= read -r url; do
+            [ -n "$url" ] || continue
+            n=$((n + 1))
+            if curl -fsSL --retry 2 --max-time 30 --max-filesize 262144 -o "$data/$n" "$url"; then
+              printf '%s\t%s\n' "$n" "$url" >> "$data/index.tsv"
+            else
+              echo "::warning::Map Local data download failed: $url"
+            fi
+          done < "$MITM_PUBLIC_CORPUS_DATA_LIST"
+
       - name: Grade the corpus
         shell: bash
         env:
           MITM_PUBLIC_CORPUS_DIR: ${{ runner.temp }}/mitm-corpus
+          MITM_PUBLIC_CORPUS_DATA_DIR: ${{ runner.temp }}/mitm-corpus-data
           MITM_PUBLIC_CORPUS_REPORT: ${{ runner.temp }}/mitm-corpus-report.md
         run: |
           set -euo pipefail

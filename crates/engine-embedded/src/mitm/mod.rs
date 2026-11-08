@@ -118,6 +118,8 @@ pub struct MitmEngine {
     leaves: Mutex<HashMap<String, Arc<ServerConfig>>>,
     decisions: Mutex<HashMap<String, bool>>,
     next_request: AtomicU64,
+    /// `[Rule]` lines of the accepted plugins, for the routing model.
+    plugin_rules: Vec<config_core::routing::RoutingRule>,
 }
 
 impl MitmEngine {
@@ -142,6 +144,10 @@ impl MitmEngine {
             .filter(|import| import.report.policy_load_error.is_none())
             .collect::<Vec<_>>();
         let policy = merged_plugin_source("NetworkCore iOS MITM", &accepted);
+        let plugin_rules = accepted
+            .iter()
+            .flat_map(|import| import.routing_rules())
+            .collect();
         let certificate = base64::engine::general_purpose::STANDARD
             .decode(config.ca_certificate.trim())
             .map_err(|_| "mitm ca_certificate is not base64")?;
@@ -204,6 +210,7 @@ impl MitmEngine {
             leaves: Mutex::new(HashMap::new()),
             decisions: Mutex::new(HashMap::new()),
             next_request: AtomicU64::new(1),
+            plugin_rules,
         })
     }
 
@@ -510,6 +517,10 @@ impl FlowInterceptor for MitmEngine {
     /// it is set they fail with an error the script sees.
     fn set_script_outbound(&self, outbound: Arc<dyn TcpOutbound>) {
         let _ = self.script_outbound.set(outbound);
+    }
+
+    fn plugin_rules(&self) -> Vec<config_core::routing::RoutingRule> {
+        self.plugin_rules.clone()
     }
 
     fn claim(&self, first: &[u8], target: SocketAddr) -> Option<String> {

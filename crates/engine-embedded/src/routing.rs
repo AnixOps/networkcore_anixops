@@ -30,7 +30,7 @@ use std::sync::{Arc, RwLock};
 
 use config_core::routing::{
     PolicyGroupKind, PolicyTarget, RouteMatch, RouteOutcome, RouteQuery, RouteResolution,
-    RoutingEnvironment, RoutingModel, RoutingSpec, RuleMatcher,
+    RoutingEnvironment, RoutingModel, RoutingRule, RoutingSpec, RuleMatcher,
 };
 use config_core::rule_set::RuleSet;
 use engine_outbound::{BoxFuture, BoxStream, TargetAddr, TcpOutbound, UdpFlow};
@@ -249,6 +249,39 @@ impl RoutedOutbound {
     /// Whether a `PROCESS-NAME` rule exists, alone or inside a logical rule.
     pub fn uses_process(&self) -> bool {
         self.uses_process
+    }
+
+    /// Puts MITM plugin rules ahead of the user's rules. A plugin names a
+    /// policy it cannot know (`PROXY`, or a module argument such as a group
+    /// name): a group or node of that name is used when one exists, else the
+    /// target the global mode uses. Rules naming a rule set that is not
+    /// configured are left out.
+    pub fn with_plugin_rules(mut self, rules: &[RoutingRule]) -> Self {
+        let node_ids = self.nodes.keys().cloned().collect();
+        let mut added = Vec::new();
+        for rule in rules {
+            let mut named = Vec::new();
+            named_sets(&rule.matcher, &mut named);
+            if named.iter().any(|name| !self.rule_sets.contains(name)) {
+                continue;
+            }
+            let target = match &rule.target {
+                PolicyTarget::Direct | PolicyTarget::Reject => rule.target.clone(),
+                PolicyTarget::Group(name) | PolicyTarget::Node(name) => self
+                    .model
+                    .target_named(name, &node_ids)
+                    .unwrap_or_else(|| self.global.clone()),
+            };
+            self.uses_process |= matches_process(&rule.matcher);
+            added.push(RoutingRule {
+                matcher: rule.matcher.clone(),
+                target,
+                no_resolve: rule.no_resolve,
+            });
+        }
+        added.append(&mut self.model.rules);
+        self.model.rules = added;
+        self
     }
 
     /// Sets where the global mode sends connections: a policy group, a node

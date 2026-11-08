@@ -181,7 +181,12 @@ impl EmbeddedRuntime {
     ) -> Result<Self, RuntimeError> {
         let config = RuntimeConfig::from_json(bytes)?;
         let interceptor = build_interceptor(&config)?;
-        let routed = config.build_routed(registry, dialer.clone())?;
+        let plugin_rules = interceptor
+            .as_ref()
+            .map(|interceptor| interceptor.plugin_rules())
+            .unwrap_or_default();
+        let routed =
+            config.build_routed_with_plugin_rules(registry, dialer.clone(), &plugin_rules)?;
         let engine = match &routed {
             Some(routed) => Engine::Stack(Arc::new(config.build_dispatcher(
                 Some(routed.clone()),

@@ -355,15 +355,36 @@ impl LoonPluginImport {
 }
 
 /// Returns a copy of `model` whose rules start with the plugins' routing
-/// rules, in plugin order. Plugin rules only add REJECT and DIRECT decisions,
-/// so they never reference user nodes or policy groups.
+/// rules, in plugin order. A plugin cannot know the user's policy names, so
+/// a rule naming one (`PROXY`, or a module argument) uses the group of that
+/// name when it exists, else the model's FINAL target when that is a proxy,
+/// else the first group; with none of those the rule is left out.
 pub fn routing_model_with_plugin_rules(
     model: &RoutingModel,
     plugins: &[&LoonPluginImport],
 ) -> RoutingModel {
+    let fallback = match &model.final_target {
+        PolicyTarget::Node(_) | PolicyTarget::Group(_) => Some(model.final_target.clone()),
+        _ => model
+            .groups
+            .first()
+            .map(|group| PolicyTarget::Group(group.id.clone())),
+    };
     let mut rules = plugins
         .iter()
         .flat_map(|plugin| plugin.routing_rules())
+        .filter_map(|mut rule| {
+            if let PolicyTarget::Group(name) | PolicyTarget::Node(name) = &rule.target {
+                rule.target = if name.eq_ignore_ascii_case("DIRECT") {
+                    PolicyTarget::Direct
+                } else if model.group(name).is_some() {
+                    PolicyTarget::Group(name.clone())
+                } else {
+                    fallback.clone()?
+                };
+            }
+            Some(rule)
+        })
         .collect::<Vec<_>>();
     rules.extend(model.rules.iter().cloned());
     RoutingModel {
@@ -377,8 +398,9 @@ pub fn routing_model_with_plugin_rules(
 /// `mitm_anixops` core, which loads a single config. Rewrite, script and
 /// map-local lines keep plugin order under one header per section; the
 /// `[MITM]` hostname lists are merged with [`LoonMitmHostnames::apply`].
-/// Metadata, `[Argument]` and `[Rule]` lines are left out: rules belong to
-/// the routing model (see [`routing_model_with_plugin_rules`]).
+/// Metadata and `[Argument]` lines are left out, and of `[Rule]` only the
+/// URL-REGEX rejects stay: other rules belong to the routing model (see
+/// [`routing_model_with_plugin_rules`]).
 pub fn merged_plugin_source(name: &str, plugins: &[&LoonPluginImport]) -> String {
     let mut sections: Vec<(String, Vec<String>)> = Vec::new();
     let mut hostnames = Vec::new();
@@ -397,7 +419,8 @@ pub fn merged_plugin_source(name: &str, plugins: &[&LoonPluginImport]) -> String
             if line.starts_with('[') && line.ends_with(']') {
                 let header = line[1..line.len() - 1].trim();
                 current = match Section::parse(header) {
-                    Section::Rewrite
+                    Section::Rule
+                    | Section::Rewrite
                     | Section::HeaderRewrite
                     | Section::BodyRewrite
                     | Section::Script
@@ -418,7 +441,15 @@ pub fn merged_plugin_source(name: &str, plugins: &[&LoonPluginImport]) -> String
                 continue;
             }
             if let Some(index) = current {
-                sections[index].1.push(line.to_string());
+                // Only URL-REGEX rejects are the core's; other rules belong
+                // to the routing model.
+                let rule_section = Section::parse(&sections[index].0) == Section::Rule;
+                let url_regex = line
+                    .get(..9)
+                    .is_some_and(|head| head.eq_ignore_ascii_case("URL-REGEX"));
+                if !rule_section || url_regex {
+                    sections[index].1.push(line.to_string());
+                }
             }
         }
     }
@@ -461,6 +492,8 @@ enum Section {
     Script,
     MapLocal,
     Mitm,
+    /// Surge `[General]`: only `force-http-engine-hosts` concerns a plugin.
+    General,
     /// Scheduled and event scripts (Quantumult X `[task_local]`).
     Task,
     /// Surge `[Panel]`: UI only.
@@ -482,6 +515,7 @@ impl Section {
             "script" => Self::Script,
             "map local" => Self::MapLocal,
             "mitm" => Self::Mitm,
+            "general" => Self::General,
             "task_local" | "task-local" => Self::Task,
             "panel" => Self::Panel,
             _ => Self::Other,
@@ -502,7 +536,9 @@ impl Section {
     fn canonical_header(self) -> Option<&'static str> {
         match self {
             Self::Rewrite => Some("Rewrite"),
-            Self::Mitm => Some("MITM"),
+            // `force-http-engine-hosts` joins the MITM hostnames, as the
+            // core reads it.
+            Self::Mitm | Self::General => Some("MITM"),
             _ => None,
         }
     }
@@ -541,6 +577,7 @@ pub fn import_loon_plugin_with_resources(
         resources: Some(resources),
         ..Parser::default()
     };
+    let module_arguments = module_argument_defaults(text);
     let mut section = Section::Preamble;
     let mut section_name = String::new();
     for (index, raw_line) in text.lines().enumerate() {
@@ -553,6 +590,13 @@ pub fn import_loon_plugin_with_resources(
             parser.metadata_line(line_number, &section_name, meta);
             continue;
         }
+        // Surge module arguments are text substitutions made before the
+        // line is read; a value of `#` turns the line into a comment.
+        let substituted = substitute_module_arguments(line, &module_arguments);
+        if substituted != line {
+            parser.replaced.insert(line_number, substituted.clone());
+        }
+        let line = substituted.as_str();
         let header = if line.starts_with('[') && line.ends_with(']') {
             Some((line[1..line.len() - 1].trim(), false))
         } else {
@@ -635,6 +679,7 @@ pub fn import_loon_plugin_with_resources(
                 }
             }
             Section::Mitm => parser.mitm_line(line_number, &section_name, line),
+            Section::General => parser.general_line(line_number, &section_name, line),
             Section::Other => parser.push(
                 line_number,
                 &section_name,
@@ -727,10 +772,8 @@ impl Parser<'_> {
             "icon" => self.metadata.icon = value.or(self.metadata.icon.take()),
             "category" => self.metadata.category = value.or(self.metadata.category.take()),
             "arguments" => {
-                for entry in value.unwrap_or_default().split(',') {
-                    if let Some((name, default)) = entry.split_once(':') {
-                        self.add_argument(name, default);
-                    }
+                for (name, default) in parse_module_arguments(&value.unwrap_or_default()) {
+                    self.add_argument(&name, &default);
                 }
             }
             _ => {}
@@ -783,6 +826,33 @@ impl Parser<'_> {
             "argument.invalid"
         };
         self.push(line, section, status, LoonLineHandler::Metadata, reason);
+    }
+
+    /// Surge `[General] force-http-engine-hosts` sends those hosts through
+    /// the HTTP engine; the core reads the list as MITM hostnames, so the
+    /// line becomes a `hostname` line. Other `[General]` options are the
+    /// user's, not a plugin's.
+    fn general_line(&mut self, line: usize, section: &str, text: &str) {
+        let key = text
+            .split_once('=')
+            .map(|(key, _)| key.trim().to_ascii_lowercase().replace('_', "-"));
+        match (key.as_deref(), text.split_once('=')) {
+            (Some("force-http-engine-hosts"), Some((_, value))) => {
+                let hostname = format!("hostname = {}", value.trim());
+                self.replaced.insert(line, hostname.clone());
+                self.mitm_line(line, section, &hostname);
+            }
+            _ => {
+                self.replaced.insert(line, format!("# {text}"));
+                self.push(
+                    line,
+                    section,
+                    LoonLineStatus::Ignored,
+                    LoonLineHandler::None,
+                    "general.option_ignored",
+                );
+            }
+        }
     }
 
     fn mitm_line(&mut self, line: usize, section: &str, text: &str) {
@@ -899,31 +969,17 @@ impl Parser<'_> {
     }
 
     fn rule_line(&mut self, line: usize, section: &str, text: &str) {
-        let parts = text.split(',').map(str::trim).collect::<Vec<_>>();
-        let kind = parts[0].to_ascii_uppercase();
-        let target = parts.get(2).copied().unwrap_or("");
-        let reject = is_reject_policy(target);
+        let kind = text
+            .split(',')
+            .next()
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_uppercase();
 
         match kind.as_str() {
             // Request URLs are only visible after decryption, so the policy
             // core enforces URL-REGEX rejects on MITM hosts.
-            "URL-REGEX" => {
-                let (status, handler, reason) = if reject {
-                    self.has_request_actions = true;
-                    (
-                        LoonLineStatus::Supported,
-                        LoonLineHandler::PolicyEngine,
-                        "rule.url_regex_reject",
-                    )
-                } else {
-                    (
-                        LoonLineStatus::Unsupported,
-                        LoonLineHandler::None,
-                        "rule.policy_unsupported",
-                    )
-                };
-                self.push(line, section, status, handler, reason);
-            }
+            "URL-REGEX" => self.url_regex_rule_line(line, section, text),
             "FINAL" => self.push(
                 line,
                 section,
@@ -931,24 +987,13 @@ impl Parser<'_> {
                 LoonLineHandler::None,
                 "rule.final_in_plugin",
             ),
-            _ => self.routing_rule_line(line, section, text, target, reject),
+            _ => self.routing_rule_line(line, section, text),
         }
     }
 
-    fn routing_rule_line(
-        &mut self,
-        line: usize,
-        section: &str,
-        text: &str,
-        target: &str,
-        reject: bool,
-    ) {
-        let policy = if reject {
-            PolicyTarget::Reject
-        } else if target.eq_ignore_ascii_case("DIRECT") {
-            PolicyTarget::Direct
-        } else {
-            // Plugins cannot know the user's node and group names.
+    fn url_regex_rule_line(&mut self, line: usize, section: &str, text: &str) {
+        let target = text.rsplit(',').next().unwrap_or_default().trim();
+        if !is_reject_policy(target) {
             self.push(
                 line,
                 section,
@@ -957,14 +1002,45 @@ impl Parser<'_> {
                 "rule.policy_unsupported",
             );
             return;
-        };
+        }
+        // Without a connection to drop after decryption, the drop variants
+        // answer like a plain REJECT.
+        let upper = target.to_ascii_uppercase();
+        if matches!(upper.as_str(), "REJECT-DROP" | "REJECT-NO-DROP") {
+            let cut = text.len() - text.rsplit(',').next().unwrap_or_default().len();
+            self.replaced
+                .insert(line, format!("{}REJECT", &text[..cut]));
+        }
+        self.has_request_actions = true;
+        self.push(
+            line,
+            section,
+            LoonLineStatus::Supported,
+            LoonLineHandler::PolicyEngine,
+            "rule.url_regex_reject",
+        );
+    }
 
+    /// Domain, address, port and logical rules go to the routing model. The
+    /// policy core does not see them, so its stricter rule grammar cannot
+    /// refuse the plugin over one of them.
+    fn routing_rule_line(&mut self, line: usize, section: &str, text: &str) {
         match parse_rule_line(text) {
             Ok(RuleLine::Rule {
                 matcher,
+                target,
                 no_resolve,
-                ..
             }) => {
+                let (policy, reason) = if is_reject_policy(&target) {
+                    (PolicyTarget::Reject, "rule.routing")
+                } else if target.eq_ignore_ascii_case("DIRECT") {
+                    (PolicyTarget::Direct, "rule.routing")
+                } else {
+                    // A plugin cannot know the user's node and group names:
+                    // `PROXY` and other names resolve when the rules join
+                    // the routing model.
+                    (PolicyTarget::Group(target), "rule.routing_policy")
+                };
                 self.rules.push(LoonPluginRule {
                     line,
                     rule: RoutingRule {
@@ -973,12 +1049,13 @@ impl Parser<'_> {
                         no_resolve,
                     },
                 });
+                self.replaced.insert(line, format!("# {text}"));
                 self.push(
                     line,
                     section,
                     LoonLineStatus::Supported,
                     LoonLineHandler::Routing,
-                    "rule.routing",
+                    reason,
                 );
             }
             Ok(RuleLine::Final { .. }) => self.push(
@@ -1119,10 +1196,15 @@ impl Parser<'_> {
             .unwrap_or_default();
         let pattern = &parts[0];
         match action.as_str() {
+            // `script-echo-response` answers the request itself: its `$done`
+            // object is the response (the runtime reads a request-phase
+            // `$done` with a `status` and no `response` key that way).
             "script-request-header"
             | "script-request-body"
             | "script-response-header"
-            | "script-response-body" => {
+            | "script-response-body"
+            | "script-echo-response"
+            | "script-analyze-echo-response" => {
                 self.replaced.insert(line, format!("# {text}"));
                 let Some(path) = parts.get(3).filter(|path| !path.is_empty()) else {
                     self.push(
@@ -1135,6 +1217,7 @@ impl Parser<'_> {
                     return true;
                 };
                 let response = action.starts_with("script-response");
+                let requires_body = action.ends_with("-body") || action.contains("echo");
                 let tag = path
                     .rsplit('/')
                     .next()
@@ -1150,7 +1233,7 @@ impl Parser<'_> {
                     },
                     quote(pattern),
                     path.replace(',', "%2C"),
-                    action.ends_with("-body"),
+                    requires_body,
                     if tag.is_empty() { "script" } else { &tag },
                 );
                 let before = self.lines.len();
@@ -1161,18 +1244,6 @@ impl Parser<'_> {
                 {
                     self.appended.push(("Script", script, line));
                 }
-                true
-            }
-            // `$done` there returns the response itself, not `{response}`.
-            "script-echo-response" | "script-analyze-echo-response" => {
-                self.replaced.insert(line, format!("# {text}"));
-                self.push(
-                    line,
-                    section,
-                    LoonLineStatus::Unsupported,
-                    LoonLineHandler::None,
-                    "script.echo_response_unsupported",
-                );
                 true
             }
             // `<url> url echo-response <mime> echo-response <body url>`
@@ -1422,6 +1493,10 @@ impl Parser<'_> {
     /// HTTP scripts run in the script runtime; scheduled and event scripts
     /// (`cron`, `generic`, `network-changed`) have no runtime yet.
     fn script_line(&mut self, line: usize, section: &str, text: &str) {
+        if let Some(translated) = loon_conditional_script(text) {
+            self.replaced.insert(line, translated.clone());
+            return self.script_line(line, section, &translated);
+        }
         let lower = text.to_ascii_lowercase();
         let first = lower
             .split(|ch: char| ch.is_whitespace() || ch == ',')
@@ -1668,6 +1743,159 @@ fn is_quantumult_rewrite(line: &str) -> bool {
 fn is_hostname_line(line: &str) -> bool {
     line.split_once('=')
         .is_some_and(|(key, _)| key.trim().eq_ignore_ascii_case("hostname"))
+}
+
+/// Defaults of a Surge `#!arguments=name:value,...` line. A value may be
+/// quoted to hold commas.
+fn parse_module_arguments(value: &str) -> Vec<(String, String)> {
+    let mut entries = Vec::new();
+    let mut current = String::new();
+    let mut quoted = false;
+    for character in value.chars() {
+        match character {
+            '"' => {
+                quoted = !quoted;
+                current.push(character);
+            }
+            ',' if !quoted => entries.push(std::mem::take(&mut current)),
+            _ => current.push(character),
+        }
+    }
+    entries.push(current);
+    entries
+        .into_iter()
+        .filter_map(|entry| {
+            let (name, default) = entry.split_once(':')?;
+            let name = name.trim();
+            (!name.is_empty()).then(|| {
+                (
+                    name.to_string(),
+                    default.trim().trim_matches('"').to_string(),
+                )
+            })
+        })
+        .collect()
+}
+
+/// Every `#!arguments` default in the plugin, last one winning.
+fn module_argument_defaults(text: &str) -> BTreeMap<String, String> {
+    let mut defaults = BTreeMap::new();
+    for line in text.lines() {
+        let Some(meta) = line.trim().strip_prefix("#!") else {
+            continue;
+        };
+        let Some((key, value)) = meta.split_once('=') else {
+            continue;
+        };
+        if key.trim().eq_ignore_ascii_case("arguments") {
+            defaults.extend(parse_module_arguments(value));
+        }
+    }
+    defaults
+}
+
+/// Replaces Surge `{{{name}}}` placeholders with argument defaults. Unknown
+/// names are left as written.
+fn substitute_module_arguments(line: &str, arguments: &BTreeMap<String, String>) -> String {
+    if arguments.is_empty() || !line.contains("{{{") {
+        return line.to_string();
+    }
+    let mut out = String::with_capacity(line.len());
+    let mut rest = line;
+    while let Some(start) = rest.find("{{{") {
+        out.push_str(&rest[..start]);
+        let after = &rest[start + 3..];
+        match after.find("}}}") {
+            Some(end) => match arguments.get(after[..end].trim()) {
+                Some(value) => {
+                    out.push_str(value);
+                    rest = &after[end + 3..];
+                }
+                None => {
+                    out.push_str("{{{");
+                    rest = after;
+                }
+            },
+            None => {
+                out.push_str(&rest[start..]);
+                rest = "";
+            }
+        }
+    }
+    out.push_str(rest);
+    out.trim().to_string()
+}
+
+/// Loon's conditional script form,
+/// `request if ${url} ~= /re/i then script("url") with tag="t", timeout=300`,
+/// as the plain `http-request re script-path=url, ...` line. Only a URL
+/// regex condition is read; anything else stays unsupported.
+fn loon_conditional_script(text: &str) -> Option<String> {
+    let lower = text.to_ascii_lowercase();
+    let (kind, rest) = if lower.starts_with("request if ") {
+        ("http-request", &text["request if ".len()..])
+    } else if lower.starts_with("response if ") {
+        ("http-response", &text["response if ".len()..])
+    } else {
+        return None;
+    };
+    let rest = rest.trim_start().strip_prefix("${url}")?.trim_start();
+    let rest = rest.strip_prefix("~=")?.trim_start().strip_prefix('/')?;
+    let then = rest.find(" then ")?;
+    let (regex, flags) = rest[..then].trim_end().rsplit_once('/')?;
+    if regex.is_empty() || !flags.chars().all(|flag| matches!(flag, 'i' | 'g')) {
+        return None;
+    }
+    let call = rest[then + " then ".len()..].trim_start();
+    let call = call.strip_prefix("script(")?.trim_start();
+    let quote_char = call.chars().next().filter(|ch| matches!(ch, '"' | '\''))?;
+    let call = &call[1..];
+    let end = call.find(quote_char)?;
+    let path = &call[..end];
+    let rest = call[end + 1..].trim_start().strip_prefix(')')?.trim();
+    let options = match rest.strip_prefix("with") {
+        Some(options) => attributes(options),
+        None if rest.is_empty() => Vec::new(),
+        None => return None,
+    };
+    if path.is_empty() || path.contains(char::is_whitespace) {
+        return None;
+    }
+    let pattern = if flags.contains('i') {
+        format!("(?i){regex}")
+    } else {
+        regex.to_string()
+    };
+    let mut line = format!(
+        "{kind} {} script-path={}",
+        quote(&pattern),
+        path.replace(',', "%2C")
+    );
+    let mut requires_body = false;
+    for (key, value) in options {
+        match key.as_str() {
+            "requires-body" => requires_body = value.eq_ignore_ascii_case("true") || value == "1",
+            "tag" | "timeout" | "argument" | "binary-body-mode" | "max-size" | "enable" => {
+                let _ = write!(line, ", {key}={}", quote_attribute(&value));
+            }
+            _ => {}
+        }
+    }
+    // The condition form has no body option in most published plugins;
+    // their front-end scripts read form posts, so the body is buffered.
+    if kind == "http-request" || requires_body {
+        let _ = write!(line, ", requires-body=true");
+    }
+    Some(line)
+}
+
+/// An attribute value as [`attributes`] reads it back.
+fn quote_attribute(value: &str) -> String {
+    if value.is_empty() || value.contains([' ', ',', '"', '\'', '\t']) {
+        format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
+    } else {
+        value.to_string()
+    }
 }
 
 fn is_reject_policy(target: &str) -> bool {

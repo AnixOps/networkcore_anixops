@@ -146,6 +146,9 @@ pub enum RuleMatcher {
     DomainSuffix(String),
     /// Lower-case substring of the domain.
     DomainKeyword(String),
+    /// Lower-case domain glob: `*` matches any run of characters (dots
+    /// included) and `?` one character, as Surge `DOMAIN-WILDCARD`.
+    DomainWildcard(String),
     IpCidr(IpCidr),
     /// Upper-case ISO 3166-1 alpha-2 country code.
     GeoIp(String),
@@ -191,6 +194,7 @@ impl fmt::Display for RuleMatcher {
             Self::Domain(domain) => write!(formatter, "DOMAIN,{domain}"),
             Self::DomainSuffix(suffix) => write!(formatter, "DOMAIN-SUFFIX,{suffix}"),
             Self::DomainKeyword(keyword) => write!(formatter, "DOMAIN-KEYWORD,{keyword}"),
+            Self::DomainWildcard(pattern) => write!(formatter, "DOMAIN-WILDCARD,{pattern}"),
             Self::IpCidr(cidr) if cidr.network().is_ipv6() => write!(formatter, "IP-CIDR6,{cidr}"),
             Self::IpCidr(cidr) => write!(formatter, "IP-CIDR,{cidr}"),
             Self::GeoIp(country) => write!(formatter, "GEOIP,{country}"),
@@ -365,6 +369,11 @@ fn parse_options(options: &[&str], matcher: &RuleMatcher) -> DomainResult<bool> 
     for option in options {
         if option.eq_ignore_ascii_case("no-resolve") && matcher.matches_ip() {
             no_resolve = true;
+        } else if option.eq_ignore_ascii_case("pre-matching")
+            || option.eq_ignore_ascii_case("extended-matching")
+        {
+            // Surge options: matching before DNS is how rules already run,
+            // and SNI/Host matching needs no option here.
         } else {
             return Err(routing_error(
                 ROUTING_RULE_OPTION_UNSUPPORTED_CODE,
@@ -488,6 +497,7 @@ fn parse_matcher(kind: &str, value: &str) -> DomainResult<RuleMatcher> {
             RuleMatcher::DomainSuffix(normalize_rule_domain(value.trim_start_matches('.'))?)
         }
         "DOMAIN-KEYWORD" => RuleMatcher::DomainKeyword(normalize_rule_domain(value)?),
+        "DOMAIN-WILDCARD" => RuleMatcher::DomainWildcard(normalize_domain_wildcard(value)?),
         "IP-CIDR" | "IP-CIDR6" => RuleMatcher::IpCidr(IpCidr::parse(value).ok_or_else(|| {
             routing_error(
                 ROUTING_RULE_VALUE_INVALID_CODE,
@@ -504,7 +514,7 @@ fn parse_matcher(kind: &str, value: &str) -> DomainResult<RuleMatcher> {
         "PROCESS-NAME" => RuleMatcher::ProcessName(value.trim().to_lowercase()),
         _ => return Err(routing_error(
             ROUTING_RULE_TYPE_UNSUPPORTED_CODE,
-            "routing rule type must be DOMAIN, DOMAIN-SUFFIX, DOMAIN-KEYWORD, IP-CIDR, IP-CIDR6, GEOIP, GEOSITE, DST-PORT, PROCESS-NAME, RULE-SET, AND, OR, NOT, or FINAL",
+            "routing rule type must be DOMAIN, DOMAIN-SUFFIX, DOMAIN-KEYWORD, DOMAIN-WILDCARD, IP-CIDR, IP-CIDR6, GEOIP, GEOSITE, DST-PORT, PROCESS-NAME, RULE-SET, AND, OR, NOT, or FINAL",
         )),
     })
 }
@@ -887,6 +897,9 @@ fn rule_matches(
         RuleMatcher::DomainKeyword(keyword) => {
             domain.is_some_and(|domain| domain.contains(keyword.as_str()))
         }
+        RuleMatcher::DomainWildcard(pattern) => {
+            domain.is_some_and(|domain| wildcard_matches(pattern.as_bytes(), domain.as_bytes()))
+        }
         RuleMatcher::DomainSuffix(suffix) => domain.is_some_and(|domain| {
             domain == suffix
                 || domain
@@ -1231,6 +1244,48 @@ pub(crate) fn normalize_rule_domain(value: &str) -> DomainResult<String> {
             "domain rule value must be an ASCII domain name",
         ))
     }
+}
+
+/// A `DOMAIN-WILDCARD` value: host characters plus `*` and `?`, with at
+/// least one literal character.
+fn normalize_domain_wildcard(value: &str) -> DomainResult<String> {
+    let pattern = normalize_query_domain(value);
+    let valid = pattern
+        .chars()
+        .all(|character| character.is_ascii_alphanumeric() || "-._*?".contains(character))
+        && pattern
+            .chars()
+            .any(|character| character.is_ascii_alphanumeric());
+    if valid {
+        Ok(pattern)
+    } else {
+        Err(routing_error(
+            ROUTING_RULE_VALUE_INVALID_CODE,
+            "DOMAIN-WILDCARD rule value must be a domain with * and ? wildcards",
+        ))
+    }
+}
+
+/// Glob match where `*` is any run (dots included) and `?` one byte.
+fn wildcard_matches(pattern: &[u8], text: &[u8]) -> bool {
+    let (mut p, mut t) = (0, 0);
+    let mut star: Option<(usize, usize)> = None;
+    while t < text.len() {
+        if p < pattern.len() && (pattern[p] == b'?' || pattern[p] == text[t]) {
+            p += 1;
+            t += 1;
+        } else if p < pattern.len() && pattern[p] == b'*' {
+            star = Some((p, t));
+            p += 1;
+        } else if let Some((star_p, star_t)) = star {
+            p = star_p + 1;
+            t = star_t + 1;
+            star = Some((star_p, star_t + 1));
+        } else {
+            return false;
+        }
+    }
+    pattern[p..].iter().all(|&b| b == b'*')
 }
 
 fn normalize_query_domain(value: &str) -> String {
