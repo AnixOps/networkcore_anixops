@@ -17,12 +17,12 @@ use control_domain::{
 use script_runtime::{
     binary_body_bytes, binary_body_string, DisabledScriptHttpClient, JsonFileScriptStore,
     MemoryScriptStore, QuickJsScriptRuntime, ScriptHttpClient, ScriptInvocation, ScriptLimits,
-    ScriptPhase, ScriptRequest, ScriptResponse, ScriptRunStatus, ScriptStore,
+    ScriptNotification, ScriptPhase, ScriptRequest, ScriptResponse, ScriptRunStatus, ScriptStore,
 };
 use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::io::Read;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 pub const ENGINE_NATIVE_QUICKJS_SCRIPT_CONFIG_INVALID_CODE: &str =
@@ -30,6 +30,38 @@ pub const ENGINE_NATIVE_QUICKJS_SCRIPT_CONFIG_INVALID_CODE: &str =
 
 const QUICKJS_DEFAULT_MEMORY_LIMIT_BYTES: usize = 32 * 1024 * 1024;
 const QUICKJS_MAX_SCRIPT_BYTES: u64 = 4 * 1024 * 1024;
+/// Notifications kept for the host to collect; older ones are dropped.
+pub const QUICKJS_MAX_PENDING_NOTIFICATIONS: usize = 64;
+/// Longest run a scheduled script may ask for.
+pub const QUICKJS_MAX_SCHEDULED_TIMEOUT_SECS: u32 = 300;
+
+/// What a scheduled, event or generic script run is for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NativeScheduledScriptKind {
+    Cron,
+    /// Event script with its event name (`network-changed`).
+    Event(String),
+    Generic,
+}
+
+/// One run of a script outside any HTTP flow.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeScheduledScriptRun {
+    pub script_url: String,
+    pub tag: String,
+    pub argument: String,
+    pub kind: NativeScheduledScriptKind,
+    pub timeout_secs: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeScheduledScriptReport {
+    pub executed: bool,
+    /// `done`, `finished_without_done`, a failure code, or why it did not run.
+    pub status: String,
+    pub notifications: Vec<ScriptNotification>,
+    pub logs: Vec<String>,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NativeQuickJsScriptRuntimeConfig {
@@ -49,6 +81,7 @@ pub struct NativeQuickJsScriptExecutor {
     script_asset_hashes: BTreeMap<String, String>,
     store: Arc<dyn ScriptStore>,
     runtime: QuickJsScriptRuntime,
+    notifications: Arc<Mutex<VecDeque<ScriptNotification>>>,
 }
 
 impl std::fmt::Debug for NativeQuickJsScriptExecutor {
@@ -87,6 +120,7 @@ impl NativeQuickJsScriptExecutor {
             script_asset_hashes,
             runtime: QuickJsScriptRuntime::new(store.clone(), Arc::new(DisabledScriptHttpClient)),
             store,
+            notifications: Arc::default(),
         })
     }
 
@@ -142,31 +176,9 @@ impl NativeQuickJsScriptExecutor {
         } else {
             None
         };
-        let Some(asset_path) = self.config.script_assets.get(&dispatch.script_path) else {
-            return script_execution_deferred(
-                "native HTTP script dispatch has no explicitly configured local script asset",
-            );
-        };
-        let Some(expected_hash) = self.script_asset_hashes.get(&dispatch.script_path) else {
-            return script_execution_deferred(
-                "native HTTP script runtime could not record the mapped local script asset hash",
-            );
-        };
-        let Some((source, actual_hash)) = read_script_asset(std::path::Path::new(asset_path))
-        else {
-            return script_execution_deferred(
-                "native HTTP script runtime mapped local script asset is unavailable or unsafe",
-            );
-        };
-        if actual_hash != *expected_hash {
-            return script_execution_deferred(
-                "native HTTP script runtime mapped local script asset changed after authorization",
-            );
-        }
-        let Ok(source) = String::from_utf8(source) else {
-            return script_execution_deferred(
-                "native HTTP script runtime mapped local script asset is not UTF-8",
-            );
+        let source = match self.script_source(&dispatch.script_path) {
+            Ok(source) => source,
+            Err(reason) => return script_execution_deferred(reason),
         };
 
         let headers = message
@@ -212,6 +224,7 @@ impl NativeQuickJsScriptExecutor {
             request,
             response,
             binary_body: dispatch.binary_body_mode,
+            event: None,
         };
         let timeout_ms = bounded_script_timeout(dispatch.timeout_ms, self.config.max_timeout_ms);
         let limits = ScriptLimits {
@@ -226,6 +239,7 @@ impl NativeQuickJsScriptExecutor {
         };
 
         let outcome = self.runtime.run(&source, &invocation, &limits);
+        self.queue_notifications(&outcome.notifications);
         if let ScriptRunStatus::Failed(failure) = &outcome.status {
             return NativeHttpScriptExecutionReport {
                 executed: false,
@@ -288,6 +302,100 @@ impl NativeQuickJsScriptExecutor {
                 SOURCE_ENGINE_NATIVE_MITM,
             )],
         }
+    }
+
+    /// Notifications scripts posted since the last call, oldest first. The
+    /// host shows them; at most [`QUICKJS_MAX_PENDING_NOTIFICATIONS`] wait.
+    pub fn drain_notifications(&self) -> Vec<ScriptNotification> {
+        self.notifications
+            .lock()
+            .map(|mut queue| queue.drain(..).collect())
+            .unwrap_or_default()
+    }
+
+    /// Runs a cron, event or generic script. Blocks for up to the run's
+    /// timeout, so async callers run it on a blocking thread.
+    pub fn execute_scheduled(&self, run: &NativeScheduledScriptRun) -> NativeScheduledScriptReport {
+        let source = match self.script_source(&run.script_url) {
+            Ok(source) => source,
+            Err(reason) => {
+                return NativeScheduledScriptReport {
+                    executed: false,
+                    status: reason.to_string(),
+                    notifications: Vec::new(),
+                    logs: Vec::new(),
+                }
+            }
+        };
+        let (phase, event) = match &run.kind {
+            NativeScheduledScriptKind::Cron => (ScriptPhase::Cron, None),
+            NativeScheduledScriptKind::Event(name) => (ScriptPhase::Event, Some(name.clone())),
+            NativeScheduledScriptKind::Generic => (ScriptPhase::Generic, None),
+        };
+        let name = if run.tag.is_empty() {
+            run.script_url.clone()
+        } else {
+            run.tag.clone()
+        };
+        let invocation = ScriptInvocation::scheduled(phase, name, run.argument.clone(), event);
+        let timeout_secs = run
+            .timeout_secs
+            .clamp(1, QUICKJS_MAX_SCHEDULED_TIMEOUT_SECS);
+        let limits = ScriptLimits {
+            timeout: Duration::from_secs(u64::from(timeout_secs)),
+            memory_limit_bytes: if self.config.memory_limit_bytes == 0 {
+                QUICKJS_DEFAULT_MEMORY_LIMIT_BYTES
+            } else {
+                self.config.memory_limit_bytes
+            },
+            ..ScriptLimits::default()
+        };
+        let outcome = self.runtime.run(&source, &invocation, &limits);
+        self.queue_notifications(&outcome.notifications);
+        let status = match &outcome.status {
+            ScriptRunStatus::Done => "done".to_string(),
+            ScriptRunStatus::FinishedWithoutDone => "finished_without_done".to_string(),
+            ScriptRunStatus::Failed(failure) => failure.code().to_string(),
+        };
+        NativeScheduledScriptReport {
+            executed: !matches!(outcome.status, ScriptRunStatus::Failed(_)),
+            status,
+            notifications: outcome.notifications,
+            logs: outcome.logs,
+        }
+    }
+
+    fn queue_notifications(&self, notifications: &[ScriptNotification]) {
+        if notifications.is_empty() {
+            return;
+        }
+        if let Ok(mut queue) = self.notifications.lock() {
+            queue.extend(notifications.iter().cloned());
+            while queue.len() > QUICKJS_MAX_PENDING_NOTIFICATIONS {
+                queue.pop_front();
+            }
+        }
+    }
+
+    /// Source of a mapped script, checked against the hash pinned at build.
+    fn script_source(&self, script_url: &str) -> Result<String, &'static str> {
+        let asset_path =
+            self.config.script_assets.get(script_url).ok_or(
+                "native HTTP script dispatch has no explicitly configured local script asset",
+            )?;
+        let expected_hash = self.script_asset_hashes.get(script_url).ok_or(
+            "native HTTP script runtime could not record the mapped local script asset hash",
+        )?;
+        let (source, actual_hash) = read_script_asset(std::path::Path::new(asset_path)).ok_or(
+            "native HTTP script runtime mapped local script asset is unavailable or unsafe",
+        )?;
+        if actual_hash != *expected_hash {
+            return Err(
+                "native HTTP script runtime mapped local script asset changed after authorization",
+            );
+        }
+        String::from_utf8(source)
+            .map_err(|_| "native HTTP script runtime mapped local script asset is not UTF-8")
     }
 }
 

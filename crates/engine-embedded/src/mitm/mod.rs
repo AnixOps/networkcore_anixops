@@ -26,11 +26,20 @@
 //! [`SCRIPT_MAX_TIMEOUT_MS`]. `$httpClient` requests go through the tunnel's
 //! dispatcher (see `FlowInterceptor::set_script_outbound`), one HTTP/1.1 request
 //! per connection with a [`MAX_BODY_BYTES`] answer.
+//!
+//! Plugin scripts outside HTTP flows (`cron`, `network-changed`, `generic`,
+//! Quantumult X `[task_local]`) run from the same consented copies on the
+//! tunnel's runtime (see `scheduler`): cron scripts in local time, the others
+//! when the client sends the `network_changed` or `run_script` control
+//! command. What any script posts with `$notification` waits for the
+//! client's `script_notifications` command.
 
 mod http1;
 #[cfg(feature = "scripts")]
 mod http_client;
 pub mod inspect;
+#[cfg(feature = "scripts")]
+mod scheduler;
 
 use std::collections::{BTreeMap, HashMap};
 use std::io;
@@ -120,6 +129,10 @@ pub struct MitmEngine {
     next_request: AtomicU64,
     /// `[Rule]` lines of the accepted plugins, for the routing model.
     plugin_rules: Vec<config_core::routing::RoutingRule>,
+    /// Cron, network-change and generic scripts, and the notifications
+    /// every script posts.
+    #[cfg(feature = "scripts")]
+    scheduler: Option<Arc<scheduler::ScriptScheduler>>,
 }
 
 impl MitmEngine {
@@ -148,6 +161,10 @@ impl MitmEngine {
             .iter()
             .flat_map(|import| import.routing_rules())
             .collect();
+        let scheduled_scripts = accepted
+            .iter()
+            .flat_map(|import| import.scheduled_scripts.iter().cloned())
+            .collect::<Vec<_>>();
         let certificate = base64::engine::general_purpose::STANDARD
             .decode(config.ca_certificate.trim())
             .map_err(|_| "mitm ca_certificate is not base64")?;
@@ -194,11 +211,16 @@ impl MitmEngine {
         let script_outbound = Arc::new(OnceLock::new());
         let hook = NativeHttpMitmPluginHook::new(instance.clone(), service.clone());
         let scripts = !config.script_assets.is_empty();
-        let hook = if scripts {
+        let (hook, executor) = if scripts {
             with_scripts(hook, config, &script_outbound, &upstream)?
         } else {
-            hook
+            (hook, None)
         };
+        #[cfg(feature = "scripts")]
+        let scheduler = executor
+            .map(|executor| Arc::new(scheduler::ScriptScheduler::new(executor, scheduled_scripts)));
+        #[cfg(not(feature = "scripts"))]
+        let _ = (executor, scheduled_scripts);
         Ok(Self {
             service,
             instance,
@@ -211,6 +233,8 @@ impl MitmEngine {
             decisions: Mutex::new(HashMap::new()),
             next_request: AtomicU64::new(1),
             plugin_rules,
+            #[cfg(feature = "scripts")]
+            scheduler,
         })
     }
 
@@ -523,6 +547,20 @@ impl FlowInterceptor for MitmEngine {
         self.plugin_rules.clone()
     }
 
+    #[cfg(feature = "scripts")]
+    fn background(self: Arc<Self>) -> Option<BoxFuture<'static, ()>> {
+        let scheduler = self
+            .scheduler
+            .clone()
+            .filter(|scheduler| scheduler.has_scripts())?;
+        Some(Box::pin(scheduler.run()))
+    }
+
+    #[cfg(feature = "scripts")]
+    fn script_control(&self, request: &crate::control::ScriptControl) -> Option<serde_json::Value> {
+        Some(self.scheduler.as_ref()?.control(request))
+    }
+
     fn claim(&self, first: &[u8], target: SocketAddr) -> Option<String> {
         if target.port() != HTTPS_PORT {
             return None;
@@ -664,7 +702,13 @@ fn with_scripts(
     config: &MitmConfig,
     outbound: &Arc<OnceLock<Arc<dyn TcpOutbound>>>,
     tls: &Arc<ClientConfig>,
-) -> Result<NativeHttpMitmPluginHook, &'static str> {
+) -> Result<
+    (
+        NativeHttpMitmPluginHook,
+        Option<NativeQuickJsScriptExecutor>,
+    ),
+    &'static str,
+> {
     let executor = NativeQuickJsScriptExecutor::new(NativeQuickJsScriptRuntimeConfig {
         script_assets: config.script_assets.clone(),
         persistent_store_path: config.script_store_path.clone(),
@@ -677,7 +721,10 @@ fn with_scripts(
         outbound.clone(),
         tls.clone(),
     )));
-    Ok(hook.with_quickjs_script_executor(executor))
+    Ok((
+        hook.with_quickjs_script_executor(executor.clone()),
+        Some(executor),
+    ))
 }
 
 #[cfg(not(feature = "scripts"))]
@@ -686,7 +733,7 @@ fn with_scripts(
     _config: &MitmConfig,
     _outbound: &Arc<OnceLock<Arc<dyn TcpOutbound>>>,
     _tls: &Arc<ClientConfig>,
-) -> Result<NativeHttpMitmPluginHook, &'static str> {
+) -> Result<(NativeHttpMitmPluginHook, Option<()>), &'static str> {
     Err("mitm scripts are not supported by this build")
 }
 

@@ -137,6 +137,92 @@ fn mask_ip(address: IpAddr, prefix_len: u8) -> IpAddr {
     }
 }
 
+/// Values of a `PROTOCOL` rule. `QUIC` is UDP to port 443, `HTTPS` TCP to
+/// port 443 and `HTTP` TCP to port 80, as far as routing can tell before
+/// the first bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum RuleProtocol {
+    Tcp,
+    Udp,
+    Quic,
+    Http,
+    Https,
+}
+
+impl RuleProtocol {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Tcp => "TCP",
+            Self::Udp => "UDP",
+            Self::Quic => "QUIC",
+            Self::Http => "HTTP",
+            Self::Https => "HTTPS",
+        }
+    }
+}
+
+/// Transport of a connection being routed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum RouteNetwork {
+    Tcp,
+    Udp,
+}
+
+/// A compiled `URL-REGEX` pattern; rules compare by its source.
+#[derive(Clone)]
+pub struct UrlPattern {
+    source: String,
+    regex: regex::Regex,
+}
+
+impl UrlPattern {
+    pub fn new(source: &str) -> DomainResult<Self> {
+        let invalid = |message: &str| routing_error(ROUTING_RULE_VALUE_INVALID_CODE, message);
+        if source.is_empty() {
+            return Err(invalid("URL-REGEX rule value must not be empty"));
+        }
+        let regex = regex::RegexBuilder::new(source)
+            .size_limit(1 << 20)
+            .build()
+            .map_err(|_| invalid("URL-REGEX rule value is not a supported regex"))?;
+        Ok(Self {
+            source: source.to_string(),
+            regex,
+        })
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.source
+    }
+
+    pub fn is_match(&self, url: &str) -> bool {
+        self.regex.is_match(url)
+    }
+}
+
+impl fmt::Debug for UrlPattern {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_tuple("UrlPattern")
+            .field(&self.source)
+            .finish()
+    }
+}
+
+impl PartialEq for UrlPattern {
+    fn eq(&self, other: &Self) -> bool {
+        self.source == other.source
+    }
+}
+
+impl Eq for UrlPattern {}
+
+impl std::hash::Hash for UrlPattern {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.source.hash(state);
+    }
+}
+
 /// Connection property a rule matches against.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum RuleMatcher {
@@ -162,6 +248,14 @@ pub enum RuleMatcher {
     /// Lower-case name of the local process that opened the connection,
     /// when the platform can tell.
     ProcessName(String),
+    /// Transport of the connection, as Surge `PROTOCOL`.
+    Protocol(RuleProtocol),
+    /// Lower-case glob over the `User-Agent` of a plain HTTP request, as
+    /// Surge `USER-AGENT` (`*` and `?`). Other flows never match.
+    UserAgent(String),
+    /// Regex over the URL of a plain HTTP request (`http://host/path`), as
+    /// Surge `URL-REGEX` inside a logical rule. Other flows never match.
+    UrlRegex(UrlPattern),
     /// Every rule matches.
     And(Vec<RuleMatcher>),
     /// Any rule matches.
@@ -203,6 +297,9 @@ impl fmt::Display for RuleMatcher {
             Self::DstPort(start, end) if start == end => write!(formatter, "DST-PORT,{start}"),
             Self::DstPort(start, end) => write!(formatter, "DST-PORT,{start}-{end}"),
             Self::ProcessName(name) => write!(formatter, "PROCESS-NAME,{name}"),
+            Self::Protocol(protocol) => write!(formatter, "PROTOCOL,{}", protocol.name()),
+            Self::UserAgent(pattern) => write!(formatter, "USER-AGENT,{pattern}"),
+            Self::UrlRegex(pattern) => write!(formatter, "URL-REGEX,{}", pattern.as_str()),
             Self::And(rules) => write_logical(formatter, "AND", rules),
             Self::Or(rules) => write_logical(formatter, "OR", rules),
             Self::Not(rule) => write_logical(formatter, "NOT", std::slice::from_ref(rule)),
@@ -353,6 +450,15 @@ pub fn parse_rule_line(line: &str) -> DomainResult<RuleLine> {
         return Err(routing_error(
             ROUTING_RULE_LINE_INVALID_CODE,
             "routing rule must have a type, a value, and a target",
+        ));
+    }
+    if kind == "URL-REGEX" {
+        // A standalone URL-REGEX is the MITM core's (its rejects run on the
+        // full URL of every intercepted request); only logical rules bring
+        // one here.
+        return Err(routing_error(
+            ROUTING_RULE_TYPE_UNSUPPORTED_CODE,
+            "URL-REGEX is a routing rule only inside AND, OR, or NOT",
         ));
     }
     let matcher = parse_matcher(&kind, parts[1])?;
@@ -512,9 +618,33 @@ fn parse_matcher(kind: &str, value: &str) -> DomainResult<RuleMatcher> {
             RuleMatcher::DstPort(start, end)
         }
         "PROCESS-NAME" => RuleMatcher::ProcessName(value.trim().to_lowercase()),
+        "USER-AGENT" => {
+            let pattern = value.trim().trim_matches('"').to_lowercase();
+            if pattern.is_empty() {
+                return Err(routing_error(
+                    ROUTING_RULE_VALUE_INVALID_CODE,
+                    "USER-AGENT rule value must not be empty",
+                ));
+            }
+            RuleMatcher::UserAgent(pattern)
+        }
+        "URL-REGEX" => RuleMatcher::UrlRegex(UrlPattern::new(value.trim().trim_matches('"'))?),
+        "PROTOCOL" => RuleMatcher::Protocol(match value.trim().to_ascii_uppercase().as_str() {
+            "TCP" => RuleProtocol::Tcp,
+            "UDP" => RuleProtocol::Udp,
+            "QUIC" => RuleProtocol::Quic,
+            "HTTP" => RuleProtocol::Http,
+            "HTTPS" => RuleProtocol::Https,
+            _ => {
+                return Err(routing_error(
+                    ROUTING_RULE_VALUE_INVALID_CODE,
+                    "PROTOCOL rule value must be TCP, UDP, QUIC, HTTP, or HTTPS",
+                ))
+            }
+        }),
         _ => return Err(routing_error(
             ROUTING_RULE_TYPE_UNSUPPORTED_CODE,
-            "routing rule type must be DOMAIN, DOMAIN-SUFFIX, DOMAIN-KEYWORD, DOMAIN-WILDCARD, IP-CIDR, IP-CIDR6, GEOIP, GEOSITE, DST-PORT, PROCESS-NAME, RULE-SET, AND, OR, NOT, or FINAL",
+            "routing rule type must be DOMAIN, DOMAIN-SUFFIX, DOMAIN-KEYWORD, DOMAIN-WILDCARD, IP-CIDR, IP-CIDR6, GEOIP, GEOSITE, DST-PORT, PROCESS-NAME, PROTOCOL, USER-AGENT, RULE-SET, AND, OR, NOT, or FINAL (URL-REGEX inside AND, OR, NOT)",
         )),
     })
 }
@@ -631,6 +761,8 @@ impl RoutingModel {
     ) -> RouteResolution {
         let domain = query.domain.as_deref().map(normalize_query_domain);
         let process = query.process.as_deref().map(str::to_lowercase);
+        let user_agent = query.user_agent.as_deref().map(str::to_lowercase);
+        let url = query.url.as_deref();
         let mut ip = query.ip;
         let mut resolved_ip = None;
         let mut resolve_attempted = false;
@@ -658,6 +790,9 @@ impl RoutingModel {
                 ip,
                 port: query.port,
                 process: process.as_deref(),
+                network: query.network,
+                user_agent: user_agent.as_deref(),
+                url,
             };
             if rule_matches(&rule.matcher, &input, environment) {
                 return self.resolution(
@@ -767,6 +902,12 @@ pub struct RouteQuery {
     /// Name of the local process that opened the connection, for
     /// PROCESS-NAME rules, when the platform can tell.
     pub process: Option<String>,
+    /// Transport, for PROTOCOL rules; they never match without it.
+    pub network: Option<RouteNetwork>,
+    /// `User-Agent` of a plain HTTP request, for USER-AGENT rules.
+    pub user_agent: Option<String>,
+    /// URL of a plain HTTP request, for URL-REGEX rules.
+    pub url: Option<String>,
 }
 
 impl RouteQuery {
@@ -786,6 +927,11 @@ impl RouteQuery {
 
     pub fn with_port(mut self, port: u16) -> Self {
         self.port = Some(port);
+        self
+    }
+
+    pub fn with_network(mut self, network: RouteNetwork) -> Self {
+        self.network = Some(network);
         self
     }
 }
@@ -884,6 +1030,9 @@ struct MatchInput<'a> {
     ip: Option<IpAddr>,
     port: Option<u16>,
     process: Option<&'a str>,
+    network: Option<RouteNetwork>,
+    user_agent: Option<&'a str>,
+    url: Option<&'a str>,
 }
 
 fn rule_matches(
@@ -916,6 +1065,21 @@ fn rule_matches(
             .port
             .is_some_and(|port| (*start..=*end).contains(&port)),
         RuleMatcher::ProcessName(name) => input.process == Some(name.as_str()),
+        RuleMatcher::Protocol(protocol) => {
+            let port = input.port;
+            match (protocol, input.network) {
+                (RuleProtocol::Tcp, Some(RouteNetwork::Tcp))
+                | (RuleProtocol::Udp, Some(RouteNetwork::Udp)) => true,
+                (RuleProtocol::Quic, Some(RouteNetwork::Udp))
+                | (RuleProtocol::Https, Some(RouteNetwork::Tcp)) => port == Some(443),
+                (RuleProtocol::Http, Some(RouteNetwork::Tcp)) => port == Some(80),
+                _ => false,
+            }
+        }
+        RuleMatcher::UserAgent(pattern) => input
+            .user_agent
+            .is_some_and(|agent| wildcard_matches(pattern.as_bytes(), agent.as_bytes())),
+        RuleMatcher::UrlRegex(pattern) => input.url.is_some_and(|url| pattern.is_match(url)),
         RuleMatcher::And(rules) => rules
             .iter()
             .all(|rule| rule_matches(rule, input, environment)),

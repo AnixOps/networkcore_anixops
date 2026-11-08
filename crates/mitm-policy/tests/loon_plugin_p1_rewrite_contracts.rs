@@ -272,9 +272,9 @@ fn unsupported_map_local_and_body_rewrite_lines_are_graded() {
                 "map_local.data_type_unsupported",
                 LoonLineStatus::Unsupported
             ),
-            ("body_rewrite.jq_unavailable", LoonLineStatus::Unsupported),
+            ("rewrite.jq", LoonLineStatus::Supported),
             ("body_rewrite.invalid", LoonLineStatus::Unsupported),
-            ("body_rewrite.type_unsupported", LoonLineStatus::Unsupported),
+            ("rewrite.jq", LoonLineStatus::Supported),
             ("rewrite.response_body", LoonLineStatus::Supported),
             ("mitm.hostname", LoonLineStatus::Supported),
         ]
@@ -393,4 +393,190 @@ fn remote_resources_are_listed_and_map_local_data_is_inlined_when_supplied() {
         key: "Content-Type".to_string(),
         value: "text/html".to_string(),
     }));
+}
+
+#[test]
+fn jq_body_rewrites_of_every_dialect_run_with_jaq() {
+    let plugin = import_loon_plugin(concat!(
+        "#!name = jq\n",
+        "[Body Rewrite]\n",
+        "http-response-jq ^https?://a\\.example\\.com/surge 'del(.ad) | .data.items |= map(select(.type != \"AD\"))'\n",
+        "[Rewrite]\n",
+        "^https?://a\\.example\\.com/loon response-body-json-jq '.vip.status = 1'\n",
+        "^https?://a\\.example\\.com/qx url jsonjq-response-body '.dt = []'\n",
+        "[MITM]\n",
+        "hostname = a.example.com\n",
+    ))
+    .expect("jq rewrites should import");
+    assert_eq!(
+        plugin.report.level,
+        LoonSupportLevel::Full,
+        "{}",
+        plugin.report.render_text("jq")
+    );
+
+    let cases = [
+        (
+            "https://a.example.com/surge",
+            r#"{"ad":1,"data":{"items":[{"type":"AD"},{"type":"post"}]}}"#,
+            r#"{"data":{"items":[{"type":"post"}]}}"#,
+        ),
+        (
+            "https://a.example.com/loon",
+            r#"{"vip":{"status":0}}"#,
+            r#"{"vip":{"status":1}}"#,
+        ),
+        (
+            "https://a.example.com/qx?x=1",
+            r#"{"dt":[1,2],"ok":true}"#,
+            r#"{"dt":[],"ok":true}"#,
+        ),
+    ];
+    for (url, body, expected) in cases {
+        let outcome = plan(&plugin, &event(HttpMitmPhase::Response, url, body));
+        assert_eq!(
+            String::from_utf8(
+                outcome
+                    .body_mutation
+                    .unwrap_or_else(|| panic!("{url} should be rewritten"))
+                    .body
+            )
+            .unwrap(),
+            expected,
+            "{url}"
+        );
+    }
+
+    // Loon JSON edits become jq too.
+    let edits = import_loon_plugin(concat!(
+        "#!name = json edits\n",
+        "[Rewrite]\n",
+        "^https?://a\\.example\\.com/del response-body-json-del data.ad blocks[1]\n",
+        "[Body Rewrite]\n",
+        "http-response-json-add ^https?://a\\.example\\.com/add vip.status 1 vip.name VIP\n",
+        "http-response-json-replace ^https?://a\\.example\\.com/replace a 2 missing 3\n",
+        "[MITM]\n",
+        "hostname = a.example.com\n",
+    ))
+    .expect("json edits should import");
+    assert_eq!(
+        edits.report.level,
+        LoonSupportLevel::Full,
+        "{}",
+        edits.report.render_text("edits")
+    );
+    let cases = [
+        (
+            "https://a.example.com/del",
+            r#"{"data":{"ad":1,"x":2},"blocks":[0,1,2]}"#,
+            r#"{"data":{"x":2},"blocks":[0,2]}"#,
+        ),
+        (
+            "https://a.example.com/add",
+            r#"{"vip":{"status":0}}"#,
+            r#"{"vip":{"status":1,"name":"VIP"}}"#,
+        ),
+        ("https://a.example.com/replace", r#"{"a":1}"#, r#"{"a":2}"#),
+    ];
+    for (url, body, expected) in cases {
+        let outcome = plan(&edits, &event(HttpMitmPhase::Response, url, body));
+        assert_eq!(
+            String::from_utf8(
+                outcome
+                    .body_mutation
+                    .unwrap_or_else(|| panic!("{url} should be rewritten"))
+                    .body
+            )
+            .unwrap(),
+            expected,
+            "{url}"
+        );
+    }
+
+    // Not JSON: left alone.
+    let outcome = plan(
+        &plugin,
+        &event(
+            HttpMitmPhase::Response,
+            "https://a.example.com/loon",
+            "<html>",
+        ),
+    );
+    assert!(outcome.body_mutation.is_none());
+}
+
+#[test]
+fn quantumult_x_header_block_rewrites_edit_headers_or_move_the_request() {
+    let plugin = import_loon_plugin(concat!(
+        "[rewrite_local]\n",
+        "^https?://a\\.example\\.com/ua url request-header (\\r\\n)User-Agent:.+(\\r\\n) request-header $1User-Agent: Quantumult$2\n",
+        "^https?://a\\.example\\.com/etag url request-header (\\r\\n)If-None-Match:.+(\\r\\n) request-header $1\n",
+        "^https?://a\\.example\\.com/jda? url request-header ^(.+?\\s).+?(\\s[\\s\\S]+?Host:).+?(\\r\\n) request-header $1/jda?adblock=$2b.example.com$3\n",
+        "[mitm]\n",
+        "hostname = a.example.com\n",
+    ))
+    .expect("header-block rewrites should import");
+    assert_eq!(
+        plugin.report.level,
+        LoonSupportLevel::Full,
+        "{}",
+        plugin.report.render_text("header-block")
+    );
+    let merged = merged_plugin_source("QX", &[&plugin]);
+    assert!(merged.contains("[AnixOps Header Block]"), "{merged}");
+
+    let request = |url: &str| HttpMitmEvent {
+        headers: vec![
+            MetadataEntry {
+                key: "Host".to_string(),
+                value: "a.example.com".to_string(),
+            },
+            MetadataEntry {
+                key: "User-Agent".to_string(),
+                value: "App/1.0".to_string(),
+            },
+            MetadataEntry {
+                key: "If-None-Match".to_string(),
+                value: "\"abc\"".to_string(),
+            },
+        ],
+        method: Some("GET".to_string()),
+        ..event(HttpMitmPhase::Request, url, "")
+    };
+
+    let ua = plan(&plugin, &request("https://a.example.com/ua"));
+    let mut headers = request("https://a.example.com/ua").headers;
+    for mutation in &ua.header_mutations {
+        match mutation.value.as_ref() {
+            Some(value) => headers.push(MetadataEntry {
+                key: mutation.name.clone(),
+                value: value.clone(),
+            }),
+            None => headers.retain(|header| !header.key.eq_ignore_ascii_case(&mutation.name)),
+        }
+    }
+    assert_eq!(header(&headers, "User-Agent"), Some("Quantumult"));
+    assert_eq!(header(&headers, "If-None-Match"), Some("\"abc\""));
+
+    let etag = plan(&plugin, &request("https://a.example.com/etag"));
+    assert!(
+        etag.header_mutations
+            .iter()
+            .any(|mutation| mutation.name == "If-None-Match" && mutation.value.is_none()),
+        "{:?}",
+        etag.header_mutations
+    );
+
+    let moved = plan(&plugin, &request("https://a.example.com/jda?e=1"));
+    assert_eq!(
+        moved.action,
+        HttpMitmAction::Redirect {
+            status_code: 302,
+            location: "https://b.example.com/jda?adblock=".to_string(),
+        }
+    );
+
+    let untouched = plan(&plugin, &request("https://a.example.com/other"));
+    assert!(untouched.header_mutations.is_empty());
+    assert_eq!(untouched.action, HttpMitmAction::Continue);
 }

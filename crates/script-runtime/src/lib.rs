@@ -46,6 +46,13 @@ pub const SCRIPT_ENVIRONMENT: &str = concat!("NetworkCore/", env!("CARGO_PKG_VER
 pub enum ScriptPhase {
     Request,
     Response,
+    /// Scheduled script (Loon/Surge `cron`, Quantumult X `[task_local]`).
+    /// No `$request` or `$response`; `$done` takes no changes.
+    Cron,
+    /// Event script; the event name is in [`ScriptInvocation::event`].
+    Event,
+    /// Script the user runs by hand (Loon/Surge `generic`).
+    Generic,
 }
 
 impl ScriptPhase {
@@ -53,7 +60,15 @@ impl ScriptPhase {
         match self {
             Self::Request => "request",
             Self::Response => "response",
+            Self::Cron => "cron",
+            Self::Event => "event",
+            Self::Generic => "generic",
         }
+    }
+
+    /// Whether the script runs on an HTTP message.
+    pub fn is_http(self) -> bool {
+        matches!(self, Self::Request | Self::Response)
     }
 }
 
@@ -91,9 +106,31 @@ pub struct ScriptInvocation {
     /// are then byte strings, one char (U+0000 to U+00FF) per byte; convert
     /// with [`binary_body_string`] and [`binary_body_bytes`].
     pub binary_body: bool,
+    /// Event name for [`ScriptPhase::Event`] (`$event.name`), such as
+    /// `network-changed`.
+    pub event: Option<String>,
 }
 
 impl ScriptInvocation {
+    /// Invocation of a scheduled, event or generic script, which has no HTTP
+    /// message.
+    pub fn scheduled(
+        phase: ScriptPhase,
+        script_name: impl Into<String>,
+        argument: impl Into<String>,
+        event: Option<String>,
+    ) -> Self {
+        Self {
+            phase,
+            script_name: script_name.into(),
+            argument: argument.into(),
+            request: ScriptRequest::default(),
+            response: None,
+            binary_body: false,
+            event,
+        }
+    }
+
     /// Whether a request or response body is larger than `max_bytes`.
     #[cfg_attr(
         not(any(

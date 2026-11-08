@@ -83,6 +83,10 @@ pub fn parse_map_local_line(text: &str) -> Result<LoonMapLocalRule, &'static str
     {
         return Err("map_local.remote_data_unsupported");
     }
+    if data_type == "file" {
+        // A local file path; only a downloaded URL can be served.
+        return Err("map_local.data_type_unsupported");
+    }
     let content_type = content_type(&data_type).ok_or("map_local.data_type_unsupported")?;
     let body = match data_type.as_str() {
         "base64" => decode_base64(&data).ok_or("map_local.base64_invalid")?,
@@ -114,7 +118,8 @@ fn content_type(data_type: &str) -> Option<&'static str> {
         "text" => "text/plain; charset=utf-8",
         "json" => "application/json; charset=utf-8",
         "html" => "text/html; charset=utf-8",
-        "base64" => "application/octet-stream",
+        // Surge `data-type=file`: a downloaded file, typed by its `header`.
+        "base64" | "file" => "application/octet-stream",
         "tiny-gif" | "gif" => "image/gif",
         _ => return None,
     })

@@ -7,8 +7,8 @@ use control_domain::{
 };
 use mitm_policy::loon_plugin::{
     import_loon_plugin, merged_plugin_source, routing_model_with_plugin_rules, LoonLineHandler,
-    LoonLineStatus, LoonSupportLevel, LOON_PLUGIN_EMPTY_CODE, LOON_PLUGIN_ID_INVALID_CODE,
-    LOON_PLUGIN_MAX_BYTES, LOON_PLUGIN_TOO_LARGE_CODE,
+    LoonLineStatus, LoonScheduledTrigger, LoonSupportLevel, LOON_PLUGIN_EMPTY_CODE,
+    LOON_PLUGIN_ID_INVALID_CODE, LOON_PLUGIN_MAX_BYTES, LOON_PLUGIN_TOO_LARGE_CODE,
 };
 use mitm_policy::{
     AnixOpsMitmPluginService, AnixOpsMitmPolicyEngine, MitmPolicyMitmDecisionType, MitmPolicyPhase,
@@ -292,7 +292,7 @@ fn script_lines_without_an_http_runtime_are_graded() {
         reasons,
         vec![
             ("script.http_response", LoonLineStatus::Supported),
-            ("script.type_unsupported", LoonLineStatus::Unsupported),
+            ("script.cron", LoonLineStatus::Supported),
             ("script.path_missing", LoonLineStatus::Unsupported),
         ]
     );
@@ -397,6 +397,22 @@ fn glob_hostnames_are_kept_and_malformed_ones_left_out() {
         .source()
         .lines()
         .any(|line| line == "hostname = a.example.com"));
+
+    // Items no host name can have lose nothing: the line stays supported.
+    let dead = import_loon_plugin(concat!(
+        "[Rewrite]\n",
+        "^https?://a\\.example\\.com/ads reject\n",
+        "[MITM]\n",
+        "hostname = a.example.com, a-zA-Z0-9_-.admobile.top, cupid.51job*.comhostname = img.example.com\n",
+    ))
+    .expect("plugin imports");
+    assert_eq!(dead.mitm_hostnames.include, vec!["a.example.com"]);
+    assert_eq!(dead.report.level, LoonSupportLevel::Full);
+    assert!(dead
+        .report
+        .lines
+        .iter()
+        .any(|line| line.reason == "mitm.hostname_dead_items_dropped"));
 
     // An exclusion the core cannot read would widen decryption: drop the line.
     let excluded = import_loon_plugin(concat!(
@@ -623,7 +639,7 @@ fn quantumult_x_snippet_without_section_headers_is_read_as_rewrite_and_mitm() {
 }
 
 #[test]
-fn quantumult_x_lines_without_an_equivalent_are_graded_and_left_out() {
+fn quantumult_x_lines_are_graded_and_left_out_of_the_core() {
     let plugin = import_loon_plugin(QX_MIXED_FIXTURE).expect("mixed snippet should import");
     let reasons = plugin
         .report
@@ -637,11 +653,8 @@ fn quantumult_x_lines_without_an_equivalent_are_graded_and_left_out() {
         vec![
             ("rewrite.reject", LoonLineStatus::Supported),
             ("map_local.remote_data_missing", LoonLineStatus::Unsupported),
-            (
-                "rewrite.header_block_unsupported",
-                LoonLineStatus::Unsupported
-            ),
-            ("task.scheduler_unsupported", LoonLineStatus::Unsupported),
+            ("rewrite.header_block", LoonLineStatus::Supported),
+            ("script.cron", LoonLineStatus::Supported),
             ("mitm.hostname", LoonLineStatus::Supported),
         ],
         "{}",
@@ -903,4 +916,241 @@ fn loon_conditional_scripts_become_http_scripts() {
         "{source}"
     );
     let _engine = loaded_engine(&merged_plugin_source("Script Hub", &[&plugin]));
+}
+
+#[test]
+fn policyless_rules_and_misfiled_lines_are_read() {
+    let plugin = import_loon_plugin(concat!(
+        "#!name = Misfiled\n",
+        "[Rule]\n",
+        "DOMAIN-SUFFIX,musical.ly\n",
+        "AND,((PROTOCOL,QUIC),(DOMAIN-SUFFIX,example.com)),REJECT\n",
+        "[Rewrite]\n",
+        "http-response ^https?://a\\.example\\.com/feed script-path=https://example.com/feed.js, requires-body=true, tag=feed\n",
+        "[Script]\n",
+        "^https?://a\\.example\\.com/adplace reject-dict\n",
+        "[MITM]\n",
+        "hostname = a.example.com\n",
+    ))
+    .expect("misfiled plugin should import");
+    assert_eq!(
+        plugin.report.level,
+        LoonSupportLevel::Full,
+        "{}",
+        plugin.report.render_text("misfiled")
+    );
+    let rules = plugin.routing_rules();
+    assert_eq!(rules[0].target, PolicyTarget::Group("PROXY".to_string()));
+    assert_eq!(rules[1].target, PolicyTarget::Reject);
+    let merged = merged_plugin_source("Misfiled", &[&plugin]);
+    assert!(
+        merged.contains("http-response ^https?://a\\.example\\.com/feed"),
+        "{merged}"
+    );
+    let engine = loaded_engine(&merged);
+    let ad = engine
+        .evaluate_url_rewrite("https://a.example.com/adplace", MitmPolicyPhase::Request)
+        .expect("reject should evaluate");
+    assert_eq!(ad.action, MitmPolicyRewriteAction::Reject);
+}
+
+#[test]
+fn scheduled_scripts_of_every_dialect_are_read() {
+    let loon = import_loon_plugin(concat!(
+        "#!name = Tasks\n",
+        "#!arguments = sync_cron:\"55 23 * * *\", notify:true\n",
+        "[Script]\n",
+        "cron \"0 9 * * *\" script-path=https://example.com/checkin.js, tag=checkin, timeout=120, argument=[{notify}]\n",
+        "cron {sync_cron} script-path=https://example.com/sync.js, tag=sync\n",
+        "network-changed script-path=https://example.com/net.js, tag=net\n",
+        "generic script-path=https://example.com/panel.js, tag=panel\n",
+        "cron \"0 1 * * *\" script-path=https://example.com/off.js, enable=false\n",
+        "cron \"not a cron\" script-path=https://example.com/bad.js\n",
+    ))
+    .expect("loon tasks should import");
+    let scripts = &loon.scheduled_scripts;
+    assert_eq!(scripts.len(), 4, "{scripts:?}");
+    assert_eq!(
+        scripts[0].trigger,
+        LoonScheduledTrigger::Cron("0 9 * * *".to_string())
+    );
+    assert_eq!(scripts[0].tag, "checkin");
+    assert_eq!(scripts[0].timeout_secs, 120);
+    assert_eq!(scripts[0].argument, "notify=true");
+    assert_eq!(
+        scripts[1].trigger,
+        LoonScheduledTrigger::Cron("55 23 * * *".to_string())
+    );
+    assert_eq!(scripts[2].trigger, LoonScheduledTrigger::NetworkChanged);
+    assert_eq!(scripts[2].script_url, "https://example.com/net.js");
+    assert_eq!(scripts[2].tag, "net");
+    assert_eq!(scripts[3].trigger, LoonScheduledTrigger::Generic);
+    assert_eq!(scripts[3].timeout_secs, 60);
+    let reasons = loon
+        .report
+        .lines
+        .iter()
+        .map(|line| (line.reason.as_str(), line.status))
+        .collect::<Vec<_>>();
+    assert!(reasons.contains(&("script.disabled", LoonLineStatus::Ignored)));
+    assert!(reasons.contains(&("script.cron_invalid", LoonLineStatus::Unsupported)));
+    assert!(!loon.source().contains("\ncron "), "{}", loon.source());
+
+    let surge = import_loon_plugin(concat!(
+        "#!name = Surge tasks\n",
+        "[Script]\n",
+        "Sub-Store Sync = type=cron, cronexp=\"55 23 * * *\", wake-system=1, timeout=120, script-path=https://example.com/cron-sync.js\n",
+        "Net = type=event, event-name=network-changed, script-path=https://example.com/net.js\n",
+        "Notify = type=event, event-name=notification, script-path=https://example.com/n.js\n",
+    ))
+    .expect("surge tasks should import");
+    assert_eq!(surge.scheduled_scripts.len(), 2);
+    assert_eq!(surge.scheduled_scripts[0].tag, "Sub-Store Sync");
+    assert_eq!(
+        surge.scheduled_scripts[1].trigger,
+        LoonScheduledTrigger::NetworkChanged
+    );
+    assert!(surge
+        .report
+        .lines
+        .iter()
+        .any(|line| line.reason == "script.event_unsupported"));
+
+    let qx = import_loon_plugin(concat!(
+        "[task_local]\n",
+        "0 8 * * * https://example.com/qx-checkin.js, tag=qx checkin, enabled=true\n",
+        "event-network https://example.com/qx-net.js, tag=qx net\n",
+    ))
+    .expect("qx tasks should import");
+    assert_eq!(qx.scheduled_scripts.len(), 2, "{:?}", qx.report.lines);
+    assert_eq!(
+        qx.scheduled_scripts[0].script_url,
+        "https://example.com/qx-checkin.js"
+    );
+    assert_eq!(qx.scheduled_scripts[0].tag, "qx checkin");
+    assert_eq!(
+        qx.scheduled_scripts[1].trigger,
+        LoonScheduledTrigger::NetworkChanged
+    );
+}
+
+#[test]
+fn patterns_longer_than_the_core_reads_are_split_on_their_alternation() {
+    let hosts = (0..60)
+        .map(|index| format!("site{index:02}\\.example\\.com"))
+        .collect::<Vec<_>>();
+    let pattern = format!("^https?:\\/\\/({})\\/player", hosts.join("|"));
+    assert!(pattern.len() > 1000);
+    let plugin = import_loon_plugin(&format!(
+        "#!name=Long\n[Script]\nPlayer = type=http-response, pattern=\"{pattern}\", requires-body=1, script-path=https://scripts.example.com/player.js\nhttp-request {pattern} script-path=https://scripts.example.com/request.js\n[MITM]\nhostname = %APPEND% *.example.com\n"
+    ))
+    .expect("long patterns should import");
+    assert_eq!(
+        plugin.report.level,
+        LoonSupportLevel::Full,
+        "{}",
+        plugin.report.render_text("long")
+    );
+    let merged = merged_plugin_source("Long", &[&plugin]);
+    assert!(
+        merged
+            .lines()
+            .all(|line| line.len() < 600 || line.starts_with("hostname")),
+        "{merged}"
+    );
+    let engine = loaded_engine(&merged);
+    for host in ["site00", "site31", "site59"] {
+        let response = engine
+            .evaluate_script(
+                &format!("https://{host}.example.com/player"),
+                MitmPolicyPhase::Response,
+            )
+            .expect("script should evaluate");
+        assert_eq!(
+            response.script_path, "https://scripts.example.com/player.js",
+            "{host}"
+        );
+        let request = engine
+            .evaluate_script(
+                &format!("https://{host}.example.com/player"),
+                MitmPolicyPhase::Request,
+            )
+            .expect("script should evaluate");
+        assert_eq!(
+            request.script_path, "https://scripts.example.com/request.js",
+            "{host}"
+        );
+    }
+    let other = engine
+        .evaluate_script(
+            "https://site60.example.com/player",
+            MitmPolicyPhase::Response,
+        )
+        .expect("script should evaluate");
+    assert_eq!(other.kind, MitmPolicyScriptKind::None);
+}
+
+#[test]
+fn quoted_surge_patterns_keep_their_backslashes() {
+    // Unquoted by the core, `\?` would become `?` and `(a|?b)` is no regex;
+    // `\.` would become `.` and match any character.
+    let plugin = import_loon_plugin(concat!(
+        "#!name=Quoted\n",
+        "[Script]\n",
+        "Search = type=http-response, pattern=\"^https?:\\/\\/(zhidao)\\.example\\.com\\/(question|\\?fr|\\?word)\", requires-body=1, script-path=https://scripts.example.com/search.js\n",
+        "[MITM]\n",
+        "hostname = %APPEND% zhidao.example.com\n",
+    ))
+    .expect("quoted patterns should import");
+    assert_eq!(
+        plugin.report.level,
+        LoonSupportLevel::Full,
+        "{}",
+        plugin.report.render_text("quoted")
+    );
+    let engine = loaded_engine(&merged_plugin_source("Quoted", &[&plugin]));
+    let hit = engine
+        .evaluate_script(
+            "https://zhidao.example.com/?word=a",
+            MitmPolicyPhase::Response,
+        )
+        .expect("script should evaluate");
+    assert_eq!(hit.script_path, "https://scripts.example.com/search.js");
+    let dot = engine
+        .evaluate_script(
+            "https://zhidaoXexample.com/question",
+            MitmPolicyPhase::Response,
+        )
+        .expect("script should evaluate");
+    assert_eq!(dot.kind, MitmPolicyScriptKind::None);
+}
+
+#[test]
+fn header_url_rewrites_become_redirects() {
+    let plugin = import_loon_plugin(concat!(
+        "#!name=Header\n",
+        "[Rewrite]\n",
+        "^https?://a\\.example\\.com/(.*) header https://b.example.com/$1\n",
+        "[URL Rewrite]\n",
+        "^https?://c\\.example\\.com/x https://d.example.com/y header\n",
+        "[MITM]\n",
+        "hostname = a.example.com, c.example.com\n",
+    ))
+    .expect("header rewrites should import");
+    assert_eq!(
+        plugin.report.level,
+        LoonSupportLevel::Full,
+        "{}",
+        plugin.report.render_text("header")
+    );
+    let engine = loaded_engine(&merged_plugin_source("Header", &[&plugin]));
+    let moved = engine
+        .evaluate_url_rewrite("https://a.example.com/p?q=1", MitmPolicyPhase::Request)
+        .expect("rewrite should evaluate");
+    assert_eq!(moved.action, MitmPolicyRewriteAction::Redirect);
+    assert_eq!(moved.value, "https://b.example.com/p?q=1");
+    let surge = engine
+        .evaluate_url_rewrite("https://c.example.com/x", MitmPolicyPhase::Request)
+        .expect("rewrite should evaluate");
+    assert_eq!(surge.action, MitmPolicyRewriteAction::Redirect);
 }

@@ -29,10 +29,11 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 
 use config_core::routing::{
-    PolicyGroupKind, PolicyTarget, RouteMatch, RouteOutcome, RouteQuery, RouteResolution,
-    RoutingEnvironment, RoutingModel, RoutingRule, RoutingSpec, RuleMatcher,
+    PolicyGroupKind, PolicyTarget, RouteMatch, RouteNetwork, RouteOutcome, RouteQuery,
+    RouteResolution, RoutingEnvironment, RoutingModel, RoutingRule, RoutingSpec, RuleMatcher,
 };
 use config_core::rule_set::RuleSet;
+use engine_outbound::sniff::HttpRequestHead;
 use engine_outbound::{BoxFuture, BoxStream, TargetAddr, TcpOutbound, UdpFlow};
 use serde::Serialize;
 
@@ -545,7 +546,26 @@ impl RoutedOutbound {
         sniffed: Option<&str>,
         process: Option<&str>,
     ) -> (RouteInfo, Option<Arc<dyn TcpOutbound>>) {
-        let mut query = query(target);
+        self.route_network_flow(target, sniffed, process, RouteNetwork::Tcp, None)
+            .await
+    }
+
+    /// [`Self::route_flow`] for a flow of the given transport, which
+    /// `PROTOCOL` rules match, and the head sniffed from a plain HTTP
+    /// request, which `USER-AGENT` and `URL-REGEX` rules match.
+    pub async fn route_network_flow(
+        &self,
+        target: &TargetAddr,
+        sniffed: Option<&str>,
+        process: Option<&str>,
+        network: RouteNetwork,
+        http: Option<&HttpRequestHead>,
+    ) -> (RouteInfo, Option<Arc<dyn TcpOutbound>>) {
+        let mut query = query(target).with_network(network);
+        if let Some(http) = http {
+            query.user_agent.clone_from(&http.user_agent);
+            query.url.clone_from(&http.url);
+        }
         if query.domain.is_none() {
             query.domain = sniffed.map(str::to_string);
         }

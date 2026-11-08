@@ -20,6 +20,8 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use config_core::routing::RouteNetwork;
+use engine_outbound::sniff::HttpRequestHead;
 use engine_outbound::{
     BoxFuture, BoxStream, DatagramRecv, DatagramSend, TargetAddr, TcpDialer, TcpOutbound, UdpFlow,
 };
@@ -596,12 +598,18 @@ impl Dispatcher {
         target: &TargetAddr,
         host: Option<&str>,
         process: Option<&str>,
+        network: RouteNetwork,
+        http: Option<&HttpRequestHead>,
         guard: &ConnectionGuard,
     ) -> io::Result<Arc<dyn TcpOutbound>> {
         let (route, outbound) = match (self.mode(), &self.routed) {
             (Mode::Direct, _) => (direct_route(), Some(self.direct.clone())),
             (Mode::Global, Some(routed)) => routed.route_global(),
-            (Mode::Rule, Some(routed)) => routed.route_flow(target, host, process).await,
+            (Mode::Rule, Some(routed)) => {
+                routed
+                    .route_network_flow(target, host, process, network, http)
+                    .await
+            }
             (_, None) => (single_route(&*self.outbound), Some(self.outbound.clone())),
         };
         guard.set_route(route);
@@ -632,8 +640,31 @@ impl Dispatcher {
         host: Option<&str>,
         process: Option<&str>,
     ) -> io::Result<BoxStream> {
+        self.connect_tcp(target, host, process, None).await
+    }
+
+    /// [`Self::connect_flow`] with the head of a plain HTTP request sniffed
+    /// from the flow's first bytes, for `USER-AGENT` and `URL-REGEX` rules.
+    pub async fn connect_http_flow(
+        &self,
+        target: &TargetAddr,
+        host: Option<&str>,
+        http: Option<&HttpRequestHead>,
+    ) -> io::Result<BoxStream> {
+        self.connect_tcp(target, host, None, http).await
+    }
+
+    async fn connect_tcp(
+        &self,
+        target: &TargetAddr,
+        host: Option<&str>,
+        process: Option<&str>,
+        http: Option<&HttpRequestHead>,
+    ) -> io::Result<BoxStream> {
         let guard = self.tracker.open(Network::Tcp, target, host, process);
-        let outbound = self.route(target, host, process, &guard).await?;
+        let outbound = self
+            .route(target, host, process, RouteNetwork::Tcp, http, &guard)
+            .await?;
         let stream = outbound.connect(target).await?;
         guard.connected();
         Ok(Box::new(TrackedStream {
@@ -649,7 +680,9 @@ impl Dispatcher {
         host: Option<&str>,
     ) -> io::Result<UdpFlow> {
         let guard = self.tracker.open(Network::Udp, target, host, None);
-        let outbound = self.route(target, host, None, &guard).await?;
+        let outbound = self
+            .route(target, host, None, RouteNetwork::Udp, None, &guard)
+            .await?;
         let flow = outbound.open_udp(target).await?;
         guard.connected();
         Ok(UdpFlow::new(

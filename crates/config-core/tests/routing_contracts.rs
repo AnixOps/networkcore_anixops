@@ -238,10 +238,7 @@ fn parses_rule_lines() {
         ("DOMAIN,example.com", ROUTING_RULE_LINE_INVALID_CODE),
         ("FINAL", ROUTING_RULE_LINE_INVALID_CODE),
         ("FINAL,Proxy,extra", ROUTING_RULE_LINE_INVALID_CODE),
-        (
-            "USER-AGENT,curl*,DIRECT",
-            ROUTING_RULE_TYPE_UNSUPPORTED_CODE,
-        ),
+        ("IN-PORT,6152,DIRECT", ROUTING_RULE_TYPE_UNSUPPORTED_CODE),
         (
             "DOMAIN,exa mple.com,DIRECT",
             ROUTING_RULE_VALUE_INVALID_CODE,
@@ -669,7 +666,7 @@ fn malformed_logical_and_port_rules_are_rejected() {
         "AND,((DOMAIN,a.com)(DOMAIN,b.com)),DIRECT",
         "AND,((DOMAIN,a.com,DIRECT)),DIRECT",
         "AND,((DOMAIN)),DIRECT",
-        "AND,((USER-AGENT,curl)),DIRECT",
+        "AND,((IN-PORT,6152)),DIRECT",
         "DST-PORT,99999,DIRECT",
         "DST-PORT,500-400,DIRECT",
         "GEOSITE,bad category,DIRECT",
@@ -824,4 +821,112 @@ fn domain_wildcard_rules_match_globs_and_surge_options_are_accepted() {
             "{line}"
         );
     }
+}
+
+#[test]
+fn protocol_rules_match_the_transport_and_port() {
+    use config_core::routing::RouteNetwork;
+    let model = RoutingModel::from_spec(
+        &spec(
+            &[
+                "AND,((PROTOCOL,QUIC),(DOMAIN-SUFFIX,example.com)),REJECT",
+                "PROTOCOL,UDP,DIRECT",
+                "FINAL,REJECT",
+            ],
+            vec![],
+        ),
+        &node_ids(),
+    )
+    .unwrap();
+    let query = |port: u16, network: Option<RouteNetwork>| {
+        let query = RouteQuery::domain("a.example.com").with_port(port);
+        match network {
+            Some(network) => query.with_network(network),
+            None => query,
+        }
+    };
+    for (query, expected) in [
+        (query(443, Some(RouteNetwork::Udp)), RouteMatch::Rule(0)),
+        (query(53, Some(RouteNetwork::Udp)), RouteMatch::Rule(1)),
+        (query(443, Some(RouteNetwork::Tcp)), RouteMatch::Final),
+        // Unknown transport: PROTOCOL never matches.
+        (query(443, None), RouteMatch::Final),
+    ] {
+        let resolution = model.decide(&query, &StaticRoutingEnvironment);
+        assert_eq!(resolution.matched, expected, "{query:?}");
+    }
+    assert_eq!(
+        parse_rule_line("PROTOCOL,STUN,REJECT").unwrap_err().code,
+        ROUTING_RULE_VALUE_INVALID_CODE
+    );
+}
+
+#[test]
+fn user_agent_rules_match_a_glob_case_insensitively() {
+    let model = RoutingModel::from_spec(
+        &spec(&["USER-AGENT,Instagram*,REJECT", "FINAL,DIRECT"], vec![]),
+        &node_ids(),
+    )
+    .unwrap();
+    let with_agent = |agent: Option<&str>| RouteQuery {
+        user_agent: agent.map(str::to_string),
+        ..RouteQuery::domain("i.instagram.com")
+    };
+    for (query, expected) in [
+        (
+            with_agent(Some("instagram 300.0 (iPhone)")),
+            RouteMatch::Rule(0),
+        ),
+        (with_agent(Some("Mozilla/5.0")), RouteMatch::Final),
+        (with_agent(None), RouteMatch::Final),
+    ] {
+        let resolution = model.decide(&query, &StaticRoutingEnvironment);
+        assert_eq!(resolution.matched, expected, "{query:?}");
+    }
+    let RuleLine::Rule { matcher, .. } = parse_rule_line("USER-AGENT,Instagram*,REJECT").unwrap()
+    else {
+        panic!("USER-AGENT is a rule");
+    };
+    assert_eq!(matcher, RuleMatcher::UserAgent("instagram*".to_string()));
+    assert_eq!(matcher.to_string(), "USER-AGENT,instagram*");
+}
+
+#[test]
+fn url_regex_rules_match_plain_http_urls_inside_logical_rules() {
+    let line = r#"AND,((URL-REGEX,"^http:\/\/.+\/amdc\/mobileDispatch"),(USER-AGENT,"%E9%97%B2*")),REJECT"#;
+    let model =
+        RoutingModel::from_spec(&spec(&[line, "FINAL,DIRECT"], vec![]), &node_ids()).unwrap();
+    let request = |url: Option<&str>, agent: &str| RouteQuery {
+        url: url.map(str::to_string),
+        user_agent: Some(agent.to_string()),
+        ..RouteQuery::domain("api.example")
+    };
+    for (query, expected) in [
+        (
+            request(
+                Some("http://api.example/amdc/mobileDispatch?x=1"),
+                "%E9%97%B2%E9%B1%BC/1",
+            ),
+            RouteMatch::Rule(0),
+        ),
+        (
+            request(Some("http://api.example/amdc/mobileDispatch"), "Other"),
+            RouteMatch::Final,
+        ),
+        (
+            request(Some("http://api.example/other"), "%E9%97%B2%E9%B1%BC/1"),
+            RouteMatch::Final,
+        ),
+        (request(None, "%E9%97%B2%E9%B1%BC/1"), RouteMatch::Final),
+    ] {
+        let resolution = model.decide(&query, &StaticRoutingEnvironment);
+        assert_eq!(resolution.matched, expected, "{query:?}");
+    }
+    assert!(parse_rule_line("AND,((URL-REGEX,\"(\"),(DST-PORT,80)),REJECT").is_err());
+    assert_eq!(
+        parse_rule_line("URL-REGEX,^http://a/,REJECT")
+            .unwrap_err()
+            .code,
+        ROUTING_RULE_TYPE_UNSUPPORTED_CODE
+    );
 }

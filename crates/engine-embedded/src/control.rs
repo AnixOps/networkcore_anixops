@@ -17,15 +17,24 @@
 //! | `select` | `group`, `member` | `{"now": member}` |
 //! | `rule_sets` | | `{"rule_sets": [`[`crate::rule_sets::RuleSetStatus`]`]}` |
 //! | `update_rule_sets` | | `{"scheduled": remote set count}` |
+//! | `scripts` | | `{"scripts": [`[`ScheduledScriptView`]`]}` |
+//! | `script_notifications` | | `{"notifications": [`[`ScriptNotificationView`]`]}`, each returned once |
+//! | `network_changed` | | `{"scheduled": network-change script count}` |
+//! | `run_script` | `tag` | `{"scheduled": bool}` |
+//!
+//! The script commands need a MITM config with plugin scripts; the client
+//! sends `network_changed` when the device's network changes and polls
+//! `script_notifications` to show what scripts posted.
 //!
 //! Mode and group choices last until the engine stops; the client keeps
 //! them in its profile (`mode`, a select group's `default`) for the next
 //! start.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::connections::{Dispatcher, Mode};
+use crate::tunnel::FlowInterceptor;
 use crate::{RuntimeError, RuntimeErrorCode};
 
 /// Largest request accepted.
@@ -44,10 +53,56 @@ enum ControlRequest {
     Select { group: String, member: String },
     RuleSets,
     UpdateRuleSets,
+    Scripts,
+    ScriptNotifications,
+    NetworkChanged,
+    RunScript { tag: String },
+}
+
+/// Script commands, answered by the flow interceptor.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ScriptControl {
+    Scripts,
+    Notifications,
+    NetworkChanged,
+    Run { tag: String },
+}
+
+/// A cron, network-change or generic plugin script.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ScheduledScriptView {
+    pub tag: String,
+    /// `cron`, `network-changed` or `generic`.
+    pub trigger: &'static str,
+    /// Cron expression of a `cron` script.
+    pub cron: Option<String>,
+    /// Local time of the next cron run, RFC 9557 (`2026-11-09T09:00:00+08:00[Asia/Shanghai]`).
+    pub next_run: Option<String>,
+    /// Result of the last run since the engine started: `done`,
+    /// `finished_without_done`, or a failure code.
+    pub last_status: Option<String>,
+}
+
+/// A notification a script posted (`$notification.post`, `$notify`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ScriptNotificationView {
+    pub title: String,
+    pub subtitle: String,
+    pub content: String,
+    pub open_url: Option<String>,
 }
 
 /// Runs one JSON request against the flows of `dispatcher`.
 pub fn handle(dispatcher: &Dispatcher, request: &[u8]) -> Result<Vec<u8>, RuntimeError> {
+    handle_with_interceptor(dispatcher, None, request)
+}
+
+/// [`handle`], with the script commands going to `interceptor`.
+pub fn handle_with_interceptor(
+    dispatcher: &Dispatcher,
+    interceptor: Option<&dyn FlowInterceptor>,
+    request: &[u8],
+) -> Result<Vec<u8>, RuntimeError> {
     if request.is_empty() || request.len() > MAX_REQUEST_LEN {
         return Err(invalid("control request size is out of range"));
     }
@@ -90,6 +145,12 @@ pub fn handle(dispatcher: &Dispatcher, request: &[u8]) -> Result<Vec<u8>, Runtim
                 .map_or(0, |routed| routed.rule_sets().refresh_now());
             Ok(json!({ "scheduled": scheduled }))
         }
+        ControlRequest::Scripts => Ok(script(interceptor, ScriptControl::Scripts)?),
+        ControlRequest::ScriptNotifications => {
+            Ok(script(interceptor, ScriptControl::Notifications)?)
+        }
+        ControlRequest::NetworkChanged => Ok(script(interceptor, ScriptControl::NetworkChanged)?),
+        ControlRequest::RunScript { tag } => Ok(script(interceptor, ScriptControl::Run { tag })?),
     };
     answer
         .and_then(|answer| serde_json::to_vec(&answer))
@@ -101,6 +162,15 @@ pub fn handle(dispatcher: &Dispatcher, request: &[u8]) -> Result<Vec<u8>, Runtim
 #[cfg(feature = "wireguard")]
 pub(crate) fn unavailable() -> RuntimeError {
     invalid("this tunnel has no runtime controls")
+}
+
+fn script(
+    interceptor: Option<&dyn FlowInterceptor>,
+    request: ScriptControl,
+) -> Result<serde_json::Value, RuntimeError> {
+    interceptor
+        .and_then(|interceptor| interceptor.script_control(&request))
+        .ok_or_else(|| invalid("this config runs no plugin scripts"))
 }
 
 fn invalid(message: &'static str) -> RuntimeError {

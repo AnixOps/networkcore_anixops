@@ -5,6 +5,9 @@
 //! an alpha built-in ad-block plugin package. It does not apply live
 //! request/response mutations yet.
 
+pub mod loon_cron;
+pub mod loon_header_block;
+pub mod loon_jq;
 pub mod loon_map_local;
 pub mod loon_plugin;
 mod loon_syntax;
@@ -873,6 +876,45 @@ impl MitmPluginService for AnixOpsMitmPluginService {
             }
         }
 
+        // Quantumult X header-block rewrites: the core matches, the block
+        // is rewritten as text, and a moved request is redirected.
+        let header_block = loon_header_block::apply_header_block(
+            source,
+            &http_event.url,
+            http_event.phase,
+            http_event.method.as_deref(),
+            http_event.status_code,
+            &http_event.headers,
+        )?;
+        if let Some(location) = header_block
+            .as_ref()
+            .and_then(|outcome| outcome.redirect.clone())
+        {
+            return Ok(HttpMitmOutcome {
+                action: HttpMitmAction::Redirect {
+                    status_code: 302,
+                    location,
+                },
+                header_mutations: Vec::new(),
+                body_mutation: None,
+                script_dispatch: None,
+                audits: vec![AuditEvent {
+                    actor: plugin_instance.manifest.id.clone(),
+                    action: "mitm.policy.plan_http_mitm_event".to_string(),
+                    decision: AuditDecision::Allowed,
+                    reason: Some(format!(
+                        "request {} moved by a header-block rewrite",
+                        http_event.request_id
+                    )),
+                }],
+                diagnostics: vec![mitm_policy_diagnostic(
+                    DiagnosticSeverity::Info,
+                    MITM_POLICY_HTTP_EVENT_MUTATION_PLANNED_CODE,
+                    MITM_POLICY_HTTP_EVENT_MUTATION_PLANNED_MESSAGE,
+                )],
+            });
+        }
+
         let mut engine = AnixOpsMitmPolicyEngine::new()?;
         engine.load_config(source)?;
         let phase = policy_phase_from_domain(http_event.phase);
@@ -880,22 +922,33 @@ impl MitmPluginService for AnixOpsMitmPluginService {
         let (plan, _) = engine.build_rewrite_plan(&http_event.url, phase, &body)?;
 
         let action = domain_action_from_policy_rewrite(&plan.rewrite);
-        let header_mutations = plan
+        let mut header_mutations = plan
             .header_rewrites
             .iter()
             .map(domain_header_mutation_from_policy)
-            .collect();
+            .collect::<Vec<_>>();
+        if let Some(outcome) = header_block {
+            header_mutations.extend(outcome.header_mutations);
+        }
         // Every matching body rule applies in order, so one Loon
         // `[Body Rewrite]` line with several replacement pairs takes effect.
         let body_mutation = if plan.rewrite.action == MitmPolicyRewriteAction::BodyMutation {
-            let (chained_body, chain) = engine.apply_body_chain(&http_event.url, phase, &body)?;
-            (chain.rewritten
-                && !chain.truncated
-                && chained_body.as_bytes() != http_event.body.as_slice())
-            .then(|| HttpBodyMutation {
-                body: chained_body.into_bytes(),
-                truncated: false,
-            })
+            let (mut chained_body, chain) =
+                engine.apply_body_chain(&http_event.url, phase, &body)?;
+            let mut rewritten = chain.rewritten;
+            // The core matches jq rules but has no jq backend; jaq runs them.
+            if !chain.truncated {
+                if let Some(jq_body) = loon_jq::apply_jq_steps(source, phase, &chain, &chained_body)
+                {
+                    chained_body = jq_body;
+                    rewritten = true;
+                }
+            }
+            (rewritten && !chain.truncated && chained_body.as_bytes() != http_event.body.as_slice())
+                .then(|| HttpBodyMutation {
+                    body: chained_body.into_bytes(),
+                    truncated: false,
+                })
         } else {
             None
         };
