@@ -639,7 +639,7 @@ fn quantumult_x_snippet_without_section_headers_is_read_as_rewrite_and_mitm() {
 }
 
 #[test]
-fn quantumult_x_lines_without_an_equivalent_are_graded_and_left_out() {
+fn quantumult_x_lines_are_graded_and_left_out_of_the_core() {
     let plugin = import_loon_plugin(QX_MIXED_FIXTURE).expect("mixed snippet should import");
     let reasons = plugin
         .report
@@ -653,11 +653,8 @@ fn quantumult_x_lines_without_an_equivalent_are_graded_and_left_out() {
         vec![
             ("rewrite.reject", LoonLineStatus::Supported),
             ("map_local.remote_data_missing", LoonLineStatus::Unsupported),
-            (
-                "rewrite.header_block_unsupported",
-                LoonLineStatus::Unsupported
-            ),
-            ("task.scheduler_unsupported", LoonLineStatus::Unsupported),
+            ("rewrite.header_block", LoonLineStatus::Supported),
+            ("script.cron", LoonLineStatus::Supported),
             ("mitm.hostname", LoonLineStatus::Supported),
         ],
         "{}",

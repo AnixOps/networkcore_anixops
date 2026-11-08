@@ -39,6 +39,7 @@
 //! `[Map Local]` line whose data was not supplied is graded unsupported.
 
 use crate::loon_cron::CronSchedule;
+use crate::loon_header_block::{header_block_rules, LoonHeaderBlockRule, HEADER_BLOCK_SECTION};
 use crate::loon_map_local::{
     inline_remote_data, map_local_pattern_accepted, parse_map_local_line, pattern_source_len,
     remote_data_url,
@@ -170,6 +171,9 @@ pub enum LoonLineHandler {
     ScriptRuntime,
     /// Answered locally by [`crate::loon_map_local`].
     MapLocal,
+    /// Regex over the whole header block, run by
+    /// [`crate::loon_header_block`].
+    HeaderBlock,
     None,
 }
 
@@ -456,7 +460,8 @@ pub fn merged_plugin_source(name: &str, plugins: &[&LoonPluginImport]) -> String
                     | Section::HeaderRewrite
                     | Section::BodyRewrite
                     | Section::Script
-                    | Section::MapLocal => Some(
+                    | Section::MapLocal
+                    | Section::HeaderBlock => Some(
                         match sections
                             .iter()
                             .position(|(existing, _)| existing.eq_ignore_ascii_case(header))
@@ -530,6 +535,9 @@ enum Section {
     Task,
     /// Surge `[Panel]`: UI only.
     Panel,
+    /// Header-block rewrites the importer wrote
+    /// ([`crate::loon_header_block::HEADER_BLOCK_SECTION`]).
+    HeaderBlock,
     Other,
 }
 
@@ -550,6 +558,7 @@ impl Section {
             "general" => Self::General,
             "task_local" | "task-local" => Self::Task,
             "panel" => Self::Panel,
+            "anixops header block" => Self::HeaderBlock,
             _ => Self::Other,
         }
     }
@@ -706,6 +715,23 @@ pub fn import_loon_plugin_with_resources(
             }
             Section::Mitm => parser.mitm_line(line_number, &section_name, line),
             Section::General => parser.general_line(line_number, &section_name, line),
+            Section::HeaderBlock => {
+                let rules = header_block_rules(&format!("[{HEADER_BLOCK_SECTION}]\n{line}"));
+                let (status, handler, reason) = if rules.is_empty() {
+                    (
+                        LoonLineStatus::Unsupported,
+                        LoonLineHandler::None,
+                        "rewrite.invalid",
+                    )
+                } else {
+                    (
+                        LoonLineStatus::Supported,
+                        LoonLineHandler::HeaderBlock,
+                        "rewrite.header_block",
+                    )
+                };
+                parser.push(line_number, &section_name, status, handler, reason);
+            }
             Section::Other => parser.push(
                 line_number,
                 &section_name,
@@ -1382,16 +1408,55 @@ impl Parser<'_> {
                 self.emit_core_line(line, text, Some(rule), preamble);
                 true
             }
-            // Regex over the whole header block has no core equivalent.
+            // `<url> url request-header <regex> request-header <replacement>`:
+            // a regex over the whole header block, run by
+            // `loon_header_block` from an appended section the core skips.
             "request-header" | "response-header" => {
                 self.replaced.insert(line, format!("# {text}"));
-                self.push(
-                    line,
-                    section,
-                    LoonLineStatus::Unsupported,
-                    LoonLineHandler::None,
-                    "rewrite.header_block_unsupported",
-                );
+                let rule = match (parts.get(3), parts.get(5)) {
+                    (Some(regex), Some(replacement)) => LoonHeaderBlockRule {
+                        response: action == "response-header",
+                        url_pattern: pattern.to_string(),
+                        regex: regex.clone(),
+                        replacement: replacement.clone(),
+                    },
+                    _ => {
+                        self.push(
+                            line,
+                            section,
+                            LoonLineStatus::Unsupported,
+                            LoonLineHandler::None,
+                            "rewrite.invalid",
+                        );
+                        return true;
+                    }
+                };
+                let accepted = map_local_pattern_accepted(&rule.url_pattern)
+                    && header_block_regex_accepted(&rule);
+                if accepted {
+                    if rule.response {
+                        self.has_response_actions = true;
+                    } else {
+                        self.has_request_actions = true;
+                    }
+                    self.appended
+                        .push((HEADER_BLOCK_SECTION, rule.line(), line));
+                    self.push(
+                        line,
+                        section,
+                        LoonLineStatus::Supported,
+                        LoonLineHandler::HeaderBlock,
+                        "rewrite.header_block",
+                    );
+                } else {
+                    self.push(
+                        line,
+                        section,
+                        LoonLineStatus::Unsupported,
+                        LoonLineHandler::None,
+                        "pattern.regex_invalid",
+                    );
+                }
                 true
             }
             _ => false,
@@ -2327,6 +2392,19 @@ fn url_first_attributes(text: &str) -> Vec<(String, String)> {
     let mut attributes = attributes(&text[end..]);
     attributes.insert(0, ("url".to_string(), text[..end].to_string()));
     attributes
+}
+
+/// True when the core compiles the regex of a header-block rule.
+fn header_block_regex_accepted(rule: &LoonHeaderBlockRule) -> bool {
+    let config = format!(
+        "[Rewrite]\n{} request-body-replace-regex {} {}\n",
+        quote(&rule.url_pattern),
+        quote(&rule.regex),
+        quote(&rule.replacement)
+    );
+    AnixOpsMitmPolicyEngine::new()
+        .and_then(|mut engine| engine.load_config(&config))
+        .is_ok_and(|report| report.rewrite_rule_count == 1)
 }
 
 /// Loon's conditional script form,

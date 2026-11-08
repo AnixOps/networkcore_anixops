@@ -504,3 +504,79 @@ fn jq_body_rewrites_of_every_dialect_run_with_jaq() {
     );
     assert!(outcome.body_mutation.is_none());
 }
+
+#[test]
+fn quantumult_x_header_block_rewrites_edit_headers_or_move_the_request() {
+    let plugin = import_loon_plugin(concat!(
+        "[rewrite_local]\n",
+        "^https?://a\\.example\\.com/ua url request-header (\\r\\n)User-Agent:.+(\\r\\n) request-header $1User-Agent: Quantumult$2\n",
+        "^https?://a\\.example\\.com/etag url request-header (\\r\\n)If-None-Match:.+(\\r\\n) request-header $1\n",
+        "^https?://a\\.example\\.com/jda? url request-header ^(.+?\\s).+?(\\s[\\s\\S]+?Host:).+?(\\r\\n) request-header $1/jda?adblock=$2b.example.com$3\n",
+        "[mitm]\n",
+        "hostname = a.example.com\n",
+    ))
+    .expect("header-block rewrites should import");
+    assert_eq!(
+        plugin.report.level,
+        LoonSupportLevel::Full,
+        "{}",
+        plugin.report.render_text("header-block")
+    );
+    let merged = merged_plugin_source("QX", &[&plugin]);
+    assert!(merged.contains("[AnixOps Header Block]"), "{merged}");
+
+    let request = |url: &str| HttpMitmEvent {
+        headers: vec![
+            MetadataEntry {
+                key: "Host".to_string(),
+                value: "a.example.com".to_string(),
+            },
+            MetadataEntry {
+                key: "User-Agent".to_string(),
+                value: "App/1.0".to_string(),
+            },
+            MetadataEntry {
+                key: "If-None-Match".to_string(),
+                value: "\"abc\"".to_string(),
+            },
+        ],
+        method: Some("GET".to_string()),
+        ..event(HttpMitmPhase::Request, url, "")
+    };
+
+    let ua = plan(&plugin, &request("https://a.example.com/ua"));
+    let mut headers = request("https://a.example.com/ua").headers;
+    for mutation in &ua.header_mutations {
+        match mutation.value.as_ref() {
+            Some(value) => headers.push(MetadataEntry {
+                key: mutation.name.clone(),
+                value: value.clone(),
+            }),
+            None => headers.retain(|header| !header.key.eq_ignore_ascii_case(&mutation.name)),
+        }
+    }
+    assert_eq!(header(&headers, "User-Agent"), Some("Quantumult"));
+    assert_eq!(header(&headers, "If-None-Match"), Some("\"abc\""));
+
+    let etag = plan(&plugin, &request("https://a.example.com/etag"));
+    assert!(
+        etag.header_mutations
+            .iter()
+            .any(|mutation| mutation.name == "If-None-Match" && mutation.value.is_none()),
+        "{:?}",
+        etag.header_mutations
+    );
+
+    let moved = plan(&plugin, &request("https://a.example.com/jda?e=1"));
+    assert_eq!(
+        moved.action,
+        HttpMitmAction::Redirect {
+            status_code: 302,
+            location: "https://b.example.com/jda?adblock=".to_string(),
+        }
+    );
+
+    let untouched = plan(&plugin, &request("https://a.example.com/other"));
+    assert!(untouched.header_mutations.is_empty());
+    assert_eq!(untouched.action, HttpMitmAction::Continue);
+}
