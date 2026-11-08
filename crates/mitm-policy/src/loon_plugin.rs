@@ -1441,12 +1441,14 @@ impl Parser<'_> {
             // `loon_header_block` from an appended section the core skips.
             "request-header" | "response-header" => {
                 self.replaced.insert(line, format!("# {text}"));
-                let rule = match (parts.get(3), parts.get(5)) {
+                // The replacement is the rest of the line: it may hold
+                // spaces (`$1User-Agent: Quantumult$2`).
+                let rule = match (parts.get(3), parts.get(5..).filter(|rest| !rest.is_empty())) {
                     (Some(regex), Some(replacement)) => LoonHeaderBlockRule {
                         response: action == "response-header",
                         url_pattern: pattern.to_string(),
                         regex: regex.clone(),
-                        replacement: replacement.clone(),
+                        replacement: replacement.join(" "),
                     },
                     _ => {
                         self.push(
