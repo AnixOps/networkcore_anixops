@@ -894,7 +894,8 @@ async fn handle_tcp(
     if let Some(interceptor) = interceptor {
         if let Some(host) = interceptor.claim(&first, target) {
             bump(&stats.mitm_flows);
-            let outbound = dispatcher.with_host(&host);
+            let http = sniff::http_request_head(&first);
+            let outbound = dispatcher.with_request(&host, http.as_ref());
             let flow = InterceptedFlow {
                 inbound: Box::new(inbound),
                 first,
