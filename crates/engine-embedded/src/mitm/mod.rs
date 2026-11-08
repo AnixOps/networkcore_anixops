@@ -86,6 +86,12 @@ pub const SCRIPT_MAX_TIMEOUT_MS: usize = 3_000;
 const LEAF_CACHE_ENTRIES: usize = 64;
 const DECISION_CACHE_ENTRIES: usize = 512;
 const HTTPS_PORT: u16 = 443;
+const HTTP_PORT: u16 = 80;
+/// Request methods of a plain HTTP flow that is taken over. `CONNECT` and
+/// unknown methods keep their own path.
+const PLAIN_HTTP_METHODS: [&str; 8] = [
+    "GET ", "POST ", "PUT ", "DELETE ", "HEAD ", "OPTIONS ", "PATCH ", "TRACE ",
+];
 
 /// Largest total of downloaded `[Map Local]` bodies read at start.
 const MAX_RESOURCE_BYTES: usize = 2 * 1024 * 1024;
@@ -328,6 +334,7 @@ impl MitmEngine {
 
     /// Terminates the client's TLS, connects to the origin through `outbound`
     /// and relays HTTP/1.1 through the rewrite hook until either side closes.
+    /// A plain HTTP flow is relayed as it is, without TLS on either side.
     /// A keep-alive client that sends nothing for `idle_timeout` is closed.
     pub async fn serve_flow(
         &self,
@@ -336,6 +343,11 @@ impl MitmEngine {
         connect_timeout: Duration,
         idle_timeout: Duration,
     ) -> io::Result<()> {
+        if !is_tls(&flow.first) {
+            return self
+                .serve_plain_flow(flow, outbound, connect_timeout, idle_timeout)
+                .await;
+        }
         let host = flow.host.as_str();
         let target = TargetAddr::Ip(flow.target);
         let acceptor = tokio_rustls::TlsAcceptor::from(self.leaf_config(host)?);
@@ -355,14 +367,35 @@ impl MitmEngine {
             .connect(server_name, remote)
             .await?;
 
-        let authority = match &target {
-            TargetAddr::Ip(addr) if addr.port() != HTTPS_PORT => format!("{host}:{}", addr.port()),
-            TargetAddr::Domain(_, port) if *port != HTTPS_PORT => format!("{host}:{port}"),
-            _ => host.to_string(),
-        };
+        let authority = authority(host, flow.target.port(), HTTPS_PORT);
         self.relay(
             Conn::new(client, Vec::new()),
             Conn::new(origin, Vec::new()),
+            "https",
+            &authority,
+            idle_timeout,
+        )
+        .await
+    }
+
+    /// Relays a plain HTTP flow through the rewrite hook, so `http://`
+    /// rewrites and scripts apply as they do in Loon and Surge.
+    async fn serve_plain_flow(
+        &self,
+        flow: InterceptedFlow,
+        outbound: &dyn TcpOutbound,
+        connect_timeout: Duration,
+        idle_timeout: Duration,
+    ) -> io::Result<()> {
+        let target = TargetAddr::Ip(flow.target);
+        let origin = tokio::time::timeout(connect_timeout, outbound.connect(&target))
+            .await
+            .map_err(|_| io::Error::from(io::ErrorKind::TimedOut))??;
+        let authority = authority(&flow.host, flow.target.port(), HTTP_PORT);
+        self.relay(
+            Conn::new(flow.inbound, flow.first),
+            Conn::new(origin, Vec::new()),
+            "http",
             &authority,
             idle_timeout,
         )
@@ -373,6 +406,7 @@ impl MitmEngine {
         &self,
         mut client: Conn<C>,
         mut origin: Conn<O>,
+        scheme: &str,
         authority: &str,
         idle_timeout: Duration,
     ) -> io::Result<()>
@@ -397,7 +431,7 @@ impl MitmEngine {
                     return passthrough(client, origin).await;
                 }
             };
-            let url = format!("https://{authority}{path}");
+            let url = format!("{scheme}://{authority}{path}");
             let request_id = self
                 .next_request
                 .fetch_add(1, Ordering::Relaxed)
@@ -435,7 +469,7 @@ impl MitmEngine {
             // intercepted host.
             let path = report
                 .url
-                .strip_prefix(&format!("https://{authority}"))
+                .strip_prefix(&format!("{scheme}://{authority}"))
                 .filter(|rest| rest.starts_with('/'))
                 .unwrap_or(path.as_str())
                 .to_string();
@@ -561,12 +595,18 @@ impl FlowInterceptor for MitmEngine {
         Some(self.scheduler.as_ref()?.control(request))
     }
 
+    /// HTTPS to a `[MITM]` host is decrypted. Plain HTTP needs no
+    /// certificate, so every plain request is relayed through the rewrite
+    /// hook, as Loon and Surge apply `http://` rules without a hostname.
     fn claim(&self, first: &[u8], target: SocketAddr) -> Option<String> {
-        if target.port() != HTTPS_PORT {
-            return None;
+        if is_tls(first) {
+            if target.port() != HTTPS_PORT {
+                return None;
+            }
+            let host = crate::sniff::client_hello_server_name(first)?;
+            return self.intercepts(&host).then_some(host);
         }
-        let host = crate::sniff::client_hello_server_name(first)?;
-        self.intercepts(&host).then_some(host)
+        plain_http_host(first)
     }
 
     fn serve<'a>(
@@ -589,6 +629,32 @@ impl FlowInterceptor for MitmEngine {
                 crate::tunnel::bump(&stats.mitm_failed);
             }
         })
+    }
+}
+
+/// Whether `first` starts a TLS handshake record.
+fn is_tls(first: &[u8]) -> bool {
+    first.first() == Some(&0x16)
+}
+
+/// The `Host` of a plain HTTP/1.x request that starts in `first`, when its
+/// method is one the relay serves.
+fn plain_http_host(first: &[u8]) -> Option<String> {
+    let method = PLAIN_HTTP_METHODS
+        .iter()
+        .any(|method| first.starts_with(method.as_bytes()));
+    if !method {
+        return None;
+    }
+    crate::sniff::http_host(first)
+}
+
+/// `host`, with `:port` when it is not the scheme's default.
+fn authority(host: &str, port: u16, default_port: u16) -> String {
+    if port == default_port {
+        host.to_string()
+    } else {
+        format!("{host}:{port}")
     }
 }
 

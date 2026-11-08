@@ -700,9 +700,20 @@ impl Dispatcher {
     /// A [`TcpOutbound`] view that adds `host` to every connection, for a
     /// flow handed to the HTTPS decryption interceptor.
     pub fn with_host<'a>(&'a self, host: &'a str) -> HostedDispatcher<'a> {
+        self.with_request(host, None)
+    }
+
+    /// [`Dispatcher::with_host`] that also routes by `http`, the first
+    /// request of a plain HTTP flow, for `USER-AGENT` and `URL-REGEX` rules.
+    pub fn with_request<'a>(
+        &'a self,
+        host: &'a str,
+        http: Option<&'a HttpRequestHead>,
+    ) -> HostedDispatcher<'a> {
         HostedDispatcher {
             dispatcher: self,
             host,
+            http,
         }
     }
 }
@@ -725,6 +736,7 @@ impl TcpOutbound for Dispatcher {
 pub struct HostedDispatcher<'a> {
     dispatcher: &'a Dispatcher,
     host: &'a str,
+    http: Option<&'a HttpRequestHead>,
 }
 
 impl TcpOutbound for HostedDispatcher<'_> {
@@ -733,7 +745,10 @@ impl TcpOutbound for HostedDispatcher<'_> {
     }
 
     fn connect<'a>(&'a self, target: &'a TargetAddr) -> BoxFuture<'a, io::Result<BoxStream>> {
-        Box::pin(self.dispatcher.connect_flow(target, Some(self.host)))
+        Box::pin(
+            self.dispatcher
+                .connect_http_flow(target, Some(self.host), self.http),
+        )
     }
 
     fn open_udp<'a>(&'a self, target: &'a TargetAddr) -> BoxFuture<'a, io::Result<UdpFlow>> {

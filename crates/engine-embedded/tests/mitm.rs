@@ -287,6 +287,125 @@ async fn decrypts_rewrites_and_relays_https_for_listed_hosts() {
     server.abort();
 }
 
+/// A plain HTTP origin: answers every request head it reads with a fixed body.
+struct PlainOrigin {
+    requests: mpsc::UnboundedSender<String>,
+}
+
+impl TcpOutbound for PlainOrigin {
+    fn protocol(&self) -> &'static str {
+        "test-plain-origin"
+    }
+
+    fn connect<'a>(&'a self, _target: &'a TargetAddr) -> BoxFuture<'a, io::Result<BoxStream>> {
+        Box::pin(async move {
+            let (near, mut far) = tokio::io::duplex(64 * 1024);
+            let requests = self.requests.clone();
+            tokio::spawn(async move {
+                let mut buf = Vec::new();
+                let mut chunk = [0u8; 4096];
+                loop {
+                    let n = far.read(&mut chunk).await.unwrap_or(0);
+                    if n == 0 {
+                        return;
+                    }
+                    buf.extend_from_slice(&chunk[..n]);
+                    while let Some(end) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                        let head = String::from_utf8_lossy(&buf[..end]).into_owned();
+                        buf.drain(..end + 4);
+                        requests.send(head).unwrap();
+                        let body = b"plain origin";
+                        let response = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n",
+                            body.len()
+                        );
+                        far.write_all(response.as_bytes()).await.unwrap();
+                        far.write_all(body).await.unwrap();
+                    }
+                }
+            });
+            Ok(Box::new(near) as BoxStream)
+        })
+    }
+}
+
+#[tokio::test]
+async fn rewrites_plain_http_without_a_mitm_hostname() {
+    let device_root = root("NetworkCore Test Device Root");
+    let mut config = mitm_config(&device_root);
+    config.plugins.push(
+        "#!name = Plain\n[Rewrite]\n^http://plain\\.example\\.test/ads/ reject\n".to_string(),
+    );
+    let engine = Arc::new(MitmEngine::new(&config).unwrap());
+    let (requests_tx, mut requests) = mpsc::unbounded_channel();
+    let origin = Arc::new(PlainOrigin {
+        requests: requests_tx,
+    });
+    let target: SocketAddr = "192.0.2.20:80".parse().unwrap();
+
+    let first = b"GET /ads/banner.js HTTP/1.1\r\nHost: plain.example.test\r\n\r\n".to_vec();
+    assert!(
+        !engine.intercepts("plain.example.test"),
+        "not a [MITM] host"
+    );
+    let host = engine
+        .claim(&first, target)
+        .expect("plain HTTP is relayed through the rewrite hook");
+    assert_eq!(host, "plain.example.test");
+    assert_eq!(
+        engine.claim(
+            b"CONNECT a.test:443 HTTP/1.1\r\nHost: a.test\r\n\r\n",
+            target
+        ),
+        None,
+        "CONNECT keeps its own path"
+    );
+    assert_eq!(engine.claim(b"\x00\x01binary", target), None);
+
+    let (mut app, tunnel_side) = tokio::io::duplex(64 * 1024);
+    let flow = InterceptedFlow {
+        inbound: Box::new(tunnel_side),
+        first,
+        host,
+        target,
+    };
+    let server = tokio::spawn({
+        let engine = engine.clone();
+        let origin = origin.clone();
+        async move {
+            let _ = engine
+                .serve_flow(
+                    flow,
+                    origin.as_ref(),
+                    Duration::from_secs(5),
+                    Duration::from_secs(5),
+                )
+                .await;
+        }
+    });
+
+    let (head, _) = tokio::time::timeout(Duration::from_secs(10), read_response(&mut app))
+        .await
+        .expect("rejected in time");
+    assert!(head.starts_with("HTTP/1.1 4"), "rejected: {head}");
+
+    app.write_all(b"GET /index.html HTTP/1.1\r\nHost: plain.example.test\r\n\r\n")
+        .await
+        .unwrap();
+    let (head, body) = tokio::time::timeout(Duration::from_secs(10), read_response(&mut app))
+        .await
+        .expect("relayed in time");
+    assert!(head.starts_with("HTTP/1.1 200"), "relayed: {head}");
+    assert_eq!(body, "plain origin");
+    let head = requests.recv().await.unwrap();
+    assert!(head.starts_with("GET /index.html HTTP/1.1"), "{head}");
+    assert!(
+        requests.try_recv().is_err(),
+        "the rejected request stayed local"
+    );
+    server.abort();
+}
+
 #[test]
 fn x963_keys_convert_to_ring_pkcs8() {
     let key = KeyPair::generate().unwrap();
