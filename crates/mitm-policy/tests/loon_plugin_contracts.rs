@@ -1087,3 +1087,33 @@ fn patterns_longer_than_the_core_reads_are_split_on_their_alternation() {
         .expect("script should evaluate");
     assert_eq!(other.kind, MitmPolicyScriptKind::None);
 }
+
+#[test]
+fn header_url_rewrites_become_redirects() {
+    let plugin = import_loon_plugin(concat!(
+        "#!name=Header\n",
+        "[Rewrite]\n",
+        "^https?://a\\.example\\.com/(.*) header https://b.example.com/$1\n",
+        "[URL Rewrite]\n",
+        "^https?://c\\.example\\.com/x https://d.example.com/y header\n",
+        "[MITM]\n",
+        "hostname = a.example.com, c.example.com\n",
+    ))
+    .expect("header rewrites should import");
+    assert_eq!(
+        plugin.report.level,
+        LoonSupportLevel::Full,
+        "{}",
+        plugin.report.render_text("header")
+    );
+    let engine = loaded_engine(&merged_plugin_source("Header", &[&plugin]));
+    let moved = engine
+        .evaluate_url_rewrite("https://a.example.com/p?q=1", MitmPolicyPhase::Request)
+        .expect("rewrite should evaluate");
+    assert_eq!(moved.action, MitmPolicyRewriteAction::Redirect);
+    assert_eq!(moved.value, "https://b.example.com/p?q=1");
+    let surge = engine
+        .evaluate_url_rewrite("https://c.example.com/x", MitmPolicyPhase::Request)
+        .expect("rewrite should evaluate");
+    assert_eq!(surge.action, MitmPolicyRewriteAction::Redirect);
+}

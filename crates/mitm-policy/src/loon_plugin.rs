@@ -1258,6 +1258,34 @@ impl Parser<'_> {
             self.mock_response_body_line(line, section, text);
             return;
         }
+        // Loon `<url> header <new url>` and Surge `<url> <new url> header`
+        // send the request to the new URL. The data plane cannot move a
+        // request, so it becomes the closest equivalent, a 302.
+        if action == "header" && first != "url" && lower(1) != "url" {
+            let target = if lower(1) == "header" {
+                parts.get(2)
+            } else {
+                parts.get(1)
+            };
+            match target.filter(|target| !target.is_empty()) {
+                Some(target) => {
+                    let rule = format!("{} 302 {}", quote(&parts[0]), quote(target));
+                    self.grade_rewrite(line, section, "header");
+                    self.emit_core_line(line, text, Some(rule), preamble);
+                }
+                None => {
+                    self.replaced.insert(line, format!("# {text}"));
+                    self.push(
+                        line,
+                        section,
+                        LoonLineStatus::Unsupported,
+                        LoonLineHandler::None,
+                        "rewrite.invalid",
+                    );
+                }
+            }
+            return;
+        }
         self.grade_rewrite(line, section, &action);
         if preamble {
             self.emit_core_line(line, text, None, true);
@@ -2660,6 +2688,8 @@ fn classify_rewrite_action(action: &str) -> (LoonLineStatus, &'static str, bool)
         "301" | "302" | "303" | "307" | "308" => {
             (LoonLineStatus::Supported, "rewrite.redirect", false)
         }
+        // Sent as a 302 (see `rewrite_line`).
+        "header" => (LoonLineStatus::Supported, "rewrite.header_redirect", false),
         "header-add" | "header-del" | "header-replace" | "header-replace-regex" => {
             (LoonLineStatus::Supported, "rewrite.request_header", false)
         }
