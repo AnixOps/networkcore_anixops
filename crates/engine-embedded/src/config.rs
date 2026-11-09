@@ -13,6 +13,10 @@ use std::collections::BTreeMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 
+use config_core::redirect::{
+    RedirectTable, REDIRECT_MATCHER_UNSUPPORTED_CODE, REDIRECT_TARGET_INVALID_CODE,
+    REDIRECT_TOO_MANY_CODE,
+};
 use config_core::routing::{PolicyGroupSpec, RoutingRule, RoutingSpec};
 use config_core::rule_set::{BareDomain, RuleSet, RuleSetEntries, MAX_RULE_SET_ENTRIES};
 use engine_outbound::registry::{OutboundRegistry, Settings};
@@ -64,6 +68,12 @@ pub struct RuntimeConfig {
     /// HTTPS decryption; needs the `mitm` feature.
     #[serde(default)]
     pub mitm: Option<MitmConfig>,
+    /// Destination rewrites, tried in order before routing: a rule line
+    /// whose target is the new `host`, `host:port`, `[v6]:port` or `:port`,
+    /// such as `IP-CIDR,203.0.113.10/32,10.8.0.5:7000`. TCP and UDP alike;
+    /// see [`config_core::redirect`].
+    #[serde(default)]
+    pub redirects: Vec<String>,
 }
 
 /// The `mitm` section: plugins and the device root (see `crate::mitm`).
@@ -446,7 +456,24 @@ impl RuntimeConfig {
         Ok(config)
     }
 
+    /// The parsed `redirects` lines.
+    pub fn redirect_table(&self) -> Result<RedirectTable, RuntimeError> {
+        RedirectTable::parse(&self.redirects).map_err(|error| {
+            rejected(match error.code.as_str() {
+                REDIRECT_TOO_MANY_CODE => "redirects may hold at most 256 lines",
+                REDIRECT_TARGET_INVALID_CODE => {
+                    "redirect target must be host, host:port, [v6]:port or :port"
+                }
+                REDIRECT_MATCHER_UNSUPPORTED_CODE => {
+                    "redirects cannot match GEOIP, GEOSITE or RULE-SET"
+                }
+                _ => "redirect line must be a rule followed by its new destination",
+            })
+        })
+    }
+
     fn validate(&self) -> Result<(), RuntimeError> {
+        self.redirect_table()?;
         let profile_id_ok = is_identifier(&self.profile_id);
         if !profile_id_ok {
             return Err(rejected(
@@ -551,7 +578,8 @@ impl RuntimeConfig {
             Some(routed) => Dispatcher::routed(routed),
             None => Dispatcher::single(self.build_outbound(registry, dialer.clone())?)
                 .with_direct(Arc::new(DirectOutbound::new(dialer))),
-        };
+        }
+        .with_redirects(self.redirect_table()?);
         dispatcher.set_mode(self.mode);
         Ok(dispatcher)
     }

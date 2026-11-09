@@ -14,13 +14,15 @@
 
 use std::collections::{BTreeMap, VecDeque};
 use std::io;
+use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use config_core::routing::RouteNetwork;
+use config_core::redirect::{RedirectHost, RedirectTable, RedirectTo};
+use config_core::routing::{RouteNetwork, RouteQuery};
 use engine_outbound::sniff::HttpRequestHead;
 use engine_outbound::{
     BoxFuture, BoxStream, DatagramRecv, DatagramSend, TargetAddr, TcpDialer, TcpOutbound, UdpFlow,
@@ -92,6 +94,9 @@ pub struct ConnectionSnapshot {
     pub process: Option<String>,
     /// The destination as requested, `address:port` or `domain:port`.
     pub destination: String,
+    /// Where a `redirects` line sent the connection instead, and that line.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub redirect: Option<RedirectSnapshot>,
     pub rule: String,
     pub chain: Vec<String>,
     pub outbound: String,
@@ -102,6 +107,13 @@ pub struct ConnectionSnapshot {
     pub download: u64,
     /// `rejected` (a REJECT rule) or `connect_failed`.
     pub error: Option<&'static str>,
+}
+
+/// A rewritten destination: the new one and the `redirects` line that chose it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct RedirectSnapshot {
+    pub destination: String,
+    pub rule: String,
 }
 
 /// Totals since the tunnel started and the current rates in bytes per second.
@@ -130,6 +142,7 @@ struct Entry {
     process: Option<String>,
     destination: String,
     started_at_ms: u64,
+    redirect: Mutex<Option<RedirectSnapshot>>,
     route: Mutex<RouteInfo>,
     upload: AtomicU64,
     download: AtomicU64,
@@ -150,6 +163,7 @@ impl Entry {
             host: self.host.clone(),
             process: self.process.clone(),
             destination: self.destination.clone(),
+            redirect: lock(&self.redirect).clone(),
             rule: route.rule,
             chain: route.chain,
             outbound: route.outbound,
@@ -244,6 +258,7 @@ impl ConnectionTracker {
             process: process.map(str::to_string),
             destination: target.to_string(),
             started_at_ms: unix_millis(),
+            redirect: Mutex::default(),
             route: Mutex::default(),
             upload: AtomicU64::new(0),
             download: AtomicU64::new(0),
@@ -374,6 +389,10 @@ pub(crate) struct ConnectionGuard {
 impl ConnectionGuard {
     fn set_route(&self, route: RouteInfo) {
         *lock(&self.entry.route) = route;
+    }
+
+    fn set_redirect(&self, redirect: RedirectSnapshot) {
+        *lock(&self.entry.redirect) = Some(redirect);
     }
 
     fn fail(&self, error: &'static str) {
@@ -519,6 +538,8 @@ pub struct Dispatcher {
     direct: Arc<dyn TcpOutbound>,
     mode: AtomicU8,
     tracker: Arc<ConnectionTracker>,
+    /// Destination rewrites applied before routing, in every mode.
+    redirects: Arc<RedirectTable>,
 }
 
 impl Dispatcher {
@@ -531,6 +552,7 @@ impl Dispatcher {
             direct: Arc::new(DirectOutbound::new(Arc::new(TcpDialer))),
             mode: AtomicU8::new(Mode::Rule as u8),
             tracker: Arc::default(),
+            redirects: Arc::default(),
         }
     }
 
@@ -543,7 +565,47 @@ impl Dispatcher {
             routed: Some(routed),
             mode: AtomicU8::new(Mode::Rule as u8),
             tracker: Arc::default(),
+            redirects: Arc::default(),
         }
+    }
+
+    /// Rewrites the destination of every matching flow before it is routed;
+    /// see [`config_core::redirect`]. The rules then route the new
+    /// destination alone: the sniffed host no longer applies to it.
+    pub fn with_redirects(mut self, redirects: RedirectTable) -> Self {
+        self.redirects = Arc::new(redirects);
+        self
+    }
+
+    /// The new destination of a flow a `redirects` line matches, with that
+    /// line, or `None`.
+    fn redirect(
+        &self,
+        target: &TargetAddr,
+        host: Option<&str>,
+        process: Option<&str>,
+        network: RouteNetwork,
+        http: Option<&HttpRequestHead>,
+    ) -> Option<(TargetAddr, String)> {
+        if self.redirects.is_empty() {
+            return None;
+        }
+        let mut query = match target {
+            TargetAddr::Ip(addr) => RouteQuery::ip(addr.ip()),
+            TargetAddr::Domain(domain, _) => RouteQuery::domain(domain.clone()),
+        }
+        .with_port(target.port())
+        .with_network(network);
+        if query.domain.is_none() {
+            query.domain = host.map(str::to_string);
+        }
+        query.process = process.map(str::to_string);
+        if let Some(http) = http {
+            query.user_agent.clone_from(&http.user_agent);
+            query.url.clone_from(&http.url);
+        }
+        let rule = self.redirects.find(&query)?;
+        Some((redirected_target(target, &rule.to), rule.to_string()))
     }
 
     /// Replaces the outbound of the direct mode.
@@ -662,6 +724,17 @@ impl Dispatcher {
         http: Option<&HttpRequestHead>,
     ) -> io::Result<BoxStream> {
         let guard = self.tracker.open(Network::Tcp, target, host, process);
+        let redirected = self.redirect(target, host, process, RouteNetwork::Tcp, http);
+        let (target, host) = match &redirected {
+            Some((new, rule)) => {
+                guard.set_redirect(RedirectSnapshot {
+                    destination: new.to_string(),
+                    rule: rule.clone(),
+                });
+                (new, None)
+            }
+            None => (target, host),
+        };
         let outbound = self
             .route(target, host, process, RouteNetwork::Tcp, http, &guard)
             .await?;
@@ -680,6 +753,17 @@ impl Dispatcher {
         host: Option<&str>,
     ) -> io::Result<UdpFlow> {
         let guard = self.tracker.open(Network::Udp, target, host, None);
+        let redirected = self.redirect(target, host, None, RouteNetwork::Udp, None);
+        let (target, host) = match &redirected {
+            Some((new, rule)) => {
+                guard.set_redirect(RedirectSnapshot {
+                    destination: new.to_string(),
+                    rule: rule.clone(),
+                });
+                (new, None)
+            }
+            None => (target, host),
+        };
         let outbound = self
             .route(target, host, None, RouteNetwork::Udp, None, &guard)
             .await?;
@@ -753,6 +837,21 @@ impl TcpOutbound for HostedDispatcher<'_> {
 
     fn open_udp<'a>(&'a self, target: &'a TargetAddr) -> BoxFuture<'a, io::Result<UdpFlow>> {
         Box::pin(self.dispatcher.open_udp_flow(target, Some(self.host)))
+    }
+}
+
+/// `target` rewritten by `to`: its host, its port, or both.
+fn redirected_target(target: &TargetAddr, to: &RedirectTo) -> TargetAddr {
+    let port = to.port.unwrap_or_else(|| target.port());
+    match (&to.host, target) {
+        (RedirectHost::Ip(ip), _) => TargetAddr::Ip(SocketAddr::new(*ip, port)),
+        (RedirectHost::Domain(domain), _) => TargetAddr::Domain(domain.clone(), port),
+        (RedirectHost::Keep, TargetAddr::Ip(addr)) => {
+            TargetAddr::Ip(SocketAddr::new(addr.ip(), port))
+        }
+        (RedirectHost::Keep, TargetAddr::Domain(domain, _)) => {
+            TargetAddr::Domain(domain.clone(), port)
+        }
     }
 }
 

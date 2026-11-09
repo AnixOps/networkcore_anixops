@@ -9,7 +9,9 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use config_core::redirect::RedirectTable;
 use engine_embedded::config::{DnsConfig, DnsRuleConfig, DnsServerConfig, DnsVia};
+use engine_embedded::connections::Dispatcher;
 use engine_embedded::dns_policy::DnsPolicy;
 use engine_embedded::tunnel::{PacketSink, Tunnel, TunnelSettings};
 use engine_outbound::{
@@ -491,6 +493,69 @@ fn udp_flow_is_relayed_through_the_outbound() {
     // Both datagrams shared one flow.
     assert_eq!(tunnel.stats().udp_flows, 1);
     assert_eq!(tunnel.stats().udp_dropped, 0);
+    tunnel.stop();
+}
+
+/// Test outbound whose UDP flows go to their target, as DIRECT does.
+struct UdpToTarget;
+
+impl TcpOutbound for UdpToTarget {
+    fn protocol(&self) -> &'static str {
+        "test-udp-to-target"
+    }
+
+    fn connect<'a>(&'a self, _target: &'a TargetAddr) -> BoxFuture<'a, io::Result<BoxStream>> {
+        Box::pin(async { Err(io::Error::other("test outbound carries udp only")) })
+    }
+
+    fn open_udp<'a>(&'a self, target: &'a TargetAddr) -> BoxFuture<'a, io::Result<UdpFlow>> {
+        Box::pin(async move {
+            let TargetAddr::Ip(addr) = target else {
+                return Err(io::Error::other("test outbound needs an address"));
+            };
+            let socket = Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await?);
+            socket.connect(addr).await?;
+            Ok(UdpFlow::new(
+                Box::new(SocketSend(socket.clone())),
+                Box::new(SocketRecv(socket)),
+            ))
+        })
+    }
+}
+
+#[test]
+fn redirected_udp_replies_come_from_the_original_destination() {
+    let echo = start_udp_echo_server();
+    let (sink, rx) = capture();
+    let redirects = RedirectTable::parse(&[format!("IP-CIDR,10.0.0.80/32,{echo}")]).unwrap();
+    let dispatcher = Arc::new(Dispatcher::single(Arc::new(UdpToTarget)).with_redirects(redirects));
+    let mut tunnel =
+        Tunnel::start_with_dispatcher(settings(), dispatcher.clone(), None, None, sink).unwrap();
+
+    let mut packet = Vec::new();
+    PacketBuilder::ipv4(APP, REMOTE, 64)
+        .udp(40003, 7000)
+        .write(&mut packet, b"login")
+        .unwrap();
+    assert!(tunnel.input_packet(&packet));
+
+    wait_for(&rx, |sliced| match (&sliced.net, &sliced.transport) {
+        (Some(etherparse::NetSlice::Ipv4(ip)), Some(TransportSlice::Udp(udp)))
+            if udp.destination_port() == 40003 && udp.payload() == b"echo:login" =>
+        {
+            // The app sees the server it asked for, not the dev server.
+            assert_eq!(ip.header().source(), REMOTE);
+            assert_eq!(udp.source_port(), 7000);
+            Some(())
+        }
+        _ => None,
+    });
+    let list = dispatcher.tracker().connections();
+    assert_eq!(list.active[0].destination, "10.0.0.80:7000");
+    assert_eq!(
+        list.active[0].redirect.as_ref().unwrap().destination,
+        echo.to_string()
+    );
     tunnel.stop();
 }
 

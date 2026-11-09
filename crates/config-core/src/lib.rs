@@ -3,6 +3,7 @@
 //! This crate parses and normalizes the first minimal TOML configuration shape.
 //! It performs no file I/O, network access, platform probing, or engine work.
 
+pub mod redirect;
 pub mod routing;
 pub mod routing_import;
 pub mod rule_set;
