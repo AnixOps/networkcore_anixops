@@ -156,12 +156,25 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex;
 
-    // The protector is process-wide; tests that install one run one at a time.
+    // The protector is process-wide; tests that install one run one at a
+    // time, each on its own runtime so the lock is never held by a task.
     static SERIAL: Mutex<()> = Mutex::new(());
 
-    #[tokio::test]
-    async fn protector_sees_remote_sockets_but_not_loopback() {
+    fn serial<F: std::future::Future>(test: F) -> F::Output {
         let _guard = SERIAL.lock().unwrap_or_else(|p| p.into_inner());
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(test)
+    }
+
+    #[test]
+    fn protector_sees_remote_sockets_but_not_loopback() {
+        serial(protector_sees_remote_sockets_but_not_loopback_body());
+    }
+
+    async fn protector_sees_remote_sockets_but_not_loopback_body() {
         let calls = Arc::new(AtomicUsize::new(0));
         let counter = calls.clone();
         set_socket_protector(Some(Arc::new(
@@ -191,16 +204,17 @@ mod tests {
         assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
 
-    #[tokio::test]
-    async fn a_failing_protector_fails_the_socket() {
-        let _guard = SERIAL.lock().unwrap_or_else(|p| p.into_inner());
-        set_socket_protector(Some(Arc::new(
-            |_socket: RawSocketHandle, _target: SocketAddr| {
-                Err(io::Error::other("no physical interface"))
-            },
-        )));
-        let remote: SocketAddr = "192.0.2.1:9".parse().unwrap();
-        assert!(bind_udp(remote).is_err());
-        set_socket_protector(None);
+    #[test]
+    fn a_failing_protector_fails_the_socket() {
+        serial(async {
+            set_socket_protector(Some(Arc::new(
+                |_socket: RawSocketHandle, _target: SocketAddr| {
+                    Err(io::Error::other("no physical interface"))
+                },
+            )));
+            let remote: SocketAddr = "192.0.2.1:9".parse().unwrap();
+            assert!(bind_udp(remote).is_err());
+            set_socket_protector(None);
+        });
     }
 }
