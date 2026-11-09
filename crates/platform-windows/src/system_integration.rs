@@ -38,6 +38,13 @@ pub fn disable_current_user_startup(executable: &Path) -> DomainResult<()> {
     native::disable_current_user_startup(executable)
 }
 
+/// Moves an owned legacy HKCU Run entry (which Windows skips once the GUI
+/// requires administrator rights) to the elevated logon task. Returns whether
+/// a legacy entry was found and migrated.
+pub fn migrate_legacy_current_user_startup(executable: &Path) -> DomainResult<bool> {
+    native::migrate_legacy_current_user_startup(executable)
+}
+
 /// Removes every per-user NetworkCore logon task. The uninstaller runs this
 /// as LocalSystem, which cannot see other users' Run keys but can remove
 /// their logon tasks. Returns how many tasks were removed.
@@ -466,6 +473,10 @@ mod native {
     pub fn remove_all_startup_tasks() -> DomainResult<usize> {
         Err(unsupported())
     }
+
+    pub fn migrate_legacy_current_user_startup(_executable: &Path) -> DomainResult<bool> {
+        Err(unsupported())
+    }
 }
 
 #[cfg(windows)]
@@ -772,6 +783,16 @@ mod native {
             removed += 1;
         }
         Ok(removed)
+    }
+
+    pub fn migrate_legacy_current_user_startup(executable: &Path) -> DomainResult<bool> {
+        let expected = current_user_startup_command(executable)?;
+        match read_current_user_run_value()? {
+            Some(value) if value == expected => {}
+            _ => return Ok(false),
+        }
+        enable_current_user_startup(executable)?;
+        Ok(true)
     }
 
     fn remove_owned_legacy_run_entry(executable: &Path) -> DomainResult<()> {
