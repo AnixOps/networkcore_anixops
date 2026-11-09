@@ -88,8 +88,9 @@ struct RealitySettings {
     fingerprint: String,
 }
 
+/// `auto`: Safari on iOS and macOS, Chrome elsewhere.
 fn default_fingerprint() -> String {
-    "chrome".to_owned()
+    "auto".to_owned()
 }
 
 pub struct VlessFactory;

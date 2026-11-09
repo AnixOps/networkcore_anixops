@@ -149,7 +149,8 @@ impl From<NodeError> for Response {
             | NodeError::Egress(_)
             | NodeError::Network(_)
             | NodeError::Rules(_)
-            | NodeError::Qos(_) => 400,
+            | NodeError::Qos(_)
+            | NodeError::TlsFingerprints(_) => 400,
             NodeError::Io(_) => 500,
         };
         Response::error(status, error.to_string())
@@ -316,6 +317,13 @@ async fn route(node: &Node, request: Request) -> Response {
             Ok(config) => node
                 .apply_qos(&config)
                 .map(|status| Response::ok(json!(status))),
+            Err(response) => return response,
+        },
+        ("GET", ["v1", "tls-fingerprints"]) => Ok(Response::ok(json!(crate::tls_fingerprints()))),
+        ("PUT", ["v1", "tls-fingerprints"]) => match parse::<serde_json::Value>(&request.body) {
+            Ok(bundle) => {
+                crate::apply_tls_fingerprints(&bundle).map(|status| Response::ok(json!(status)))
+            }
             Err(response) => return response,
         },
         ("POST", ["v1", "inbounds"]) => match parse::<InboundConfig>(&request.body) {

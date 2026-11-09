@@ -27,8 +27,12 @@ shadowsocks = ["dep:outbound-shadowsocks"]
 snell = ["dep:outbound-snell"]
 socks = ["dep:outbound-socks"]
 trojan = ["dep:outbound-trojan"]
+# Delivered ClientHello fingerprint bundles (`tls_fingerprints` in the runtime
+# config) for outbounds that imitate a browser; on with `vless`, and for
+# out-of-tree outbounds built on tls-mimic.
+tls-fingerprints = ["dep:tls-mimic"]
 tuic = ["dep:outbound-tuic"]
-vless = ["dep:outbound-vless"]
+vless = ["dep:outbound-vless", "tls-fingerprints"]
 vmess = ["dep:outbound-vmess"]
 wireguard = ["dep:base64", "dep:boringtun", "dep:ring"]
 
@@ -62,6 +66,7 @@ rustls = { version = "0.23.46", default-features = false, features = ["ring", "s
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 time = { version = "0.3", optional = true }
+tls-mimic = { path = "../tls-mimic", optional = true }
 tokio = { version = "1", default-features = false, features = ["rt", "net", "io-util", "time", "sync", "macros"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"], optional = true }
 transport-tls = { path = "../transport-tls", optional = true }

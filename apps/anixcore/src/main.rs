@@ -77,6 +77,14 @@ fn start(config: NodeConfig, check_only: bool) -> Result<(), String> {
             Node::new(default_registry(), config.allow_private_targets)
                 .with_default_outbound(config.default_outbound),
         );
+        if let Some(bundle) = &config.tls_fingerprints {
+            let status = node_runtime::apply_tls_fingerprints(bundle)
+                .map_err(|error| format!("tls_fingerprints: {error}"))?;
+            println!(
+                "tls fingerprints: revision {:?}, replaced {:?}",
+                status.revision, status.replaced
+            );
+        }
         if let Some(network) = &config.network {
             let status = node
                 .apply_network(network)

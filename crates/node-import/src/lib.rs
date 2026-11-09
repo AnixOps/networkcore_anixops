@@ -32,14 +32,14 @@ use control_domain::{
     NODE_METADATA_SNELL_REUSE, NODE_METADATA_SNELL_USER_KEY, NODE_METADATA_SNELL_VERSION,
     NODE_METADATA_TLS_ALPN, NODE_METADATA_TLS_ENABLED, NODE_METADATA_TLS_INSECURE,
     NODE_METADATA_TLS_REALITY_PUBLIC_KEY, NODE_METADATA_TLS_REALITY_SHORT_ID,
-    NODE_METADATA_TLS_SERVER_NAME, NODE_METADATA_TROJAN_PASSWORD,
-    NODE_METADATA_TUIC_CONGESTION_CONTROL, NODE_METADATA_TUIC_PASSWORD, NODE_METADATA_TUIC_UUID,
-    NODE_METADATA_V2RAY_TRANSPORT_EXTRA, NODE_METADATA_V2RAY_TRANSPORT_HOST,
-    NODE_METADATA_V2RAY_TRANSPORT_MODE, NODE_METADATA_V2RAY_TRANSPORT_PATH,
-    NODE_METADATA_V2RAY_TRANSPORT_SERVICE_NAME, NODE_METADATA_V2RAY_TRANSPORT_TYPE,
-    NODE_METADATA_VIA, NODE_METADATA_VIA_UNRESOLVED, NODE_METADATA_VLESS_ENCRYPTION,
-    NODE_METADATA_VLESS_FLOW, NODE_METADATA_VLESS_UUID, NODE_METADATA_VMESS_ALTER_ID,
-    NODE_METADATA_VMESS_SECURITY, NODE_METADATA_VMESS_UUID,
+    NODE_METADATA_TLS_SERVER_NAME, NODE_METADATA_TLS_UTLS_FINGERPRINT,
+    NODE_METADATA_TROJAN_PASSWORD, NODE_METADATA_TUIC_CONGESTION_CONTROL,
+    NODE_METADATA_TUIC_PASSWORD, NODE_METADATA_TUIC_UUID, NODE_METADATA_V2RAY_TRANSPORT_EXTRA,
+    NODE_METADATA_V2RAY_TRANSPORT_HOST, NODE_METADATA_V2RAY_TRANSPORT_MODE,
+    NODE_METADATA_V2RAY_TRANSPORT_PATH, NODE_METADATA_V2RAY_TRANSPORT_SERVICE_NAME,
+    NODE_METADATA_V2RAY_TRANSPORT_TYPE, NODE_METADATA_VIA, NODE_METADATA_VIA_UNRESOLVED,
+    NODE_METADATA_VLESS_ENCRYPTION, NODE_METADATA_VLESS_FLOW, NODE_METADATA_VLESS_UUID,
+    NODE_METADATA_VMESS_ALTER_ID, NODE_METADATA_VMESS_SECURITY, NODE_METADATA_VMESS_UUID,
 };
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -366,8 +366,17 @@ fn vless(node: &NodeDescriptor) -> Result<Value, Unsupported> {
         }
         let server_name = metadata(node, NODE_METADATA_TLS_SERVER_NAME)
             .ok_or("vless REALITY server name is missing")?;
-        // tls-mimic ships one Chrome fingerprint; other names fall back to it,
-        // as the iOS importer does.
+        // tls-mimic has a Chrome and a Safari fingerprint. A link that names
+        // Safari or iOS gets Safari, one that names nothing gets the
+        // platform's own (`auto`), every other uTLS name falls back to Chrome.
+        let fingerprint = match metadata(node, NODE_METADATA_TLS_UTLS_FINGERPRINT)
+            .map(|name| name.to_ascii_lowercase())
+            .as_deref()
+        {
+            None | Some("" | "auto") => "auto",
+            Some("safari" | "ios") => "safari",
+            Some(_) => "chrome",
+        };
         let mut outbound = json!({
             "type": "vless",
             "server": node.endpoint.host,
@@ -378,7 +387,7 @@ fn vless(node: &NodeDescriptor) -> Result<Value, Unsupported> {
                 "server_name": server_name,
                 "public_key": public_key,
                 "short_id": metadata(node, NODE_METADATA_TLS_REALITY_SHORT_ID).unwrap_or_default(),
-                "fingerprint": "chrome",
+                "fingerprint": fingerprint,
             },
         });
         if xhttp {

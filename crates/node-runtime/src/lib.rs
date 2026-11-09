@@ -176,6 +176,8 @@ pub enum NodeError {
     Rules(String),
     /// An invalid traffic priority configuration (`PUT /v1/qos`).
     Qos(String),
+    /// A fingerprint bundle was refused; the previous one stays.
+    TlsFingerprints(String),
     Io(io::Error),
 }
 
@@ -188,7 +190,8 @@ impl fmt::Display for NodeError {
             NodeError::Egress(reason)
             | NodeError::Network(reason)
             | NodeError::Rules(reason)
-            | NodeError::Qos(reason) => f.write_str(reason),
+            | NodeError::Qos(reason)
+            | NodeError::TlsFingerprints(reason) => f.write_str(reason),
             NodeError::Io(error) => write!(f, "{error}"),
         }
     }
@@ -211,9 +214,63 @@ pub const FEATURES: &[&str] = &[
     "qos",
     "destinations",
     "block_cidrs",
+    "tls_fingerprints",
     #[cfg(feature = "reverse_proxy")]
     "reverse_proxy",
 ];
+
+/// The ClientHello fingerprint data in effect (`GET /v1/tls-fingerprints`).
+#[derive(Clone, Debug, Serialize)]
+pub struct TlsFingerprintStatus {
+    /// The installed bundle's `revision`; empty without a bundle.
+    pub revision: String,
+    /// Fingerprints served from the bundle; the others use the data built
+    /// into this kernel.
+    pub replaced: Vec<&'static str>,
+    /// Profile names of the bundle this kernel does not know (only in the
+    /// answer to the `PUT` that delivered them).
+    pub ignored: Vec<String>,
+    /// Every fingerprint this kernel has.
+    pub known: Vec<&'static str>,
+}
+
+impl TlsFingerprintStatus {
+    fn from_installed(installed: tls_mimic::InstalledProfiles) -> Self {
+        Self {
+            revision: installed.revision,
+            replaced: installed
+                .replaced
+                .into_iter()
+                .map(tls_mimic::Fingerprint::name)
+                .collect(),
+            ignored: installed.ignored,
+            known: tls_mimic::Fingerprint::ALL
+                .into_iter()
+                .map(tls_mimic::Fingerprint::name)
+                .collect(),
+        }
+    }
+}
+
+/// The fingerprint bundle in effect.
+pub fn tls_fingerprints() -> TlsFingerprintStatus {
+    TlsFingerprintStatus::from_installed(tls_mimic::installed_profiles())
+}
+
+/// Installs a ClientHello fingerprint bundle (`tls_mimic::install_profiles`)
+/// for every outbound of this process that imitates a browser: the data
+/// behind `chrome`, `safari`, ... is replaced, so following a browser release
+/// needs no new kernel. The bundle is the whole state (`{"format": 1,
+/// "profiles": {}}` goes back to the built-in data); a bundle with a profile
+/// this kernel cannot reproduce is refused and changes nothing. Connections
+/// opened afterwards use the new data.
+pub fn apply_tls_fingerprints(
+    bundle: &serde_json::Value,
+) -> Result<TlsFingerprintStatus, NodeError> {
+    tls_mimic::install_profiles(&bundle.to_string())
+        .map(TlsFingerprintStatus::from_installed)
+        .map_err(|error| NodeError::TlsFingerprints(error.to_string()))
+}
 
 /// Counters of one running inbound.
 #[derive(Clone, Debug, Serialize)]

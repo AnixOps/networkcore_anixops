@@ -40,6 +40,8 @@ outbound-shadowsocks = { path = "../outbound-shadowsocks" }
 regex = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Delivered ClientHello fingerprint bundles (`PUT /v1/tls-fingerprints`).
+tls-mimic = { path = "../tls-mimic" }
 # Dual-stack UDP egress (clears IPV6_V6ONLY).
 socket2 = { version = "0.6", features = ["all"] }
 tokio = { version = "1", default-features = false, features = ["io-util", "net", "rt", "sync", "time", "macros"] }
