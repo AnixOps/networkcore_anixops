@@ -18,7 +18,9 @@ accounting.
 - `egress`: the panel's domain egress routes (anix-control 「转发 → 分流」,
   the desired-config member `egress`, set with `PUT /v1/egress`). As a source
   node, connections to a route's domains go to the exit node's
-  Shadowsocks-2022 relay; as an exit node, the relays run beside the
+  Shadowsocks-2022 or VLESS relay (VLESS with REALITY or XHTTP for the
+  cross-border standby channel, anx F-54; a relay may listen on a loopback
+  `listen` behind a TLS front); as an exit node, the relays run beside the
   inbounds and always leave directly. Routing applies to every inbound: the
   domain is the requested name, else the TLS SNI / HTTP `Host` of the first
   bytes (waiting up to 300 ms), else the name a DNS answer relayed through the

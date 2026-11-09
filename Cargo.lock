@@ -2096,6 +2096,7 @@ dependencies = [
  "inbound-vless",
  "inbound-vmess",
  "outbound-shadowsocks",
+ "outbound-vless",
  "regex",
  "serde",
  "serde_json",

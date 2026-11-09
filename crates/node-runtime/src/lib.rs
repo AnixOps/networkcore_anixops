@@ -55,7 +55,7 @@ use std::time::Duration;
 use engine_inbound::health::TargetHealth;
 use engine_inbound::qos;
 pub use engine_inbound::qos::{QosConfig, QosStatus};
-use engine_inbound::registry::{BuildError, Inbound, InboundRegistry, Settings};
+use engine_inbound::registry::{BuildError, Inbound, InboundRegistry};
 use engine_inbound::server::{serve_with_udp, InboundStats, ServeSettings};
 use engine_inbound::udp::UdpOutbound;
 use engine_inbound::UserStore;
@@ -585,15 +585,10 @@ impl Node {
         let table = egress::compile(config).map_err(NodeError::Egress)?;
         let mut built = Vec::new();
         for relay in &config.relays {
-            let mut settings = Settings::new();
-            settings.insert("method".into(), relay.method.clone().into());
-            settings.insert("password".into(), relay.password.clone().into());
-            let inbound = self
-                .registry
-                .build(egress::RELAY_PROTOCOL, &settings)
-                .map_err(|reason| {
-                    NodeError::Egress(format!("egress relay {}: {reason}", relay.id))
-                })?;
+            let (kind, settings) = relay.inbound();
+            let inbound = self.registry.build(kind, &settings).map_err(|reason| {
+                NodeError::Egress(format!("egress relay {}: {reason}", relay.id))
+            })?;
             built.push((relay.clone(), inbound));
         }
         let mut relays = self.relays.lock().await;
@@ -623,14 +618,17 @@ impl Node {
             }
             // A relay's traffic leaves here: direct, never another route.
             let direct = Arc::new(DirectOutbound::new(self.allow_private_targets, Vec::new()));
-            let address = SocketAddr::new(Ipv6Addr::UNSPECIFIED.into(), relay.port);
+            let address = SocketAddr::new(
+                relay.listen.unwrap_or(Ipv6Addr::UNSPECIFIED.into()),
+                relay.port,
+            );
             match self.spawn(&inbound, address, direct.clone(), direct) {
                 Ok((listen, stats, task)) => {
                     relays.insert(
                         relay.id,
                         RunningRelay {
                             running: Running {
-                                kind: egress::RELAY_PROTOCOL.to_owned(),
+                                kind: relay.inbound().0.to_owned(),
                                 outbound: DIRECT_OUTBOUND.to_owned(),
                                 ingress: None,
                                 listen,
