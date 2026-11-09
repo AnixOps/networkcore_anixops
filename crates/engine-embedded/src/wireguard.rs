@@ -121,13 +121,11 @@ pub(crate) fn spawn_tasks(
     stats: Arc<TunnelStats>,
 ) -> io::Result<()> {
     let endpoint = resolve(&settings.server, settings.port)?;
-    let bind: SocketAddr = match endpoint {
-        SocketAddr::V4(_) => (std::net::Ipv4Addr::UNSPECIFIED, 0).into(),
-        SocketAddr::V6(_) => (std::net::Ipv6Addr::UNSPECIFIED, 0).into(),
-    };
-    let socket = std::net::UdpSocket::bind(bind)?;
+    let socket = engine_outbound::protect::bind_std_udp(
+        engine_outbound::protect::unspecified_for(endpoint),
+        endpoint,
+    )?;
     socket.connect(endpoint)?;
-    socket.set_nonblocking(true)?;
     let socket = Arc::new(UdpSocket::from_std(socket)?);
 
     let tunn = Arc::new(Mutex::new(Tunn::new(

@@ -794,9 +794,8 @@ async fn recv(socket: Option<&UdpSocket>, buffer: &mut [u8]) -> io::Result<usize
 /// A connected UDP socket: the kernel then drops datagrams from any other
 /// source, which is the receive filter of spec §5.
 fn connect_udp(server: SocketAddr) -> io::Result<UdpSocket> {
-    let socket = std::net::UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0))?;
+    let socket = engine_outbound::protect::bind_std_udp((Ipv4Addr::UNSPECIFIED, 0).into(), server)?;
     socket.connect(server)?;
-    socket.set_nonblocking(true)?;
     UdpSocket::from_std(socket)
 }
 

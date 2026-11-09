@@ -33,3 +33,19 @@ settings. The GUI and service append diagnostics under
 verbose GUI status logging can be toggled from the desktop client or enabled
 with `networkcore-windows-gui.exe --debug` (the GUI and service live in
 [AnixOps/anixops-net](https://github.com/AnixOps/anixops-net)).
+
+## TUN mode
+
+`tun` creates a Wintun adapter for system-wide capture. The client ships
+`wintun.dll` next to its executable and passes that absolute path to
+`WindowsTun::open`; the DLL is never loaded from the search path. The adapter
+gets `172.19.0.1/30` (DNS `172.19.0.2`, answered by the tunnel) and
+`fdfe:dcba:9876::1/126`, and the capture routes `0.0.0.0/1`, `128.0.0.0/1`,
+`::/1` and `8000::/1`. Closing the adapter removes its address and routes, so
+the physical default route is never touched.
+
+The physical interface of each family is recorded before the routes go in.
+The host installs an `engine_outbound::protect` socket protector that calls
+`bind_socket_to_interface` (`IP_UNICAST_IF` / `IPV6_UNICAST_IF`) so the
+engine's own sockets to proxy servers, DNS upstreams and direct destinations
+do not loop back into the adapter.

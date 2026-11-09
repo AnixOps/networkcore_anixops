@@ -15,6 +15,7 @@
 //! Errors are plain [`std::io::Error`] values. Implementations must keep
 //! credentials (UUIDs, passwords, private keys) out of error messages.
 
+pub mod protect;
 pub mod registry;
 pub mod sniff;
 
@@ -26,7 +27,7 @@ use std::pin::Pin;
 use std::time::Duration;
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadHalf, WriteHalf};
-use tokio::net::{TcpStream, UdpSocket};
+use tokio::net::UdpSocket;
 
 /// Boxed `Send` future used by the object-safe traits in this crate.
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
@@ -115,7 +116,7 @@ pub struct TcpDialer;
 impl Dialer for TcpDialer {
     fn dial<'a>(&'a self, host: &'a str, port: u16) -> BoxFuture<'a, io::Result<BoxStream>> {
         Box::pin(async move {
-            let stream = TcpStream::connect((host, port)).await?;
+            let stream = protect::connect_tcp_host(host, port).await?;
             stream.set_nodelay(true)?;
             Ok(Box::new(stream) as BoxStream)
         })
@@ -143,12 +144,7 @@ async fn socket_flow(host: &str, port: u16) -> io::Result<UdpFlow> {
         .await?
         .next()
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "proxy server not found"))?;
-    let bind: SocketAddr = if addr.is_ipv4() {
-        (std::net::Ipv4Addr::UNSPECIFIED, 0).into()
-    } else {
-        (std::net::Ipv6Addr::UNSPECIFIED, 0).into()
-    };
-    let socket = UdpSocket::bind(bind).await?;
+    let socket = protect::bind_udp(addr)?;
     socket.connect(addr).await?;
     let socket = std::sync::Arc::new(socket);
     Ok(UdpFlow::new(

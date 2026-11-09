@@ -1,7 +1,6 @@
 //! Direct outbound: connects to the target without a proxy protocol.
 
 use std::io;
-use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
 
 use engine_outbound::registry::{BuildError, OutboundFactory, Settings};
@@ -49,12 +48,7 @@ impl TcpOutbound for DirectOutbound {
                         })?
                 }
             };
-            let local: SocketAddr = if address.is_ipv4() {
-                (Ipv4Addr::UNSPECIFIED, 0).into()
-            } else {
-                (Ipv6Addr::UNSPECIFIED, 0).into()
-            };
-            let socket = Arc::new(UdpSocket::bind(local).await?);
+            let socket = Arc::new(engine_outbound::protect::bind_udp(address)?);
             socket.connect(address).await?;
             Ok(UdpFlow::new(
                 Box::new(DirectSend(socket.clone())),

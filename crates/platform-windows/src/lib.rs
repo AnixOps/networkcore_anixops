@@ -4,6 +4,7 @@ pub mod managed;
 pub mod mitm_security;
 pub mod system_integration;
 mod trusted_command;
+pub mod tun;
 
 pub const WINDOWS_PLATFORM_ADAPTER_STATUS: &str = "managed-client-platform-active";
 pub const WINDOWS_CLI_ARTIFACT_GATE: &str = "windows-managed-client-active";
