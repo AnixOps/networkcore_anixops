@@ -225,3 +225,87 @@ fn fingerprint_names_resolve() {
     );
     assert_eq!(Fingerprint::from_name("firefox"), None);
 }
+
+#[test]
+fn record_padding_changes_only_the_wire_length() {
+    for suite in [
+        CipherSuite::Aes128GcmSha256,
+        CipherSuite::Aes256GcmSha384,
+        CipherSuite::Chacha20Poly1305Sha256,
+    ] {
+        let secret = vec![9u8; suite.hash().output_len()];
+        let mut sealer = RecordCipher::new(suite, &secret).unwrap();
+        let mut opener = RecordCipher::new(suite, &secret).unwrap();
+        assert_eq!(sealer.overhead(), 17);
+        for (content, padding) in [(&b"flight"[..], 0usize), (b"flight", 300), (b"", 64)] {
+            let mut wire = Vec::new();
+            sealer.seal_padded(22, content, padding, &mut wire).unwrap();
+            let len = u16::from_be_bytes([wire[3], wire[4]]) as usize;
+            assert_eq!(len, content.len() + padding + sealer.overhead());
+            assert_eq!(wire.len(), 5 + len);
+            let header: [u8; 5] = wire[..5].try_into().unwrap();
+            let mut payload = wire[5..].to_vec();
+            assert_eq!(opener.open(&header, &mut payload).unwrap(), 22);
+            assert_eq!(payload, content);
+        }
+        // The whole inner plaintext (content + padding) is capped at 2^14.
+        let mut wire = Vec::new();
+        assert!(sealer
+            .seal_padded(22, &[1u8; 16_000], 385, &mut wire)
+            .is_err());
+        assert!(sealer.seal_padded(0, b"x", 0, &mut wire).is_err());
+        assert!(wire.is_empty());
+        sealer
+            .seal_padded(22, &[1u8; 16_000], 384, &mut wire)
+            .unwrap();
+        let header: [u8; 5] = wire[..5].try_into().unwrap();
+        let mut payload = wire[5..].to_vec();
+        assert_eq!(opener.open(&header, &mut payload).unwrap(), 22);
+        assert_eq!(payload.len(), 16_000);
+    }
+}
+
+/// A server sends NewSessionTicket-shaped handshake records right after the
+/// handshake; the peer's stream skips them and delivers only application data.
+#[tokio::test]
+async fn post_handshake_records_are_sent_in_order_and_skipped_by_the_peer() {
+    use tls_mimic::TlsStream;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let suite = CipherSuite::Aes128GcmSha256;
+    let server_secret = vec![3u8; 32];
+    let client_secret = vec![4u8; 32];
+    let (server_io, mut wire) = tokio::io::duplex(64 * 1024);
+    let mut server = TlsStream::from_secrets(
+        server_io,
+        suite,
+        server_secret.clone(),
+        client_secret.clone(),
+        None,
+    )
+    .unwrap();
+
+    // NewSessionTicket: type 4, 3-byte length, opaque body.
+    let mut ticket = vec![4, 0, 0, 60];
+    ticket.extend_from_slice(&[0xab; 60]);
+    server.queue_handshake_record(&ticket, 0).unwrap();
+    server.queue_handshake_record(&ticket, 100).unwrap();
+    server.write_all(b"after tickets").await.unwrap();
+    server.flush().await.unwrap();
+
+    // On the wire: two handshake-sized records, then the application record.
+    let mut bytes = vec![0u8; (5 + 64 + 17) + (5 + 164 + 17) + (5 + 13 + 17)];
+    wire.read_exact(&mut bytes).await.unwrap();
+    assert_eq!(&bytes[..5], &[0x17, 0x03, 0x03, 0x00, 81]);
+    assert_eq!(&bytes[86..91], &[0x17, 0x03, 0x03, 0x00, 181]);
+    assert_eq!(&bytes[272..277], &[0x17, 0x03, 0x03, 0x00, 30]);
+
+    // The peer reads straight through the tickets.
+    let (client_io, mut feed) = tokio::io::duplex(64 * 1024);
+    feed.write_all(&bytes).await.unwrap();
+    let mut client =
+        TlsStream::from_secrets(client_io, suite, client_secret, server_secret, None).unwrap();
+    let mut got = [0u8; 13];
+    client.read_exact(&mut got).await.unwrap();
+    assert_eq!(&got, b"after tickets");
+}

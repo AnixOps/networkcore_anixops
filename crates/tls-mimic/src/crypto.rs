@@ -182,13 +182,37 @@ impl RecordCipher {
         plaintext: &[u8],
         out: &mut Vec<u8>,
     ) -> io::Result<()> {
-        if plaintext.len() > MAX_PLAINTEXT {
+        self.seal_padded(content_type, plaintext, 0, out)
+    }
+
+    /// Bytes a record adds on the wire to its content: the inner content type
+    /// and the AEAD tag. The record header's length field is
+    /// `content + padding + overhead()`.
+    pub fn overhead(&self) -> usize {
+        1 + self.key.algorithm().tag_len()
+    }
+
+    /// Like [`RecordCipher::seal`], with `padding` zero bytes appended after
+    /// the inner content type (record padding, RFC 8446 §5.4). The receiver
+    /// strips them, so padding only changes the record's length on the wire.
+    pub fn seal_padded(
+        &mut self,
+        content_type: u8,
+        plaintext: &[u8],
+        padding: usize,
+        out: &mut Vec<u8>,
+    ) -> io::Result<()> {
+        if content_type == 0 {
+            return Err(invalid_data("TLS inner content type must be non-zero"));
+        }
+        if plaintext.len() > MAX_PLAINTEXT || padding > MAX_PLAINTEXT - plaintext.len() {
             return Err(invalid_data("TLS record plaintext too large"));
         }
         let tag_len = self.key.algorithm().tag_len();
-        let mut inner = Vec::with_capacity(plaintext.len() + 1 + tag_len);
+        let mut inner = Vec::with_capacity(plaintext.len() + 1 + padding + tag_len);
         inner.extend_from_slice(plaintext);
         inner.push(content_type);
+        inner.resize(plaintext.len() + 1 + padding, 0);
         let len = inner.len() + tag_len;
         let header = [0x17, 0x03, 0x03, (len >> 8) as u8, len as u8];
         let nonce = self.next_nonce()?;

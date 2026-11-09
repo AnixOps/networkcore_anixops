@@ -107,6 +107,22 @@ impl<S> TlsStream<S> {
         self.raw_write
     }
 
+    /// Queues one post-handshake handshake message (for example a
+    /// NewSessionTicket) as a record of its own, with `padding` bytes of
+    /// record padding. It is written, in order, by the next write or flush.
+    ///
+    /// A server built on this crate's record layer uses it to send what a
+    /// real server sends right after the client's Finished.
+    pub fn queue_handshake_record(&mut self, message: &[u8], padding: usize) -> io::Result<()> {
+        if self.raw_write {
+            return Err(invalid_data(
+                "TLS handshake record after the stream went raw",
+            ));
+        }
+        self.writer
+            .seal_padded(CONTENT_HANDSHAKE, message, padding, &mut self.out)
+    }
+
     fn take_record(&mut self) -> io::Result<Option<([u8; 5], Vec<u8>)>> {
         if self.raw_in.len() < 5 {
             return Ok(None);
