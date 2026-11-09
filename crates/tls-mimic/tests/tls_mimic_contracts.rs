@@ -157,6 +157,18 @@ fn chrome_client_hello_has_browser_shape() {
     assert!(extension(&hello, 0xfe0d).is_some());
     assert!(extension(&hello, 0x44cd).is_some());
 
+    // Chrome 157: GREASE signature scheme, then ML-DSA-44/65/87, then the classic list
+    let sigalgs = extension(&hello, 0x000d).unwrap();
+    let schemes: Vec<u16> = sigalgs[2..]
+        .chunks(2)
+        .map(|c| u16::from_be_bytes([c[0], c[1]]))
+        .collect();
+    assert!(is_grease(schemes[0]), "{schemes:04x?}");
+    assert_eq!(
+        &schemes[1..],
+        &[0x0904, 0x0905, 0x0906, 0x0403, 0x0804, 0x0401, 0x0503, 0x0805, 0x0501, 0x0806, 0x0601]
+    );
+
     let shares = extension(&hello, 0x0033).unwrap();
     let mut pos = 2;
     let mut groups = Vec::new();
