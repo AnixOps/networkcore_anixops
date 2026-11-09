@@ -182,3 +182,59 @@ async fn a_relay_on_a_taken_port_fails_alone() {
     assert_eq!(body["relays"].as_array().unwrap().len(), 1);
     assert_eq!(body["relays"][0]["id"], 2);
 }
+
+/// The cross-border standby channel (anx F-54): a VLESS relay on a loopback
+/// address, as behind a TLS front, and a catch-all route to it. The relay's
+/// uuid never shows in an answer.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn routes_everything_through_a_vless_relay() {
+    const UUID: &str = "6f0e1c52-8c1e-4d7b-9a51-0d2e5f3c7a19";
+    let target = echo_server().await;
+    let (exit, source) = (start_api().await, start_api().await);
+    let relay_port = free_port();
+
+    let relay = json!({"id": 3, "protocol": "vless", "port": relay_port, "listen": "127.0.0.1",
+                       "settings": {"users": [{"name": "standby-3", "uuid": UUID}]}});
+    let (status, body) = call(exit, "PUT", "/v1/egress", Some(json!({"relays": [relay]}))).await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(
+        body["relays"][0]["listen"],
+        format!("127.0.0.1:{relay_port}")
+    );
+    assert!(!body.to_string().contains(UUID));
+
+    // A vless relay without settings, and a route whose settings name the
+    // address, are refused.
+    let bare = json!({"relays": [{"id": 4, "protocol": "vless", "port": free_port()}]});
+    let (status, _) = call(exit, "PUT", "/v1/egress", Some(bare)).await;
+    assert_eq!(status, 400);
+    let addressed = json!({"routes": [{"id": 3, "domains": ["regexp:."],
+        "server": {"protocol": "vless", "host": "127.0.0.1", "port": relay_port,
+                   "settings": {"uuid": UUID, "server": "elsewhere"}}}]});
+    let (status, body) = call(source, "PUT", "/v1/egress", Some(addressed)).await;
+    assert_eq!(status, 400, "{body}");
+    assert!(!body.to_string().contains(UUID));
+
+    let route = json!({"routes": [{"id": 3, "domains": ["regexp:."],
+        "server": {"protocol": "vless", "host": "127.0.0.1", "port": relay_port,
+                   "settings": {"uuid": UUID}}}]});
+    let (status, body) = call(source, "PUT", "/v1/egress", Some(route)).await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["routes"], json!([3]));
+    let inbound = json!({
+        "tag": "ss", "type": "shadowsocks", "listen": "127.0.0.1", "listen_port": 0,
+        "method": "2022-blake3-aes-128-gcm", "password": SERVER_KEY,
+        "users": [{"name": "1001", "password": USER_KEY}]
+    });
+    let (status, body) = call(source, "POST", "/v1/inbounds", Some(inbound)).await;
+    assert_eq!(status, 201, "{body}");
+    let server: SocketAddr = body["listen"].as_str().unwrap().parse().unwrap();
+
+    round_trip(
+        server,
+        TargetAddr::Domain("localhost".into(), target.port()),
+        b"standby",
+    )
+    .await;
+    assert_eq!(relay_accepted(exit).await, 1);
+}

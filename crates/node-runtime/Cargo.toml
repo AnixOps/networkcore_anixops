@@ -11,7 +11,7 @@ default = ["shadowsocks", "trojan", "vless", "vmess", "hysteria2", "tuic", "snel
 shadowsocks = ["dep:inbound-shadowsocks"]
 trojan = ["dep:inbound-trojan"]
 snell = ["dep:inbound-snell"]
-vless = ["dep:inbound-vless"]
+vless = ["dep:inbound-vless", "dep:outbound-vless"]
 vmess = ["dep:inbound-vmess"]
 hysteria2 = ["dep:inbound-hysteria2"]
 tuic = ["dep:inbound-tuic"]
@@ -34,8 +34,10 @@ inbound-trojan = { path = "../inbound-trojan", optional = true }
 inbound-tuic = { path = "../inbound-tuic", optional = true }
 inbound-vless = { path = "../inbound-vless", optional = true }
 inbound-vmess = { path = "../inbound-vmess", optional = true }
-# Egress routes reach the exit node's relay with Shadowsocks-2022.
+# Egress routes reach the exit node's relay with Shadowsocks-2022, or with
+# VLESS (`vless` feature: the cross-border standby channel).
 outbound-shadowsocks = { path = "../outbound-shadowsocks" }
+outbound-vless = { path = "../outbound-vless", optional = true }
 # `regexp:` matchers of egress routes.
 regex = "1"
 serde = { version = "1", features = ["derive"] }

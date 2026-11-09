@@ -5,9 +5,19 @@
 //! kernel-neutral desired-config member `egress` ([`EgressConfig`]):
 //!
 //! - `routes` (this node is the source): the domains of a route are sent to
-//!   the exit node's relay, a Shadowsocks-2022 server, instead of directly;
-//! - `relays` (this node is the exit): Shadowsocks-2022 inbounds the source
-//!   nodes connect to; their traffic always leaves directly from here.
+//!   the exit node's relay instead of directly;
+//! - `relays` (this node is the exit): the inbounds the source nodes connect
+//!   to; their traffic always leaves directly from here.
+//!
+//! A relay speaks `protocol`: `shadowsocks` (Shadowsocks 2022, `method` and
+//! `password`; the default) or `vless` (with the `vless` feature). A VLESS
+//! route's `settings` are the VLESS outbound's own settings without
+//! `server` and `port` (`uuid`, `flow`, `reality`, `tls`, `transport`), a
+//! VLESS relay's `settings` the VLESS inbound's (`users`, `reality`, `tls`,
+//! `transport`). Control uses VLESS for the cross-border standby channel
+//! (anx docs/FUTURE-IMPROVEMENTS.md F-54): REALITY with Vision, or XHTTP
+//! behind a TLS front on the exit node, where the relay listens on
+//! `listen` (`127.0.0.1`) and the front proxies to it.
 //!
 //! Every inbound of the node relays through one [`Router`], so the routes
 //! apply to all protocols, including future layer-3 inbounds. The router
@@ -57,8 +67,10 @@ use tokio::task::JoinHandle;
 use crate::direct::CidrSet;
 use crate::domains::{normalize, DomainCache};
 
-/// The only relay protocol today; an empty `protocol` means it.
+/// The default relay protocol; an empty `protocol` means it.
 pub const RELAY_PROTOCOL: &str = "shadowsocks";
+/// The VLESS relay protocol (`vless` feature).
+pub const RELAY_PROTOCOL_VLESS: &str = "vless";
 /// How long an address-only connection waits for the client's first bytes
 /// before it is routed by address (server-first protocols send nothing).
 pub const SNIFF_WAIT: Duration = Duration::from_millis(300);
@@ -98,8 +110,15 @@ pub struct EgressServer {
     pub protocol: String,
     pub host: String,
     pub port: u16,
+    /// Shadowsocks only.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub method: String,
+    /// Shadowsocks only.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub password: String,
+    /// VLESS only: the outbound's settings without `server` and `port`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub settings: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
 /// One relay inbound of an exit node.
@@ -109,8 +128,35 @@ pub struct EgressRelay {
     #[serde(default)]
     pub protocol: String,
     pub port: u16,
+    /// The address to listen on; every address when absent. A relay behind
+    /// a front on the same node listens on a loopback address.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub listen: Option<std::net::IpAddr>,
+    /// Shadowsocks only.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub method: String,
+    /// Shadowsocks only.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub password: String,
+    /// VLESS only: the inbound's settings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub settings: Option<serde_json::Map<String, serde_json::Value>>,
+}
+
+impl EgressRelay {
+    /// The inbound type and settings the relay is built from.
+    pub(crate) fn inbound(&self) -> (&'static str, serde_json::Map<String, serde_json::Value>) {
+        if self.protocol == RELAY_PROTOCOL_VLESS {
+            return (
+                RELAY_PROTOCOL_VLESS,
+                self.settings.clone().unwrap_or_default(),
+            );
+        }
+        let mut settings = serde_json::Map::new();
+        settings.insert("method".into(), self.method.clone().into());
+        settings.insert("password".into(), self.password.clone().into());
+        (RELAY_PROTOCOL, settings)
+    }
 }
 
 /// A domain matcher of a route.
@@ -164,7 +210,7 @@ impl DomainMatcher {
 struct CompiledRoute {
     id: u64,
     matchers: Vec<DomainMatcher>,
-    outbound: Arc<Ss2022Outbound>,
+    outbound: Arc<dyn TcpOutbound>,
 }
 
 /// The routes in id order; the first that matches a host wins.
@@ -212,20 +258,11 @@ pub(crate) fn compile(config: &EgressConfig) -> Result<RouteTable, String> {
         if server.host.trim().is_empty() || server.port == 0 {
             return Err(fail("the server needs a host and a port".into()));
         }
-        let method = Method::parse(&server.method)
-            .map_err(|_| fail(format!("unsupported method {:?}", server.method)))?;
-        let outbound = Ss2022Outbound::new(
-            server.host.trim(),
-            server.port,
-            method,
-            &server.password,
-            Arc::new(TcpDialer),
-        )
-        .map_err(|_| fail("the server key does not fit the method".into()))?;
+        let outbound = route_outbound(server).map_err(fail)?;
         routes.push(CompiledRoute {
             id: route.id,
             matchers,
-            outbound: Arc::new(outbound),
+            outbound,
         });
     }
     routes.sort_by_key(|route| route.id);
@@ -237,6 +274,9 @@ pub(crate) fn compile(config: &EgressConfig) -> Result<RouteTable, String> {
             return Err(fail("the id is missing or repeated".into()));
         }
         check_protocol(&relay.protocol).map_err(fail)?;
+        if relay.protocol == RELAY_PROTOCOL_VLESS && relay.settings.is_none() {
+            return Err(fail("a vless relay needs its settings".into()));
+        }
         if relay.port == 0 || !ports.insert(relay.port) {
             return Err(fail(format!("port {} is missing or repeated", relay.port)));
         }
@@ -244,8 +284,51 @@ pub(crate) fn compile(config: &EgressConfig) -> Result<RouteTable, String> {
     Ok(RouteTable { routes })
 }
 
+/// The outbound that reaches a route's relay. Messages never carry a key.
+fn route_outbound(server: &EgressServer) -> Result<Arc<dyn TcpOutbound>, String> {
+    if server.protocol == RELAY_PROTOCOL_VLESS {
+        return vless_outbound(server);
+    }
+    let method = Method::parse(&server.method)
+        .map_err(|_| format!("unsupported method {:?}", server.method))?;
+    let outbound = Ss2022Outbound::new(
+        server.host.trim(),
+        server.port,
+        method,
+        &server.password,
+        Arc::new(TcpDialer),
+    )
+    .map_err(|_| "the server key does not fit the method".to_owned())?;
+    Ok(Arc::new(outbound))
+}
+
+#[cfg(feature = "vless")]
+fn vless_outbound(server: &EgressServer) -> Result<Arc<dyn TcpOutbound>, String> {
+    use engine_outbound::registry::OutboundFactory;
+    let mut settings = server
+        .settings
+        .clone()
+        .ok_or_else(|| "a vless route needs its settings".to_owned())?;
+    if settings.contains_key("server") || settings.contains_key("port") {
+        return Err("vless settings take the address from host and port".into());
+    }
+    settings.insert("server".into(), server.host.trim().into());
+    settings.insert("port".into(), server.port.into());
+    outbound_vless::VlessFactory
+        .build(&settings, Arc::new(TcpDialer))
+        .map_err(|reason| format!("vless: {reason}"))
+}
+
+#[cfg(not(feature = "vless"))]
+fn vless_outbound(_: &EgressServer) -> Result<Arc<dyn TcpOutbound>, String> {
+    Err("anixcore has no relay protocol \"vless\" in this build".into())
+}
+
 fn check_protocol(protocol: &str) -> Result<(), String> {
-    if protocol.is_empty() || protocol == RELAY_PROTOCOL {
+    if protocol.is_empty()
+        || protocol == RELAY_PROTOCOL
+        || (cfg!(feature = "vless") && protocol == RELAY_PROTOCOL_VLESS)
+    {
         Ok(())
     } else {
         Err(format!("anixcore has no relay protocol {protocol:?}"))
@@ -641,7 +724,7 @@ struct RoutedUdp {
 impl RoutedUdp {
     async fn flow(
         &self,
-        outbound: &Ss2022Outbound,
+        outbound: &Arc<dyn TcpOutbound>,
         target: &TargetAddr,
     ) -> io::Result<Arc<tokio::sync::Mutex<Box<dyn DatagramSend>>>> {
         if let Some(flow) = self.lock().get(target) {
