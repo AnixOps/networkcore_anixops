@@ -17,6 +17,14 @@ pub const GROUP_SECP256R1: u16 = 0x0017;
 pub const GROUP_SECP384R1: u16 = 0x0018;
 pub const GROUP_X25519_MLKEM768: u16 = 0x11ec;
 
+/// Placeholder in [`Extension::SignatureAlgorithms`] for a GREASE signature
+/// scheme; replaced by a random GREASE value on every ClientHello.
+pub const SIGNATURE_GREASE: u16 = 0x0a0a;
+/// ML-DSA-44 / ML-DSA-65 / ML-DSA-87 signature schemes (Chrome 157+).
+pub const SIG_MLDSA44: u16 = 0x0904;
+pub const SIG_MLDSA65: u16 = 0x0905;
+pub const SIG_MLDSA87: u16 = 0x0906;
+
 const MLKEM768_ENCAPSULATION_KEY_LEN: usize = 1184;
 
 /// Offset of the 32-byte legacy session id inside the encoded ClientHello
@@ -27,7 +35,9 @@ pub const SESSION_ID_OFFSET: usize = 39;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Fingerprint {
     /// Current desktop Chrome: GREASE, permuted extensions, X25519MLKEM768 +
-    /// X25519 key shares, ECH GREASE and the new ALPS code point.
+    /// X25519 key shares, ECH GREASE, the new ALPS code point, and (Chrome 157,
+    /// checked against Chrome for Testing 157.0.8103.38) a GREASE signature
+    /// scheme followed by ML-DSA-44/65/87 at the front of signature_algorithms.
     #[default]
     Chrome,
     /// The same Chrome shape without the post-quantum hybrid group, for
@@ -60,6 +70,13 @@ impl Fingerprint {
             key_shares.push(NamedGroup::Named(GROUP_X25519_MLKEM768));
         }
         key_shares.push(NamedGroup::Named(GROUP_X25519));
+        let mut signature_schemes = Vec::new();
+        if post_quantum {
+            signature_schemes.extend([SIGNATURE_GREASE, SIG_MLDSA44, SIG_MLDSA65, SIG_MLDSA87]);
+        }
+        signature_schemes.extend([
+            0x0403, 0x0804, 0x0401, 0x0503, 0x0805, 0x0501, 0x0806, 0x0601,
+        ]);
 
         ClientHelloSpec {
             cipher_suites: vec![
@@ -90,9 +107,7 @@ impl Fingerprint {
                 Extension::SessionTicket,
                 Extension::Alpn,
                 Extension::StatusRequest,
-                Extension::SignatureAlgorithms(vec![
-                    0x0403, 0x0804, 0x0401, 0x0503, 0x0805, 0x0501, 0x0806, 0x0601,
-                ]),
+                Extension::SignatureAlgorithms(signature_schemes),
                 Extension::SignedCertificateTimestamp,
                 Extension::KeyShare(key_shares),
                 Extension::PskKeyExchangeModes,
@@ -221,6 +236,7 @@ struct GreaseValues {
     extension_first: u16,
     extension_last: u16,
     version: u16,
+    signature: u16,
 }
 
 fn grease_value(seed: u32) -> u16 {
@@ -230,7 +246,7 @@ fn grease_value(seed: u32) -> u16 {
 
 impl GreaseValues {
     fn generate() -> io::Result<Self> {
-        let mut seeds = [0u8; 5];
+        let mut seeds = [0u8; 6];
         fill_random(&mut seeds)?;
         let extension_first = grease_value(seeds[2] as u32);
         let mut extension_last = grease_value(seeds[3] as u32);
@@ -243,6 +259,7 @@ impl GreaseValues {
             extension_first,
             extension_last,
             version: grease_value(seeds[4] as u32),
+            signature: grease_value(seeds[5] as u32),
         })
     }
 }
@@ -432,7 +449,12 @@ fn encode_extension(
         Extension::SignatureAlgorithms(schemes) => {
             put_u16(&mut out, (schemes.len() * 2) as u16);
             for scheme in schemes {
-                put_u16(&mut out, *scheme);
+                let scheme = if *scheme == SIGNATURE_GREASE {
+                    grease.signature
+                } else {
+                    *scheme
+                };
+                put_u16(&mut out, scheme);
             }
         }
         Extension::KeyShare(groups) => {
