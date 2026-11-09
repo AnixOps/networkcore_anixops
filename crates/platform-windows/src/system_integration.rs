@@ -38,6 +38,178 @@ pub fn disable_current_user_startup(executable: &Path) -> DomainResult<()> {
     native::disable_current_user_startup(executable)
 }
 
+/// Moves an owned legacy HKCU Run entry (which Windows skips once the GUI
+/// requires administrator rights) to the elevated logon task. Returns whether
+/// a legacy entry was found and migrated.
+pub fn migrate_legacy_current_user_startup(executable: &Path) -> DomainResult<bool> {
+    native::migrate_legacy_current_user_startup(executable)
+}
+
+/// Removes every per-user NetworkCore logon task. The uninstaller runs this
+/// as LocalSystem, which cannot see other users' Run keys but can remove
+/// their logon tasks. Returns how many tasks were removed.
+pub fn remove_all_startup_tasks() -> DomainResult<usize> {
+    native::remove_all_startup_tasks()
+}
+
+/// Task Scheduler folder and name prefix that own NetworkCore logon tasks.
+pub const NETWORKCORE_WINDOWS_STARTUP_TASK_PREFIX: &str = r"\AnixOps\AnixOps Net ";
+
+#[cfg_attr(not(windows), allow(dead_code))]
+fn startup_task_name(sid: &str) -> String {
+    format!("{NETWORKCORE_WINDOWS_STARTUP_TASK_PREFIX}{sid}")
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+fn is_valid_sid_text(sid: &str) -> bool {
+    sid.len() <= 184
+        && sid.starts_with("S-1-")
+        && sid[4..]
+            .split('-')
+            .all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit()))
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+fn xml_escape(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for character in value.chars() {
+        match character {
+            '&' => escaped.push_str("&amp;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            '"' => escaped.push_str("&quot;"),
+            '\'' => escaped.push_str("&apos;"),
+            other => escaped.push(other),
+        }
+    }
+    escaped
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+/// Task Scheduler 1.2 definition: start the GUI elevated (highest available)
+/// when `sid` signs in, interactively, with no time limit and no battery rules.
+fn startup_task_xml(sid: &str, executable: &str) -> String {
+    let sid = xml_escape(sid);
+    let executable = xml_escape(executable);
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>Starts AnixOps Net with administrator rights after sign-in.</Description>
+  </RegistrationInfo>
+  <Triggers>
+    <LogonTrigger>
+      <Enabled>true</Enabled>
+      <UserId>{sid}</UserId>
+    </LogonTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <UserId>{sid}</UserId>
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>HighestAvailable</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>false</StartWhenAvailable>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>false</Hidden>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <Priority>7</Priority>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>{executable}</Command>
+      <Arguments>--start-after-login</Arguments>
+    </Exec>
+  </Actions>
+</Task>
+"#
+    )
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+/// Picks NetworkCore logon task names out of `schtasks /Query /FO CSV /NH`.
+/// Only names with the fixed prefix followed by a well-formed SID qualify.
+fn owned_startup_task_names(csv: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    for line in csv.lines() {
+        let Some(rest) = line.trim().strip_prefix('"') else {
+            continue;
+        };
+        let Some(end) = rest.find('"') else {
+            continue;
+        };
+        let name = &rest[..end];
+        let Some(sid) = name.strip_prefix(NETWORKCORE_WINDOWS_STARTUP_TASK_PREFIX) else {
+            continue;
+        };
+        if is_valid_sid_text(sid) && !names.iter().any(|known| known == name) {
+            names.push(name.to_string());
+        }
+    }
+    names
+}
+
+#[cfg(test)]
+mod startup_task_tests {
+    use super::*;
+
+    #[test]
+    fn task_xml_escapes_the_executable_and_runs_elevated_at_logon() {
+        let xml = startup_task_xml("S-1-5-21-1-2-3-1001", r"C:\A&B\<gui>.exe");
+        assert!(xml.contains(r"<Command>C:\A&amp;B\&lt;gui&gt;.exe</Command>"));
+        assert!(xml.contains("<RunLevel>HighestAvailable</RunLevel>"));
+        assert!(xml.contains("<LogonType>InteractiveToken</LogonType>"));
+        assert_eq!(
+            xml.matches("<UserId>S-1-5-21-1-2-3-1001</UserId>").count(),
+            2
+        );
+        assert!(xml.contains("<Arguments>--start-after-login</Arguments>"));
+    }
+
+    #[test]
+    fn task_name_is_scoped_to_the_user_sid() {
+        assert_eq!(
+            startup_task_name("S-1-5-21-1-2-3-1001"),
+            r"\AnixOps\AnixOps Net S-1-5-21-1-2-3-1001"
+        );
+    }
+
+    #[test]
+    fn sid_text_validation_rejects_anything_but_a_sid() {
+        assert!(is_valid_sid_text("S-1-5-18"));
+        assert!(is_valid_sid_text("S-1-5-21-111-222-333-1001"));
+        assert!(!is_valid_sid_text("S-1-5-"));
+        assert!(!is_valid_sid_text("S-1-5-21 & x"));
+        assert!(!is_valid_sid_text("X-1-5-18"));
+    }
+
+    #[test]
+    fn owned_task_names_come_only_from_the_fixed_prefix() {
+        let csv = concat!(
+            "\"\\AnixOps\\AnixOps Net S-1-5-21-1-2-3-1001\",\"N/A\",\"Ready\"\r\n",
+            "\"\\AnixOps\\AnixOps Net S-1-5-21-1-2-3-1001\",\"N/A\",\"Ready\"\r\n",
+            "\"\\AnixOps\\AnixOps Net evil\",\"N/A\",\"Ready\"\r\n",
+            "\"\\Microsoft\\Windows\\Defrag\\ScheduledDefrag\",\"N/A\",\"Ready\"\r\n",
+            "\r\n",
+            "\"\\AnixOps\\AnixOps Net S-1-5-21-4-5-6-1002\",\"N/A\",\"Ready\"\r\n",
+        );
+        assert_eq!(
+            owned_startup_task_names(csv),
+            vec![
+                r"\AnixOps\AnixOps Net S-1-5-21-1-2-3-1001".to_string(),
+                r"\AnixOps\AnixOps Net S-1-5-21-4-5-6-1002".to_string(),
+            ]
+        );
+    }
+}
+
 /// Reads the current interactive user's WinINet proxy settings without changing
 /// either WinINet or WinHTTP. GUI status surfaces use this as an observation,
 /// never as evidence that a managed runtime successfully started.
@@ -300,15 +472,24 @@ mod native {
     pub fn disable_current_user_startup(_executable: &Path) -> DomainResult<()> {
         Err(unsupported())
     }
+
+    pub fn remove_all_startup_tasks() -> DomainResult<usize> {
+        Err(unsupported())
+    }
+
+    pub fn migrate_legacy_current_user_startup(_executable: &Path) -> DomainResult<bool> {
+        Err(unsupported())
+    }
 }
 
 #[cfg(windows)]
 mod native {
     use super::*;
-    use std::ffi::c_void;
+    use std::ffi::{c_void, OsStr, OsString};
     use std::fs;
     use std::mem::{size_of, zeroed};
-    use std::os::windows::ffi::OsStrExt;
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    use std::process::{Command, Stdio};
     use std::ptr::{null, null_mut};
     use std::thread;
     use std::time::{Duration, Instant};
@@ -317,9 +498,9 @@ mod native {
         SPOST_PATH,
     };
     use windows_sys::Win32::Foundation::{
-        GetLastError, GlobalFree, ERROR_FILE_NOT_FOUND, ERROR_SERVICE_ALREADY_RUNNING,
-        ERROR_SERVICE_DOES_NOT_EXIST, ERROR_SERVICE_EXISTS, ERROR_SERVICE_NOT_ACTIVE,
-        ERROR_SUCCESS,
+        CloseHandle, GetLastError, GlobalFree, LocalFree, ERROR_FILE_NOT_FOUND,
+        ERROR_SERVICE_ALREADY_RUNNING, ERROR_SERVICE_DOES_NOT_EXIST, ERROR_SERVICE_EXISTS,
+        ERROR_SERVICE_NOT_ACTIVE, ERROR_SUCCESS, HANDLE,
     };
     use windows_sys::Win32::Networking::WinHttp::{
         WinHttpGetDefaultProxyConfiguration, WinHttpSetDefaultProxyConfiguration,
@@ -328,6 +509,7 @@ mod native {
     use windows_sys::Win32::Networking::WinInet::{
         InternetSetOptionW, INTERNET_OPTION_REFRESH, INTERNET_OPTION_SETTINGS_CHANGED,
     };
+    use windows_sys::Win32::Security::Authorization::ConvertSidToStringSidW;
     use windows_sys::Win32::Security::Cryptography::{
         CertAddCertificateContextToStore, CertCloseStore, CertDeleteCertificateFromStore,
         CertFindCertificateInStore, CertFreeCertificateContext, CertGetCertificateContextProperty,
@@ -337,9 +519,10 @@ mod native {
         CERT_STORE_OPEN_EXISTING_FLAG, CERT_STORE_PROV_SYSTEM_W, CERT_SYSTEM_STORE_LOCAL_MACHINE,
         CRYPT_INTEGER_BLOB, X509_ASN_ENCODING,
     };
+    use windows_sys::Win32::Security::{GetTokenInformation, TokenUser, TOKEN_QUERY, TOKEN_USER};
     use windows_sys::Win32::System::Registry::{
-        RegCloseKey, RegCreateKeyExW, RegDeleteValueW, RegOpenKeyExW, RegQueryValueExW,
-        RegSetValueExW, HKEY, HKEY_CURRENT_USER, KEY_QUERY_VALUE, KEY_SET_VALUE, REG_DWORD, REG_SZ,
+        RegCloseKey, RegDeleteValueW, RegOpenKeyExW, RegQueryValueExW, RegSetValueExW, HKEY,
+        HKEY_CURRENT_USER, KEY_QUERY_VALUE, KEY_SET_VALUE, REG_DWORD, REG_SZ,
     };
     use windows_sys::Win32::System::Services::{
         ChangeServiceConfig2W, ChangeServiceConfigW, CloseServiceHandle, ControlService,
@@ -351,6 +534,8 @@ mod native {
         SERVICE_START_PENDING, SERVICE_STATUS, SERVICE_STATUS_PROCESS, SERVICE_STOP,
         SERVICE_STOPPED, SERVICE_STOP_PENDING, SERVICE_WIN32_OWN_PROCESS,
     };
+    use windows_sys::Win32::System::SystemInformation::GetSystemDirectoryW;
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
     const INTERNET_SETTINGS_KEY: &str =
         r"Software\Microsoft\Windows\CurrentVersion\Internet Settings";
@@ -534,55 +719,219 @@ mod native {
     }
 
     pub fn current_user_startup_enabled(executable: &Path) -> DomainResult<bool> {
-        let expected = current_user_startup_command(executable)?;
-        match read_current_user_run_value()? {
-            None => Ok(false),
-            Some(value) if value == expected => Ok(true),
-            Some(_) => Ok(false),
-        }
+        let _ = startup_task_command_path(executable)?;
+        startup_task_exists(&startup_task_name(&current_user_sid()?))
     }
 
+    /// Registers a per-user logon task that starts the GUI with the highest
+    /// available privileges. The GUI manifest requires administrator rights,
+    /// and Windows silently skips such programs in the Run key, so the logon
+    /// task replaces the legacy Run entry (which is removed when owned).
     pub fn enable_current_user_startup(executable: &Path) -> DomainResult<()> {
-        let command = current_user_startup_command(executable)?;
-        match read_current_user_run_value()? {
-            Some(value) if value != command => {
-                return Err(startup_error(
-                    "the current-user NetworkCore startup entry is owned by a different command",
-                ));
-            }
-            Some(_) => return Ok(()),
-            None => {}
+        let command = startup_task_command_path(executable)?;
+        let sid = current_user_sid()?;
+        let xml = startup_task_xml(&sid, &command);
+        let xml_path =
+            std::env::temp_dir().join(format!("anixops-net-startup-{}.xml", std::process::id()));
+        let mut bytes = vec![0xFF, 0xFE];
+        for unit in xml.encode_utf16() {
+            bytes.extend_from_slice(&unit.to_le_bytes());
         }
-        let key = create_current_user_run_key()?;
-        write_registry_string(&key, NETWORKCORE_WINDOWS_STARTUP_VALUE_NAME, &command).map_err(
-            |error| {
-                startup_error(&format!(
-                    "the current-user startup entry could not be written: {}",
-                    error.message
-                ))
-            },
-        )
+        fs::write(&xml_path, bytes)
+            .map_err(|_| startup_error("the startup task definition could not be written"))?;
+        let name = startup_task_name(&sid);
+        let created = run_schtasks(&[
+            OsStr::new("/Create"),
+            OsStr::new("/TN"),
+            OsStr::new(&name),
+            OsStr::new("/XML"),
+            xml_path.as_os_str(),
+            OsStr::new("/F"),
+        ]);
+        let _ = fs::remove_file(&xml_path);
+        created?;
+        remove_owned_legacy_run_entry(executable)
     }
 
     pub fn disable_current_user_startup(executable: &Path) -> DomainResult<()> {
+        let name = startup_task_name(&current_user_sid()?);
+        if startup_task_exists(&name)? {
+            run_schtasks(&[
+                OsStr::new("/Delete"),
+                OsStr::new("/TN"),
+                OsStr::new(&name),
+                OsStr::new("/F"),
+            ])?;
+        }
+        remove_owned_legacy_run_entry(executable)
+    }
+
+    pub fn remove_all_startup_tasks() -> DomainResult<usize> {
+        let output = schtasks_output(&[
+            OsStr::new("/Query"),
+            OsStr::new("/FO"),
+            OsStr::new("CSV"),
+            OsStr::new("/NH"),
+        ])?;
+        let mut removed = 0;
+        for name in owned_startup_task_names(&String::from_utf8_lossy(&output)) {
+            run_schtasks(&[
+                OsStr::new("/Delete"),
+                OsStr::new("/TN"),
+                OsStr::new(&name),
+                OsStr::new("/F"),
+            ])?;
+            removed += 1;
+        }
+        Ok(removed)
+    }
+
+    pub fn migrate_legacy_current_user_startup(executable: &Path) -> DomainResult<bool> {
         let expected = current_user_startup_command(executable)?;
         match read_current_user_run_value()? {
-            None => return Ok(()),
-            Some(value) if value != expected => {
-                return Ok(());
-            }
-            Some(_) => {}
+            Some(value) if value == expected => {}
+            _ => return Ok(false),
+        }
+        enable_current_user_startup(executable)?;
+        Ok(true)
+    }
+
+    fn remove_owned_legacy_run_entry(executable: &Path) -> DomainResult<()> {
+        let expected = current_user_startup_command(executable)?;
+        match read_current_user_run_value()? {
+            Some(value) if value == expected => {}
+            _ => return Ok(()),
         }
         let key = open_current_user_run_key()?;
         let name = wide(NETWORKCORE_WINDOWS_STARTUP_VALUE_NAME);
         let result = unsafe { RegDeleteValueW(key.0, name.as_ptr()) };
         if result != ERROR_SUCCESS && result != ERROR_FILE_NOT_FOUND {
             return Err(startup_win32_error(
-                "the current-user startup entry could not be removed",
+                "the legacy current-user startup entry could not be removed",
                 result,
             ));
         }
         Ok(())
+    }
+
+    fn startup_task_command_path(executable: &Path) -> DomainResult<String> {
+        let executable = fs::canonicalize(executable)
+            .map_err(|_| startup_error("the GUI executable could not be resolved"))?;
+        let executable = executable.display().to_string();
+        Ok(executable
+            .strip_prefix(r"\\?\")
+            .unwrap_or(executable.as_str())
+            .to_string())
+    }
+
+    fn startup_task_exists(name: &str) -> DomainResult<bool> {
+        let output = schtasks_command()?
+            .args([OsStr::new("/Query"), OsStr::new("/TN"), OsStr::new(name)])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map_err(|_| startup_error("the Task Scheduler could not be queried"))?;
+        Ok(output.success())
+    }
+
+    fn run_schtasks(arguments: &[&OsStr]) -> DomainResult<()> {
+        schtasks_output(arguments).map(|_| ())
+    }
+
+    fn schtasks_output(arguments: &[&OsStr]) -> DomainResult<Vec<u8>> {
+        let output = schtasks_command()?
+            .args(arguments)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .map_err(|_| startup_error("the Task Scheduler could not be started"))?;
+        if output.status.success() {
+            return Ok(output.stdout);
+        }
+        Err(startup_error(&format!(
+            "the Task Scheduler rejected the startup task (exit={})",
+            output.status.code().unwrap_or(-1)
+        )))
+    }
+
+    fn schtasks_command() -> DomainResult<Command> {
+        let mut buffer = vec![0_u16; 260];
+        let length =
+            unsafe { GetSystemDirectoryW(buffer.as_mut_ptr(), buffer.len() as u32) } as usize;
+        if length == 0 || length >= buffer.len() {
+            return Err(startup_error("the Windows system directory is unavailable"));
+        }
+        let system_directory = PathBuf::from(OsString::from_wide(&buffer[..length]));
+        let executable = system_directory.join("schtasks.exe");
+        if !executable.is_file() {
+            return Err(startup_error("schtasks.exe is unavailable"));
+        }
+        let system_root = system_directory
+            .parent()
+            .ok_or_else(|| startup_error("the Windows directory is unavailable"))?
+            .to_path_buf();
+        let mut command = Command::new(executable);
+        command
+            .env_clear()
+            .env("SystemRoot", &system_root)
+            .env("windir", &system_root)
+            .env("PATH", &system_directory)
+            .current_dir(&system_directory)
+            .stdin(Stdio::null());
+        Ok(command)
+    }
+
+    /// String SID of the account this process runs as, used to scope the
+    /// logon task to exactly this user.
+    fn current_user_sid() -> DomainResult<String> {
+        let mut token: HANDLE = null_mut();
+        if unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) } == 0 {
+            return Err(startup_error("the process token could not be opened"));
+        }
+        let token = OwnedHandle(token);
+        let mut size = 0u32;
+        unsafe { GetTokenInformation(token.0, TokenUser, null_mut(), 0, &mut size) };
+        if size == 0 {
+            return Err(startup_error("the process user could not be read"));
+        }
+        let mut buffer = vec![0u64; (size as usize).div_ceil(8)];
+        if unsafe {
+            GetTokenInformation(
+                token.0,
+                TokenUser,
+                buffer.as_mut_ptr() as *mut c_void,
+                size,
+                &mut size,
+            )
+        } == 0
+        {
+            return Err(startup_error("the process user could not be read"));
+        }
+        let user = unsafe { &*(buffer.as_ptr() as *const TOKEN_USER) };
+        let mut text: *mut u16 = null_mut();
+        if unsafe { ConvertSidToStringSidW(user.User.Sid, &mut text) } == 0 || text.is_null() {
+            return Err(startup_error("the process user SID could not be formatted"));
+        }
+        let mut length = 0usize;
+        while unsafe { *text.add(length) } != 0 {
+            length += 1;
+        }
+        let sid = String::from_utf16_lossy(unsafe { std::slice::from_raw_parts(text, length) });
+        unsafe { LocalFree(text as *mut c_void) };
+        if !is_valid_sid_text(&sid) {
+            return Err(startup_error("the process user SID is invalid"));
+        }
+        Ok(sid)
+    }
+
+    struct OwnedHandle(HANDLE);
+
+    impl Drop for OwnedHandle {
+        fn drop(&mut self) {
+            unsafe {
+                CloseHandle(self.0);
+            }
+        }
     }
 
     pub fn apply_system_proxy(
@@ -909,32 +1258,6 @@ mod native {
         if result != ERROR_SUCCESS {
             return Err(startup_win32_error(
                 "the current-user Run registry key could not be opened",
-                result,
-            ));
-        }
-        Ok(RegistryKey(key))
-    }
-
-    fn create_current_user_run_key() -> DomainResult<RegistryKey> {
-        let path = wide(CURRENT_USER_RUN_KEY);
-        let mut key: HKEY = null_mut();
-        let mut disposition = 0u32;
-        let result = unsafe {
-            RegCreateKeyExW(
-                HKEY_CURRENT_USER,
-                path.as_ptr(),
-                0,
-                null_mut(),
-                0,
-                KEY_QUERY_VALUE | KEY_SET_VALUE,
-                null(),
-                &mut key,
-                &mut disposition,
-            )
-        };
-        if result != ERROR_SUCCESS {
-            return Err(startup_win32_error(
-                "the current-user Run registry key could not be created",
                 result,
             ));
         }
