@@ -399,6 +399,19 @@ impl RoutedOutbound {
         Ok(())
     }
 
+    /// [`TcpOutbound::health`] of every node that keeps one, by node id.
+    pub fn node_health(&self) -> Vec<(String, &'static str, serde_json::Value)> {
+        self.nodes
+            .iter()
+            .filter_map(|(id, node)| node.health().map(|h| (id.clone(), node.protocol(), h)))
+            .collect()
+    }
+
+    /// [`TcpOutbound::resume`] on node `id`; `None` when there is no such node.
+    pub fn resume_node(&self, id: &str) -> Option<bool> {
+        self.nodes.get(id).map(|node| node.resume())
+    }
+
     /// The outbound for connections that skip the rules (the direct mode).
     pub fn direct(&self) -> &Arc<dyn TcpOutbound> {
         &self.direct

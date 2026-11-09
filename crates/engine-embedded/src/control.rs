@@ -21,6 +21,8 @@
 //! | `script_notifications` | | `{"notifications": [`[`ScriptNotificationView`]`]}`, each returned once |
 //! | `network_changed` | | `{"scheduled": network-change script count}` |
 //! | `run_script` | `tag` | `{"scheduled": bool}` |
+//! | `outbound_health` | | `{"outbounds": [{"node", "protocol", "health"}]}`, only outbounds that report health |
+//! | `resume_outbound` | `node` | `{"resumed": bool}` |
 //!
 //! The script commands need a MITM config with plugin scripts; the client
 //! sends `network_changed` when the device's network changes and polls
@@ -36,6 +38,10 @@ use serde_json::json;
 use crate::connections::{Dispatcher, Mode};
 use crate::tunnel::FlowInterceptor;
 use crate::{RuntimeError, RuntimeErrorCode};
+
+/// The node name `outbound_health` gives the only outbound of a config
+/// without policy groups.
+pub const SINGLE_NODE: &str = "proxy";
 
 /// Largest request accepted.
 pub const MAX_REQUEST_LEN: usize = 4096;
@@ -57,6 +63,8 @@ enum ControlRequest {
     ScriptNotifications,
     NetworkChanged,
     RunScript { tag: String },
+    OutboundHealth,
+    ResumeOutbound { node: String },
 }
 
 /// Script commands, answered by the flow interceptor.
@@ -151,6 +159,42 @@ pub fn handle_with_interceptor(
         }
         ControlRequest::NetworkChanged => Ok(script(interceptor, ScriptControl::NetworkChanged)?),
         ControlRequest::RunScript { tag } => Ok(script(interceptor, ScriptControl::Run { tag })?),
+        ControlRequest::OutboundHealth => {
+            let outbounds: Vec<_> = match dispatcher.routed_outbound() {
+                Some(routed) => routed
+                    .node_health()
+                    .into_iter()
+                    .map(|(node, protocol, health)| {
+                        json!({ "node": node, "protocol": protocol, "health": health })
+                    })
+                    .collect(),
+                None => {
+                    let outbound = dispatcher.outbound();
+                    outbound
+                        .health()
+                        .map(|health| {
+                            json!({
+                                "node": SINGLE_NODE,
+                                "protocol": outbound.protocol(),
+                                "health": health,
+                            })
+                        })
+                        .into_iter()
+                        .collect()
+                }
+            };
+            Ok(json!({ "outbounds": outbounds }))
+        }
+        ControlRequest::ResumeOutbound { node } => {
+            let resumed = match dispatcher.routed_outbound() {
+                Some(routed) => routed
+                    .resume_node(&node)
+                    .ok_or_else(|| invalid("no such node"))?,
+                None if node == SINGLE_NODE => dispatcher.outbound().resume(),
+                None => return Err(invalid("no such node")),
+            };
+            Ok(json!({ "resumed": resumed }))
+        }
     };
     answer
         .and_then(|answer| serde_json::to_vec(&answer))

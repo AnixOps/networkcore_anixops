@@ -221,6 +221,22 @@ pub trait TcpOutbound: Send + Sync {
             }
         })
     }
+
+    /// Protocol-specific health of this outbound as a JSON object (dial
+    /// outcome counters, a stopped state, hints for the user), for the app to
+    /// show and to report to its panel. Outbounds that keep none return the
+    /// default `None`. Counters only; never destinations.
+    fn health(&self) -> Option<serde_json::Value> {
+        None
+    }
+
+    /// Clears a state in which the outbound stopped dialing on its own (say,
+    /// the server kept rejecting its credentials), after the user retried or
+    /// refreshed the subscription. Returns whether anything changed; the
+    /// default has no such state.
+    fn resume(&self) -> bool {
+        false
+    }
 }
 
 /// The error a [`TcpOutbound::probe`] that ran out of time fails with.
