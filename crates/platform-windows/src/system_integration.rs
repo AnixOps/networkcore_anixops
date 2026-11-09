@@ -166,7 +166,10 @@ mod startup_task_tests {
         assert!(xml.contains(r"<Command>C:\A&amp;B\&lt;gui&gt;.exe</Command>"));
         assert!(xml.contains("<RunLevel>HighestAvailable</RunLevel>"));
         assert!(xml.contains("<LogonType>InteractiveToken</LogonType>"));
-        assert_eq!(xml.matches("<UserId>S-1-5-21-1-2-3-1001</UserId>").count(), 2);
+        assert_eq!(
+            xml.matches("<UserId>S-1-5-21-1-2-3-1001</UserId>").count(),
+            2
+        );
         assert!(xml.contains("<Arguments>--start-after-login</Arguments>"));
     }
 
@@ -495,9 +498,9 @@ mod native {
         SPOST_PATH,
     };
     use windows_sys::Win32::Foundation::{
-        CloseHandle, GetLastError, GlobalFree, LocalFree, HANDLE, ERROR_FILE_NOT_FOUND, ERROR_SERVICE_ALREADY_RUNNING,
-        ERROR_SERVICE_DOES_NOT_EXIST, ERROR_SERVICE_EXISTS, ERROR_SERVICE_NOT_ACTIVE,
-        ERROR_SUCCESS,
+        CloseHandle, GetLastError, GlobalFree, LocalFree, ERROR_FILE_NOT_FOUND,
+        ERROR_SERVICE_ALREADY_RUNNING, ERROR_SERVICE_DOES_NOT_EXIST, ERROR_SERVICE_EXISTS,
+        ERROR_SERVICE_NOT_ACTIVE, ERROR_SUCCESS, HANDLE,
     };
     use windows_sys::Win32::Networking::WinHttp::{
         WinHttpGetDefaultProxyConfiguration, WinHttpSetDefaultProxyConfiguration,
@@ -506,6 +509,7 @@ mod native {
     use windows_sys::Win32::Networking::WinInet::{
         InternetSetOptionW, INTERNET_OPTION_REFRESH, INTERNET_OPTION_SETTINGS_CHANGED,
     };
+    use windows_sys::Win32::Security::Authorization::ConvertSidToStringSidW;
     use windows_sys::Win32::Security::Cryptography::{
         CertAddCertificateContextToStore, CertCloseStore, CertDeleteCertificateFromStore,
         CertFindCertificateInStore, CertFreeCertificateContext, CertGetCertificateContextProperty,
@@ -515,13 +519,10 @@ mod native {
         CERT_STORE_OPEN_EXISTING_FLAG, CERT_STORE_PROV_SYSTEM_W, CERT_SYSTEM_STORE_LOCAL_MACHINE,
         CRYPT_INTEGER_BLOB, X509_ASN_ENCODING,
     };
-    use windows_sys::Win32::Security::Authorization::ConvertSidToStringSidW;
     use windows_sys::Win32::Security::{GetTokenInformation, TokenUser, TOKEN_QUERY, TOKEN_USER};
-    use windows_sys::Win32::System::SystemInformation::GetSystemDirectoryW;
-    use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
     use windows_sys::Win32::System::Registry::{
-        RegCloseKey, RegDeleteValueW, RegOpenKeyExW, RegQueryValueExW,
-        RegSetValueExW, HKEY, HKEY_CURRENT_USER, KEY_QUERY_VALUE, KEY_SET_VALUE, REG_DWORD, REG_SZ,
+        RegCloseKey, RegDeleteValueW, RegOpenKeyExW, RegQueryValueExW, RegSetValueExW, HKEY,
+        HKEY_CURRENT_USER, KEY_QUERY_VALUE, KEY_SET_VALUE, REG_DWORD, REG_SZ,
     };
     use windows_sys::Win32::System::Services::{
         ChangeServiceConfig2W, ChangeServiceConfigW, CloseServiceHandle, ControlService,
@@ -533,6 +534,8 @@ mod native {
         SERVICE_START_PENDING, SERVICE_STATUS, SERVICE_STATUS_PROCESS, SERVICE_STOP,
         SERVICE_STOPPED, SERVICE_STOP_PENDING, SERVICE_WIN32_OWN_PROCESS,
     };
+    use windows_sys::Win32::System::SystemInformation::GetSystemDirectoryW;
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
     const INTERNET_SETTINGS_KEY: &str =
         r"Software\Microsoft\Windows\CurrentVersion\Internet Settings";
@@ -728,10 +731,8 @@ mod native {
         let command = startup_task_command_path(executable)?;
         let sid = current_user_sid()?;
         let xml = startup_task_xml(&sid, &command);
-        let xml_path = std::env::temp_dir().join(format!(
-            "anixops-net-startup-{}.xml",
-            std::process::id()
-        ));
+        let xml_path =
+            std::env::temp_dir().join(format!("anixops-net-startup-{}.xml", std::process::id()));
         let mut bytes = vec![0xFF, 0xFE];
         for unit in xml.encode_utf16() {
             bytes.extend_from_slice(&unit.to_le_bytes());
