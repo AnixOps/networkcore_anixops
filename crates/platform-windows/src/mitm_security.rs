@@ -50,43 +50,46 @@ pub fn remove_windows_managed_mitm_private_key(path: &Path) -> DomainResult<()> 
 #[cfg(any(windows, test))]
 const MANAGED_MITM_PRIVATE_KEY_ACL_SCRIPT: &str = r#"
 $ErrorActionPreference = 'Stop'
+try { [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false) } catch { }
 $path = $env:NETWORKCORE_MITM_PRIVATE_KEY_PATH
 if ([String]::IsNullOrWhiteSpace($path)) { throw 'private key path is unavailable' }
 $expectedDirectory = $env:NETWORKCORE_MITM_PRIVATE_KEY_DIRECTORY
 if ([String]::IsNullOrWhiteSpace($expectedDirectory)) { throw 'private key directory is unavailable' }
 $mode = $env:NETWORKCORE_MITM_PRIVATE_KEY_ACL_MODE
 if ($mode -ne 'protect' -and $mode -ne 'validate') { throw 'private key ACL mode is invalid' }
-$item = Get-Item -LiteralPath $path -Force -ErrorAction Stop
-$directory = Get-Item -LiteralPath $expectedDirectory -Force -ErrorAction Stop
-if (-not ($item -is [System.IO.FileInfo]) -or -not $directory.PSIsContainer) { throw 'private key path is invalid' }
+$item = [System.IO.FileInfo]::new($path)
+$directory = [System.IO.DirectoryInfo]::new($expectedDirectory)
+if (-not $item.Exists -or -not $directory.Exists) { throw 'private key path is invalid' }
 if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0 -or ($directory.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'reparse points are not allowed' }
 if ($item.Name -ne 'root-ca-key.pem' -or -not [String]::Equals($item.DirectoryName, $directory.FullName, [System.StringComparison]::OrdinalIgnoreCase)) { throw 'private key path is outside the managed MITM directory' }
-$acl = Get-Acl -LiteralPath $item.FullName -ErrorAction Stop
+$acl = $item.GetAccessControl()
 $owner = $acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value
 if ([String]::IsNullOrWhiteSpace($owner) -or $owner -eq 'S-1-5-18') { throw 'private key owner is invalid' }
 if ($mode -eq 'protect') {
     $acl.SetAccessRuleProtection($true, $false)
     foreach ($rule in @($acl.Access)) { [void]$acl.RemoveAccessRuleAll($rule) }
     foreach ($sidValue in @($owner, 'S-1-5-18')) {
-        $identity = New-Object -TypeName System.Security.Principal.SecurityIdentifier -ArgumentList $sidValue
-        $rule = New-Object -TypeName System.Security.AccessControl.FileSystemAccessRule -ArgumentList $identity, [System.Security.AccessControl.FileSystemRights]::FullControl, [System.Security.AccessControl.InheritanceFlags]::None, [System.Security.AccessControl.PropagationFlags]::None, [System.Security.AccessControl.AccessControlType]::Allow
+        $identity = [System.Security.Principal.SecurityIdentifier]::new($sidValue)
+        $rule = [System.Security.AccessControl.FileSystemAccessRule]::new($identity, [System.Security.AccessControl.FileSystemRights]::FullControl, [System.Security.AccessControl.InheritanceFlags]::None, [System.Security.AccessControl.PropagationFlags]::None, [System.Security.AccessControl.AccessControlType]::Allow)
         [void]$acl.AddAccessRule($rule)
     }
-    Set-Acl -LiteralPath $item.FullName -AclObject $acl -ErrorAction Stop
+    $item.SetAccessControl($acl)
 }
-$verified = Get-Acl -LiteralPath $item.FullName -ErrorAction Stop
+$item.Refresh()
+$verified = $item.GetAccessControl()
 if (-not $verified.AreAccessRulesProtected) { throw 'ACL inheritance is enabled' }
 $rules = @($verified.GetAccessRules($true, $false, [System.Security.Principal.SecurityIdentifier]))
 if ($rules.Count -ne 2) { throw 'unexpected ACL rule count' }
 foreach ($sidValue in @($owner, 'S-1-5-18')) {
-    $matches = @($rules | Where-Object {
-        $_.IdentityReference.Value -eq $sidValue -and
-        $_.AccessControlType -eq [System.Security.AccessControl.AccessControlType]::Allow -and
-        $_.FileSystemRights -eq [System.Security.AccessControl.FileSystemRights]::FullControl -and
-        $_.InheritanceFlags -eq [System.Security.AccessControl.InheritanceFlags]::None -and
-        $_.PropagationFlags -eq [System.Security.AccessControl.PropagationFlags]::None
-    })
-    if ($matches.Count -ne 1) { throw 'required private key ACL rule is missing' }
+    $found = 0
+    foreach ($candidate in $rules) {
+        if ($candidate.IdentityReference.Value -eq $sidValue -and
+            $candidate.AccessControlType -eq [System.Security.AccessControl.AccessControlType]::Allow -and
+            $candidate.FileSystemRights -eq [System.Security.AccessControl.FileSystemRights]::FullControl -and
+            $candidate.InheritanceFlags -eq [System.Security.AccessControl.InheritanceFlags]::None -and
+            $candidate.PropagationFlags -eq [System.Security.AccessControl.PropagationFlags]::None) { $found += 1 }
+    }
+    if ($found -ne 1) { throw 'required private key ACL rule is missing' }
 }
 "#;
 
@@ -175,6 +178,49 @@ mod tests {
             MANAGED_MITM_PRIVATE_KEY_ACL_SCRIPT.contains("NETWORKCORE_MITM_PRIVATE_KEY_DIRECTORY")
         );
         assert!(!MANAGED_MITM_PRIVATE_KEY_ACL_SCRIPT.contains("CommonApplicationData"));
+    }
+
+    #[test]
+    fn acl_script_builds_rules_in_expression_mode() {
+        // `New-Object -ArgumentList $x, [Type]::Member` parses `[Type]::Member`
+        // in argument mode as a plain string, and cmdlets live in modules that
+        // can fail to load under the trusted minimal environment. The script
+        // therefore uses only .NET constructors and methods.
+        for cmdlet in [
+            "New-Object",
+            "Set-Acl",
+            "Get-Acl",
+            "Get-Item",
+            "Where-Object",
+        ] {
+            assert!(
+                !MANAGED_MITM_PRIVATE_KEY_ACL_SCRIPT.contains(cmdlet),
+                "{cmdlet} must not be used"
+            );
+        }
+        assert!(MANAGED_MITM_PRIVATE_KEY_ACL_SCRIPT.contains("FileSystemAccessRule]::new("));
+        assert!(MANAGED_MITM_PRIVATE_KEY_ACL_SCRIPT.contains("[Console]::OutputEncoding"));
+    }
+
+    /// Runs the real ACL script through the trusted PowerShell environment on
+    /// a scratch key, so a script or environment regression fails Windows CI
+    /// instead of the user's "enable HTTPS MITM" button.
+    #[cfg(windows)]
+    #[test]
+    fn acl_script_protects_and_validates_a_scratch_key() {
+        let directory =
+            std::env::temp_dir().join(format!("networkcore-mitm-acl-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).expect("scratch directory");
+        let key = directory.join("root-ca-key.pem");
+        std::fs::write(&key, b"scratch").expect("scratch key");
+
+        let protect = run_windows_managed_mitm_private_key_acl(&key, "protect");
+        let validate = run_windows_managed_mitm_private_key_acl(&key, "validate");
+        let _ = std::fs::remove_dir_all(&directory);
+
+        protect.unwrap_or_else(|error| panic!("protect failed: {}", error.message));
+        validate.unwrap_or_else(|error| panic!("validate failed: {}", error.message));
     }
 
     #[test]
