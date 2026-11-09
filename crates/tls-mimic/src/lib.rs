@@ -2,7 +2,9 @@
 //!
 //! `tls-mimic` builds ClientHello messages that match a real browser's
 //! fingerprint (cipher suites, extension set and order, GREASE, key shares,
-//! ECH GREASE) and runs a small TLS 1.3 client on top of them. Unlike general
+//! ECH GREASE) and runs a small TLS 1.3 client on top of them. The
+//! fingerprints are data ([`profile`]): Chrome and Safari ship built in and a
+//! delivered bundle can replace them at run time ([`install_profiles`]). Unlike general
 //! TLS libraries it lets the caller edit the ClientHello and decide trust
 //! through [`HandshakeHooks`], which is what REALITY and similar protocols
 //! need. It deliberately supports only TLS 1.3 full handshakes: no TLS 1.2,
@@ -13,13 +15,17 @@ pub mod cert;
 pub mod crypto;
 pub mod fingerprint;
 mod handshake;
+pub mod profile;
 pub mod server;
 mod stream;
 
 use std::io;
 
 pub use crypto::{CipherSuite, HashAlg};
-pub use fingerprint::{build_client_hello, ClientHello, Fingerprint, SESSION_ID_OFFSET};
+pub use fingerprint::{
+    build_client_hello, clear_profiles, install_profiles, installed_profiles, ClientHello,
+    ClientHelloSpec, Fingerprint, InstalledProfiles, SESSION_ID_OFFSET,
+};
 pub use handshake::{connect, ClientConfig, HandshakeHooks, HelloContext};
 pub use stream::TlsStream;
 

@@ -180,6 +180,7 @@ impl EmbeddedRuntime {
         dialer: Arc<dyn Dialer>,
     ) -> Result<Self, RuntimeError> {
         let config = RuntimeConfig::from_json(bytes)?;
+        config.install_tls_fingerprints();
         let interceptor = build_interceptor(&config)?;
         let plugin_rules = interceptor
             .as_ref()

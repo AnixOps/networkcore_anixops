@@ -102,7 +102,7 @@ A VLESS + REALITY outbound uses the same envelope with:
 }
 ```
 
-`flow` may be empty for plain VLESS; `short_id` defaults to empty and `fingerprint` to `chrome` (`chrome-nopq` drops the post-quantum key share). The uuid, like the Shadowsocks password, comes from the Keychain and never appears in status.
+`flow` may be empty for plain VLESS; `short_id` defaults to empty and `fingerprint` to `auto` (Safari's ClientHello on iOS and macOS, Chrome's elsewhere; `chrome`, `safari` and `chrome-nopq`, which drops the post-quantum key share, name one explicitly). The uuid, like the Shadowsocks password, comes from the Keychain and never appears in status.
 
 A WireGuard envelope replaces `outbound` with the fields of one `wg-quick` peer (keys are standard base64; `preshared_key` and `persistent_keepalive_secs` are optional, `dns` and `limits` are ignored):
 

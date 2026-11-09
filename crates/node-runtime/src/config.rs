@@ -51,6 +51,10 @@ pub struct NodeConfig {
     pub default_outbound: Option<String>,
     #[serde(default)]
     pub network: Option<NetworkPlan>,
+    /// A ClientHello fingerprint bundle to install at start, as
+    /// `PUT /v1/tls-fingerprints` takes it (see [`crate::apply_tls_fingerprints`]).
+    #[serde(default)]
+    pub tls_fingerprints: Option<serde_json::Value>,
 }
 
 /// Has no `Debug`: `token` is a credential.

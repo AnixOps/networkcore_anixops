@@ -36,6 +36,17 @@ accounting.
   (`anx-line:<id>`), failing over in pairing order with a failback delay.
   `GET /v1/network` reports each egress's state and each ingress's active
   egress and path.
+- `tls_fingerprints`: a ClientHello fingerprint bundle
+  (`tls_mimic::install_profiles`: `{"format": 1, "revision": "...",
+  "profiles": {"chrome": {...}, "safari": {...}}}`), set with
+  `PUT /v1/tls-fingerprints` or the config member `tls_fingerprints`. It
+  replaces the browser shapes built into the kernel for every outbound of the
+  process that imitates a browser, so an agent follows a browser release by
+  pushing data. The bundle is the whole state (`"profiles": {}` restores the
+  built-in data); one with a profile this kernel cannot reproduce is refused
+  with 400 and changes nothing; names the kernel does not know are skipped
+  and listed as `ignored`. `GET /v1/tls-fingerprints` answers the revision in
+  effect, the replaced names and every name the kernel knows.
 - Listeners on `::` accept IPv4 too on every OS and fall back to `0.0.0.0`
   on hosts without IPv6.
 - Protocols are cargo features (`shadowsocks`, `trojan`, `vless`, `vmess`,

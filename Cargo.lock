@@ -832,6 +832,7 @@ dependencies = [
  "serde",
  "serde_json",
  "time",
+ "tls-mimic",
  "tokio",
  "tokio-rustls",
  "transport-tls",
@@ -2100,6 +2101,7 @@ dependencies = [
  "serde",
  "serde_json",
  "socket2",
+ "tls-mimic",
  "tokio",
 ]
 
@@ -3383,6 +3385,7 @@ dependencies = [
  "ml-kem",
  "rand_core 0.6.4",
  "ring",
+ "serde_json",
  "tokio",
  "x25519-dalek",
 ]

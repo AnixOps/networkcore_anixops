@@ -1,7 +1,9 @@
 use tls_mimic::cert::{parse_leaf, verify_signature, OID_ED25519};
 use tls_mimic::crypto::RecordCipher;
-use tls_mimic::fingerprint::is_grease;
-use tls_mimic::{build_client_hello, CipherSuite, Fingerprint, HashAlg, SESSION_ID_OFFSET};
+use tls_mimic::fingerprint::{build_from_spec, is_grease};
+use tls_mimic::{
+    build_client_hello, CipherSuite, ClientHelloSpec, Fingerprint, HashAlg, SESSION_ID_OFFSET,
+};
 
 fn hex(input: &str) -> Vec<u8> {
     (0..input.len())
@@ -224,4 +226,234 @@ fn fingerprint_names_resolve() {
         Some(Fingerprint::ChromeNoPq)
     );
     assert_eq!(Fingerprint::from_name("firefox"), None);
+    assert_eq!(Fingerprint::from_name("safari"), Some(Fingerprint::Safari));
+    assert_eq!(Fingerprint::from_name("iOS"), Some(Fingerprint::Safari));
+    assert_eq!(
+        Fingerprint::from_name("auto"),
+        Some(Fingerprint::platform_default())
+    );
+    let expected = if cfg!(target_vendor = "apple") {
+        Fingerprint::Safari
+    } else {
+        Fingerprint::Chrome
+    };
+    assert_eq!(Fingerprint::platform_default(), expected);
+    for fingerprint in Fingerprint::ALL {
+        assert_eq!(
+            Fingerprint::from_name(fingerprint.name()),
+            Some(fingerprint)
+        );
+    }
+}
+
+/// Everything in a ClientHello that does not change from one connection to
+/// the next: GREASE values become `G`, key shares keep group and length only.
+fn shape(hello: &Hello) -> Vec<String> {
+    let code = |value: u16| {
+        if is_grease(value) {
+            "G".to_owned()
+        } else {
+            format!("{value:04x}")
+        }
+    };
+    let codes = |data: &[u8]| -> String {
+        data.chunks(2)
+            .map(|c| code(u16::from_be_bytes([c[0], c[1]])))
+            .collect::<Vec<_>>()
+            .join(",")
+    };
+    let plain = |data: &[u8]| data.iter().map(|b| format!("{b:02x}")).collect::<String>();
+    let mut out = vec![format!("suites {}", codes(&hello.cipher_suites_raw()))];
+    for (ext_type, data) in &hello.extensions {
+        let body = match *ext_type {
+            0x000a => codes(&data[2..]),
+            0x000d => codes(&data[2..]),
+            0x002b => codes(&data[1..]),
+            0x0033 => {
+                let mut pos = 2;
+                let mut shares = Vec::new();
+                while pos < data.len() {
+                    let group = u16::from_be_bytes([data[pos], data[pos + 1]]);
+                    let len = u16::from_be_bytes([data[pos + 2], data[pos + 3]]) as usize;
+                    shares.push(format!("{}:{len}", code(group)));
+                    pos += 4 + len;
+                }
+                shares.join(",")
+            }
+            _ => plain(data),
+        };
+        out.push(format!("{} {body}", code(*ext_type)));
+    }
+    out
+}
+
+impl Hello {
+    fn cipher_suites_raw(&self) -> Vec<u8> {
+        self.cipher_suites
+            .iter()
+            .flat_map(|suite| suite.to_be_bytes())
+            .collect()
+    }
+}
+
+/// The first packet Safari 26.6.2 sent on macOS 26.7.2 (one TLS record),
+/// recorded by `anx-lab safari-fp` on 2026-11-09.
+const SAFARI_CAPTURE: &str = include_str!("data/safari-26.6.2-macos-26.7.2.hex");
+
+#[test]
+fn safari_client_hello_matches_the_captured_one() {
+    let record = hex(SAFARI_CAPTURE.trim());
+    assert_eq!(&record[..3], &[0x16, 0x03, 0x01]);
+    let captured = parse_hello(&record[5..]);
+
+    for _ in 0..4 {
+        let built = build_client_hello(Fingerprint::Safari, "localhost", None).unwrap();
+        let ours = parse_hello(&built.message);
+        assert_eq!(shape(&ours), shape(&captured));
+        assert_eq!(built.message.len(), record.len() - 5);
+
+        // The hybrid share ends with the same X25519 key as the standalone one.
+        let shares = extension(&ours, 0x0033).unwrap();
+        assert_eq!(&shares[shares.len() - 32..], &built.secrets.x25519_public());
+        assert_eq!(
+            &shares[11 + 1184..11 + 1216],
+            &built.secrets.x25519_public()
+        );
+    }
+}
+
+#[test]
+fn safari_keeps_its_extension_order_and_omits_sni_for_ip_literals() {
+    let orders: Vec<Vec<u16>> = (0..4)
+        .map(|_| {
+            let built = build_client_hello(Fingerprint::Safari, "example.org", None).unwrap();
+            parse_hello(&built.message)
+                .extensions
+                .iter()
+                .map(|(t, _)| *t)
+                .filter(|t| !is_grease(*t))
+                .collect()
+        })
+        .collect();
+    assert!(orders.iter().all(|order| order == &orders[0]));
+    assert_eq!(
+        orders[0],
+        [
+            0x0000, 0x0017, 0xff01, 0x000a, 0x000b, 0x0010, 0x0005, 0x000d, 0x0012, 0x0033, 0x002d,
+            0x002b, 0x001b
+        ]
+    );
+
+    let built = build_client_hello(Fingerprint::Safari, "2001:db8::1", None).unwrap();
+    let hello = parse_hello(&built.message);
+    assert!(extension(&hello, 0x0000).is_none());
+    // No ALPS, no ECH GREASE, no session ticket: those are Chrome's.
+    for absent in [0x44cd, 0xfe0d, 0x0023, 0x0015] {
+        assert!(extension(&hello, absent).is_none(), "{absent:04x}");
+    }
+}
+
+#[test]
+fn built_in_fingerprints_round_trip_through_json() {
+    for fingerprint in Fingerprint::ALL {
+        let spec = fingerprint.builtin_spec().unwrap();
+        let again = ClientHelloSpec::from_json(&spec.to_json()).unwrap();
+        assert_eq!(*spec, again, "{}", fingerprint.name());
+    }
+    assert!(
+        Fingerprint::Chrome
+            .builtin_spec()
+            .unwrap()
+            .permute_extensions
+    );
+    assert!(
+        !Fingerprint::Safari
+            .builtin_spec()
+            .unwrap()
+            .permute_extensions
+    );
+}
+
+const SMALL_PROFILE: &str = r#"{
+  "cipher_suites": ["grease", "0x1301", 4866],
+  "extensions": [
+    "grease",
+    "server_name",
+    { "type": "supported_groups", "groups": ["grease", "0x001d", "0x0017"] },
+    { "type": "signature_algorithms", "schemes": ["0x0403", "0x0804"] },
+    { "type": "key_share", "groups": ["grease", "0x001d"] },
+    { "type": "supported_versions", "versions": ["grease", "0x0304"] },
+    { "type": "raw", "id": "0x1234", "body": "00ff10" },
+    "alpn",
+    { "type": "grease", "body": "00" },
+    "padding"
+  ],
+  "alpn": ["h2"]
+}"#;
+
+#[test]
+fn profile_json_drives_the_client_hello() {
+    let spec = ClientHelloSpec::from_json(SMALL_PROFILE).unwrap();
+    assert!(!spec.permute_extensions);
+    let built = build_from_spec(&spec, "example.com", None).unwrap();
+    let hello = parse_hello(&built.message);
+    assert_eq!(hello.cipher_suites.len(), 3);
+    assert_eq!(&hello.cipher_suites[1..], &[0x1301, 0x1302]);
+    assert_eq!(extension(&hello, 0x1234).unwrap(), [0x00, 0xff, 0x10]);
+    assert_eq!(extension(&hello, 0x0010).unwrap(), b"\x00\x03\x02h2");
+    let types: Vec<u16> = hello.extensions.iter().map(|(t, _)| *t).collect();
+    assert!(is_grease(types[0]) && is_grease(types[8]));
+    assert_eq!(
+        &types[1..8],
+        &[0x0000, 0x000a, 0x000d, 0x0033, 0x002b, 0x1234, 0x0010]
+    );
+
+    // BoringSSL padding: a ClientHello of 256 to 511 bytes is padded to 512,
+    // with the padding extension where the profile lists it (here: last).
+    assert!(built.message.len() < 256, "{}", built.message.len());
+    assert!(extension(&hello, 0x0015).is_none());
+    let long_name = format!("{}.example.com", "a".repeat(180));
+    let built = build_from_spec(&spec, &long_name, None).unwrap();
+    let hello = parse_hello(&built.message);
+    assert_eq!(built.message.len(), 512);
+    let (last_type, padding) = hello.extensions.last().unwrap();
+    assert_eq!(*last_type, 0x0015);
+    assert!(!padding.is_empty() && padding.iter().all(|byte| *byte == 0));
+    let huge_name = format!("{}.{}.example.com", "a".repeat(200), "b".repeat(200));
+    let built = build_from_spec(&spec, &huge_name, None).unwrap();
+    assert!(built.message.len() > 512);
+    assert!(extension(&parse_hello(&built.message), 0x0015).is_none());
+}
+
+#[test]
+fn profile_json_is_strict() {
+    let with = |from: &str, to: &str| {
+        assert!(SMALL_PROFILE.contains(from), "{from}");
+        ClientHelloSpec::from_json(&SMALL_PROFILE.replacen(from, to, 1))
+    };
+    // unknown key, unknown extension type, unknown parameter
+    assert!(with("\"alpn\": [\"h2\"]", "\"alpn\": [\"h2\"], \"extra\": 1").is_err());
+    assert!(with("\"server_name\"", "\"server_nam\"").is_err());
+    assert!(with("\"body\": \"00ff10\"", "\"body\": \"00ff10\", \"x\": 1").is_err());
+    // values that cannot be encoded
+    assert!(with("4866", "70000").is_err());
+    assert!(with("\"00ff10\"", "\"00ff1\"").is_err());
+    assert!(with("\"0x1234\"", "\"0x12345\"").is_err());
+    // a ClientHello this client cannot finish a handshake from
+    assert!(with("\"0x1301\", 4866", "\"0xc02b\"").is_err());
+    assert!(with("\"0x0304\"", "\"0x0303\"").is_err());
+    assert!(with(
+        "{ \"type\": \"key_share\", \"groups\": [\"grease\", \"0x001d\"] }",
+        "{ \"type\": \"key_share\", \"groups\": [\"grease\", \"0x0017\"] }"
+    )
+    .is_err());
+    assert!(with(
+        "\"groups\": [\"grease\", \"0x001d\", \"0x0017\"]",
+        "\"groups\": [\"0x001d\", \"0x0017\"]"
+    )
+    .is_err());
+    // the same extension twice
+    assert!(with("\"id\": \"0x1234\"", "\"id\": \"0x0010\"").is_err());
+    assert!(ClientHelloSpec::from_json("[]").is_err());
+    assert!(ClientHelloSpec::from_json(&" ".repeat(300 * 1024)).is_err());
 }

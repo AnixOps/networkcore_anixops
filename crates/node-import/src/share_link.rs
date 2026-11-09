@@ -221,7 +221,14 @@ fn vless(name: &str, endpoint: &Endpoint, outbound: &Value) -> Result<String, Un
             ("sni", text(reality, "server_name").map(str::to_string)),
             ("pbk", text(reality, "public_key").map(str::to_string)),
             ("sid", text(reality, "short_id").map(str::to_string)),
-            ("fp", text(reality, "fingerprint").map(str::to_string)),
+            // `auto` is this client's own word for "the platform's browser";
+            // other clients read a missing `fp` the same way.
+            (
+                "fp",
+                text(reality, "fingerprint")
+                    .filter(|name| *name != "auto")
+                    .map(str::to_string),
+            ),
             ("flow", text(outbound, "flow").map(str::to_string)),
         ]);
         pairs.extend(transport_query(&outbound["transport"]));

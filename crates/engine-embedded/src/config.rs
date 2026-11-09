@@ -74,6 +74,16 @@ pub struct RuntimeConfig {
     /// see [`config_core::redirect`].
     #[serde(default)]
     pub redirects: Vec<String>,
+    /// A ClientHello fingerprint bundle (`tls_mimic::install_profiles`:
+    /// `{"format": 1, "revision": ..., "profiles": {"chrome": ..., "safari":
+    /// ...}}`) that replaces the browser shapes built into this engine, so a
+    /// subscription can follow a browser release without an app update.
+    /// Process wide; absent means the built-in data. A bundle this build
+    /// cannot use is skipped and the previous data stays: it comes from a
+    /// server that also feeds newer builds, so it never stops the tunnel.
+    /// Needs the `tls-fingerprints` feature (on with `vless`).
+    #[serde(default)]
+    pub tls_fingerprints: Option<serde_json::Value>,
 }
 
 /// The `mitm` section: plugins and the device root (see `crate::mitm`).
@@ -455,6 +465,21 @@ impl RuntimeConfig {
         config.validate()?;
         Ok(config)
     }
+
+    /// Applies `tls_fingerprints` to the process; see the field.
+    #[cfg(feature = "tls-fingerprints")]
+    pub fn install_tls_fingerprints(&self) {
+        match &self.tls_fingerprints {
+            Some(bundle) => {
+                let _ = tls_mimic::install_profiles(&bundle.to_string());
+            }
+            None => tls_mimic::clear_profiles(),
+        }
+    }
+
+    /// Without tls-mimic in the build there is nothing to apply.
+    #[cfg(not(feature = "tls-fingerprints"))]
+    pub fn install_tls_fingerprints(&self) {}
 
     /// The parsed `redirects` lines.
     pub fn redirect_table(&self) -> Result<RedirectTable, RuntimeError> {

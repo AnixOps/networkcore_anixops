@@ -577,13 +577,31 @@ vless://00000000-0000-0000-0000-000000000006@c.example.test:443?security=reality
     let outbound = &report.nodes[0].outbound;
     assert_eq!(outbound["reality"]["public_key"], "KEY");
     assert_eq!(outbound["transport"]["type"], "xhttp");
+    // No `fp` in the link: the platform's own fingerprint, and none exported.
+    assert_eq!(outbound["reality"]["fingerprint"], "auto");
     let link = share_link("Reality", outbound).unwrap();
     assert!(
-        link.contains("security=reality") && link.contains("type=xhttp"),
+        link.contains("security=reality") && link.contains("type=xhttp") && !link.contains("fp="),
         "{link}"
     );
     let again = import_text(&link).unwrap();
     assert_eq!(&again.nodes[0].outbound, outbound);
+
+    // uTLS names: Safari and iOS map to the Safari fingerprint, the rest to Chrome.
+    for (fp, expected) in [
+        ("ios", "safari"),
+        ("Safari", "safari"),
+        ("firefox", "chrome"),
+    ] {
+        let report = import_text(&format!(
+            "vless://00000000-0000-0000-0000-000000000006@c.example.test:443?security=reality&sni=www.example.com&pbk=KEY&sid=ab12&fp={fp}&flow=xtls-rprx-vision&type=tcp#R"
+        ))
+        .unwrap();
+        assert_eq!(
+            report.nodes[0].outbound["reality"]["fingerprint"], expected,
+            "{fp}"
+        );
+    }
 }
 
 #[test]

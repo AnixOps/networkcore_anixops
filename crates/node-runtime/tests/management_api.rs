@@ -177,6 +177,55 @@ async fn agent_workflow() {
     let (_, body) = call(api, "GET", "/v1/qos", None).await;
     assert_eq!(body["active"], json!(false));
 
+    // ClientHello fingerprint bundles: a bundle replaces the data behind the
+    // names it carries, skips names this kernel does not know, a broken one is
+    // refused and changes nothing, an empty one goes back to built-in data.
+    let (_, body) = call(api, "GET", "/v1/tls-fingerprints", None).await;
+    assert_eq!(body["replaced"], json!([]));
+    assert!(body["known"].as_array().unwrap().contains(&json!("safari")));
+    let safari: serde_json::Value = serde_json::from_str(
+        &tls_mimic::Fingerprint::Safari
+            .builtin_spec()
+            .unwrap()
+            .to_json(),
+    )
+    .unwrap();
+    let (status, body) = call(
+        api,
+        "PUT",
+        "/v1/tls-fingerprints",
+        Some(json!({
+            "format": 1,
+            "revision": "r1",
+            "profiles": {"safari": safari, "some-future-browser": {}},
+        })),
+    )
+    .await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["revision"], json!("r1"));
+    assert_eq!(body["replaced"], json!(["safari"]));
+    assert_eq!(body["ignored"], json!(["some-future-browser"]));
+    let (status, _) = call(
+        api,
+        "PUT",
+        "/v1/tls-fingerprints",
+        Some(json!({"format": 1, "profiles": {"chrome": {"cipher_suites": []}}})),
+    )
+    .await;
+    assert_eq!(status, 400);
+    let (_, body) = call(api, "GET", "/v1/tls-fingerprints", None).await;
+    assert_eq!(body["revision"], json!("r1"));
+    assert_eq!(body["replaced"], json!(["safari"]));
+    let (status, body) = call(
+        api,
+        "PUT",
+        "/v1/tls-fingerprints",
+        Some(json!({"format": 1, "profiles": {}})),
+    )
+    .await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["replaced"], json!([]));
+
     let (status, body) = call(api, "POST", "/v1/inbounds", Some(ss_inbound("ss"))).await;
     assert_eq!(status, 201, "{body}");
     let server: SocketAddr = body["listen"].as_str().unwrap().parse().unwrap();
