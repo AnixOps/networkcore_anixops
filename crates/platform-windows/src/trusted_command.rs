@@ -90,32 +90,6 @@ fn without_verbatim_prefix(path: std::path::PathBuf) -> std::path::PathBuf {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::without_verbatim_prefix;
-    use std::path::PathBuf;
-
-    #[test]
-    fn verbatim_drive_paths_lose_their_prefix() {
-        assert_eq!(
-            without_verbatim_prefix(PathBuf::from(r"\\?\C:\Windows\System32")),
-            PathBuf::from(r"C:\Windows\System32")
-        );
-        assert_eq!(
-            without_verbatim_prefix(PathBuf::from(r"\\?\UNC\server\share")),
-            PathBuf::from(r"\\server\share")
-        );
-        assert_eq!(
-            without_verbatim_prefix(PathBuf::from(r"C:\Windows")),
-            PathBuf::from(r"C:\Windows")
-        );
-        assert_eq!(
-            without_verbatim_prefix(PathBuf::from(r"\\?\Volume{x}\a")),
-            PathBuf::from(r"\\?\Volume{x}\a")
-        );
-    }
-}
-
 #[cfg(windows)]
 fn native_windows_system_directory() -> std::io::Result<PathBuf> {
     use std::ffi::OsString;
@@ -149,4 +123,30 @@ fn native_windows_command_error() -> std::io::Error {
         std::io::ErrorKind::InvalidData,
         "trusted Windows command path is invalid",
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::without_verbatim_prefix;
+    use std::path::PathBuf;
+
+    #[test]
+    fn verbatim_drive_paths_lose_their_prefix() {
+        assert_eq!(
+            without_verbatim_prefix(PathBuf::from(r"\\?\C:\Windows\System32")),
+            PathBuf::from(r"C:\Windows\System32")
+        );
+        assert_eq!(
+            without_verbatim_prefix(PathBuf::from(r"\\?\UNC\server\share")),
+            PathBuf::from(r"\\server\share")
+        );
+        assert_eq!(
+            without_verbatim_prefix(PathBuf::from(r"C:\Windows")),
+            PathBuf::from(r"C:\Windows")
+        );
+        assert_eq!(
+            without_verbatim_prefix(PathBuf::from(r"\\?\Volume{x}\a")),
+            PathBuf::from(r"\\?\Volume{x}\a")
+        );
+    }
 }
