@@ -18,7 +18,7 @@
 //! for the question that was asked. No address or name leaves this module.
 
 use std::collections::HashMap;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::time::{Duration, Instant};
 
 use engine_outbound::BoxStream;
@@ -242,6 +242,28 @@ pub fn cacheable_ttl(response: &[u8], question: &Question) -> Option<Duration> {
     })
 }
 
+/// The first address `response` gives for `question` (an A or AAAA
+/// question), with how long it may be kept; `None` for an error, a reply to
+/// another question or no address.
+pub fn first_address(response: &[u8], question: &Question) -> Option<(IpAddr, Duration)> {
+    let ttl = cacheable_ttl(response, question)?;
+    if response[3] & 0xF != 0 {
+        return None;
+    }
+    records(response)?
+        .into_iter()
+        .filter(|record| record.section == 0 && record.rtype == question.qtype)
+        .find_map(|record| {
+            let data = response.get(record.data_at..record.data_at + record.data_len)?;
+            match (record.rtype, data.len()) {
+                (crate::dns::TYPE_A, 4) => Some(IpAddr::from(<[u8; 4]>::try_from(data).ok()?)),
+                (crate::dns::TYPE_AAAA, 16) => Some(IpAddr::from(<[u8; 16]>::try_from(data).ok()?)),
+                _ => None,
+            }
+        })
+        .map(|address| (address, ttl))
+}
+
 /// A copy of `response` with the QR bit clear, so the question parser takes it.
 fn as_query(response: &[u8]) -> Vec<u8> {
     let mut query = response.to_vec();
@@ -256,6 +278,9 @@ struct Record {
     rtype: u16,
     ttl: u32,
     ttl_at: usize,
+    /// Where the record's data starts, and its length.
+    data_at: usize,
+    data_len: usize,
 }
 
 fn record_ttl_offsets(message: &[u8]) -> Option<Vec<usize>> {
@@ -292,6 +317,8 @@ fn records(message: &[u8]) -> Option<Vec<Record>> {
                 rtype,
                 ttl,
                 ttl_at: at + 4,
+                data_at: at + 10,
+                data_len: rdlength,
             });
             at += 10 + rdlength;
             if at > message.len() {

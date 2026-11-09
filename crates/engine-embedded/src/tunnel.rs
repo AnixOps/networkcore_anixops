@@ -662,12 +662,14 @@ struct DnsExchange {
 
 fn spawn_dns_exchange(job: DnsExchange) {
     // DNS queries are the tunnel's own traffic, not listed connections.
-    let outbound = if job.proxied {
-        job.dispatcher.outbound()
+    let via = if job.proxied {
+        DnsVia::Proxy
     } else {
-        job.dispatcher.direct()
-    }
-    .clone();
+        DnsVia::Direct
+    };
+    let outbound = job
+        .dispatcher
+        .dns_outbound(via, job.policy.servers()[job.server].upstream.target());
     tokio::spawn(async move {
         let DnsExchange {
             payload,
@@ -684,16 +686,22 @@ fn spawn_dns_exchange(job: DnsExchange) {
             ..
         } = job;
         let upstream = &policy.servers()[server].upstream;
-        // Kept connections belong to one server through one outbound.
-        let pool_key = (server, Arc::as_ptr(&outbound) as *const () as usize);
-        let result = dns::exchange(
-            upstream,
-            outbound.as_ref(),
-            &payload,
-            policy.timeout(),
-            Some((&pool, pool_key)),
-        )
-        .await;
+        let result = match outbound {
+            Some(outbound) => {
+                // Kept connections belong to one server through one outbound.
+                let pool_key = (server, Arc::as_ptr(&outbound) as *const () as usize);
+                dns::exchange(
+                    upstream,
+                    outbound.as_ref(),
+                    &payload,
+                    policy.timeout(),
+                    Some((&pool, pool_key)),
+                )
+                .await
+            }
+            // Routing rejects the proxy: no query rather than one in the clear.
+            None => Err(OutboundFailure::ConnectRefused),
+        };
         let waiters = match &key {
             Some(key) => {
                 let mut state = state.lock().unwrap_or_else(|e| e.into_inner());

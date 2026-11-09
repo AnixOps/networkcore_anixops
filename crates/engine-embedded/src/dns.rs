@@ -205,7 +205,8 @@ impl Upstream {
         }
     }
 
-    fn target(&self) -> &TargetAddr {
+    /// The server's address or name and port.
+    pub fn target(&self) -> &TargetAddr {
         match self {
             Self::Tcp(target) => target,
             #[cfg(feature = "dns-tls")]
@@ -524,6 +525,30 @@ pub fn question(query: &[u8]) -> Option<Question> {
         qtype,
         end: at + 4,
     })
+}
+
+/// A standard recursive query for `name` (no final dot) of type `qtype`, or
+/// `None` for a name that cannot be encoded.
+pub fn query(id: u16, name: &str, qtype: u16) -> Option<Vec<u8>> {
+    let name = name.strip_suffix('.').unwrap_or(name);
+    if name.is_empty() || name.len() > 253 {
+        return None;
+    }
+    let mut query = Vec::with_capacity(DNS_HEADER_LEN + name.len() + 6);
+    query.extend_from_slice(&id.to_be_bytes());
+    // RD set, one question.
+    query.extend_from_slice(&[0x01, 0x00, 0, 1, 0, 0, 0, 0, 0, 0]);
+    for label in name.split('.') {
+        if label.is_empty() || label.len() > 63 {
+            return None;
+        }
+        query.push(label.len() as u8);
+        query.extend_from_slice(label.as_bytes());
+    }
+    query.push(0);
+    query.extend_from_slice(&qtype.to_be_bytes());
+    query.extend_from_slice(&CLASS_IN.to_be_bytes());
+    Some(query)
 }
 
 /// Seconds a locally answered record may be cached.

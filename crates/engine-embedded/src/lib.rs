@@ -35,6 +35,7 @@ pub mod direct;
 pub mod dns;
 pub mod dns_cache;
 pub mod dns_policy;
+pub mod dns_resolver;
 #[cfg(feature = "local-proxy")]
 pub mod fetch;
 pub mod ffi;

@@ -32,6 +32,7 @@ use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::Notify;
 
+use crate::config::DnsVia;
 use crate::direct::DirectOutbound;
 use crate::routing::{RouteInfo, RoutedOutbound};
 
@@ -652,6 +653,23 @@ impl Dispatcher {
     /// The untracked outbound, for the tunnel's own DNS queries.
     pub fn outbound(&self) -> &Arc<dyn TcpOutbound> {
         &self.outbound
+    }
+
+    /// The untracked outbound for a query to the DNS server at `server`
+    /// reached `via`: DIRECT for a `direct` server or in the direct mode;
+    /// otherwise the global target in the global mode, and in the rule mode
+    /// the node a rule picks for the server or else the global target (see
+    /// [`RoutedOutbound::dns_outbound`]), so a `proxy` server is never asked
+    /// in the clear because a rule said DIRECT. `None` when routing rejects.
+    pub fn dns_outbound(&self, via: DnsVia, server: &TargetAddr) -> Option<Arc<dyn TcpOutbound>> {
+        if via == DnsVia::Direct || self.mode() == Mode::Direct {
+            return Some(self.direct.clone());
+        }
+        match (&self.routed, self.mode()) {
+            (Some(routed), Mode::Global) => routed.route_global().1,
+            (Some(routed), _) => routed.dns_outbound(server),
+            (None, _) => Some(self.outbound.clone()),
+        }
     }
 
     /// Picks the outbound for one flow and records the decision.
