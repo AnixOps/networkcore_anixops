@@ -278,6 +278,25 @@ impl RuleMatcher {
             _ => false,
         }
     }
+
+    /// Whether this matcher alone matches `query`, as a rule would inside
+    /// [`RoutingModel::decide`] but without ever resolving a domain: an IP
+    /// rule matches only a query that carries an address.
+    pub fn matches(&self, query: &RouteQuery, environment: &dyn RoutingEnvironment) -> bool {
+        let domain = query.domain.as_deref().map(normalize_query_domain);
+        let process = query.process.as_deref().map(str::to_lowercase);
+        let user_agent = query.user_agent.as_deref().map(str::to_lowercase);
+        let input = MatchInput {
+            domain: domain.as_deref(),
+            ip: query.ip,
+            port: query.port,
+            process: process.as_deref(),
+            network: query.network,
+            user_agent: user_agent.as_deref(),
+            url: query.url.as_deref(),
+        };
+        rule_matches(self, &input, environment)
+    }
 }
 
 /// The rule as a line without its target, such as `DOMAIN-SUFFIX,example.com`,

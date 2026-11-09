@@ -6,6 +6,7 @@
 
 ### Added
 
+- 目标改写 `redirects`（engine-embedded 运行时配置顶层）：规则行加新目的地（`host`、`host:port`、`[v6]:port`、`:port`），把命中的 TCP 连接和 UDP 流改发到另一个地址，再按新目的地分流，例如把自家游戏写死的服务器 IP 劫持到开发服务器。UDP 回包对应用仍来自原地址；连接列表新增 `redirect` 字段。见 `docs/architecture/routing-policy-group-model.md`。
 - 嵌入式 MITM 不再整块缓存没有规则读取的 body：每条消息先问策略引擎（`AnixOpsMitmPluginService::needs_body`），有没有 body 改写（含 jq）或脚本匹配这个 URL 和阶段。都没有时只规划消息头，body 边收边转发（`Conn::copy_body`，保持原有的分帧），超过 1 MiB 也不会让这条连接停止改写，请求也不再强制 `Accept-Encoding: identity`。此前每个被拦截的请求和响应都会先整块读进内存（最多 1 MiB），并发连接多时，VPN 扩展的内存会被大量占用。
 - MITM 策略引擎复用：此前每个 HTTP 请求和响应都新建一个 mitm_anixops 引擎，把合并后的整份插件策略重新解析、把所有规则重新编译一遍，插件有几 MB 时，每条消息都要付出这笔开销。现在已加载的引擎按策略（长度和哈希）放在池里复用，最多留 2 个空闲的；出过错的引擎不会放回池里。
 - QuickJS 脚本字节码缓存：不小于 16 KiB 的脚本只在第一次运行时编译，编译出的字节码由同一个运行时的后续运行复用（每次运行仍用全新的运行时和全局对象），缓存总量 8 MiB，满了就清空重来。大脚本因此不必每个请求都重新解析一遍，省下解析的 CPU 和那段时间的内存峰值。编译失败的脚本不进缓存，照常报 `script.exception`。`JsEngineContext` 新增 `eval_script`，默认实现照旧每次编译。

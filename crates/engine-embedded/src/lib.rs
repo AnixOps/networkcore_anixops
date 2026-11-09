@@ -196,7 +196,8 @@ impl EmbeddedRuntime {
             None => match config.build_mode(registry, dialer.clone())? {
                 TunnelMode::Stack(outbound) => {
                     let dispatcher = Dispatcher::single(outbound)
-                        .with_direct(Arc::new(direct::DirectOutbound::new(dialer)));
+                        .with_direct(Arc::new(direct::DirectOutbound::new(dialer)))
+                        .with_redirects(config.redirect_table()?);
                     dispatcher.set_mode(config.mode);
                     Engine::Stack(Arc::new(dispatcher))
                 }
