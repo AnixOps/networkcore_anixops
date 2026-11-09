@@ -6,7 +6,9 @@
 //! name the tunnel sniffed from the flow, given to
 //! [`RoutedOutbound::route_flow`]; FakeIP is not wired yet. A domain target that reaches
 //! an IP rule without `no-resolve` is resolved once with the
-//! [`DomainResolver`] (the system resolver by default), and that address is
+//! [`DomainResolver`] (the config's `dns` section through
+//! [`crate::dns_resolver::PolicyResolver`] in a built runtime, never the
+//! system resolver, so a proxied name is not looked up in the clear), and that address is
 //! matched by every later IP rule; the connection itself still goes out by
 //! name, so a proxy node resolves it remotely. A failed lookup rejects the
 //! connection, the same result sing-box gives. GeoIP rules never match
@@ -70,6 +72,8 @@ pub trait DomainResolver: Send + Sync {
 }
 
 /// The operating system resolver (`getaddrinfo`), first address returned.
+/// Only for tests and callers without a `dns` section: on a device in a
+/// censored network it sends the name in the clear to the local resolver.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct SystemResolver;
 
@@ -498,6 +502,21 @@ impl RoutedOutbound {
                 })
                 .collect()
         })
+    }
+
+    /// The outbound for a DNS server reached through the proxy: the node a
+    /// rule picks for the server's address, else the global target. A rule
+    /// that sends the server DIRECT (`FINAL,DIRECT` of a GFW-list config, a
+    /// GeoIP rule for a domestic resolver) or REJECT never makes a proxied
+    /// query go out in the clear, and a server name is never resolved here.
+    /// `None` when the global target rejects.
+    pub fn dns_outbound(&self, server: &TargetAddr) -> Option<Arc<dyn TcpOutbound>> {
+        if let RouteOutcome::Node(id) = self.route(server) {
+            if let Some(node) = self.nodes.get(&id) {
+                return Some(node.clone());
+            }
+        }
+        self.route_global().1
     }
 
     /// Routes a flow of the global mode: every connection to the global

@@ -55,7 +55,7 @@ tolerance_ms = 50                              # 默认值，仅 url-test
 - `RoutingEnvironment` 提供 GeoIP 查询（`geoip_matches`）、GeoSite 查询（`geosite_matches`）、DNS 解析、select 当前选择、成员测速结果；全部方法有保守默认值，`StaticRoutingEnvironment` 即无运行时状态。
 - `RoutingModel::route_to` 跳过规则直接解析一个目标（全局模式），`group_member` 给出组当前选择，`target_named` 按规则目标的方式解析名称。
 - `RuleMatcher` 的 `Display` 输出不带目标的规则行，供连接列表显示命中规则。
-- 第一条不带 `no-resolve` 的 IP 规则触发一次解析，之后所有 IP 规则使用解析结果，与 sing-box `resolve` 动作一致。解析失败时连接被拒绝（`RouteMatch::ResolveFailed`），与 sing-box 一致，不会落到 `FINAL`；需要远端解析的域名应放在 IP 规则之前用域名规则分流，或给 IP 规则加 `no-resolve`。
+- 第一条不带 `no-resolve` 的 IP 规则触发一次解析，之后所有 IP 规则使用解析结果，与 sing-box `resolve` 动作一致。解析失败时连接被拒绝（`RouteMatch::ResolveFailed`），与 sing-box 一致，不会落到 `FINAL`；需要远端解析的域名应放在 IP 规则之前用域名规则分流，或给 IP 规则加 `no-resolve`。engine-embedded 里这次解析走运行时配置的 `dns` 设置（`PolicyResolver`，见 `embedded-dns.md`「DNS 泄露核对」），不用系统解析器。
 - 组选择：`select` 用环境选择 → `default` → 第一个成员；`url-test` 取延迟最低的成员（无结果时取第一个）；`fallback` 取第一个有测速结果的成员（都没有时取第一个）；`load-balance` 在有测速结果的成员（都没有时为全部成员）中按目的域名（无域名时为 IP）做 rendezvous 哈希（FNV-1a），同一主机固定到同一成员，某成员下线时只有原本落在它上面的主机会换成员；`round-robin` 在同样的成员中按 `RoutingEnvironment::round_robin` 计数轮流选择。`group_member`（策略页显示）没有连接时返回第一个健康成员。
 - `RouteResolution` 返回命中规则序号或 `FINAL`、规则目标、经过的组路径、最终 `Direct/Reject/Node(id)` 与解析出的地址，可直接用于诊断页。
 

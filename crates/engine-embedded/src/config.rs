@@ -25,6 +25,8 @@ use serde::Deserialize;
 
 use crate::connections::{Dispatcher, Mode};
 use crate::direct::DirectOutbound;
+use crate::dns_policy::DnsPolicy;
+use crate::dns_resolver::PolicyResolver;
 use crate::routing::RoutedOutbound;
 use crate::rule_sets::{
     RemoteRuleSet, RuleSetStore, DEFAULT_UPDATE_INTERVAL_SECS, MIN_UPDATE_INTERVAL_SECS,
@@ -325,8 +327,10 @@ pub struct DnsServerConfig {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DnsVia {
-    /// Like the app's traffic: through the config's outbound or rules (and
-    /// directly in the direct mode).
+    /// Through the proxy: the config's outbound, or in the rule mode the node
+    /// a rule picks for the server and else the global target, never DIRECT
+    /// because of a rule (see `Dispatcher::dns_outbound`); directly only in
+    /// the direct mode.
     #[default]
     Proxy,
     /// Always through the direct outbound, e.g. for a domestic resolver.
@@ -659,7 +663,17 @@ impl RuntimeConfig {
         if let Some(global) = &routing.global {
             routed = routed.with_global(global)?;
         }
-        Ok(Some(Arc::new(routed.with_plugin_rules(plugin_rules))))
+        // IP rules resolve names with the `dns` section, never the system
+        // resolver, so a proxied name is not looked up in the clear.
+        let policy = DnsPolicy::from_config(&self.dns).map_err(rejected)?;
+        let resolver = PolicyResolver::new(Arc::new(policy));
+        let routed = Arc::new(
+            routed
+                .with_plugin_rules(plugin_rules)
+                .with_resolver(resolver.clone()),
+        );
+        resolver.bind(&routed);
+        Ok(Some(routed))
     }
 }
 

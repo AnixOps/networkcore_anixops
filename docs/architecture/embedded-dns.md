@@ -7,7 +7,7 @@
 隧道把应用发往 UDP/53 的查询截下来，不做 UDP 中继，而是在一条新的 TCP 连接上转发给上游。连接经过出站，所以默认在代理一侧解析。
 
 - 域名规则靠连接首包的 TLS SNI / HTTP `Host` 嗅探匹配，不依赖 DNS 结果（见 `sniff.rs`）。
-- 桌面 local proxy 收到的就是域名，由出站或代理服务器解析，不经过这里的 DNS。
+- 桌面 local proxy 收到的就是域名，连接按域名交给出站，由代理服务器解析。只有命中不带 `no-resolve` 的 IP 规则（`IP-CIDR`、`GEOIP`）时才需要先解析，这次解析也走本节的 DNS 设置（见下文「DNS 泄露核对」），不用系统解析器。
 
 ## 配置
 
@@ -46,7 +46,7 @@
 - 每个查询各用一条连接，一问一答，`Connection: close`。
 - `tls://` 和 `https://` 需要 cargo feature `dns-tls`。默认 feature 里已包含它；不带它构建时，这类配置会被拒绝。
 - `via` 决定怎么连到上游：
-  - `proxy`（默认）：与应用流量相同，走配置的出站或规则；直连模式下走直连。
+  - `proxy`（默认）：经代理。单出站配置走该出站；规则模式下，规则为上游地址选了某个节点就走那个节点，规则给出 `DIRECT`/`REJECT`（例如 GFW 列表配置的 `FINAL,DIRECT`、国内解析器命中 `GEOIP,CN,DIRECT`）时改走全局模式的目标，不会因为规则而明文直连；全局模式走全局目标；直连模式下走直连。全局目标本身拒绝时不发查询。
   - `direct`：始终直连，适合国内解析器。
 - `default` 指定没有规则命中时用的上游，缺省为第一个。
 - 不写 `servers` 时保留旧行为：`upstream`（默认 `1.1.1.1:53`）经 TCP 走代理。这时不能写 `default` 和 `rules`。
@@ -83,6 +83,18 @@
 - 同一问题已有查询在途时，新查询并入等待，不再重复发送（每个问题最多 32 个等待者）。
 - 上游连接按 `(上游, 出站)` 保留，每个最多 4 条空闲、空闲超过 20 秒不再复用。复用的连接若已被对端关闭，最多花一半超时时间就改用新连接。DoH 改为 HTTP/1.1 keep-alive，只有 `Content-Length` 定长、无多余字节、未要求 `Connection: close` 的应答才保留连接。
 - 缓存只在隧道生命周期内，停止隧道即清空；切换节点不清缓存，但空闲连接按出站区分，不会走到旧节点。
+
+## DNS 泄露核对（2026-11）
+
+目标：不出现“在境内明文解析境外域名”的路径。三条路径的结论：
+
+1. **走代理的域名不在本地解析。** 隧道里应用先发 DNS 查询，查询按 `dns` 设置转发，默认上游 `via: proxy`；连接按嗅探到的 SNI/`Host` 匹配域名规则，连到应用拿到的地址。local proxy 收到域名时，连接以域名交给节点，由出口解析。
+   - 修复：此前 `via: proxy` 的上游按分流规则选出站，GFW 列表配置（`FINAL,DIRECT`）或把国内解析器 IP 分到 `DIRECT` 的规则会让“经代理”的查询以明文 TCP 53 直连发出，所有域名都受影响。现在规则只能把它分到某个节点，`DIRECT`/`REJECT` 一律改走全局目标（`Dispatcher::dns_outbound`、`RoutedOutbound::dns_outbound`）。
+2. **IP 规则先解析时用 `dns` 设置，不用系统解析器。** 域名目标命中不带 `no-resolve` 的 `IP-CIDR`/`GEOIP` 时要先拿到地址。
+   - 修复：此前这次解析用 `getaddrinfo`，本机解析器明文收到域名（例如 `GEOSITE,cn,DIRECT`、`GEOIP,cn,DIRECT`、`FINAL,Proxy` 这类常见规则下，local proxy 收到的每个境外域名都会先在本地明文解析一次）。现在用 `PolicyResolver`（`src/dns_resolver.rs`）：hosts 本地应答，DNS 规则选上游，`proxy` 上游按上一条经代理，`direct` 上游直连；结果按 TTL 缓存，最长 10 分钟、最多 1024 条。解析失败仍拒绝连接，不回落到系统解析器。连接本身仍以域名发出。
+3. **引导解析只限这些名字。** 仍用系统解析器的只有：节点服务器地址（出站拨号、QUIC、WireGuard 端点）、`via: direct` 上游写成域名时的主机名、分到 `DIRECT` 的连接（包括 `via` 为 `DIRECT` 的远程规则集下载）。`via: proxy` 上游写成域名（如 `https://dns.google/dns-query`）时，名字随连接交给节点，不在本地解析。用户自己把境外域名分到 `DIRECT`、或把 DNS 规则指向 `direct` 上游，属于配置选择，不算泄露。
+
+测试：`tests/dns_leaks.rs`（三条路径各一组）与 `src/dns_policy.rs` 单元测试。
 
 ## 不在本次范围
 

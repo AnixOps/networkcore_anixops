@@ -5,7 +5,8 @@
 //! subdomain of a `*.` entry). Otherwise the first rule whose domains, suffixes,
 //! keywords or rule set match picks the server, and names no rule picks go to
 //! the default server. Each server is reached through the proxy (the config's
-//! outbound or rules, and the direct outbound in the direct mode) or directly.
+//! outbound, or the node a rule picks and else the global target, never DIRECT
+//! by a rule; the direct outbound in the direct mode) or directly.
 //! A config without `servers` keeps the single `upstream` over TCP through the
 //! proxy.
 
