@@ -552,3 +552,78 @@ fn kept_large_connections_are_capped() {
         assert_eq!(large, MAX_KEPT_LARGE_CONNECTIONS);
     });
 }
+
+/// Reports health and can be resumed, like an outbound that stops after its
+/// credentials keep being rejected.
+struct Stopped(std::sync::atomic::AtomicBool);
+
+impl TcpOutbound for Stopped {
+    fn protocol(&self) -> &'static str {
+        "test-health"
+    }
+
+    fn connect<'a>(&'a self, _target: &'a TargetAddr) -> BoxFuture<'a, io::Result<BoxStream>> {
+        Box::pin(async { Err(io::ErrorKind::PermissionDenied.into()) })
+    }
+
+    fn health(&self) -> Option<serde_json::Value> {
+        let stopped = self.0.load(std::sync::atomic::Ordering::SeqCst);
+        Some(serde_json::json!({ "stopped": stopped, "counts": { "fallback": 3 } }))
+    }
+
+    fn resume(&self) -> bool {
+        self.0.swap(false, std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+#[test]
+fn outbound_health_lists_reporting_nodes_and_resumes() {
+    let nodes = BTreeMap::from([
+        (
+            "hk-1".to_string(),
+            Arc::new(Echo("test-node")) as Arc<dyn TcpOutbound>,
+        ),
+        (
+            "jp-anx".to_string(),
+            Arc::new(Stopped(std::sync::atomic::AtomicBool::new(true))) as Arc<dyn TcpOutbound>,
+        ),
+    ]);
+    let spec = RoutingSpec {
+        rules: vec!["FINAL,DIRECT".to_string()],
+        groups: Vec::new(),
+    };
+    let routed = RoutedOutbound::new(&spec, Arc::new(Echo("direct")), nodes).unwrap();
+    let dispatcher = Dispatcher::routed(Arc::new(routed));
+
+    let health = control_json(&dispatcher, r#"{"cmd":"outbound_health"}"#);
+    let outbounds = health["outbounds"].as_array().unwrap();
+    assert_eq!(
+        outbounds.len(),
+        1,
+        "only nodes that report health: {health}"
+    );
+    assert_eq!(outbounds[0]["node"], "jp-anx");
+    assert_eq!(outbounds[0]["protocol"], "test-health");
+    assert_eq!(outbounds[0]["health"]["stopped"], true);
+
+    let resumed = control_json(&dispatcher, r#"{"cmd":"resume_outbound","node":"jp-anx"}"#);
+    assert_eq!(resumed["resumed"], true);
+    let resumed = control_json(&dispatcher, r#"{"cmd":"resume_outbound","node":"jp-anx"}"#);
+    assert_eq!(resumed["resumed"], false);
+    let health = control_json(&dispatcher, r#"{"cmd":"outbound_health"}"#);
+    assert_eq!(health["outbounds"][0]["health"]["stopped"], false);
+    // Nodes without health resume to false; unknown nodes are an error.
+    let resumed = control_json(&dispatcher, r#"{"cmd":"resume_outbound","node":"hk-1"}"#);
+    assert_eq!(resumed["resumed"], false);
+    assert!(control::handle(&dispatcher, br#"{"cmd":"resume_outbound","node":"nope"}"#).is_err());
+
+    // A config with one outbound reports it as `proxy`.
+    let single = Dispatcher::single(Arc::new(Stopped(std::sync::atomic::AtomicBool::new(true))));
+    let health = control_json(&single, r#"{"cmd":"outbound_health"}"#);
+    assert_eq!(health["outbounds"][0]["node"], control::SINGLE_NODE);
+    let resumed = control_json(&single, r#"{"cmd":"resume_outbound","node":"proxy"}"#);
+    assert_eq!(resumed["resumed"], true);
+    let echo = Dispatcher::single(Arc::new(Echo("plain")));
+    let health = control_json(&echo, r#"{"cmd":"outbound_health"}"#);
+    assert_eq!(health["outbounds"].as_array().unwrap().len(), 0);
+}
