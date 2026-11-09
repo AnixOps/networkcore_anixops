@@ -362,7 +362,7 @@ impl RoutedOutbound {
         &self,
         remote: &crate::rule_sets::RemoteRuleSet,
     ) -> Result<(), &'static str> {
-        use config_core::rule_set::{RuleSetEntries, MAX_RULE_SET_ENTRIES};
+        use config_core::rule_set::{RuleSetBuilder, MAX_RULE_SET_ENTRIES};
         use std::time::Duration;
 
         const FETCH_TIMEOUT: Duration = Duration::from_secs(60);
@@ -382,16 +382,20 @@ impl RoutedOutbound {
         let body = crate::fetch::fetch(&*outbound, &remote.url, FETCH_TIMEOUT, MAX_LIST_BYTES)
             .await
             .map_err(crate::fetch::FetchError::as_str)?;
-        let text = String::from_utf8_lossy(&body);
-        let (entries, _skipped) = RuleSetEntries::parse_list(&text, remote.bare);
-        if entries.is_empty() {
+        // Parsed straight into the compact tables; the body goes before they
+        // are sorted and packed, so a large list never sits in memory twice.
+        let (builder, _skipped) = {
+            let text = String::from_utf8_lossy(&body);
+            RuleSetBuilder::parse_list(&text, remote.bare)
+        };
+        drop(body);
+        if builder.is_empty() {
             return Err("empty_list");
         }
-        if entries.len() > MAX_RULE_SET_ENTRIES {
+        if builder.len() > MAX_RULE_SET_ENTRIES {
             return Err("too_many_entries");
         }
-        let set = RuleSet::from_entries(&entries).map_err(|_| "invalid_entries")?;
-        self.rule_sets.replace(&remote.name, set);
+        self.rule_sets.replace(&remote.name, builder.build());
         Ok(())
     }
 

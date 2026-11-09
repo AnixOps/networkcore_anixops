@@ -1,14 +1,21 @@
 //! Large domain and IP lists referenced by `RULE-SET,<name>,<target>` rules.
 //!
-//! A rule set is matched as one rule: a hash lookup per domain label suffix
-//! and a binary search over merged address ranges, so lists with hundreds of
-//! thousands of entries (for example mainland China domains and networks) cost
-//! the same per connection as a short one. Like a sing-box `rule_set` without
+//! A rule set is matched as one rule: a binary search per domain label suffix
+//! and over merged address ranges, so lists with hundreds of thousands of
+//! entries (for example mainland China domains and networks) cost about the
+//! same per connection as a short one.
+//!
+//! Domains are kept in one sorted byte buffer with a `u32` end offset each
+//! ([`DomainTable`]): about the domain's own bytes plus 4 per entry, where a
+//! `HashSet<String>` costs some 90 bytes per entry. That keeps a 200 000-line
+//! ad-blocking list near 5 MB instead of 18 MB, which matters inside the iOS
+//! network extension's memory limit. Downloaded lists are parsed straight into
+//! the buffer ([`RuleSetBuilder::parse_list`]) without a `String` per line. Like a sing-box `rule_set` without
 //! a `resolve` action, the IP part matches only a destination that is already
 //! an address; domains are never resolved for it.
 
 use control_domain::DomainResult;
-use std::collections::HashSet;
+use std::cmp::Ordering;
 use std::net::IpAddr;
 
 use crate::routing::{
@@ -19,12 +26,181 @@ use crate::routing::{
 /// mainland China domain and network lists with headroom.
 pub const MAX_RULE_SET_ENTRIES: usize = 500_000;
 
+/// A sorted, deduplicated list of domains in one buffer.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct DomainTable {
+    bytes: Box<[u8]>,
+    /// Entry `i` is `bytes[ends[i - 1]..ends[i]]` (from 0 for the first).
+    ends: Box<[u32]>,
+}
+
+impl DomainTable {
+    fn len(&self) -> usize {
+        self.ends.len()
+    }
+
+    fn entry(&self, index: usize) -> &[u8] {
+        let start = index
+            .checked_sub(1)
+            .map_or(0, |previous| self.ends[previous] as usize);
+        &self.bytes[start..self.ends[index] as usize]
+    }
+
+    fn contains(&self, domain: &str) -> bool {
+        let key = domain.as_bytes();
+        let (mut low, mut high) = (0, self.len());
+        while low < high {
+            let middle = low + (high - low) / 2;
+            match self.entry(middle).cmp(key) {
+                Ordering::Less => low = middle + 1,
+                Ordering::Greater => high = middle,
+                Ordering::Equal => return true,
+            }
+        }
+        false
+    }
+}
+
+/// Domains collected in one growing buffer, sorted and packed by `build`.
+#[derive(Debug, Default)]
+struct DomainTableBuilder {
+    bytes: Vec<u8>,
+    /// Start and length of each pushed domain in `bytes`.
+    spans: Vec<(u32, u32)>,
+}
+
+impl DomainTableBuilder {
+    fn push(&mut self, domain: &str) {
+        let start = self.bytes.len() as u32;
+        self.bytes.extend_from_slice(domain.as_bytes());
+        self.spans.push((start, domain.len() as u32));
+    }
+
+    fn len(&self) -> usize {
+        self.spans.len()
+    }
+
+    fn build(self) -> DomainTable {
+        fn key(bytes: &[u8], (start, len): (u32, u32)) -> &[u8] {
+            &bytes[start as usize..(start + len) as usize]
+        }
+        let Self { bytes, mut spans } = self;
+        spans.sort_unstable_by(|a, b| key(&bytes, *a).cmp(key(&bytes, *b)));
+        spans.dedup_by(|a, b| key(&bytes, *a) == key(&bytes, *b));
+        let total = spans.iter().map(|&(_, len)| len as usize).sum();
+        let mut packed = Vec::with_capacity(total);
+        let mut ends = Vec::with_capacity(spans.len());
+        for &span in &spans {
+            packed.extend_from_slice(key(&bytes, span));
+            ends.push(packed.len() as u32);
+        }
+        DomainTable {
+            bytes: packed.into_boxed_slice(),
+            ends: ends.into_boxed_slice(),
+        }
+    }
+}
+
+/// A rule set being filled from config entries or a downloaded list.
+#[derive(Debug, Default)]
+pub struct RuleSetBuilder {
+    domains: DomainTableBuilder,
+    domain_suffixes: DomainTableBuilder,
+    domain_keywords: Vec<String>,
+    v4: Vec<(u32, u32)>,
+    v6: Vec<(u128, u128)>,
+}
+
+impl RuleSetBuilder {
+    /// Reads a downloaded list as [`RuleSetEntries::parse_list`] does, straight
+    /// into the compact tables. Returns the builder and how many lines were
+    /// skipped.
+    pub fn parse_list(text: &str, bare: BareDomain) -> (Self, usize) {
+        let mut builder = Self::default();
+        let skipped = parse_list_into(&mut builder, text, bare);
+        (builder, skipped)
+    }
+
+    /// Entries collected so far, before duplicates and overlapping ranges are
+    /// merged.
+    pub fn len(&self) -> usize {
+        self.domains.len()
+            + self.domain_suffixes.len()
+            + self.domain_keywords.len()
+            + self.v4.len()
+            + self.v6.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    fn push_domain(&mut self, value: &str) -> DomainResult<()> {
+        self.domains.push(&normalize_rule_domain(value.trim())?);
+        Ok(())
+    }
+
+    fn push_suffix(&mut self, value: &str) -> DomainResult<()> {
+        self.domain_suffixes.push(&normalize_rule_domain(
+            value.trim().trim_start_matches('.'),
+        )?);
+        Ok(())
+    }
+
+    fn push_keyword(&mut self, value: &str) -> DomainResult<()> {
+        self.domain_keywords
+            .push(normalize_rule_domain(value.trim())?);
+        Ok(())
+    }
+
+    fn push_cidr(&mut self, value: &str) -> DomainResult<()> {
+        let value = value.trim();
+        // Lists often carry bare addresses next to networks.
+        let cidr = match value.parse::<IpAddr>() {
+            Ok(IpAddr::V4(address)) => IpCidr::parse(&format!("{address}/32")),
+            Ok(IpAddr::V6(address)) => IpCidr::parse(&format!("{address}/128")),
+            Err(_) => IpCidr::parse(value),
+        }
+        .ok_or_else(|| {
+            routing_error(
+                ROUTING_RULE_VALUE_INVALID_CODE,
+                "rule set address must be an IP address or network",
+            )
+        })?;
+        match cidr.network() {
+            IpAddr::V4(network) => {
+                let start = u32::from(network);
+                let host_bits = 32 - u32::from(cidr.prefix_len());
+                let size = 1u64 << host_bits;
+                self.v4.push((start, (u64::from(start) + size - 1) as u32));
+            }
+            IpAddr::V6(network) => {
+                let start = u128::from(network);
+                let host_bits = 128 - u32::from(cidr.prefix_len());
+                let span = u128::MAX.checked_shr(128 - host_bits).unwrap_or(0);
+                self.v6.push((start, start + span));
+            }
+        }
+        Ok(())
+    }
+
+    pub fn build(self) -> RuleSet {
+        RuleSet {
+            domains: self.domains.build(),
+            domain_suffixes: self.domain_suffixes.build(),
+            domain_keywords: self.domain_keywords,
+            v4: merge_ranges(self.v4),
+            v6: merge_ranges(self.v6),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RuleSet {
     /// Exact domains.
-    domains: HashSet<String>,
+    domains: DomainTable,
     /// Each entry matches the domain itself and every subdomain.
-    domain_suffixes: HashSet<String>,
+    domain_suffixes: DomainTable,
     /// Substrings of the domain; checked one by one, so lists keep few.
     domain_keywords: Vec<String>,
     /// Sorted, non-overlapping inclusive ranges.
@@ -45,59 +221,20 @@ impl RuleSet {
     }
 
     pub fn from_entries(entries: &RuleSetEntries) -> DomainResult<Self> {
-        let domains = entries
-            .domain
-            .iter()
-            .map(|domain| normalize_rule_domain(domain.trim()))
-            .collect::<DomainResult<HashSet<_>>>()?;
-        let domain_keywords = entries
-            .domain_keyword
-            .iter()
-            .map(|keyword| normalize_rule_domain(keyword.trim()))
-            .collect::<DomainResult<Vec<_>>>()?;
-        let domain_suffixes = entries
-            .domain_suffix
-            .iter()
-            .map(|suffix| normalize_rule_domain(suffix.trim().trim_start_matches('.')))
-            .collect::<DomainResult<HashSet<_>>>()?;
-        let mut v4 = Vec::new();
-        let mut v6 = Vec::new();
-        for value in &entries.ip_cidr {
-            let value = value.trim();
-            // Lists often carry bare addresses next to networks.
-            let cidr = match value.parse::<IpAddr>() {
-                Ok(IpAddr::V4(address)) => IpCidr::parse(&format!("{address}/32")),
-                Ok(IpAddr::V6(address)) => IpCidr::parse(&format!("{address}/128")),
-                Err(_) => IpCidr::parse(value),
-            }
-            .ok_or_else(|| {
-                routing_error(
-                    ROUTING_RULE_VALUE_INVALID_CODE,
-                    "rule set address must be an IP address or network",
-                )
-            })?;
-            match cidr.network() {
-                IpAddr::V4(network) => {
-                    let start = u32::from(network);
-                    let host_bits = 32 - u32::from(cidr.prefix_len());
-                    let size = 1u64 << host_bits;
-                    v4.push((start, (u64::from(start) + size - 1) as u32));
-                }
-                IpAddr::V6(network) => {
-                    let start = u128::from(network);
-                    let host_bits = 128 - u32::from(cidr.prefix_len());
-                    let span = u128::MAX.checked_shr(128 - host_bits).unwrap_or(0);
-                    v6.push((start, start + span));
-                }
-            }
+        let mut builder = RuleSetBuilder::default();
+        for domain in &entries.domain {
+            builder.push_domain(domain)?;
         }
-        Ok(Self {
-            domains,
-            domain_suffixes,
-            domain_keywords,
-            v4: merge_ranges(v4),
-            v6: merge_ranges(v6),
-        })
+        for suffix in &entries.domain_suffix {
+            builder.push_suffix(suffix)?;
+        }
+        for keyword in &entries.domain_keyword {
+            builder.push_keyword(keyword)?;
+        }
+        for value in &entries.ip_cidr {
+            builder.push_cidr(value)?;
+        }
+        Ok(builder.build())
     }
 
     pub fn is_empty(&self) -> bool {
@@ -187,63 +324,101 @@ impl RuleSetEntries {
     /// skipped (other rule types, malformed values).
     pub fn parse_list(text: &str, bare: BareDomain) -> (Self, usize) {
         let mut entries = Self::default();
-        let mut skipped = 0;
-        for line in text.lines() {
-            let line = line.trim();
-            if line.is_empty()
-                || line.starts_with('#')
-                || line.starts_with("//")
-                || line.starts_with(';')
-                || line == "payload:"
-            {
-                continue;
-            }
-            let line = line.strip_prefix("- ").unwrap_or(line).trim();
-            let line = line.trim_matches(|c| c == '\'' || c == '"').trim();
-            if !entries.push_line(line, bare) {
-                skipped += 1;
-            }
-        }
+        let skipped = parse_list_into(&mut entries, text, bare);
         (entries, skipped)
     }
+}
 
-    fn push_line(&mut self, line: &str, bare: BareDomain) -> bool {
-        if let Some((kind, rest)) = line.split_once(',') {
-            let value = rest.split(',').next().unwrap_or_default().trim();
-            let kind = kind.trim().to_ascii_uppercase();
-            let (list, valid) = match kind.as_str() {
-                "DOMAIN" => (&mut self.domain, is_domain(value)),
-                "DOMAIN-SUFFIX" => (
-                    &mut self.domain_suffix,
-                    is_domain(value.trim_start_matches('.')),
-                ),
-                "DOMAIN-KEYWORD" => (&mut self.domain_keyword, is_domain(value)),
-                "IP-CIDR" | "IP-CIDR6" => (&mut self.ip_cidr, is_network(value)),
-                _ => return false,
-            };
-            if valid {
-                list.push(value.to_string());
-            }
-            return valid;
-        }
-        if is_network(line) {
-            self.ip_cidr.push(line.to_string());
-            return true;
-        }
-        let suffix = line
-            .strip_prefix("+.")
-            .or_else(|| line.strip_prefix("*."))
-            .or_else(|| line.strip_prefix('.'));
-        let (list, name) = match (suffix, bare) {
-            (Some(name), _) => (&mut self.domain_suffix, name),
-            (None, BareDomain::Suffix) => (&mut self.domain_suffix, line),
-            (None, BareDomain::Exact) => (&mut self.domain, line),
+/// What a list line holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EntryKind {
+    Domain,
+    Suffix,
+    Keyword,
+    Network,
+}
+
+/// Where the lines of a downloaded list go; `add` returns whether the value was
+/// valid.
+trait ListSink {
+    fn add(&mut self, kind: EntryKind, value: &str) -> bool;
+}
+
+impl ListSink for RuleSetEntries {
+    fn add(&mut self, kind: EntryKind, value: &str) -> bool {
+        let (list, valid) = match kind {
+            EntryKind::Domain => (&mut self.domain, is_domain(value)),
+            EntryKind::Suffix => (
+                &mut self.domain_suffix,
+                is_domain(value.trim_start_matches('.')),
+            ),
+            EntryKind::Keyword => (&mut self.domain_keyword, is_domain(value)),
+            EntryKind::Network => (&mut self.ip_cidr, is_network(value)),
         };
-        if !is_domain(name) {
-            return false;
+        if valid {
+            list.push(value.to_string());
         }
-        list.push(name.to_string());
-        true
+        valid
+    }
+}
+
+impl ListSink for RuleSetBuilder {
+    fn add(&mut self, kind: EntryKind, value: &str) -> bool {
+        match kind {
+            EntryKind::Domain => self.push_domain(value).is_ok(),
+            EntryKind::Suffix => self.push_suffix(value).is_ok(),
+            EntryKind::Keyword => self.push_keyword(value).is_ok(),
+            EntryKind::Network => is_network(value) && self.push_cidr(value).is_ok(),
+        }
+    }
+}
+
+/// Reads a downloaded list into `sink` and returns how many lines were
+/// skipped; see [`RuleSetEntries::parse_list`] for the shapes accepted.
+fn parse_list_into(sink: &mut impl ListSink, text: &str, bare: BareDomain) -> usize {
+    let mut skipped = 0;
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty()
+            || line.starts_with('#')
+            || line.starts_with("//")
+            || line.starts_with(';')
+            || line == "payload:"
+        {
+            continue;
+        }
+        let line = line.strip_prefix("- ").unwrap_or(line).trim();
+        let line = line.trim_matches(|c| c == '\'' || c == '"').trim();
+        if !push_line(sink, line, bare) {
+            skipped += 1;
+        }
+    }
+    skipped
+}
+
+fn push_line(sink: &mut impl ListSink, line: &str, bare: BareDomain) -> bool {
+    if let Some((kind, rest)) = line.split_once(',') {
+        let value = rest.split(',').next().unwrap_or_default().trim();
+        let kind = match kind.trim().to_ascii_uppercase().as_str() {
+            "DOMAIN" => EntryKind::Domain,
+            "DOMAIN-SUFFIX" => EntryKind::Suffix,
+            "DOMAIN-KEYWORD" => EntryKind::Keyword,
+            "IP-CIDR" | "IP-CIDR6" => EntryKind::Network,
+            _ => return false,
+        };
+        return sink.add(kind, value);
+    }
+    if is_network(line) {
+        return sink.add(EntryKind::Network, line);
+    }
+    let suffix = line
+        .strip_prefix("+.")
+        .or_else(|| line.strip_prefix("*."))
+        .or_else(|| line.strip_prefix('.'));
+    match (suffix, bare) {
+        (Some(name), _) => sink.add(EntryKind::Suffix, name),
+        (None, BareDomain::Suffix) => sink.add(EntryKind::Suffix, line),
+        (None, BareDomain::Exact) => sink.add(EntryKind::Domain, line),
     }
 }
 
@@ -380,6 +555,47 @@ mod tests {
         assert!(RuleSet::from_entries(&entries)
             .unwrap()
             .matches(Some("www.baidu.com"), None));
+    }
+
+    #[test]
+    fn downloaded_lists_build_the_same_set_without_a_string_per_line() {
+        let text = "payload:\n  - '+.google.com'\n  - \"Exact.example\"\nDOMAIN-SUFFIX,.classic.example\n\
+            DOMAIN,api.example,REJECT\nDOMAIN-KEYWORD,adtrack\nIP-CIDR,10.0.0.0/8,no-resolve\n192.0.2.1\n\
+            google.com\nUSER-AGENT,curl*\nnot a domain\n";
+        let (entries, skipped) = RuleSetEntries::parse_list(text, BareDomain::Exact);
+        let (builder, built_skipped) = RuleSetBuilder::parse_list(text, BareDomain::Exact);
+        assert_eq!(built_skipped, skipped);
+        assert_eq!(builder.len(), entries.len());
+        let built = builder.build();
+        assert_eq!(built, RuleSet::from_entries(&entries).unwrap());
+        assert!(built.matches(Some("maps.google.com"), None));
+        assert!(built.matches(Some("exact.example"), None));
+        assert!(!built.matches(Some("www.exact.example"), None));
+        assert!(built.matches(Some("classic.example"), None));
+        assert!(built.matches(Some("api.example"), None));
+        assert!(built.matches(Some("x.adtrack.test"), None));
+        assert!(built.matches(None, Some("10.9.8.7".parse().unwrap())));
+        assert!(!built.matches(Some("example.org"), None));
+        // The duplicate google.com suffix is stored once.
+        assert_eq!(built.len(), entries.len() - 1);
+    }
+
+    #[test]
+    fn large_lists_take_about_their_own_bytes() {
+        let text = (0..200_000)
+            .map(|index| format!(".host-{index}.ads-example.com\n"))
+            .collect::<String>();
+        let (builder, skipped) = RuleSetBuilder::parse_list(&text, BareDomain::Suffix);
+        assert_eq!(skipped, 0);
+        let set = builder.build();
+        assert_eq!(set.len(), 200_000);
+        let stored = set.domain_suffixes.bytes.len() + 4 * set.domain_suffixes.ends.len();
+        // About 25 bytes a domain: the name and its offset.
+        assert!(stored < 200_000 * 32, "{stored}");
+        assert!(set.matches(Some("a.host-199999.ads-example.com"), None));
+        assert!(set.matches(Some("host-0.ads-example.com"), None));
+        assert!(!set.matches(Some("host-200000.ads-example.com"), None));
+        assert!(!set.matches(Some("ads-example.com"), None));
     }
 
     #[test]
