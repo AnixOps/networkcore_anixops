@@ -561,7 +561,7 @@ mod tests {
     fn downloaded_lists_build_the_same_set_without_a_string_per_line() {
         let text = "payload:\n  - '+.google.com'\n  - \"Exact.example\"\nDOMAIN-SUFFIX,.classic.example\n\
             DOMAIN,api.example,REJECT\nDOMAIN-KEYWORD,adtrack\nIP-CIDR,10.0.0.0/8,no-resolve\n192.0.2.1\n\
-            google.com\nUSER-AGENT,curl*\nnot a domain\n";
+            DOMAIN-SUFFIX,Google.com\nUSER-AGENT,curl*\nnot a domain\n";
         let (entries, skipped) = RuleSetEntries::parse_list(text, BareDomain::Exact);
         let (builder, built_skipped) = RuleSetBuilder::parse_list(text, BareDomain::Exact);
         assert_eq!(built_skipped, skipped);
@@ -576,7 +576,7 @@ mod tests {
         assert!(built.matches(Some("x.adtrack.test"), None));
         assert!(built.matches(None, Some("10.9.8.7".parse().unwrap())));
         assert!(!built.matches(Some("example.org"), None));
-        // The duplicate google.com suffix is stored once.
+        // The google.com suffix listed twice is stored once.
         assert_eq!(built.len(), entries.len() - 1);
     }
 
