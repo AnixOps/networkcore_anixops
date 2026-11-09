@@ -338,6 +338,7 @@ Before describing VLESS + REALITY as usable on iOS, the maintainer records here
 
 - 首批运维上线环境尚未提供：真实邮件/Telegram 接收渠道、第三方独立 Control 监控、跨地域节点和设备以及维护负责人。当前自动化只能运行测试适配器与代码 CI，不能证明这些真实环境门槛。维护负责人补齐渠道与部署范围后，记录投递/监控/网络/设备及回滚演练证据，再由 CI/CD 推进获准的灰度发布；真实地址与密钥仅放部署系统或密码库。
 - 节点内核的地址段拦截（`PUT /v1/rules` 的 `block_cidrs`、`GET /v1/rules/counters`、feature `block_cidrs`）需要重新发布：内核发布包必须从包含 `block_cidrs` 的 networkcore 版本重新构建。发布前出口节点开启“拒绝中国大陆目标”时，Agent 只记一条警告，不下发、不计数。
+- Windows TUN 模式（`platform-windows::tun` + `engine-outbound::protect`）只能在真机验收：CI 没有 Wintun 驱动和管理员网络栈。需要在 Windows 10/11 x64 上以管理员运行客户端，确认 Wintun 网卡 `AnixOps Net` 出现、`route print` 有 `0.0.0.0/1`、`128.0.0.0/1`（及 IPv6 `::/1`、`8000::/1`）走该网卡、浏览器与命令行流量经代理、代理服务器连接不回环（任务管理器无 CPU 飙升、连接可用）、断开后网卡与路由消失、默认路由仍在。已知限制：DNS 服务器在本地网段（如路由器 192.168.1.1）时 Windows 可能并发向物理网卡 DNS 查询；切换 Wi-Fi/有线后需重连 TUN 才会换绑物理网卡。
 - NetworkCore 的首批诊断库不含宿主运行时事件接线。后续实现真实观察源、宿主认证身份和持久化发送适配后，需在 CI 中补 Agent/Control 的端到端验收，再安排环境演练。
 
 

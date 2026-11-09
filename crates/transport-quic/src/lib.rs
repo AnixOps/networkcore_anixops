@@ -13,7 +13,6 @@
 pub mod salamander;
 
 use std::io;
-use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -129,30 +128,26 @@ impl QuicConnector {
             .await?
             .next()
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "quic server not found"))?;
-        let bind: SocketAddr = if addr.is_ipv4() {
-            (Ipv4Addr::UNSPECIFIED, 0).into()
-        } else {
-            (Ipv6Addr::UNSPECIFIED, 0).into()
+        // An explicit socket instead of `Endpoint::client`, so the host's
+        // socket protector keeps it off a packet tunnel.
+        let socket = engine_outbound::protect::bind_std_udp(
+            engine_outbound::protect::unspecified_for(addr),
+            addr,
+        )?;
+        let runtime = quinn::default_runtime()
+            .ok_or_else(|| io::Error::other("no async runtime for quic"))?;
+        let socket = runtime.wrap_udp_socket(socket)?;
+        let socket: Arc<dyn quinn::AsyncUdpSocket> = match &self.salamander {
+            None => socket,
+            Some(salamander) => salamander::SalamanderSocket::new(socket, salamander.clone())
+                as Arc<dyn quinn::AsyncUdpSocket>,
         };
-        let endpoint = match &self.salamander {
-            None => quinn::Endpoint::client(bind)?,
-            Some(salamander) => {
-                let runtime = quinn::default_runtime()
-                    .ok_or_else(|| io::Error::other("no async runtime for quic"))?;
-                let socket = std::net::UdpSocket::bind(bind)?;
-                socket.set_nonblocking(true)?;
-                let socket = salamander::SalamanderSocket::new(
-                    runtime.wrap_udp_socket(socket)?,
-                    salamander.clone(),
-                );
-                quinn::Endpoint::new_with_abstract_socket(
-                    quinn::EndpointConfig::default(),
-                    None,
-                    socket,
-                    runtime,
-                )?
-            }
-        };
+        let endpoint = quinn::Endpoint::new_with_abstract_socket(
+            quinn::EndpointConfig::default(),
+            None,
+            socket,
+            runtime,
+        )?;
         let connection = endpoint
             .connect_with(self.client_config.clone(), addr, &self.server_name)
             .map_err(|_| invalid("quic connect settings are invalid"))?

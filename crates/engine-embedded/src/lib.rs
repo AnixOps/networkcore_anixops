@@ -53,6 +53,7 @@ pub mod profile;
 pub mod protocols;
 pub mod routing;
 pub mod rule_sets;
+pub use engine_outbound::protect;
 pub use engine_outbound::sniff;
 pub mod tunnel;
 #[cfg(feature = "wireguard")]
