@@ -20,9 +20,9 @@ use config_core::routing::RoutingSpec;
 use config_core::routing_import::{import_subscription_routing, ImportedRuleSet};
 use control_domain::{
     NodeCatalog, NodeDescriptor, Protocol, SubscriptionService, SubscriptionSource,
-    NODE_METADATA_ANX_ALPN, NODE_METADATA_ANX_FINGERPRINT, NODE_METADATA_ANX_JACKET,
-    NODE_METADATA_ANX_PUBLIC_KEY, NODE_METADATA_ANX_SERVER_NAME, NODE_METADATA_ANX_USER_KEY,
-    NODE_METADATA_ANX_WG_PORT, NODE_METADATA_HYSTERIA2_OBFS_PASSWORD,
+    NODE_METADATA_ANX_ALPN, NODE_METADATA_ANX_BARE_PORT, NODE_METADATA_ANX_FINGERPRINT,
+    NODE_METADATA_ANX_JACKET, NODE_METADATA_ANX_PUBLIC_KEY, NODE_METADATA_ANX_SERVER_NAME,
+    NODE_METADATA_ANX_USER_KEY, NODE_METADATA_ANX_WG_PORT, NODE_METADATA_HYSTERIA2_OBFS_PASSWORD,
     NODE_METADATA_HYSTERIA2_OBFS_TYPE, NODE_METADATA_HYSTERIA2_PASSWORD,
     NODE_METADATA_IWAN_ENCRYPT, NODE_METADATA_IWAN_MTU, NODE_METADATA_IWAN_PASSWORD,
     NODE_METADATA_IWAN_USERNAME, NODE_METADATA_MIERU_PASSWORD, NODE_METADATA_MIERU_PORT_RANGE,
@@ -604,6 +604,11 @@ fn anx(node: &NodeDescriptor) -> Result<Value, Unsupported> {
         metadata(node, NODE_METADATA_ANX_WG_PORT).and_then(|p| p.parse::<u16>().ok())
     {
         outbound["wg_port"] = json!(port);
+    }
+    if let Some(port) =
+        metadata(node, NODE_METADATA_ANX_BARE_PORT).and_then(|p| p.parse::<u16>().ok())
+    {
+        outbound["bare_port"] = json!(port);
     }
     Ok(outbound)
 }
