@@ -173,6 +173,8 @@ pub const NODE_METADATA_ANX_ALPN: &str = "anx.alpn";
 pub const NODE_METADATA_ANX_FINGERPRINT: &str = "anx.fingerprint";
 pub const NODE_METADATA_ANX_JACKET: &str = "anx.jacket";
 pub const NODE_METADATA_ANX_WG_PORT: &str = "anx.wg_port";
+/// TCP port of the ANX-bare jacket (user to domestic ingress only).
+pub const NODE_METADATA_ANX_BARE_PORT: &str = "anx.bare_port";
 /// Id of the node this one connects through (`via`, a proxy chain).
 pub const NODE_METADATA_VIA: &str = "proxy.via";
 /// The subscription's name for that node when it could not be resolved to

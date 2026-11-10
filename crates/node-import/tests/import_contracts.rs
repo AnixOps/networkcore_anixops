@@ -670,6 +670,10 @@ fn anx_links_carry_jacket_and_wg_port() {
         "jacket=xx&wg_port=1",
         "wg_port=0",
         "wg_port=abc",
+        "jacket=bare",
+        "jacket=bare&wg_port=1",
+        "bare_port=0",
+        "bare_port=99999",
     ] {
         let text = format!("anx://{key}@203.0.113.8:443?pk=aa%3Abb&{bad}#Bad");
         let imported = import_text(&text)
@@ -677,6 +681,31 @@ fn anx_links_carry_jacket_and_wg_port() {
             .unwrap_or(false);
         assert!(!imported, "{bad} must not import");
     }
+}
+
+#[test]
+fn anx_links_carry_bare_port() {
+    let key = "cd".repeat(32);
+    let text = format!("anx://{key}@203.0.113.8:443?pk=aa%3Abb&jacket=bare&bare_port=8443#Bare");
+    let report = import_text(&text).unwrap();
+    let node = report
+        .nodes
+        .iter()
+        .find(|node| node.name == "Bare")
+        .expect("an anx link with jacket=bare imports");
+    assert_eq!(node.outbound["jacket"], "bare");
+    assert_eq!(node.outbound["bare_port"], 8443);
+
+    let auto = format!("anx://{key}@203.0.113.8:443?pk=aa%3Abb&wg_port=51820&bare_port=8443#Both");
+    let report = import_text(&auto).unwrap();
+    let node = report
+        .nodes
+        .iter()
+        .find(|node| node.name == "Both")
+        .unwrap();
+    assert!(node.outbound.get("jacket").is_none());
+    assert_eq!(node.outbound["wg_port"], 51820);
+    assert_eq!(node.outbound["bare_port"], 8443);
 }
 
 #[test]
