@@ -26,7 +26,7 @@ use control_domain::{
     NODE_METADATA_IWAN_USERNAME, NODE_METADATA_MIERU_HANDSHAKE_MODE, NODE_METADATA_MIERU_MTU,
     NODE_METADATA_MIERU_MULTIPLEXING, NODE_METADATA_MIERU_PASSWORD, NODE_METADATA_MIERU_PORT_RANGE,
     NODE_METADATA_MIERU_TRAFFIC_PATTERN, NODE_METADATA_MIERU_TRANSPORT,
-    NODE_METADATA_MIERU_USERNAME, NODE_METADATA_SHADOWSOCKS_METHOD,
+    NODE_METADATA_MIERU_USERNAME, NODE_METADATA_PATH, NODE_METADATA_SHADOWSOCKS_METHOD,
     NODE_METADATA_SHADOWSOCKS_PASSWORD, NODE_METADATA_SNELL_MODE, NODE_METADATA_SNELL_OBFS,
     NODE_METADATA_SNELL_OBFS_HOST, NODE_METADATA_SNELL_OBFS_URI, NODE_METADATA_SNELL_PSK,
     NODE_METADATA_SNELL_REUSE, NODE_METADATA_SNELL_USER_KEY, NODE_METADATA_SNELL_VERSION,
@@ -2537,12 +2537,21 @@ fn required_surge_proxy_option(
 fn parse_proxy_link_lines(source_id: &str, content: &str) -> DomainResult<SubscriptionDocument> {
     let mut nodes = Vec::new();
     let mut seen_ids = BTreeSet::new();
+    // An AnixOps `#anixops:path=<kind>` line describes the link after it.
+    let mut path: Option<String> = None;
 
     for line in content.lines() {
         let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
+        if line.is_empty() {
             continue;
         }
+        if let Some(comment) = line.strip_prefix('#') {
+            if let Some(kind) = comment.trim().strip_prefix(ANIXOPS_PATH_MARK) {
+                path = Some(kind.trim().to_string()).filter(|kind| is_path_kind(kind));
+            }
+            continue;
+        }
+        let path = path.take();
         let (line, via) = take_link_via(line)?;
         let line = line.as_str();
 
@@ -2573,6 +2582,12 @@ fn parse_proxy_link_lines(source_id: &str, content: &str) -> DomainResult<Subscr
             node.metadata.push(MetadataEntry {
                 key: NODE_METADATA_VIA_UNRESOLVED.to_string(),
                 value: via,
+            });
+        }
+        if let Some(path) = path {
+            node.metadata.push(MetadataEntry {
+                key: NODE_METADATA_PATH.to_string(),
+                value: path,
             });
         }
         if !seen_ids.insert(node.id.clone()) {
@@ -2606,6 +2621,19 @@ fn parse_proxy_link_lines(source_id: &str, content: &str) -> DomainResult<Subscr
         rules: Vec::new(),
         diagnostics: Vec::new(),
     })
+}
+
+/// The AnixOps subscription line that marks the next link's path
+/// (`#anixops:path=trunk`); other `#` lines stay comments.
+const ANIXOPS_PATH_MARK: &str = "anixops:path=";
+
+/// Path kinds a mark may carry: 1-32 of `[a-z0-9_-]`, so a later kind
+/// passes through to clients that know it.
+fn is_path_kind(kind: &str) -> bool {
+    (1..=32).contains(&kind.len())
+        && kind.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'_' | b'-')
+        })
 }
 
 /// Takes the AnixOps `via` query field (the name of the node a link connects

@@ -177,6 +177,13 @@ pub const NODE_METADATA_ANX_WG_PORT: &str = "anx.wg_port";
 pub const NODE_METADATA_ANX_BARE_PORT: &str = "anx.bare_port";
 /// Id of the node this one connects through (`via`, a proxy chain).
 pub const NODE_METADATA_VIA: &str = "proxy.via";
+/// How the node's traffic crosses the border, from an AnixOps subscription's
+/// `#anixops:path=trunk` line: `trunk` for a domestic ingress whose
+/// cross-border leg is a link many users share. Clients pick such a node by
+/// default (anx FUTURE-IMPROVEMENTS F-51, 默认路径规则).
+pub const NODE_METADATA_PATH: &str = "proxy.path";
+/// The `NODE_METADATA_PATH` value of a trunk node.
+pub const NODE_PATH_TRUNK: &str = "trunk";
 /// The subscription's name for that node when it could not be resolved to
 /// an imported node; such a node cannot run.
 pub const NODE_METADATA_VIA_UNRESOLVED: &str = "proxy.via_unresolved";

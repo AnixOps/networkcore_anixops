@@ -752,3 +752,36 @@ proxies:
         "vless encryption (VLESS Encryption) is not implemented yet"
     );
 }
+
+/// An AnixOps subscription marks trunk nodes (a domestic ingress on a shared
+/// link) with a `#anixops:path=trunk` line before the link; only that link
+/// gets `path`, the report JSON leaves it out elsewhere, and other `#` lines
+/// stay comments (anx FUTURE-IMPROVEMENTS F-51).
+#[test]
+fn anixops_path_mark_tags_the_next_link() {
+    let plain = "#anixops:path=trunk\n\
+        trojan://pw@sh.example.com:443?security=tls&sni=land.example#SH%20CN2\n\
+        # a comment\n\
+        trojan://pw@198.51.100.40:443?security=tls&sni=land.example#JP%20direct\n\
+        #anixops:path=Bad Kind\n\
+        trojan://pw@198.51.100.41:443?security=tls&sni=land.example#JP%20two";
+    for text in [plain.to_string(), base64_standard(plain.as_bytes())] {
+        let report = import_text(&text).unwrap();
+        let paths: Vec<_> = report
+            .nodes
+            .iter()
+            .map(|node| (node.name.as_str(), node.path.as_deref()))
+            .collect();
+        assert_eq!(
+            paths,
+            [
+                ("SH CN2", Some("trunk")),
+                ("JP direct", None),
+                ("JP two", None)
+            ]
+        );
+        let json = serde_json::to_value(&report).unwrap();
+        assert_eq!(json["nodes"][0]["path"], "trunk");
+        assert!(json["nodes"][1].get("path").is_none());
+    }
+}
