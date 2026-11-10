@@ -38,6 +38,7 @@ const EXT_EXTENDED_MASTER_SECRET: u16 = 0x0017;
 const EXT_COMPRESS_CERTIFICATE: u16 = 0x001b;
 const EXT_SESSION_TICKET: u16 = 0x0023;
 const EXT_SUPPORTED_VERSIONS: u16 = 0x002b;
+const EXT_PRE_SHARED_KEY: u16 = 0x0029;
 const EXT_PSK_KEY_EXCHANGE_MODES: u16 = 0x002d;
 const EXT_KEY_SHARE: u16 = 0x0033;
 const EXT_ECH: u16 = 0xfe0d;
@@ -343,6 +344,14 @@ impl ClientHelloSpec {
         profile::spec_to_value(self).to_string()
     }
 
+    /// Whether the spec offers `psk_dhe_ke`, the only PSK mode this client
+    /// resumes with.
+    pub fn offers_psk_dhe_ke(&self) -> bool {
+        self.extensions.iter().any(|extension| {
+            matches!(extension, Extension::PskKeyExchangeModes(modes) if modes.contains(&1))
+        })
+    }
+
     fn key_share_groups(&self) -> &[Code] {
         self.extensions
             .iter()
@@ -484,6 +493,19 @@ pub struct ClientHello {
     pub secrets: KeyShareSecrets,
     /// ALPN protocols that were offered, in order.
     pub alpn: Vec<Vec<u8>>,
+    /// Length of the PSK binders list at the very end of `message` (its
+    /// two-byte length included); 0 when no pre_shared_key is offered. The
+    /// binders are zero until the handshake fills them in.
+    pub psk_binders_len: usize,
+}
+
+/// The pre_shared_key extension to add to a ClientHello: one identity with
+/// its obfuscated age and room for one binder of `binder_len` bytes.
+#[derive(Clone, Copy, Debug)]
+pub struct PskShape<'a> {
+    pub identity: &'a [u8],
+    pub obfuscated_age: u32,
+    pub binder_len: usize,
 }
 
 struct GreaseValues {
@@ -538,7 +560,25 @@ pub fn build_from_spec(
     server_name: &str,
     alpn: Option<&[Vec<u8>]>,
 ) -> io::Result<ClientHello> {
+    build_from_spec_with_psk(spec, server_name, alpn, None)
+}
+
+/// [`build_from_spec`] with an optional pre_shared_key extension. It is
+/// always the last extension (RFC 8446 §4.2.11), after GREASE and padding,
+/// and counts towards the length padding looks at, as in BoringSSL. The
+/// binder is left zero: it covers the rest of the message, so it is computed
+/// once nothing else changes.
+pub fn build_from_spec_with_psk(
+    spec: &ClientHelloSpec,
+    server_name: &str,
+    alpn: Option<&[Vec<u8>]>,
+    psk: Option<PskShape<'_>>,
+) -> io::Result<ClientHello> {
     spec.validate()?;
+    let psk_body = psk
+        .map(|psk| encode_pre_shared_key(spec, psk))
+        .transpose()?;
+    let psk_binders_len = psk.map_or(0, |psk| psk.binder_len + 3);
     let grease = GreaseValues::generate()?;
     let with_mlkem = spec
         .key_share_groups()
@@ -601,7 +641,11 @@ pub fn build_from_spec(
     if let Some(slot) = padding_slot {
         // Handshake header, version, random, session id, suites, compression
         // methods and the extensions length field, then the extensions.
-        let extensions_len: usize = encoded.iter().map(|(_, body)| 4 + body.len()).sum();
+        let extensions_len: usize = encoded
+            .iter()
+            .map(|(_, body)| 4 + body.len())
+            .sum::<usize>()
+            + psk_body.as_ref().map_or(0, |body| 4 + body.len());
         let unpadded = 4 + 2 + 32 + 1 + 32 + 2 + suites.len() * 2 + 2 + 2 + extensions_len;
         if unpadded > 0xff && unpadded < 0x200 {
             // BoringSSL: pad to 512 bytes; the extension header takes four of
@@ -610,6 +654,10 @@ pub fn build_from_spec(
             let padding = if room >= 5 { room - 4 } else { 1 };
             encoded.insert(slot, (EXT_PADDING, vec![0u8; padding]));
         }
+    }
+
+    if let Some(body) = psk_body {
+        encoded.push((EXT_PRE_SHARED_KEY, body));
     }
 
     let mut encoded_extensions = Vec::with_capacity(2048);
@@ -645,7 +693,31 @@ pub fn build_from_spec(
         random,
         secrets,
         alpn,
+        psk_binders_len,
     })
+}
+
+/// Body of a pre_shared_key extension with one identity and a zero binder.
+fn encode_pre_shared_key(spec: &ClientHelloSpec, psk: PskShape<'_>) -> io::Result<Vec<u8>> {
+    if psk.identity.is_empty()
+        || psk.identity.len() > usize::from(u16::MAX) - 64
+        || psk.binder_len < 32
+        || psk.binder_len > 255
+    {
+        return Err(invalid_data("invalid pre-shared key offer"));
+    }
+    if !spec.offers_psk_dhe_ke() {
+        return Err(invalid_data("fingerprint does not offer psk_dhe_ke"));
+    }
+    let mut body = Vec::with_capacity(psk.identity.len() + psk.binder_len + 11);
+    put_u16(&mut body, (psk.identity.len() + 6) as u16);
+    put_u16(&mut body, psk.identity.len() as u16);
+    body.extend_from_slice(psk.identity);
+    body.extend_from_slice(&psk.obfuscated_age.to_be_bytes());
+    put_u16(&mut body, (psk.binder_len + 1) as u16);
+    body.push(psk.binder_len as u8);
+    body.resize(body.len() + psk.binder_len, 0);
+    Ok(body)
 }
 
 /// Fisher-Yates shuffle of every extension except GREASE and padding, which

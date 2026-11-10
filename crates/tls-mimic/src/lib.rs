@@ -7,9 +7,10 @@
 //! delivered bundle can replace them at run time ([`install_profiles`]). Unlike general
 //! TLS libraries it lets the caller edit the ClientHello and decide trust
 //! through [`HandshakeHooks`], which is what REALITY and similar protocols
-//! need. It deliberately supports only TLS 1.3 full handshakes: no TLS 1.2,
-//! no resumption, no 0-RTT and no client certificates. [`server`] has the
-//! matching minimal server for REALITY-style inbounds.
+//! need. It deliberately supports only TLS 1.3: full handshakes and
+//! resumption with a session ticket (`psk_dhe_ke`); no TLS 1.2, no 0-RTT and
+//! no client certificates. [`server`] has the matching minimal server for
+//! REALITY-style inbounds.
 
 pub mod cert;
 pub mod crypto;
@@ -26,7 +27,9 @@ pub use fingerprint::{
     build_client_hello, clear_profiles, install_profiles, installed_profiles, ClientHello,
     ClientHelloSpec, Fingerprint, InstalledProfiles, SESSION_ID_OFFSET,
 };
-pub use handshake::{connect, ClientConfig, HandshakeHooks, HelloContext};
+pub use handshake::{
+    connect, connect_resuming, ClientConfig, HandshakeHooks, HelloContext, SessionTicket,
+};
 pub use stream::TlsStream;
 
 pub(crate) fn alert_error(description: u8) -> io::Error {
