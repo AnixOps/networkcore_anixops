@@ -790,7 +790,9 @@ async fn local_proxy_decrypts_listed_hosts_and_relays_the_rest() {
         "mitm": {
             "policy": config.policy,
             "ca_certificate": config.ca_certificate,
-            "ca_private_key": config.ca_private_key,
+            // A desktop root is kept as PKCS#8 instead of X9.63.
+            "ca_private_key": base64::engine::general_purpose::STANDARD
+                .encode(device_root.key.serialize_der()),
         },
     }))
     .unwrap();
