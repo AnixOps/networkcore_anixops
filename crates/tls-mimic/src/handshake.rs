@@ -1,6 +1,8 @@
-//! TLS 1.3 client handshake (full 1-RTT, no resumption, no client auth).
+//! TLS 1.3 client handshake: full 1-RTT, or resumed with a session ticket
+//! (`psk_dhe_ke`, no 0-RTT). No client auth.
 
 use std::io;
+use std::time::{Duration, Instant};
 
 use ml_kem::kem::Decapsulate;
 use ml_kem::{Ciphertext, MlKem768};
@@ -10,8 +12,8 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use crate::cert;
 use crate::crypto::{invalid_data, CipherSuite, RecordCipher, MAX_CIPHERTEXT, MAX_PLAINTEXT};
 use crate::fingerprint::{
-    build_client_hello, put_u24, Fingerprint, KeyShareSecrets, GROUP_X25519, GROUP_X25519_MLKEM768,
-    SESSION_ID_OFFSET,
+    build_from_spec_with_psk, put_u24, Fingerprint, KeyShareSecrets, PskShape, GROUP_X25519,
+    GROUP_X25519_MLKEM768, SESSION_ID_OFFSET,
 };
 use crate::stream::TlsStream;
 
@@ -42,6 +44,48 @@ impl ClientConfig {
     }
 }
 
+/// RFC 8446 §4.6.1: a ticket lifetime is at most seven days.
+const MAX_TICKET_LIFETIME_SECS: u32 = 7 * 24 * 60 * 60;
+
+/// A TLS 1.3 session ticket together with the pre-shared key it stands for.
+/// [`TlsStream::take_session_tickets`] hands out the ones a server sent;
+/// [`connect_resuming`] offers one on a later connection to the same server.
+#[derive(Clone)]
+pub struct SessionTicket {
+    /// The ticket as the server sent it; the PSK identity on the wire.
+    pub ticket: Vec<u8>,
+    /// `HKDF-Expand-Label(resumption_master_secret, "resumption", nonce)`.
+    pub psk: Vec<u8>,
+    /// Suite of the connection the ticket came from. A resumed connection
+    /// must use a suite with the same hash.
+    pub suite: CipherSuite,
+    pub lifetime_secs: u32,
+    pub age_add: u32,
+    pub received: Instant,
+}
+
+impl SessionTicket {
+    /// Whether the ticket is still within its lifetime.
+    pub fn usable(&self) -> bool {
+        let lifetime = self.lifetime_secs.min(MAX_TICKET_LIFETIME_SECS);
+        !self.ticket.is_empty()
+            && self.received.elapsed() < Duration::from_secs(u64::from(lifetime))
+    }
+
+    /// RFC 8446 §4.2.11.1: age in milliseconds plus `age_add`, modulo 2^32.
+    fn obfuscated_age(&self) -> u32 {
+        (self.received.elapsed().as_millis() as u32).wrapping_add(self.age_add)
+    }
+}
+
+/// HMAC key of a resumption PSK binder (RFC 8446 §4.2.11.2).
+pub(crate) fn binder_finished_key(suite: CipherSuite, psk: &[u8]) -> Vec<u8> {
+    let hash = suite.hash();
+    let early_secret = hash.hkdf_extract(&[], psk);
+    let binder_key = hash.derive_secret(&early_secret, "res binder", &hash.hash(&[]));
+    hash.expand_label(&binder_key, "finished", &[], hash.output_len())
+}
+
 /// Data available to [`HandshakeHooks::edit_client_hello`].
 pub struct HelloContext<'a> {
     pub random: &'a [u8; 32],
@@ -58,7 +102,9 @@ impl HelloContext<'_> {
 /// Protocol-specific behaviour layered on the handshake.
 pub trait HandshakeHooks: Send {
     /// Edits the encoded ClientHello handshake message before it is sent. The
-    /// legacy session id occupies bytes `39..71`.
+    /// legacy session id occupies bytes `39..71`. When a session ticket is
+    /// offered the message ends with the pre_shared_key extension, and its
+    /// binder is still zero here: the binder is computed after this hook.
     fn edit_client_hello(
         &mut self,
         _ctx: &HelloContext<'_>,
@@ -79,17 +125,42 @@ pub trait HandshakeHooks: Send {
 
 /// Runs the TLS 1.3 handshake over `io` and returns the established stream.
 pub async fn connect<S>(
-    mut io: S,
+    io: S,
     config: &ClientConfig,
     hooks: &mut dyn HandshakeHooks,
 ) -> io::Result<TlsStream<S>>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
-    let mut hello = build_client_hello(
-        config.fingerprint,
+    connect_resuming(io, config, hooks, None).await
+}
+
+/// [`connect`], offering `ticket` for resumption when it is still usable and
+/// the fingerprint offers `psk_dhe_ke`. The server may accept it (the
+/// handshake then has no certificate, [`HandshakeHooks::verify_server_certificates`]
+/// is not called and [`TlsStream::resumed`] is true: the server proved it
+/// holds the PSK) or decline it, which gives an ordinary full handshake.
+/// Only offer a ticket to the server it came from.
+pub async fn connect_resuming<S>(
+    mut io: S,
+    config: &ClientConfig,
+    hooks: &mut dyn HandshakeHooks,
+    ticket: Option<&SessionTicket>,
+) -> io::Result<TlsStream<S>>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    let spec = config.fingerprint.spec()?;
+    let offered = ticket.filter(|ticket| ticket.usable() && spec.offers_psk_dhe_ke());
+    let mut hello = build_from_spec_with_psk(
+        &spec,
         &config.server_name,
         config.alpn.as_deref(),
+        offered.map(|ticket| PskShape {
+            identity: &ticket.ticket,
+            obfuscated_age: ticket.obfuscated_age(),
+            binder_len: ticket.suite.hash().output_len(),
+        }),
     )?;
     {
         let ctx = HelloContext {
@@ -97,6 +168,23 @@ where
             secrets: &hello.secrets,
         };
         hooks.edit_client_hello(&ctx, &mut hello.message)?;
+    }
+    if let Some(ticket) = offered {
+        // The binder covers the ClientHello up to the binders list.
+        let hash = ticket.suite.hash();
+        let total = hello.message.len();
+        let truncated = total
+            .checked_sub(hello.psk_binders_len)
+            .ok_or_else(|| invalid_data("ClientHello shorter than its PSK binders"))?;
+        let binder = hash.hmac(
+            &binder_finished_key(ticket.suite, &ticket.psk),
+            &hash.hash(&hello.message[..truncated]),
+        );
+        let start = total
+            .checked_sub(binder.len())
+            .filter(|start| *start >= truncated)
+            .ok_or_else(|| invalid_data("PSK binder does not fit the ClientHello"))?;
+        hello.message[start..].copy_from_slice(&binder);
     }
     if hello.message.len() > MAX_PLAINTEXT {
         return Err(invalid_data("ClientHello too large"));
@@ -137,10 +225,23 @@ where
 
     let suite = parsed.suite;
     let hash = suite.hash();
+    // The server resumes by selecting the one identity that was offered.
+    let resumed = match (parsed.selected_psk, offered) {
+        (None, _) => None,
+        (Some(0), Some(ticket)) if ticket.suite.hash() == hash => Some(ticket),
+        _ => {
+            return Err(invalid_data(
+                "server selected a pre-shared key that was not offered",
+            ))
+        }
+    };
     let shared = shared_secret(&hello.secrets, parsed.group, &parsed.key_share)?;
     let zeros = vec![0u8; hash.output_len()];
     let empty_hash = hash.hash(&[]);
-    let early_secret = hash.hkdf_extract(&[], &zeros);
+    let early_secret = match resumed {
+        Some(ticket) => hash.hkdf_extract(&[], &ticket.psk),
+        None => hash.hkdf_extract(&[], &zeros),
+    };
     let derived = hash.derive_secret(&early_secret, "derived", &empty_hash);
     let handshake_secret = hash.hkdf_extract(&derived, &shared);
     let hello_hash = hash.hash(&transcript);
@@ -179,7 +280,7 @@ where
                 alpn = parse_encrypted_extensions(&message[4..])?;
                 state = Expect::Certificate;
             }
-            (Expect::Certificate, 11) => {
+            (Expect::Certificate, 11) if resumed.is_none() => {
                 let chain = parse_certificate(&message[4..])?;
                 hooks.verify_server_certificates(&config.server_name, &chain)?;
                 leaf = chain.into_iter().next().unwrap_or_default();
@@ -203,7 +304,11 @@ where
                 cert::verify_signature(scheme, &leaf_fields, &content, signature)?;
                 state = Expect::Finished;
             }
-            (Expect::Finished, 20) => {
+            // A resumed handshake has no Certificate and CertificateVerify:
+            // the Finished MAC, keyed through the PSK, authenticates the server.
+            (Expect::Finished, 20) | (Expect::Certificate, 20)
+                if state == Expect::Finished || resumed.is_some() =>
+            {
                 let finished_key =
                     hash.expand_label(&server_hs, "finished", &[], hash.output_len());
                 let key = hmac::Key::new(hash.hmac_algorithm(), &finished_key);
@@ -237,7 +342,13 @@ where
     io.write_all(&flight).await?;
     io.flush().await?;
 
-    TlsStream::from_secrets(io, suite, client_ap, server_ap, alpn)
+    transcript.extend_from_slice(&finished);
+    let resumption_secret =
+        hash.derive_secret(&master_secret, "res master", &hash.hash(&transcript));
+    let mut stream = TlsStream::from_secrets(io, suite, client_ap, server_ap, alpn)?;
+    stream.set_resumption_secret(resumption_secret);
+    stream.set_resumed(resumed.is_some());
+    Ok(stream)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -336,6 +447,8 @@ struct ServerHello {
     suite: CipherSuite,
     group: u16,
     key_share: Vec<u8>,
+    /// `selected_identity` of a pre_shared_key extension.
+    selected_psk: Option<u16>,
 }
 
 fn parse_server_hello(body: &[u8]) -> io::Result<ServerHello> {
@@ -357,11 +470,13 @@ fn parse_server_hello(body: &[u8]) -> io::Result<ServerHello> {
     let mut extensions = Reader::new(reader.take(extensions_len)?);
     let mut version = None;
     let mut key_share = None;
+    let mut selected_psk = None;
     while !extensions.is_empty() {
         let ext_type = extensions.u16()?;
         let ext_len = extensions.u16()? as usize;
         let mut data = Reader::new(extensions.take(ext_len)?);
         match ext_type {
+            0x0029 => selected_psk = Some(data.u16()?),
             0x002b => version = Some(data.u16()?),
             0x0033 => {
                 let group = data.u16()?;
@@ -381,6 +496,7 @@ fn parse_server_hello(body: &[u8]) -> io::Result<ServerHello> {
         suite,
         group,
         key_share,
+        selected_psk,
     })
 }
 

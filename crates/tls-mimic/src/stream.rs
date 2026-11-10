@@ -3,15 +3,20 @@
 use std::io;
 use std::pin::Pin;
 use std::task::{ready, Context, Poll};
+use std::time::Instant;
 
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 use crate::crypto::{invalid_data, CipherSuite, RecordCipher, MAX_CIPHERTEXT, MAX_PLAINTEXT};
+use crate::fingerprint::{put_u16, put_u24};
+use crate::handshake::{Reader, SessionTicket};
 
 const CONTENT_ALERT: u8 = 21;
 const CONTENT_HANDSHAKE: u8 = 22;
 const CONTENT_APPLICATION_DATA: u8 = 23;
 const CONTENT_CHANGE_CIPHER_SPEC: u8 = 20;
+/// Session tickets kept per connection; servers send one or two.
+const MAX_STORED_TICKETS: usize = 8;
 
 /// An established TLS 1.3 connection over `S`.
 ///
@@ -38,6 +43,9 @@ pub struct TlsStream<S> {
     key_update_requested: bool,
     raw_read: bool,
     raw_write: bool,
+    resumption_secret: Option<Vec<u8>>,
+    resumed: bool,
+    tickets: Vec<SessionTicket>,
 }
 
 impl<S> TlsStream<S> {
@@ -71,7 +79,113 @@ impl<S> TlsStream<S> {
             key_update_requested: false,
             raw_read: false,
             raw_write: false,
+            resumption_secret: None,
+            resumed: false,
+            tickets: Vec::new(),
         })
+    }
+
+    /// Sets the connection's `resumption_master_secret` (RFC 8446 §7.1).
+    /// [`crate::connect`] and [`crate::server::accept`] do this themselves; a
+    /// handshake built on this crate's record layer calls it to make session
+    /// tickets work on the stream it hands back.
+    pub fn set_resumption_secret(&mut self, secret: Vec<u8>) {
+        self.resumption_secret = Some(secret);
+    }
+
+    pub(crate) fn set_resumed(&mut self, resumed: bool) {
+        self.resumed = resumed;
+    }
+
+    /// Whether the handshake was resumed from a session ticket.
+    pub fn resumed(&self) -> bool {
+        self.resumed
+    }
+
+    /// The pre-shared key a ticket with this nonce stands for, if the
+    /// resumption secret is known.
+    pub fn resumption_psk(&self, nonce: &[u8]) -> Option<Vec<u8>> {
+        let hash = self.suite.hash();
+        self.resumption_secret
+            .as_ref()
+            .map(|secret| hash.expand_label(secret, "resumption", nonce, hash.output_len()))
+    }
+
+    /// Session tickets the server has sent so far (they arrive with the first
+    /// data read after the handshake). Each call returns the new ones.
+    pub fn take_session_tickets(&mut self) -> Vec<SessionTicket> {
+        std::mem::take(&mut self.tickets)
+    }
+
+    /// Server side: queues a NewSessionTicket as a record of its own, with
+    /// `padding` bytes of record padding, and returns the pre-shared key the
+    /// ticket stands for. `ticket` is opaque to the client; the server must be
+    /// able to get back to the returned key from it.
+    pub fn queue_session_ticket(
+        &mut self,
+        lifetime_secs: u32,
+        age_add: u32,
+        nonce: &[u8],
+        ticket: &[u8],
+        padding: usize,
+    ) -> io::Result<Vec<u8>> {
+        if nonce.len() > 255 || ticket.is_empty() || ticket.len() > usize::from(u16::MAX) {
+            return Err(invalid_data("invalid session ticket"));
+        }
+        let psk = self
+            .resumption_psk(nonce)
+            .ok_or_else(|| invalid_data("no resumption secret for a session ticket"))?;
+        let mut body = Vec::with_capacity(ticket.len() + nonce.len() + 13);
+        body.extend_from_slice(&lifetime_secs.to_be_bytes());
+        body.extend_from_slice(&age_add.to_be_bytes());
+        body.push(nonce.len() as u8);
+        body.extend_from_slice(nonce);
+        put_u16(&mut body, ticket.len() as u16);
+        body.extend_from_slice(ticket);
+        put_u16(&mut body, 0);
+        let mut message = Vec::with_capacity(body.len() + 4);
+        message.push(4);
+        put_u24(&mut message, body.len());
+        message.extend_from_slice(&body);
+        self.queue_handshake_record(&message, padding)?;
+        Ok(psk)
+    }
+
+    /// Keeps a NewSessionTicket for later resumption. A ticket that does not
+    /// parse is skipped, as every ticket was before resumption existed.
+    fn store_session_ticket(&mut self, body: &[u8]) {
+        if self.tickets.len() >= MAX_STORED_TICKETS {
+            return;
+        }
+        let parse = || -> io::Result<(u32, u32, Vec<u8>, Vec<u8>)> {
+            let mut reader = Reader::new(body);
+            let lifetime = u32::from_be_bytes(reader.take(4)?.try_into().unwrap_or_default());
+            let age_add = u32::from_be_bytes(reader.take(4)?.try_into().unwrap_or_default());
+            let nonce_len = reader.u8()? as usize;
+            let nonce = reader.take(nonce_len)?.to_vec();
+            let ticket_len = reader.u16()? as usize;
+            let ticket = reader.take(ticket_len)?.to_vec();
+            let extensions_len = reader.u16()? as usize;
+            reader.take(extensions_len)?;
+            Ok((lifetime, age_add, nonce, ticket))
+        };
+        let Ok((lifetime_secs, age_add, nonce, ticket)) = parse() else {
+            return;
+        };
+        let Some(psk) = self.resumption_psk(&nonce) else {
+            return;
+        };
+        if lifetime_secs == 0 || ticket.is_empty() {
+            return;
+        }
+        self.tickets.push(SessionTicket {
+            ticket,
+            psk,
+            suite: self.suite,
+            lifetime_secs,
+            age_add,
+            received: Instant::now(),
+        });
     }
 
     pub fn cipher_suite(&self) -> CipherSuite {
@@ -188,8 +302,8 @@ impl<S> TlsStream<S> {
             }
             let message: Vec<u8> = self.handshake_in.drain(..4 + len).collect();
             match message[0] {
-                // NewSessionTicket: resumption is not used.
-                4 => {}
+                // NewSessionTicket
+                4 => self.store_session_ticket(&message[4..]),
                 // KeyUpdate
                 24 => {
                     if len != 1 || message[4] > 1 {
