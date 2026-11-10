@@ -103,8 +103,8 @@ pub struct MitmConfig {
     pub plugins: Vec<String>,
     /// Root certificate, base64 DER.
     pub ca_certificate: String,
-    /// Root private key, base64 ANSI X9.63 P-256 (`04 || X || Y || D`), as
-    /// the Swift side stores it.
+    /// Root private key, a P-256 key in base64: ANSI X9.63
+    /// (`04 || X || Y || D`) as the Swift side stores it, or PKCS#8 DER.
     pub ca_private_key: String,
     /// `[Script]` sources the user consented to: script URL (`script-path`)
     /// to the local file it was saved to. Each file is pinned by SHA-256 when

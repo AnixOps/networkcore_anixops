@@ -193,7 +193,8 @@ impl MitmEngine {
         let key = base64::engine::general_purpose::STANDARD
             .decode(config.ca_private_key.trim())
             .map_err(|_| "mitm ca_private_key is not base64")?;
-        let pkcs8 = p256_pkcs8_from_x963(&key).ok_or("mitm ca_private_key is not a P-256 key")?;
+        // The Apple apps store X9.63; a desktop root is kept as PKCS#8.
+        let pkcs8 = p256_pkcs8_from_x963(&key).unwrap_or(key);
         let key = KeyPair::try_from(pkcs8.as_slice())
             .map_err(|_| "mitm ca_private_key is not a P-256 key")?;
         let issuer = Issuer::from_ca_cert_der(&CertificateDer::from(certificate), key)
