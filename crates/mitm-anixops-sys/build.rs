@@ -12,6 +12,7 @@ fn main() {
         include_dir.join("mitm_anixops.h").display()
     );
     println!("cargo:rerun-if-changed={}", source_file.display());
+    println!("cargo:rerun-if-env-changed=MINGW_PREFIX");
 
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     let target_env = env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
@@ -49,7 +50,13 @@ fn main() {
 
     if let Some(prefix) = mingw_prefix.as_ref() {
         build.include(prefix.join("include"));
-        build.compiler(prefix.join("bin").join("gcc.exe"));
+        // On a Windows host the MSYS2 MinGW gcc builds the core. Cross-compiling
+        // from Linux, the prefix only supplies the TRE regex headers and static
+        // libraries, and `cc` picks the cross compiler (`CC_x86_64_pc_windows_gnu`
+        // or `x86_64-w64-mingw32-gcc`).
+        if host_is_windows() {
+            build.compiler(prefix.join("bin").join("gcc.exe"));
+        }
     }
 
     build.compile("mitm_anixops");
@@ -67,6 +74,10 @@ fn main() {
     }
 }
 
+fn host_is_windows() -> bool {
+    env::var("HOST").is_ok_and(|host| host.contains("windows"))
+}
+
 fn find_mingw_prefix() -> PathBuf {
     let mut candidates = Vec::new();
     if let Ok(prefix) = env::var("MINGW_PREFIX") {
@@ -77,11 +88,14 @@ fn find_mingw_prefix() -> PathBuf {
         candidates.push(location.join("mingw64"));
         candidates.push(location.join("ucrt64"));
     }
-    candidates.push(PathBuf::from("C:/msys64/mingw64"));
-    candidates.push(PathBuf::from("C:/msys64/ucrt64"));
+    if host_is_windows() {
+        candidates.push(PathBuf::from("C:/msys64/mingw64"));
+        candidates.push(PathBuf::from("C:/msys64/ucrt64"));
+    }
 
-    let missing_regex_message =
-        "unable to locate MinGW regex.h; install MSYS2 MINGW64 and mingw-w64-x86_64-libsystre";
+    let missing_regex_message = "unable to locate MinGW regex.h; install MSYS2 MINGW64 and \
+         mingw-w64-x86_64-libsystre, or when cross-compiling set MINGW_PREFIX to a directory \
+         holding include/regex.h and lib/libsystre.a";
 
     candidates
         .into_iter()
