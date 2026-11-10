@@ -362,7 +362,7 @@ impl EmbeddedRuntime {
 }
 
 /// The HTTPS decryption interceptor for the config's `mitm` section.
-fn build_interceptor(
+pub(crate) fn build_interceptor(
     config: &RuntimeConfig,
 ) -> Result<Option<Arc<dyn FlowInterceptor>>, RuntimeError> {
     let Some(mitm) = config.mitm.as_ref() else {

@@ -5,6 +5,11 @@
 //! [`TargetAddr`] that is handed to a [`TcpOutbound`]; after that the bytes are
 //! relayed unchanged in both directions.
 //!
+//! With a [`ClientInterceptor`] ([`serve_intercepted`]) a tunnel is answered
+//! before the outbound connection exists and its first bytes are offered to
+//! the interceptor, which may take the connection over (HTTPS decryption).
+//! Tunnels it leaves alone are relayed as usual, the first bytes included.
+//!
 //! Supported: SOCKS5 without authentication and with username/password
 //! (RFC 1929), `CONNECT` only; HTTP `CONNECT` tunnels and absolute-form plain
 //! HTTP requests, optionally with `Proxy-Authorization: Basic`. SOCKS5 `BIND`
@@ -33,6 +38,11 @@ const RELAY_BUFFER_BYTES: usize = 16 * 1024;
 /// How long an error reply waits for the client to close before the socket
 /// is dropped.
 const LINGER: Duration = Duration::from_millis(500);
+/// Most first bytes of a tunnel offered to a [`ClientInterceptor`].
+const FIRST_BYTES_MAX: usize = 4096;
+/// How long an intercepted listener waits for a tunnel's first bytes; a
+/// protocol where the server speaks first is relayed after this delay.
+const FIRST_BYTES_WAIT: Duration = Duration::from_millis(300);
 
 /// Credentials a client must present. Has no `Debug` on purpose.
 #[derive(Clone, PartialEq, Eq)]
@@ -110,6 +120,26 @@ pub trait ClientConnector: Send + Sync {
     ) -> BoxFuture<'a, io::Result<BoxStream>>;
 }
 
+/// Takes tunnels over before they are relayed, judged from the first bytes
+/// the client sends through them.
+pub trait ClientInterceptor: Send + Sync {
+    /// The host name to take the connection for. `first` is what the client
+    /// sent first: the start of a tunnel's payload (empty when the client
+    /// waits for the server), or the origin-form head of a plain HTTP request.
+    fn claim(&self, target: &TargetAddr, first: &[u8]) -> Option<String>;
+
+    /// Serves a claimed connection to the end. The client has already been
+    /// told that the tunnel is open; `first` is not yet answered.
+    fn serve<'a>(
+        &'a self,
+        client: ClientAddrs,
+        target: &'a TargetAddr,
+        host: String,
+        stream: BoxStream,
+        first: Vec<u8>,
+    ) -> BoxFuture<'a, ()>;
+}
+
 /// Any outbound, ignoring who asked.
 struct AnyClient(Arc<dyn TcpOutbound>);
 
@@ -140,6 +170,17 @@ pub async fn serve_clients(
     settings: MixedSettings,
     stats: Arc<MixedStats>,
 ) -> io::Result<()> {
+    serve_intercepted(listener, connector, None, settings, stats).await
+}
+
+/// [`serve_clients`], offering each connection to `interceptor` first.
+pub async fn serve_intercepted(
+    listener: TcpListener,
+    connector: Arc<dyn ClientConnector>,
+    interceptor: Option<Arc<dyn ClientInterceptor>>,
+    settings: MixedSettings,
+    stats: Arc<MixedStats>,
+) -> io::Result<()> {
     let permits = Arc::new(Semaphore::new(settings.max_connections));
     let settings = Arc::new(settings);
     loop {
@@ -155,13 +196,22 @@ pub async fn serve_clients(
         };
         let client = ClientAddrs { peer, local };
         let connector = connector.clone();
+        let interceptor = interceptor.clone();
         let settings = settings.clone();
         let stats = stats.clone();
         tokio::spawn(async move {
             let _permit = permit;
             let _ = stream.set_nodelay(true);
             stats.active.fetch_add(1, Ordering::Relaxed);
-            handle(stream, client, connector.as_ref(), &settings, &stats).await;
+            handle(
+                stream,
+                client,
+                connector.as_ref(),
+                interceptor.as_deref(),
+                &settings,
+                &stats,
+            )
+            .await;
             stats.active.fetch_sub(1, Ordering::Relaxed);
         });
     }
@@ -171,6 +221,7 @@ async fn handle(
     mut client: TcpStream,
     addrs: ClientAddrs,
     connector: &dyn ClientConnector,
+    interceptor: Option<&dyn ClientInterceptor>,
     settings: &MixedSettings,
     stats: &MixedStats,
 ) {
@@ -187,6 +238,19 @@ async fn handle(
             return;
         }
     };
+    if let Some(interceptor) = interceptor {
+        handle_intercepted(
+            client,
+            addrs,
+            request,
+            connector,
+            interceptor,
+            settings,
+            stats,
+        )
+        .await;
+        return;
+    }
 
     let connected = tokio::time::timeout(
         settings.connect_timeout,
@@ -212,6 +276,72 @@ async fn handle(
         stats
             .bytes_up
             .fetch_add(request.initial.len() as u64, Ordering::Relaxed);
+    }
+    relay(client, remote, stats).await;
+}
+
+/// [`handle`] for a listener with an interceptor: a tunnel is answered first
+/// so that the client sends the bytes the interceptor judges by.
+async fn handle_intercepted(
+    mut client: TcpStream,
+    addrs: ClientAddrs,
+    request: Request,
+    connector: &dyn ClientConnector,
+    interceptor: &dyn ClientInterceptor,
+    settings: &MixedSettings,
+    stats: &MixedStats,
+) {
+    let tunnel = request.reply != Reply::HttpForward;
+    // Bytes that came with the request head: a plain HTTP request, or the
+    // start of a tunnel's payload sent without waiting for the answer.
+    let mut first = request.initial;
+    if tunnel {
+        if send_success(&mut client, request.reply).await.is_err() {
+            return;
+        }
+        if first.is_empty() {
+            first.resize(FIRST_BYTES_MAX, 0);
+            let read = tokio::time::timeout(FIRST_BYTES_WAIT, client.read(&mut first)).await;
+            let len = match read {
+                Ok(Ok(0)) | Ok(Err(_)) => return,
+                Ok(Ok(n)) => n,
+                Err(_) => 0,
+            };
+            first.truncate(len);
+        }
+    }
+
+    if let Some(host) = interceptor.claim(&request.target, &first) {
+        interceptor
+            .serve(addrs, &request.target, host, Box::new(client), first)
+            .await;
+        return;
+    }
+
+    let connected = tokio::time::timeout(
+        settings.connect_timeout,
+        connector.connect_client(addrs, &request.target),
+    )
+    .await;
+    let mut remote = match connected {
+        Ok(Ok(remote)) => remote,
+        Ok(Err(_)) | Err(_) => {
+            stats.connect_failed.fetch_add(1, Ordering::Relaxed);
+            // A tunnel was already answered; all that is left is to close it.
+            if !tunnel {
+                let _ = send_failure(&mut client, request.reply).await;
+            }
+            close_gracefully(client).await;
+            return;
+        }
+    };
+    if !first.is_empty() {
+        if remote.write_all(&first).await.is_err() {
+            return;
+        }
+        stats
+            .bytes_up
+            .fetch_add(first.len() as u64, Ordering::Relaxed);
     }
     relay(client, remote, stats).await;
 }

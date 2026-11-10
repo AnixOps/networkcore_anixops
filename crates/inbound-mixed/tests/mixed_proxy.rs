@@ -8,7 +8,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use engine_outbound::{BoxFuture, BoxStream, TargetAddr, TcpOutbound};
-use inbound_mixed::{serve, Credentials, MixedSettings, MixedStats};
+use inbound_mixed::{
+    serve, serve_intercepted, ClientAddrs, ClientConnector, ClientInterceptor, Credentials,
+    MixedSettings, MixedStats,
+};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
@@ -279,4 +282,136 @@ async fn malformed_http_gets_400_and_connect_failure_gets_502() {
     let request = format!("CONNECT {target} HTTP/1.1\r\n\r\n");
     client.write_all(request.as_bytes()).await.unwrap();
     assert!(read_to_end(&mut client).await.starts_with("HTTP/1.1 502 "));
+}
+
+/// Takes connections whose first bytes start with `take` and answers them
+/// itself; everything else is left to the relay.
+struct TakesMarked;
+
+impl ClientInterceptor for TakesMarked {
+    fn claim(&self, target: &TargetAddr, first: &[u8]) -> Option<String> {
+        first.starts_with(b"take").then(|| target.host())
+    }
+
+    fn serve<'a>(
+        &'a self,
+        _client: ClientAddrs,
+        target: &'a TargetAddr,
+        host: String,
+        mut stream: BoxStream,
+        first: Vec<u8>,
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            let answer = format!("taken {host}:{} after {} bytes", target.port(), first.len());
+            let _ = stream.write_all(answer.as_bytes()).await;
+            let _ = stream.shutdown().await;
+        })
+    }
+}
+
+struct DirectClients;
+
+impl ClientConnector for DirectClients {
+    fn connect_client<'a>(
+        &'a self,
+        _client: ClientAddrs,
+        target: &'a TargetAddr,
+    ) -> BoxFuture<'a, io::Result<BoxStream>> {
+        Direct.connect(target)
+    }
+}
+
+async fn intercepted_proxy() -> (SocketAddr, Arc<MixedStats>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let stats = Arc::new(MixedStats::default());
+    tokio::spawn(serve_intercepted(
+        listener,
+        Arc::new(DirectClients),
+        Some(Arc::new(TakesMarked)),
+        MixedSettings::default(),
+        stats.clone(),
+    ));
+    (addr, stats)
+}
+
+const ESTABLISHED: &[u8] = b"HTTP/1.1 200 Connection established\r\n\r\n";
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn interceptor_takes_claimed_tunnels_before_any_outbound_connection() {
+    // Nothing listens on the target: a claimed tunnel never dials it.
+    let target = closed_port().await;
+    let (proxy, stats) = intercepted_proxy().await;
+
+    let mut client = TcpStream::connect(proxy).await.unwrap();
+    let request = format!("CONNECT {target} HTTP/1.1\r\nHost: {target}\r\n\r\n");
+    client.write_all(request.as_bytes()).await.unwrap();
+    assert_eq!(read_n(&mut client, ESTABLISHED.len()).await, ESTABLISHED);
+    client.write_all(b"take me").await.unwrap();
+    assert_eq!(
+        read_to_end(&mut client).await,
+        format!("taken 127.0.0.1:{} after 7 bytes", target.port())
+    );
+
+    let mut client = TcpStream::connect(proxy).await.unwrap();
+    client.write_all(&[0x05, 0x01, 0x00]).await.unwrap();
+    read_n(&mut client, 2).await;
+    client.write_all(&socks_connect_ipv4(target)).await.unwrap();
+    assert_eq!(read_n(&mut client, 10).await[1], 0x00);
+    client.write_all(b"take").await.unwrap();
+    assert!(read_to_end(&mut client).await.starts_with("taken "));
+    assert_eq!(stats.connect_failed.load(Ordering::Relaxed), 0);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn interceptor_leaves_other_tunnels_to_the_relay() {
+    let echo = echo_server().await;
+    let (proxy, stats) = intercepted_proxy().await;
+
+    // The first bytes the interceptor looked at reach the target too.
+    let mut client = TcpStream::connect(proxy).await.unwrap();
+    let request = format!("CONNECT {echo} HTTP/1.1\r\nHost: {echo}\r\n\r\n");
+    client.write_all(request.as_bytes()).await.unwrap();
+    assert_eq!(read_n(&mut client, ESTABLISHED.len()).await, ESTABLISHED);
+    client.write_all(b"hello").await.unwrap();
+    assert_eq!(read_n(&mut client, 5).await, b"hello");
+    assert_echo(&mut client).await;
+
+    // Early data sent with the request head is judged without waiting.
+    let mut client = TcpStream::connect(proxy).await.unwrap();
+    let request = format!("CONNECT {echo} HTTP/1.1\r\nHost: {echo}\r\n\r\nearly");
+    client.write_all(request.as_bytes()).await.unwrap();
+    assert_eq!(read_n(&mut client, ESTABLISHED.len()).await, ESTABLISHED);
+    assert_eq!(read_n(&mut client, 5).await, b"early");
+
+    // A client that waits for the server is relayed after the short wait.
+    let mut client = TcpStream::connect(proxy).await.unwrap();
+    let request = format!("CONNECT {echo} HTTP/1.1\r\nHost: {echo}\r\n\r\n");
+    client.write_all(request.as_bytes()).await.unwrap();
+    assert_eq!(read_n(&mut client, ESTABLISHED.len()).await, ESTABLISHED);
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    assert_echo(&mut client).await;
+
+    // An unreachable target can only be reported by closing the tunnel.
+    let target = closed_port().await;
+    let mut client = TcpStream::connect(proxy).await.unwrap();
+    let request = format!("CONNECT {target} HTTP/1.1\r\nHost: {target}\r\n\r\n");
+    client.write_all(request.as_bytes()).await.unwrap();
+    assert_eq!(read_n(&mut client, ESTABLISHED.len()).await, ESTABLISHED);
+    client.write_all(b"hello").await.unwrap();
+    assert_eq!(read_to_end(&mut client).await, "");
+    assert_eq!(stats.connect_failed.load(Ordering::Relaxed), 1);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn interceptor_is_offered_plain_http_requests() {
+    let target = closed_port().await;
+    let (proxy, _) = intercepted_proxy().await;
+    let mut client = TcpStream::connect(proxy).await.unwrap();
+    // The interceptor sees the origin-form head, which starts with the method.
+    let request = format!("take http://{target}/path HTTP/1.1\r\nHost: {target}\r\n\r\n");
+    client.write_all(request.as_bytes()).await.unwrap();
+    assert!(read_to_end(&mut client)
+        .await
+        .starts_with("taken 127.0.0.1"));
 }

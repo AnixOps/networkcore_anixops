@@ -759,3 +759,84 @@ hostname = api.example.test\n";
     assert_eq!(scripts["scripts"][0]["last_status"], "done");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Desktop: the same `mitm` section on the local SOCKS5/HTTP listener. A
+/// listed host is answered with a leaf signed by the device root before any
+/// outbound connection exists; other tunnels are relayed untouched.
+#[cfg(feature = "local-proxy")]
+#[tokio::test]
+async fn local_proxy_decrypts_listed_hosts_and_relays_the_rest() {
+    use engine_embedded::local_proxy::LocalProxy;
+    use inbound_mixed::MixedSettings;
+    use tokio::net::{TcpListener, TcpStream};
+
+    const ESTABLISHED: &[u8] = b"HTTP/1.1 200 Connection established\r\n\r\n";
+    async fn connect(proxy: SocketAddr, authority: &str) -> TcpStream {
+        let mut stream = TcpStream::connect(proxy).await.unwrap();
+        let request = format!("CONNECT {authority} HTTP/1.1\r\nHost: {authority}\r\n\r\n");
+        stream.write_all(request.as_bytes()).await.unwrap();
+        let mut answer = vec![0u8; ESTABLISHED.len()];
+        stream.read_exact(&mut answer).await.unwrap();
+        assert_eq!(answer, ESTABLISHED);
+        stream
+    }
+
+    let device_root = root("NetworkCore Test Device Root");
+    let config = mitm_config(&device_root);
+    let envelope = serde_json::to_vec(&serde_json::json!({
+        "schema_version": 1,
+        "profile_id": "mitm-desktop",
+        "outbound": { "type": "direct" },
+        "mitm": {
+            "policy": config.policy,
+            "ca_certificate": config.ca_certificate,
+            "ca_private_key": config.ca_private_key,
+        },
+    }))
+    .unwrap();
+    let proxy = LocalProxy::start(
+        &envelope,
+        "127.0.0.1:0".parse().unwrap(),
+        MixedSettings::default(),
+    )
+    .unwrap();
+    assert!(proxy.decrypts_https());
+
+    let stream = connect(proxy.local_addr(), &format!("{HOST}:443")).await;
+    let trust = trusting(&device_root.certificate, &[b"http/1.1"]);
+    let tls = tokio_rustls::TlsConnector::from(Arc::new(trust))
+        .connect(ServerName::try_from(HOST).unwrap(), stream)
+        .await
+        .expect("the listed host is served with a leaf from the device root");
+    drop(tls);
+    assert_eq!(proxy.mitm_stats().mitm_flows, 1);
+
+    let echo = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let echo_addr = echo.local_addr().unwrap();
+    tokio::spawn(async move {
+        while let Ok((mut stream, _)) = echo.accept().await {
+            tokio::spawn(async move {
+                let (mut reader, mut writer) = stream.split();
+                let _ = tokio::io::copy(&mut reader, &mut writer).await;
+            });
+        }
+    });
+    let mut stream = connect(proxy.local_addr(), &echo_addr.to_string()).await;
+    stream.write_all(b"not for decryption").await.unwrap();
+    let mut echoed = [0u8; 18];
+    tokio::time::timeout(Duration::from_secs(10), stream.read_exact(&mut echoed))
+        .await
+        .expect("relayed in time")
+        .unwrap();
+    assert_eq!(&echoed, b"not for decryption");
+    assert_eq!(proxy.mitm_stats().mitm_flows, 1);
+
+    // Without the section the listener only relays.
+    let plain = LocalProxy::start(
+        br#"{"schema_version":1,"profile_id":"desktop","outbound":{"type":"direct"}}"#,
+        "127.0.0.1:0".parse().unwrap(),
+        MixedSettings::default(),
+    )
+    .unwrap();
+    assert!(!plain.decrypts_https());
+}
