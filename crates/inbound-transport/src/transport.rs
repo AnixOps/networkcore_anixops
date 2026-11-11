@@ -142,13 +142,16 @@ pub fn wrap_transport(
     }
 }
 
+/// An XHTTP inbound's TCP side and its HTTP/3 side.
+type XhttpSides = (Arc<dyn StreamInbound>, Arc<dyn PacketInbound>);
+
 /// Wraps `inner` in XHTTP and builds its HTTP/3 side: a QUIC endpoint with
 /// the certificate of `tls` and ALPN `h3`, serving the same sessions.
 pub(crate) fn wrap_xhttp_with_quic(
     inner: Arc<dyn StreamInbound>,
     settings: &XhttpSettings,
     tls: &TlsServerSettings,
-) -> Result<(Arc<dyn StreamInbound>, Arc<dyn PacketInbound>), BuildError> {
+) -> Result<XhttpSides, BuildError> {
     let xhttp = Arc::new(XhttpInbound::new(inner, settings)?);
     let tls = TlsServerSettings {
         alpn: vec!["h3".to_owned()],
