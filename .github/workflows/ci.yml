@@ -4,8 +4,6 @@ on:
   push:
     branches:
       - main
-      - master
-      - develop
     tags:
       - "v*"
   pull_request:
@@ -500,8 +498,23 @@ jobs:
     env:
       CARGO_INCREMENTAL: "0"
     needs:
+      - changes
+      - policy-fast
       - detect-projects
-    if: ${{ needs.detect-projects.outputs.rust == 'true' }}
+    # Same condition as the other Rust jobs: a documentation-only change does
+    # not build the feature matrix or take a macOS runner.
+    if: >-
+      ${{
+        needs.detect-projects.outputs.rust == 'true' &&
+        (
+          needs.changes.outputs.full_matrix == 'true' ||
+          needs.changes.outputs.rust == 'true' ||
+          needs.changes.outputs.windows == 'true' ||
+          needs.changes.outputs.linux == 'true' ||
+          needs.changes.outputs.apple == 'true' ||
+          needs.changes.outputs.ios == 'true'
+        )
+      }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -540,8 +553,23 @@ jobs:
     env:
       CARGO_INCREMENTAL: "0"
     needs:
+      - changes
+      - policy-fast
       - detect-projects
-    if: ${{ needs.detect-projects.outputs.rust == 'true' }}
+    # Same condition as the other Rust jobs: a documentation-only change does
+    # not build the feature matrix or take a macOS runner.
+    if: >-
+      ${{
+        needs.detect-projects.outputs.rust == 'true' &&
+        (
+          needs.changes.outputs.full_matrix == 'true' ||
+          needs.changes.outputs.rust == 'true' ||
+          needs.changes.outputs.windows == 'true' ||
+          needs.changes.outputs.linux == 'true' ||
+          needs.changes.outputs.apple == 'true' ||
+          needs.changes.outputs.ios == 'true'
+        )
+      }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -755,7 +783,8 @@ jobs:
       }}
     env:
       CARGO_INCREMENTAL: "0"
-      FUZZ_SECONDS_PER_TARGET: "60"
+      # Pull requests fuzz each target for 30 s; main, tags and manual runs for 60 s.
+      FUZZ_SECONDS_PER_TARGET: ${{ github.event_name == 'pull_request' && '30' || '60' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
