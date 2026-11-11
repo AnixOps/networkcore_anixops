@@ -54,15 +54,17 @@ kernel that anix-agent drives on a proxy server). It mirrors `engine-outbound`:
 - `sing_mux` (internal): sing-mux, the `multiplex` of sing-box and `smux` of
   mihomo outbounds, for the protocols whose `Accepted` the serve loop relays
   (VLESS, VMess, Trojan, Shadowsocks, under TLS, REALITY or a transport): a
-  client asks for `sp.mux.sing-box.arpa:444` and runs smux or yamux on the
-  stream. Inbounds that connect their streams themselves (AnyTLS, Snell) do
-  not serve it, and a stream of a QUIC inbound (Hysteria2, TUIC) carries
-  TCP streams only. Each stream is relayed like a connection of its own
-  (TCP through the outbound, UDP with or without packet addresses through
-  the UDP outbound), with the user's traffic, speed limit, destination
-  counts and QoS; at most 256 streams per connection, a stream counting
-  until its relay has ended. h2mux, padding and TCP Brutal are not
-  supported: such a connection is closed and counted as a failed handshake.
+  client asks for `sp.mux.sing-box.arpa:444` and runs smux, yamux or h2mux
+  (the clients' default: HTTP/2 on the stream as it is, a CONNECT request
+  per stream, served with the `h2` crate) on the stream, padded for its
+  first 16 writes each way when the session request asks for padding.
+  Inbounds that connect their streams themselves (AnyTLS, Snell) do not
+  serve it, and a stream of a QUIC inbound (Hysteria2, TUIC) carries TCP
+  streams only. Each stream is relayed like a connection of its own (TCP
+  through the outbound, UDP with or without packet addresses through the
+  UDP outbound), with the user's traffic, speed limit, destination counts
+  and QoS; at most 256 streams per connection, a stream counting until its
+  relay has ended. TCP Brutal is not negotiated.
 - `registry`: config `type` name to `InboundFactory`, one crate and cargo
   feature per protocol.
 
@@ -70,5 +72,5 @@ Errors and counters never contain credentials. The fallback matcher has unit
 tests in `src/fallback.rs`, and `node-runtime`'s `tests/fallbacks.rs` runs
 it behind TLS. `tests/serve_loop.rs` covers
 traffic, online IPs, revocation and held rejections, `tests/sing_mux.rs` the
-smux and yamux streams; all verification runs in
-GitHub Actions.
+smux, yamux and h2mux streams and a padded session; all verification runs
+in GitHub Actions.

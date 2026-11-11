@@ -18,12 +18,13 @@ accounting.
   only that relay may reach the port. `GET /v1/status` lists the feature as
   `accept_proxy_protocol`.
 - Clients may multiplex with sing-mux (sing-box `multiplex`, mihomo `smux`)
-  in `smux` or `yamux` on VLESS, VMess, Trojan and Shadowsocks inbounds
-  (with TLS, REALITY or a transport too); nothing is configured for it.
-  AnyTLS and Snell inbounds do not serve it, and on Hysteria2 and TUIC it
-  carries TCP streams only. `h2mux` (what those clients pick when no
-  protocol is set), padding and TCP Brutal are not supported.
-  `GET /v1/status` lists the feature as `sing_mux`.
+  in `smux`, `yamux` or `h2mux` (what those clients run when no protocol is
+  set), with or without `padding`, on VLESS, VMess, Trojan and Shadowsocks
+  inbounds (with TLS, REALITY or a transport too); nothing is configured
+  for it. AnyTLS and Snell inbounds do not serve it, and on Hysteria2 and
+  TUIC it carries TCP streams only. TCP Brutal is not supported.
+  `GET /v1/status` lists the feature as `sing_mux`, and h2mux and padding
+  as `sing_mux_h2mux`.
 - `"fallbacks"` on VLESS, Trojan and AnyTLS inbounds: a list of `{"name",
   "alpn", "path", "dest", "xver"}` entries that send a connection which is
   not a user's to the destination matching its TLS server name, ALPN

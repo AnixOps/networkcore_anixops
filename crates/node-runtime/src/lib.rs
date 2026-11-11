@@ -217,6 +217,7 @@ pub const FEATURES: &[&str] = &[
     "tls_fingerprints",
     "accept_proxy_protocol",
     "sing_mux",
+    "sing_mux_h2mux",
     "fallbacks",
     "xhttp_h3",
     #[cfg(feature = "reverse_proxy")]

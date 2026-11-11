@@ -843,8 +843,11 @@ dependencies = [
 name = "engine-inbound"
 version = "0.2.0"
 dependencies = [
+ "bytes",
  "engine-outbound",
  "futures-util",
+ "h2",
+ "http",
  "ring",
  "serde",
  "serde_json",

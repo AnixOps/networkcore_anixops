@@ -54,8 +54,8 @@ pub struct Accepted {
     /// table.
     pub user: Option<Arc<UserEntry>>,
     /// Where the client wants to go. The sing-mux destination
-    /// (`sp.mux.sing-box.arpa`) makes the serve loop run smux or yamux on
-    /// `stream`, each of its streams relayed like a connection.
+    /// (`sp.mux.sing-box.arpa`) makes the serve loop run smux, yamux or
+    /// h2mux on `stream`, each of its streams relayed like a connection.
     pub target: TargetAddr,
     /// Payload stream: reads return what the client sends to `target`,
     /// writes go back to the client.

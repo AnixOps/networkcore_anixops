@@ -34,10 +34,11 @@ a version 1 or 2 header, and the client address for device limits and
 online IPs is the one in it. Only that relay may reach such a port.
 
 Clients may multiplex their connections with sing-mux (sing-box
-`multiplex`, mihomo `smux`) using the `smux` or `yamux` protocol on VLESS,
-VMess, Trojan and Shadowsocks inbounds; there is nothing to configure on the
-inbound. `h2mux`, padding and TCP Brutal are not supported, so the client
-has to name one of the two protocols.
+`multiplex`, mihomo `smux`) using the `smux`, `yamux` or `h2mux` protocol,
+with or without `padding`, on VLESS, VMess, Trojan and Shadowsocks inbounds;
+there is nothing to configure on the inbound, and a client that sets no
+protocol (which makes it `h2mux`) is served too. TCP Brutal is not
+supported.
 
 VLESS, Trojan and AnyTLS inbounds send a connection that is not a user's to
 their `"fallback"` (`{"server": "127.0.0.1", "server_port": 8080}`). With

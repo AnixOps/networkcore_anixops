@@ -138,7 +138,9 @@ struct Case {
     proto: Proto,
     net: Net,
     tls: bool,
-    /// The sing-mux protocol the client multiplexes its streams with.
+    /// The sing-mux protocol the client multiplexes its streams with:
+    /// `default` sets none, which makes it h2mux, and ` + padding` behind
+    /// the name asks for padding.
     mux: Option<&'static str>,
     /// The upstream example or reference the case follows; a link only.
     source: &'static str,
@@ -479,6 +481,54 @@ const CASES: &[Case] = &[
         source: MULTIPLEX_REFERENCE,
     },
     Case {
+        tag: "vless-reality-h2mux",
+        proto: Proto::VlessReality { vision: false },
+        net: Net::Tcp,
+        tls: false,
+        mux: Some("h2mux"),
+        source: MULTIPLEX_REFERENCE,
+    },
+    Case {
+        tag: "trojan-tls-h2mux",
+        proto: Proto::Trojan,
+        net: Net::Tcp,
+        tls: true,
+        mux: Some("h2mux"),
+        source: MULTIPLEX_REFERENCE,
+    },
+    Case {
+        tag: "ss2022-h2mux",
+        proto: Proto::Shadowsocks,
+        net: Net::Tcp,
+        tls: false,
+        mux: Some("h2mux"),
+        source: MULTIPLEX_REFERENCE,
+    },
+    Case {
+        tag: "trojan-tls-mux-default",
+        proto: Proto::Trojan,
+        net: Net::Tcp,
+        tls: true,
+        mux: Some("default"),
+        source: MULTIPLEX_REFERENCE,
+    },
+    Case {
+        tag: "vless-reality-h2mux-padding",
+        proto: Proto::VlessReality { vision: false },
+        net: Net::Tcp,
+        tls: false,
+        mux: Some("h2mux + padding"),
+        source: MULTIPLEX_REFERENCE,
+    },
+    Case {
+        tag: "ss2022-smux-padding",
+        proto: Proto::Shadowsocks,
+        net: Net::Tcp,
+        tls: false,
+        mux: Some("smux + padding"),
+        source: MULTIPLEX_REFERENCE,
+    },
+    Case {
         tag: "anytls",
         proto: Proto::AnyTls,
         net: Net::Tcp,
@@ -552,6 +602,7 @@ impl Case {
             ) => format!("xhttp {mode}, {alpn}"),
         };
         match self.mux {
+            Some("default") => format!("{net} + mux, protocol unset"),
             Some(mux) => format!("{net} + {mux}"),
             None => net,
         }
@@ -690,6 +741,23 @@ fn inbound(env: &Env, case: &Case) -> Value {
         object.insert("tls".into(), env.tls(alpn));
     }
     inbound
+}
+
+/// A client's sing-mux options for [`Case::mux`]: `multiplex` of a sing-box
+/// outbound and `smux` of a mihomo proxy take the same.
+fn multiplex(mux: &str) -> Value {
+    let (protocol, padding) = match mux.strip_suffix(" + padding") {
+        Some(protocol) => (protocol, true),
+        None => (mux, false),
+    };
+    let mut options = json!({"enabled": true});
+    if protocol != "default" {
+        options["protocol"] = protocol.into();
+    }
+    if padding {
+        options["padding"] = true.into();
+    }
+    options
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -997,11 +1065,8 @@ fn sing_box_config(env: &Env, case: &Case, server: SocketAddr, socks: u16) -> Va
         };
         object.insert("tls".into(), tls(alpn));
     }
-    if let Some(protocol) = case.mux {
-        object.insert(
-            "multiplex".into(),
-            json!({"enabled": true, "protocol": protocol}),
-        );
+    if let Some(mux) = case.mux {
+        object.insert("multiplex".into(), multiplex(mux));
     }
     json!({
         "log": {"level": "debug"},
@@ -1131,11 +1196,8 @@ fn mihomo_config(env: &Env, case: &Case, server: SocketAddr, socks: u16) -> Valu
         object.insert(name_key.into(), env.server_name.clone().into());
         object.insert("fingerprint".into(), env.cert_sha256.clone().into());
     }
-    if let Some(protocol) = case.mux {
-        object.insert(
-            "smux".into(),
-            json!({"enabled": true, "protocol": protocol}),
-        );
+    if let Some(mux) = case.mux {
+        object.insert("smux".into(), multiplex(mux));
     }
     json!({
         "socks-port": socks,
