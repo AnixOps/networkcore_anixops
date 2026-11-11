@@ -17,6 +17,11 @@ accounting.
   without a valid header are closed and counted as failed handshakes, so
   only that relay may reach the port. `GET /v1/status` lists the feature as
   `accept_proxy_protocol`.
+- Clients may multiplex with sing-mux (sing-box `multiplex`, mihomo `smux`)
+  in `smux` or `yamux` on every inbound whose protocol names a destination;
+  nothing is configured for it. `h2mux` (what those clients pick when no
+  protocol is set), padding and TCP Brutal are not supported.
+  `GET /v1/status` lists the feature as `sing_mux`.
 - `api`: local HTTP/JSON management API with a bearer token, shaped after
   what anix-agent's core interface needs (add/remove node, add/remove users,
   traffic slices, online devices).

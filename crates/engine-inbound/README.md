@@ -36,9 +36,18 @@ kernel that anix-agent drives on a proxy server). It mirrors `engine-outbound`:
   `Accepted::mux`; the serve loop then runs TCP sessions through the outbound
   and UDP sessions (XUDP, per-datagram addresses) through the UDP outbound on
   the one client stream, at most 128 sessions per connection.
+- `sing_mux` (internal): sing-mux, the `multiplex` of sing-box and `smux` of
+  mihomo outbounds, for every protocol that names a destination: a client
+  asks for `sp.mux.sing-box.arpa:444` and runs smux or yamux on the stream.
+  Each stream is relayed like a connection of its own (TCP through the
+  outbound, UDP with or without packet addresses through the UDP outbound),
+  with the user's traffic, speed limit, destination counts and QoS; at most
+  256 streams per connection. h2mux, padding and TCP Brutal are not
+  supported: such a connection is closed and counted as a failed handshake.
 - `registry`: config `type` name to `InboundFactory`, one crate and cargo
   feature per protocol.
 
 Errors and counters never contain credentials. `tests/serve_loop.rs` covers
-traffic, online IPs, revocation and held rejections; all verification runs in
+traffic, online IPs, revocation and held rejections, `tests/sing_mux.rs` the
+smux and yamux streams; all verification runs in
 GitHub Actions.

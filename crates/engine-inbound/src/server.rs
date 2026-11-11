@@ -230,14 +230,7 @@ async fn relay(
     settings: &ServeSettings,
     stats: &Arc<InboundStats>,
 ) {
-    let Accepted {
-        user,
-        target,
-        stream,
-        udp,
-        mux,
-    } = accepted;
-    let _online = match &user {
+    let _online = match &accepted.user {
         Some(entry) => match entry.try_connect(peer.ip()) {
             Some(guard) => Some(guard),
             None => {
@@ -247,14 +240,37 @@ async fn relay(
         },
         None => None,
     };
-    if user.as_ref().is_some_and(|user| user.is_revoked()) {
+    if accepted.user.as_ref().is_some_and(|user| user.is_revoked()) {
         stats.revoked.fetch_add(1, Ordering::Relaxed);
         return;
     }
-    if mux {
+    if accepted.mux {
+        let Accepted { user, stream, .. } = accepted;
         crate::mux::relay_mux(stream, user, outbound, udp_outbound, settings, stats).await;
-        return;
+    } else if crate::sing_mux::requested(&accepted.target) {
+        let Accepted { user, stream, .. } = accepted;
+        crate::sing_mux::relay(stream, user, outbound, udp_outbound, settings, stats).await;
+    } else {
+        relay_stream(accepted, outbound, udp_outbound, settings, stats).await;
     }
+}
+
+/// Relays one stream to its target: a client connection, or one stream of a
+/// multiplexed connection, which counts and is limited like a connection.
+pub(crate) async fn relay_stream(
+    accepted: Accepted,
+    outbound: &dyn TcpOutbound,
+    udp_outbound: Option<&dyn UdpOutbound>,
+    settings: &ServeSettings,
+    stats: &Arc<InboundStats>,
+) {
+    let Accepted {
+        user,
+        target,
+        stream,
+        udp,
+        ..
+    } = accepted;
     if let Some(codec) = udp {
         match udp_outbound {
             Some(outbound) => relay_datagrams(stream, codec.as_ref(), outbound, user, stats).await,

@@ -119,6 +119,8 @@ struct Case {
     proto: Proto,
     net: Net,
     tls: bool,
+    /// The sing-mux protocol the client multiplexes its streams with.
+    mux: Option<&'static str>,
 }
 
 const CASES: &[Case] = &[
@@ -127,18 +129,21 @@ const CASES: &[Case] = &[
         proto: Proto::VlessReality { vision: true },
         net: Net::Tcp,
         tls: false,
+        mux: None,
     },
     Case {
         tag: "vless-reality",
         proto: Proto::VlessReality { vision: false },
         net: Net::Tcp,
         tls: false,
+        mux: None,
     },
     Case {
         tag: "vless-reality-grpc",
         proto: Proto::VlessReality { vision: false },
         net: Net::Grpc,
         tls: false,
+        mux: None,
     },
     Case {
         tag: "vless-reality-xhttp",
@@ -148,6 +153,7 @@ const CASES: &[Case] = &[
             h1: false,
         },
         tls: false,
+        mux: None,
     },
     Case {
         tag: "vless-reality-xhttp-stream-up",
@@ -157,6 +163,7 @@ const CASES: &[Case] = &[
             h1: false,
         },
         tls: false,
+        mux: None,
     },
     Case {
         tag: "vless-reality-xhttp-packet-up",
@@ -166,18 +173,21 @@ const CASES: &[Case] = &[
             h1: false,
         },
         tls: false,
+        mux: None,
     },
     Case {
         tag: "vless-tls-ws",
         proto: Proto::Vless,
         net: Net::Ws,
         tls: true,
+        mux: None,
     },
     Case {
         tag: "vless-tls-grpc",
         proto: Proto::Vless,
         net: Net::Grpc,
         tls: true,
+        mux: None,
     },
     Case {
         tag: "vless-xhttp",
@@ -187,6 +197,7 @@ const CASES: &[Case] = &[
             h1: false,
         },
         tls: false,
+        mux: None,
     },
     Case {
         tag: "vless-tls-xhttp",
@@ -196,6 +207,7 @@ const CASES: &[Case] = &[
             h1: false,
         },
         tls: true,
+        mux: None,
     },
     Case {
         tag: "vless-tls-xhttp-h1",
@@ -205,6 +217,7 @@ const CASES: &[Case] = &[
             h1: true,
         },
         tls: true,
+        mux: None,
     },
     Case {
         tag: "vless-tls-xhttp-stream-up",
@@ -214,6 +227,7 @@ const CASES: &[Case] = &[
             h1: false,
         },
         tls: true,
+        mux: None,
     },
     Case {
         tag: "vless-tls-xhttp-stream-one",
@@ -223,24 +237,28 @@ const CASES: &[Case] = &[
             h1: false,
         },
         tls: true,
+        mux: None,
     },
     Case {
         tag: "vmess-tcp",
         proto: Proto::Vmess,
         net: Net::Tcp,
         tls: false,
+        mux: None,
     },
     Case {
         tag: "vmess-ws",
         proto: Proto::Vmess,
         net: Net::Ws,
         tls: false,
+        mux: None,
     },
     Case {
         tag: "vmess-tls-grpc",
         proto: Proto::Vmess,
         net: Net::Grpc,
         tls: true,
+        mux: None,
     },
     Case {
         tag: "vmess-tls-xhttp",
@@ -250,6 +268,7 @@ const CASES: &[Case] = &[
             h1: false,
         },
         tls: true,
+        mux: None,
     },
     Case {
         tag: "trojan-tls-xhttp",
@@ -259,72 +278,126 @@ const CASES: &[Case] = &[
             h1: false,
         },
         tls: true,
+        mux: None,
     },
     Case {
         tag: "trojan-tls",
         proto: Proto::Trojan,
         net: Net::Tcp,
         tls: true,
+        mux: None,
     },
     Case {
         tag: "trojan-tls-ws",
         proto: Proto::Trojan,
         net: Net::Ws,
         tls: true,
+        mux: None,
     },
     Case {
         tag: "trojan-tls-grpc",
         proto: Proto::Trojan,
         net: Net::Grpc,
         tls: true,
+        mux: None,
     },
     Case {
         tag: "ss2022-multi-user",
         proto: Proto::Shadowsocks,
         net: Net::Tcp,
         tls: false,
+        mux: None,
     },
     Case {
         tag: "vless-httpupgrade",
         proto: Proto::Vless,
         net: Net::HttpUpgrade,
         tls: false,
+        mux: None,
     },
     Case {
         tag: "trojan-tls-httpupgrade",
         proto: Proto::Trojan,
         net: Net::HttpUpgrade,
         tls: true,
+        mux: None,
     },
     Case {
         tag: "ss-aead-multi-user",
         proto: Proto::ShadowsocksAead,
         net: Net::Tcp,
         tls: false,
+        mux: None,
+    },
+    Case {
+        tag: "vless-reality-smux",
+        proto: Proto::VlessReality { vision: false },
+        net: Net::Tcp,
+        tls: false,
+        mux: Some("smux"),
+    },
+    Case {
+        tag: "vless-reality-yamux",
+        proto: Proto::VlessReality { vision: false },
+        net: Net::Tcp,
+        tls: false,
+        mux: Some("yamux"),
+    },
+    Case {
+        tag: "trojan-tls-smux",
+        proto: Proto::Trojan,
+        net: Net::Tcp,
+        tls: true,
+        mux: Some("smux"),
+    },
+    Case {
+        tag: "trojan-tls-yamux",
+        proto: Proto::Trojan,
+        net: Net::Tcp,
+        tls: true,
+        mux: Some("yamux"),
+    },
+    Case {
+        tag: "ss2022-smux",
+        proto: Proto::Shadowsocks,
+        net: Net::Tcp,
+        tls: false,
+        mux: Some("smux"),
+    },
+    Case {
+        tag: "ss2022-yamux",
+        proto: Proto::Shadowsocks,
+        net: Net::Tcp,
+        tls: false,
+        mux: Some("yamux"),
     },
     Case {
         tag: "anytls",
         proto: Proto::AnyTls,
         net: Net::Tcp,
         tls: true,
+        mux: None,
     },
     Case {
         tag: "hysteria2",
         proto: Proto::Hysteria2 { obfs: false },
         net: Net::Tcp,
         tls: true,
+        mux: None,
     },
     Case {
         tag: "hysteria2-salamander",
         proto: Proto::Hysteria2 { obfs: true },
         net: Net::Tcp,
         tls: true,
+        mux: None,
     },
     Case {
         tag: "tuic",
         proto: Proto::Tuic,
         net: Net::Tcp,
         tls: true,
+        mux: None,
     },
 ];
 
@@ -465,10 +538,14 @@ impl Client {
 
     fn supports(self, case: &Case) -> bool {
         match self {
-            Client::Xray => !matches!(
-                case.proto,
-                Proto::Hysteria2 { .. } | Proto::Tuic | Proto::AnyTls
-            ),
+            // Xray has no sing-mux.
+            Client::Xray => {
+                case.mux.is_none()
+                    && !matches!(
+                        case.proto,
+                        Proto::Hysteria2 { .. } | Proto::Tuic | Proto::AnyTls
+                    )
+            }
             // sing-box has no XHTTP.
             Client::SingBox => !matches!(case.net, Net::Xhttp { .. }),
             Client::Hysteria => matches!(case.proto, Proto::Hysteria2 { .. }),
@@ -719,6 +796,12 @@ fn sing_box_config(env: &Env, case: &Case, server: SocketAddr, socks: u16) -> Va
             _ => &[],
         };
         object.insert("tls".into(), tls(alpn));
+    }
+    if let Some(protocol) = case.mux {
+        object.insert(
+            "multiplex".into(),
+            json!({"enabled": true, "protocol": protocol}),
+        );
     }
     json!({
         "log": {"level": "debug"},
@@ -983,7 +1066,8 @@ async fn run_client(
         echo(socks, env.echo, &payload).await?;
         echo(socks, env.echo, b"second connection").await?;
         // Xray sends VLESS and VMess UDP as XUDP (Mux.Cool), as does
-        // sing-box for VLESS; the others use each protocol's UDP form.
+        // sing-box for VLESS; the others use each protocol's UDP form, and
+        // a multiplexing client a stream of its connection.
         let udp = udp_echo(socks, env.udp_echo).await?;
         // Relayed bytes are charged to the user once the relay sees them.
         tokio::time::sleep(Duration::from_millis(200)).await;
