@@ -22,8 +22,8 @@ Server-side transports that wrap an `engine_inbound::StreamInbound`.
     `/Svc/Tun` (or a full custom path starting with `/`); each call on a
     client connection is one client stream, up to 256 at once. Under TLS
     without configured `alpn`, `h2` is offered.
-  - `{"type": "tcp"}` is the same as no transport. VLESS REALITY (and so
-    Vision) takes no transport.
+  - `{"type": "tcp"}` is the same as no transport. VLESS REALITY takes
+    `grpc` and `xhttp` only, Vision no transport.
 
 `TlsInbound` and `WsInbound` pass `serves_connections` and `datagram` through
 to the protocol. `tests/tls_inbound.rs` covers inline and file certificates,

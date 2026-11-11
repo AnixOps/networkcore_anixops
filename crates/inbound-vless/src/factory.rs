@@ -21,7 +21,7 @@ struct VlessInboundSettings {
     tls: Option<TlsServerSettings>,
     /// `{"type": "ws", ...}`, `{"type": "grpc", ...}` or
     /// `{"type": "xhttp", ...}` between TLS and the protocol; with REALITY
-    /// only `xhttp`.
+    /// only `grpc` and `xhttp`.
     #[serde(default)]
     transport: Option<TransportSettings>,
     #[serde(default)]
@@ -55,14 +55,20 @@ impl InboundFactory for VlessInboundFactory {
             (None, Some(reality), None) => {
                 Ok(Arc::new(RealityInbound::new(Arc::new(inbound), reality)?))
             }
-            (None, Some(reality), Some(transport @ TransportSettings::Xhttp(_))) => {
+            (
+                None,
+                Some(reality),
+                Some(transport @ (TransportSettings::Grpc { .. } | TransportSettings::Xhttp(_))),
+            ) => {
                 let inbound = Arc::new(inbound);
                 let served = inbound_transport::wrap_transport(inbound.clone(), Some(transport))?;
                 Ok(Arc::new(
                     RealityInbound::new(inbound, reality)?.with_transport(served),
                 ))
             }
-            (_, Some(_), Some(_)) => Err("vless reality inbound takes only the xhttp transport"),
+            (_, Some(_), Some(_)) => {
+                Err("vless reality inbound takes only the grpc and xhttp transports")
+            }
             (tls, None, transport) => {
                 inbound_transport::wrap_all(Arc::new(inbound), transport, tls.as_ref())
             }

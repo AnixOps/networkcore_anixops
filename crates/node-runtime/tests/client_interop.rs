@@ -135,6 +135,12 @@ const CASES: &[Case] = &[
         tls: false,
     },
     Case {
+        tag: "vless-reality-grpc",
+        proto: Proto::VlessReality { vision: false },
+        net: Net::Grpc,
+        tls: false,
+    },
+    Case {
         tag: "vless-reality-xhttp",
         proto: Proto::VlessReality { vision: false },
         net: Net::Xhttp {

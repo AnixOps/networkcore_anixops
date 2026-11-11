@@ -9,7 +9,8 @@ VLESS server inbound for the node kernel, built on `engine-inbound`.
 - REALITY (`"reality"` instead of `"tls"`): clients whose ClientHello carries
   a valid REALITY marker (server private key, listed short id and SNI, clock
   window) get a TLS 1.3 handshake with a temporary certificate; everything
-  else is relayed byte for byte to the `handshake` site.
+  else is relayed byte for byte to the `handshake` site. A `"transport"` of
+  `grpc` or `xhttp` runs inside the REALITY session.
 - XTLS Vision behind REALITY: users with `"flow": "xtls-rprx-vision"` get
   padded framing, and once the inner traffic is TLS 1.3 each direction leaves
   the outer TLS and copies the inner records over the raw connection, as in
