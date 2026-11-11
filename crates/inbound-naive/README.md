@@ -25,7 +25,10 @@ the `h2` crate.
   request on an HTTP/2 connection that is not a `CONNECT` with a known
   user's credentials is repeated to the fallback over cleartext HTTP/2 and
   answered with its response; without a fallback it is held unanswered for
-  the reject hold time and then reset. The fallback therefore has to speak
+  the reject hold time and then reset. Neither outlasts the client's own
+  reset of the request, the fallback has the handshake timeout to connect
+  and as long to answer, and a connection with 256 requests in progress has
+  further ones refused. The fallback therefore has to speak
   HTTP/1.1 and cleartext HTTP/2 (prior knowledge) on its port, as nginx
   with `http2 on` and Caddy with `h2c` do.
 - Config: `{"type": "naive", "users": [{"name": "...", "username": "...",

@@ -29,7 +29,9 @@
 //!   answered by the fallback: it is repeated there over cleartext HTTP/2
 //!   and the response is passed back, so the port looks like the web site
 //!   behind it. Without a fallback the request is held unanswered, then
-//!   reset.
+//!   reset. Neither outlasts the client's own reset of the request, and the
+//!   fallback has the handshake timeout to connect and as long to answer.
+//! * A connection has at most 256 requests in progress; more are refused.
 //! * A target that cannot be connected gets `502`. Every `200` carries a
 //!   `padding` header of random length.
 //! * A tunnel ends when either side closes or resets it, or its user is
@@ -69,7 +71,7 @@ pub use padding::Padded;
 pub const PROTOCOL: &str = "naive";
 
 const PREFACE: &[u8] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
-/// Most requests open at once on one client connection.
+/// Most requests in progress at once on one client connection.
 const MAX_STREAMS: u32 = 256;
 const STREAM_WINDOW: u32 = 1024 * 1024;
 const CONNECTION_WINDOW: u32 = 4 * 1024 * 1024;
@@ -135,6 +137,11 @@ impl NaiveInbound {
         loop {
             tokio::select! {
                 accepted = connection.accept() => match accepted {
+                    // A request counts until its future is gone, which may
+                    // be after HTTP/2 has seen the last of its stream.
+                    Some(Ok((_, mut respond))) if requests.len() >= MAX_STREAMS as usize => {
+                        respond.send_reset(h2::Reason::REFUSED_STREAM);
+                    }
                     Some(Ok((request, respond))) => {
                         requests.push(self.request(request, respond, context));
                     }
@@ -224,15 +231,25 @@ impl NaiveInbound {
     ) {
         let Some(fallback) = &self.fallback else {
             context.handshake_failed();
-            // Held like a failed handshake of the other inbounds; the stream
-            // is reset when `respond` drops.
-            tokio::time::sleep(context.settings.reject_hold).await;
+            // Held like a failed handshake of the other inbounds, unless the
+            // client resets the stream first; `respond` resets it when
+            // dropped.
+            let reset = poll_fn(|cx| respond.poll_reset(cx));
+            let _ = tokio::time::timeout(context.settings.reject_hold, reset).await;
             return;
         };
-        let Ok(remote) = context.connect(fallback).await else {
-            return;
+        // The fallback has this long to connect and as long to answer, and
+        // only while the client has not reset the stream.
+        let timeout = context.settings.handshake_timeout;
+        let connect = async {
+            let remote = context.connect(fallback).await.ok()?;
+            h2::client::handshake(remote).await.ok()
         };
-        let Ok((sender, connection)) = h2::client::handshake(remote).await else {
+        let connected = tokio::select! {
+            connected = tokio::time::timeout(timeout, connect) => connected,
+            _ = poll_fn(|cx| respond.poll_reset(cx)) => return,
+        };
+        let Ok(Some((sender, connection))) = connected else {
             return;
         };
         let exchange = async {
@@ -243,7 +260,16 @@ impl NaiveInbound {
                 sender.send_request(http::Request::from_parts(head, ()), ended)?;
             let upload = pipe(body, send, ended);
             let download = async {
-                let (head, body) = response.await?.into_parts();
+                let answered = async {
+                    tokio::select! {
+                        response = response => Some(response),
+                        _ = poll_fn(|cx| respond.poll_reset(cx)) => None,
+                    }
+                };
+                let Ok(Some(response)) = tokio::time::timeout(timeout, answered).await else {
+                    return Ok(());
+                };
+                let (head, body) = response?.into_parts();
                 let ended = body.is_end_stream();
                 let head = http::Response::from_parts(head, ());
                 let send = respond.send_response(head, ended)?;
