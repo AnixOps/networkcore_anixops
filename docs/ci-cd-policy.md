@@ -24,9 +24,9 @@
    `release_sensitive` 和 `full_matrix`。无法取得可靠 diff、出现未知路径、tag 或
    `workflow_dispatch` 时安全回退到完整矩阵。
 2. `policy-fast`：五分钟预算内运行 `.github/scripts/verify-repository-policy.sh fast`，检查关键治理文件和
-   manifest、已提交的 `Cargo.lock`、本地构建产物、签名/私钥文件、明显凭据模式、workflow 入口以及与变更平台对应的最小合同。
-3. `policy-full`：运行 `.github/scripts/verify-repository-policy.sh full`，保留全部文档一致性、架构 marker、
-   源码合同和 release 状态断言；只依赖 `changes`，与 `policy-fast` 和平台验证并行，不作为平台 job 的串行前置条件。
+   manifest、已提交的 `Cargo.lock`、本地构建产物、签名/私钥文件、明显凭据模式和 workflow 入口。
+3. `policy-full`：运行 `.github/scripts/verify-repository-policy.sh full`，只保留脚本内的少量状态 marker；
+   逐句检查文档与源码字符串的内联断言已删除（行为由 Rust 测试验证）；只依赖 `changes`，与 `policy-fast` 和平台验证并行，不作为平台 job 的串行前置条件。
 4. `detect-projects`：检测 Go、Rust 项目，仅作信息参考；实际 job 执行完全由
    `changes` 的路径分类决定，不因“仓库存在 Cargo.toml”就无条件运行全部 Rust 平台。
 
@@ -214,7 +214,7 @@ CI/CD 目标平台：`ubuntu-latest`、`macos-26`、`windows-latest`。
 
 - Go：`go test ./...`、`go build ./...`
 - Rust：`cargo fmt --all -- --check`、`cargo clippy --locked --workspace --all-targets -- -D warnings`、
-  `cargo test --locked --workspace --all-targets`、`cargo build --locked --workspace --all-targets`、
+  `cargo test --locked --workspace --all-targets`、
   `cargo metadata --locked --offline --no-deps --format-version=1`、`cargo audit`
 - iOS 运行时：`cargo build --locked --release -p engine-embedded -p node-import --lib --target aarch64-apple-ios`
 
@@ -240,8 +240,8 @@ CI/CD 目标平台：`ubuntu-latest`、`macos-26`、`windows-latest`。
 
 ## 首批运维诊断边界验证
 
-`maintenance-contracts` job 对 `control-domain` 的严格 event/batch wire contract 和 `control-runtime` 的显式诊断适配运行
-真实 Rust 合同测试，CI summary 将其列为必需结果。覆盖 schema/枚举/版本/时间/UTF-8 字节/批量边界、重复及未知字段、
+`control-domain` 的严格 event/batch wire contract 和 `control-runtime` 的显式诊断适配由 Rust 合同测试覆盖，
+随 `rust-build-test` 的 workspace 测试运行（不再有单独的 `maintenance-contracts` job）。覆盖 schema/枚举/版本/时间/UTF-8 字节/批量边界、重复及未知字段、
 已认证节点匹配、坏事件隔离、共享 fixture 序列化、故障与恢复的双阈值，以及诊断凭据最小化。既有 Linux/macOS/Windows
 Rust 全量测试与构建继续承担业务回归。
 

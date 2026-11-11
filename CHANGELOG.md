@@ -36,6 +36,7 @@
 
 ### Removed
 
+- CI：删除 Repository policy 里约 1,600 行内联断言（逐句检查文档和源码字符串是否存在，不验证行为），`policy-fast` 里与 `verify-repository-policy.sh fast` 重复的内联步骤，重复运行 workspace 已有测试且每次冷编译的 `maintenance-contracts` job，以及 `rust-build-test` 在 test 之后多余的 `cargo build`。`ci.yml` 从 2,772 行减到约 1,080 行；iOS 源码/签名材料的检查移入策略脚本。
 - 删除 `crates/platform-ios`：工作区内没有任何 crate 依赖它，iOS 的 FFI 边界在 `engine-embedded`/`node-import`。workspace member、`Cargo.lock` 条目、CI 的文件存在性检查和文档引用一并去掉。
 
 ### Added

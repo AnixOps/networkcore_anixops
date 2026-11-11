@@ -38,6 +38,9 @@ fi
 if grep -Ein '(^|/)(id_(rsa|dsa|ecdsa|ed25519)|\.env($|\.)|[^/]+\.(p12|pfx|jks|keystore|mobileprovision|provisionprofile|key|pem))$' <<<"${tracked_paths}"; then
   fail "tracked credential or signing material is forbidden"
 fi
+if grep -En '\.(swift|xcodeproj|xcworkspace|xcframework|ipa|entitlements)(/|$)' <<<"${tracked_paths}"; then
+  fail "iOS/Apple source and signing material belongs to the client repository"
+fi
 if git grep -nEI '(AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{36,}|AIza[0-9A-Za-z_-]{35})' -- ':!*.md' ':!.github/workflows/ci.yml'; then
   fail "obvious credential pattern found in tracked source"
 fi
