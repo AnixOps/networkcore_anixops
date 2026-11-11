@@ -18,8 +18,9 @@
 //!
 //! Server behaviour:
 //!
-//! * A first record that is not a known user's goes to the fallback, or is
-//!   held open and drained without one.
+//! * A first record that is not a known user's goes to the fallback its
+//!   connection matches (`engine_inbound::fallback`), or is held open and
+//!   drained without one.
 //! * The client must send its settings before its first SYN, or gets an
 //!   Alert. A client whose padding MD5 differs gets the server's scheme; a
 //!   version 2 client gets server settings `v=2` and a SYNACK per stream
@@ -46,7 +47,7 @@ use engine_inbound::stream::PrefixedStream;
 use engine_inbound::udp::{relay_datagrams, Datagram, DatagramCodec, DatagramReader};
 use engine_inbound::users::{UserIndex, Validator};
 use engine_inbound::{
-    fallback_or_hold, read_first, Accepted, Rejected, StreamInbound, User, UserEntry, UserStore,
+    read_first, Accepted, ConnInfo, Fallbacks, Rejected, StreamInbound, User, UserEntry, UserStore,
 };
 use engine_outbound::{BoxFuture, BoxStream, TargetAddr};
 use futures_util::stream::{FuturesUnordered, StreamExt};
@@ -98,7 +99,7 @@ pub struct AnyTlsInbound {
     users: Arc<UserStore>,
     index: UserIndex<[u8; HASH_LEN]>,
     padding: PaddingScheme,
-    fallback: Option<TargetAddr>,
+    fallbacks: Fallbacks,
 }
 
 enum Auth {
@@ -116,7 +117,7 @@ struct NewStream {
 }
 
 impl AnyTlsInbound {
-    pub fn new(padding: PaddingScheme, fallback: Option<TargetAddr>) -> Self {
+    pub fn new(padding: PaddingScheme, fallbacks: Fallbacks) -> Self {
         let validator: Validator = Box::new(|user: &User| match user.password.as_deref() {
             Some(password) if !password.is_empty() => Ok(()),
             _ => Err("anytls user password is missing"),
@@ -126,11 +127,11 @@ impl AnyTlsInbound {
             index: UserIndex::new(users.clone(), user_hash),
             users,
             padding,
-            fallback,
+            fallbacks,
         }
     }
 
-    async fn authenticate(&self, mut stream: BoxStream) -> Auth {
+    async fn authenticate(&self, mut stream: BoxStream, conn: ConnInfo<'_>) -> Auth {
         let first = match read_first(&mut stream).await {
             Ok(first) if !first.is_empty() => first,
             _ => return Auth::Rejected(Rejected::close("client closed before authenticating")),
@@ -143,8 +144,8 @@ impl AnyTlsInbound {
             None
         };
         let Some(user) = user else {
-            return match fallback_or_hold(
-                self.fallback.as_ref(),
+            return match self.fallbacks.or_hold(
+                conn,
                 first,
                 stream,
                 "anytls client is not a known user",
@@ -172,7 +173,7 @@ impl AnyTlsInbound {
     async fn serve(&self, stream: BoxStream, context: ConnectionContext<'_>) {
         let auth = tokio::time::timeout(
             context.settings.handshake_timeout,
-            self.authenticate(stream),
+            self.authenticate(stream, context.conn()),
         );
         let (user, stream) = match auth.await {
             Ok(Auth::User(user, stream)) => (user, stream),

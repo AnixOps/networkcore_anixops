@@ -8,8 +8,8 @@
 //!
 //! The direct outbound refuses loopback, private and link-local targets
 //! unless `allow_private_targets` is set, so users cannot reach services on
-//! the node or its network; an inbound's own `fallback` and REALITY
-//! `handshake` addresses are always allowed.
+//! the node or its network; an inbound's own `fallback`, `fallbacks` and
+//! REALITY `handshake` addresses are always allowed.
 //!
 //! Every inbound relays through the node's [`egress::Router`]: the domain
 //! egress routes of the panel ([`Node::apply_egress`]) send chosen domains
@@ -217,6 +217,7 @@ pub const FEATURES: &[&str] = &[
     "tls_fingerprints",
     "accept_proxy_protocol",
     "sing_mux",
+    "fallbacks",
     #[cfg(feature = "reverse_proxy")]
     "reverse_proxy",
 ];

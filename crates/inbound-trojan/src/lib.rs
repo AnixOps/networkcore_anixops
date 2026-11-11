@@ -3,7 +3,8 @@
 //! The client sends `hex(SHA-224(password)) CRLF CMD ATYP DST.ADDR DST.PORT
 //! CRLF` and then the payload, usually in the first TLS record. Users are
 //! matched by the hash of their `password`. A first record that is not a
-//! Trojan request for a known user goes to the fallback (a web server, so the
+//! Trojan request for a known user goes to the fallback its connection
+//! matches (`engine_inbound::fallback`; a web server, so the
 //! port looks like an ordinary HTTPS site) or, without one, is held open and
 //! drained.
 //!
@@ -23,9 +24,9 @@ use engine_inbound::stream::PrefixedStream;
 use engine_inbound::udp::{Datagram, DatagramCodec, DatagramReader};
 use engine_inbound::users::{UserIndex, Validator};
 use engine_inbound::{
-    fallback_or_hold, read_first, Accepted, Rejected, StreamInbound, User, UserStore,
+    read_first, Accepted, ConnInfo, Fallbacks, Rejected, StreamInbound, User, UserStore,
 };
-use engine_outbound::{BoxFuture, BoxStream, TargetAddr};
+use engine_outbound::{BoxFuture, BoxStream};
 use outbound_trojan::password_hash;
 use tokio::io::AsyncReadExt;
 
@@ -41,11 +42,11 @@ const CMD_UDP_ASSOCIATE: u8 = 0x03;
 pub struct TrojanInbound {
     users: Arc<UserStore>,
     index: UserIndex<[u8; HASH_LEN]>,
-    fallback: Option<TargetAddr>,
+    fallbacks: Fallbacks,
 }
 
 impl TrojanInbound {
-    pub fn new(fallback: Option<TargetAddr>) -> Self {
+    pub fn new(fallbacks: Fallbacks) -> Self {
         let validator: Validator = Box::new(|user: &User| match user.password.as_deref() {
             Some(password) if !password.is_empty() => Ok(()),
             _ => Err("trojan user password is missing"),
@@ -54,11 +55,15 @@ impl TrojanInbound {
         Self {
             index: UserIndex::new(users.clone(), user_hash),
             users,
-            fallback,
+            fallbacks,
         }
     }
 
-    async fn handshake(&self, mut stream: BoxStream) -> Result<Accepted, Rejected> {
+    async fn handshake(
+        &self,
+        mut stream: BoxStream,
+        conn: ConnInfo<'_>,
+    ) -> Result<Accepted, Rejected> {
         let first = read_first(&mut stream).await?;
         if first.is_empty() {
             return Err(Rejected::close("client closed before the request"));
@@ -72,8 +77,8 @@ impl TrojanInbound {
             None
         };
         let Some(user) = user else {
-            return fallback_or_hold(
-                self.fallback.as_ref(),
+            return self.fallbacks.or_hold(
+                conn,
                 first,
                 stream,
                 "trojan request is not for a known user",
@@ -115,9 +120,17 @@ impl StreamInbound for TrojanInbound {
     fn accept<'a>(
         &'a self,
         stream: BoxStream,
-        _peer: SocketAddr,
+        peer: SocketAddr,
     ) -> BoxFuture<'a, Result<Accepted, Rejected>> {
-        Box::pin(self.handshake(stream))
+        self.accept_with(stream, ConnInfo::new(peer))
+    }
+
+    fn accept_with<'a>(
+        &'a self,
+        stream: BoxStream,
+        conn: ConnInfo<'a>,
+    ) -> BoxFuture<'a, Result<Accepted, Rejected>> {
+        Box::pin(self.handshake(stream, conn))
     }
 }
 

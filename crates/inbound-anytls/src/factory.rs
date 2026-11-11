@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use engine_inbound::registry::{parse_settings, BuildError, InboundFactory, Settings};
-use engine_inbound::{FallbackSettings, StreamInbound, User};
+use engine_inbound::{FallbackRule, FallbackSettings, Fallbacks, StreamInbound, User};
 use inbound_transport::TlsServerSettings;
 use serde::Deserialize;
 
@@ -24,6 +24,10 @@ struct AnyTlsInboundSettings {
     padding_scheme: Option<Vec<String>>,
     #[serde(default)]
     fallback: Option<FallbackSettings>,
+    /// Fallbacks by server name, ALPN and HTTP path, see
+    /// `engine_inbound::fallback`.
+    #[serde(default)]
+    fallbacks: Vec<FallbackRule>,
 }
 
 pub struct AnyTlsInboundFactory;
@@ -42,7 +46,7 @@ impl InboundFactory for AnyTlsInboundFactory {
         };
         let inbound = AnyTlsInbound::new(
             padding,
-            settings.fallback.as_ref().map(FallbackSettings::target),
+            Fallbacks::new(settings.fallback.as_ref(), &settings.fallbacks)?,
         );
         inbound.users().add_all(settings.users)?;
         inbound_transport::wrap_all(Arc::new(inbound), None, settings.tls.as_ref())

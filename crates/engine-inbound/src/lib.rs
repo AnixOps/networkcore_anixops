@@ -20,6 +20,7 @@
 
 pub mod addr;
 pub mod destinations;
+pub mod fallback;
 pub mod health;
 pub mod limit;
 mod mux;
@@ -44,6 +45,7 @@ use tokio::io::AsyncReadExt;
 use crate::stream::PrefixedStream;
 
 pub use destinations::DestinationTraffic;
+pub use fallback::{ConnInfo, FallbackRule, Fallbacks};
 pub use users::{OnlineUser, User, UserEntry, UserStore, UserTraffic};
 
 /// A client that passed the protocol handshake.
@@ -115,6 +117,18 @@ pub trait StreamInbound: Send + Sync {
         stream: BoxStream,
         peer: SocketAddr,
     ) -> BoxFuture<'a, Result<Accepted, Rejected>>;
+
+    /// [`StreamInbound::accept`] with what the layers in front know about
+    /// the connection; the serve loop calls this one. Protocols with
+    /// [`fallback`] rules read `conn`, and a TLS layer adds the server name
+    /// and ALPN protocol to it.
+    fn accept_with<'a>(
+        &'a self,
+        stream: BoxStream,
+        conn: ConnInfo<'a>,
+    ) -> BoxFuture<'a, Result<Accepted, Rejected>> {
+        self.accept(stream, conn.peer)
+    }
 
     /// Whether the serve loop hands whole connections to
     /// [`StreamInbound::serve_connection`] instead of calling
@@ -194,7 +208,8 @@ pub async fn read_first(stream: &mut BoxStream) -> io::Result<Vec<u8>> {
 /// Answers a client that failed authentication: with a fallback (usually a
 /// local web server) the connection is relayed there unchanged, starting
 /// with the bytes already read, and charged to no user; without one it is
-/// held open and drained.
+/// held open and drained. [`Fallbacks::or_hold`] picks the fallback by an
+/// inbound's rules.
 pub fn fallback_or_hold(
     fallback: Option<&TargetAddr>,
     consumed: Vec<u8>,
@@ -214,7 +229,8 @@ pub fn fallback_or_hold(
 }
 
 /// `"fallback": {"server": "127.0.0.1", "server_port": 8080}` in inbound
-/// settings.
+/// settings: where every connection goes that no entry of `"fallbacks"`
+/// ([`FallbackRule`]) takes.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FallbackSettings {

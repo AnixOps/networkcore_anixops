@@ -3,7 +3,8 @@
 //! Request: `VER(0) UUID(16) ADDONS_LEN ADDONS CMD PORT ATYP ADDR`, then the
 //! payload. The response header `VER(0) ADDONS_LEN(0)` is sent with the first
 //! payload back to the client. Users are matched by `uuid`. A client that is
-//! not a known VLESS user goes to the fallback, or is held open and drained.
+//! not a known VLESS user goes to the fallback its connection matches
+//! (`engine_inbound::fallback`), or is held open and drained.
 //!
 //! TLS is terminated by `inbound-transport` when the settings carry `tls`,
 //! or by the [`reality`] server when they carry `reality`. Behind REALITY,
@@ -30,7 +31,7 @@ use engine_inbound::stream::PrefixedStream;
 use engine_inbound::udp::{Datagram, DatagramCodec, DatagramReader};
 use engine_inbound::users::{UserIndex, Validator};
 use engine_inbound::{
-    fallback_or_hold, Accepted, Rejected, StreamInbound, User, UserEntry, UserStore,
+    Accepted, ConnInfo, Fallbacks, Rejected, StreamInbound, User, UserEntry, UserStore,
     FIRST_READ_BYTES,
 };
 use engine_outbound::{BoxFuture, BoxStream, TargetAddr};
@@ -60,7 +61,7 @@ const MAX_REQUEST_HEADER: usize = 1 + 255 + 1 + 2 + 1 + 1 + 255;
 pub struct VlessInbound {
     users: Arc<UserStore>,
     index: UserIndex<[u8; 16]>,
-    fallback: Option<TargetAddr>,
+    fallbacks: Fallbacks,
 }
 
 /// The request header after the UUID, and the payload read with it.
@@ -72,13 +73,13 @@ struct Request {
 }
 
 impl VlessInbound {
-    pub fn new(fallback: Option<TargetAddr>) -> Self {
-        Self::with_vision(fallback, false)
+    pub fn new(fallbacks: Fallbacks) -> Self {
+        Self::with_vision(fallbacks, false)
     }
 
     /// `vision`: users may have the `xtls-rprx-vision` flow, which needs the
     /// REALITY transport.
-    pub fn with_vision(fallback: Option<TargetAddr>, vision: bool) -> Self {
+    pub fn with_vision(fallbacks: Fallbacks, vision: bool) -> Self {
         let validator: Validator = Box::new(move |user: &User| {
             let uuid = user.uuid.as_deref().ok_or("vless user uuid is missing")?;
             parse_uuid(uuid).map_err(|_| "vless user uuid is invalid")?;
@@ -93,7 +94,7 @@ impl VlessInbound {
         Self {
             index: UserIndex::new(users.clone(), user_uuid),
             users,
-            fallback,
+            fallbacks,
         }
     }
 
@@ -109,7 +110,7 @@ impl VlessInbound {
         }
         // Without a fallback there is nothing else the bytes could be for, so
         // a request split across reads is completed.
-        while first.len() < AUTH_LEN && self.fallback.is_none() {
+        while first.len() < AUTH_LEN && self.fallbacks.is_empty() {
             let more = read_some(stream).await?;
             if more.is_empty() {
                 return Err(Rejected::close("vless request is truncated"));
@@ -126,11 +127,15 @@ impl VlessInbound {
         Ok((first, user))
     }
 
-    async fn handshake(&self, mut stream: BoxStream) -> Result<Accepted, Rejected> {
+    async fn handshake(
+        &self,
+        mut stream: BoxStream,
+        conn: ConnInfo<'_>,
+    ) -> Result<Accepted, Rejected> {
         let (first, user) = self.authenticate(&mut stream).await?;
         let Some(user) = user else {
-            return fallback_or_hold(
-                self.fallback.as_ref(),
+            return self.fallbacks.or_hold(
+                conn,
                 first,
                 stream,
                 "vless request is not for a known user",
@@ -144,14 +149,17 @@ impl VlessInbound {
     }
 
     /// The handshake behind REALITY, where the Vision flow is possible.
+    /// `conn` carries the server name; the ALPN protocol is the session's.
     pub(crate) async fn handshake_reality(
         &self,
         mut tls: TlsStream<BoxStream>,
+        conn: ConnInfo<'_>,
     ) -> Result<Accepted, Rejected> {
         let (first, user) = self.authenticate(&mut tls).await?;
         let Some(user) = user else {
-            return fallback_or_hold(
-                self.fallback.as_ref(),
+            let alpn = tls.alpn_protocol().map(<[u8]>::to_vec);
+            return self.fallbacks.or_hold(
+                conn.with_tls(conn.server_name, alpn.as_deref()),
                 first,
                 Box::new(tls),
                 "vless request is not for a known user",
@@ -320,9 +328,17 @@ impl StreamInbound for VlessInbound {
     fn accept<'a>(
         &'a self,
         stream: BoxStream,
-        _peer: SocketAddr,
+        peer: SocketAddr,
     ) -> BoxFuture<'a, Result<Accepted, Rejected>> {
-        Box::pin(self.handshake(stream))
+        self.accept_with(stream, ConnInfo::new(peer))
+    }
+
+    fn accept_with<'a>(
+        &'a self,
+        stream: BoxStream,
+        conn: ConnInfo<'a>,
+    ) -> BoxFuture<'a, Result<Accepted, Rejected>> {
+        Box::pin(self.handshake(stream, conn))
     }
 }
 
@@ -364,7 +380,7 @@ mod tests {
 
     #[test]
     fn validates_users() {
-        let inbound = VlessInbound::new(None);
+        let inbound = VlessInbound::new(Fallbacks::default());
         let users = inbound.users();
         assert!(users
             .add(User::with_uuid("a", "b831381d-6324-4d53-ad4f-8cda48b30811"))
@@ -374,7 +390,7 @@ mod tests {
         let mut vision = User::with_uuid("d", "b831381d-6324-4d53-ad4f-8cda48b30812");
         vision.flow = Some("xtls-rprx-vision".into());
         assert!(users.add(vision.clone()).is_err());
-        assert!(VlessInbound::with_vision(None, true)
+        assert!(VlessInbound::with_vision(Fallbacks::default(), true)
             .users()
             .add(vision)
             .is_ok());

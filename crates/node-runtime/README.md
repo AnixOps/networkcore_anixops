@@ -24,12 +24,21 @@ accounting.
   carries TCP streams only. `h2mux` (what those clients pick when no
   protocol is set), padding and TCP Brutal are not supported.
   `GET /v1/status` lists the feature as `sing_mux`.
+- `"fallbacks"` on VLESS, Trojan and AnyTLS inbounds: a list of `{"name",
+  "alpn", "path", "dest", "xver"}` entries that send a connection which is
+  not a user's to the destination matching its TLS server name, ALPN
+  protocol and HTTP/1.x request path (`dest`: `host:port` or a local port;
+  `xver` 1 or 2 writes a PROXY protocol header to it). The entry with the
+  most matching conditions wins, an entry without conditions is the
+  default, and the single `"fallback"` still works as that default. Behind
+  a transport (`ws`, `grpc`, ...) only `path` and the default match.
+  `GET /v1/status` lists the feature as `fallbacks`.
 - `api`: local HTTP/JSON management API with a bearer token, shaped after
   what anix-agent's core interface needs (add/remove node, add/remove users,
   traffic slices, online devices).
 - The direct outbound refuses loopback, private, CGNAT and link-local
-  targets unless `allow_private_targets` is set; each inbound's `fallback` and
-  REALITY `handshake` addresses stay reachable.
+  targets unless `allow_private_targets` is set; each inbound's `fallback`,
+  `fallbacks` and REALITY `handshake` addresses stay reachable.
 - `egress`: the panel's domain egress routes (anix-control 「转发 → 分流」,
   the desired-config member `egress`, set with `PUT /v1/egress`). As a source
   node, connections to a route's domains go to the exit node's

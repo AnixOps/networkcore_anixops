@@ -2098,12 +2098,14 @@ dependencies = [
  "inbound-vmess",
  "outbound-shadowsocks",
  "outbound-vless",
+ "rcgen",
  "regex",
  "serde",
  "serde_json",
  "socket2",
  "tls-mimic",
  "tokio",
+ "transport-tls",
 ]
 
 [[package]]

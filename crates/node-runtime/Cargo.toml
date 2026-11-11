@@ -49,7 +49,10 @@ socket2 = { version = "0.6", features = ["all"] }
 tokio = { version = "1", default-features = false, features = ["io-util", "net", "rt", "sync", "time", "macros"] }
 
 [dev-dependencies]
+# The certificate and the TLS clients of `tests/fallbacks.rs`.
+rcgen = "0.14.8"
 tokio = { version = "1", default-features = false, features = ["io-util", "net", "rt", "rt-multi-thread", "sync", "time", "macros"] }
+transport-tls = { path = "../transport-tls" }
 
 [lib]
 path = "src/lib.rs"

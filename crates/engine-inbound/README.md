@@ -23,6 +23,18 @@ kernel that anix-agent drives on a proxy server). It mirrors `engine-outbound`:
   and uses its addresses as the client's and the reached one; a connection
   without a valid header is closed. `ProxyProtocol::header` writes one, for
   forwards.
+- `fallback`: where an inbound that fronts for web servers (VLESS, Trojan,
+  AnyTLS) relays a connection that is not its protocol's. `Fallbacks` holds
+  the rules of `"fallbacks"` (`name`: server name of the TLS or REALITY
+  handshake, `alpn`: its ALPN protocol, `path`: path of the HTTP/1.x request
+  the connection starts with, `dest`: `host:port` or a local port, `xver`:
+  PROXY protocol version written to the destination) and the single
+  `"fallback"` as the rule without conditions. Of the matching rules the one
+  with the most conditions wins, the earlier one of equals; without a match
+  the connection is held. The conditions read a `ConnInfo`, which the serve
+  loop (`StreamInbound::accept_with`, `ConnectionContext::conn`) fills with
+  the addresses and the TLS layer with the server name and ALPN; behind a
+  transport such as WebSocket only `path` and the default can match.
 - `udp`: UDP egress (`UdpOutbound`, implemented by the node's direct
   outbound) and relays. Protocols that carry datagrams on the client stream
   (Trojan UDP associate, VLESS/VMess UDP) set `Accepted::udp` to their
@@ -51,7 +63,9 @@ kernel that anix-agent drives on a proxy server). It mirrors `engine-outbound`:
 - `registry`: config `type` name to `InboundFactory`, one crate and cargo
   feature per protocol.
 
-Errors and counters never contain credentials. `tests/serve_loop.rs` covers
+Errors and counters never contain credentials. The fallback matcher has unit
+tests in `src/fallback.rs`, and `node-runtime`'s `tests/fallbacks.rs` runs
+it behind TLS. `tests/serve_loop.rs` covers
 traffic, online IPs, revocation and held rejections, `tests/sing_mux.rs` the
 smux and yamux streams; all verification runs in
 GitHub Actions.

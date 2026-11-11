@@ -39,6 +39,25 @@ VMess, Trojan and Shadowsocks inbounds; there is nothing to configure on the
 inbound. `h2mux`, padding and TCP Brutal are not supported, so the client
 has to name one of the two protocols.
 
+VLESS, Trojan and AnyTLS inbounds send a connection that is not a user's to
+their `"fallback"` (`{"server": "127.0.0.1", "server_port": 8080}`). With
+`"fallbacks"` the destination depends on the connection, as in Xray:
+
+```json
+"fallbacks": [
+  {"alpn": "h2", "dest": 8443, "xver": 1},
+  {"path": "/ws", "dest": "127.0.0.1:8081"},
+  {"name": "blog.example.com", "dest": "blog.internal:80"},
+  {"dest": 8080}
+]
+```
+
+`name` is the TLS server name, `alpn` the negotiated ALPN protocol and
+`path` the path of an HTTP/1.x request; `dest` is `host:port` or a local
+port, and `xver` 1 or 2 sends the destination a PROXY protocol header. The
+entry with the most matching conditions takes the connection, and an entry
+without conditions (or `fallback`) is the default.
+
 The config format is documented in `crates/node-runtime/src/config.rs` and
 the API in `crates/node-runtime/src/api.rs`. Users relay through a direct
 outbound that refuses loopback and private targets unless

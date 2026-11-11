@@ -35,11 +35,33 @@
 //! A connection without a valid header is closed, so the port must be
 //! reachable by that relay only. Inbounds on a UDP socket (Hysteria2, TUIC)
 //! refuse the key; UDP on a stream inbound's port is not affected.
+//!
+//! VLESS, Trojan and AnyTLS inbounds relay a connection that is not a known
+//! user's to a fallback: `"fallback": {"server": "127.0.0.1", "server_port":
+//! 8080}` for all of them, and `"fallbacks"` for a choice by connection:
+//!
+//! ```json
+//! "fallbacks": [
+//!   {"alpn": "h2", "dest": 8443, "xver": 1},
+//!   {"path": "/ws", "dest": "127.0.0.1:8081"},
+//!   {"name": "blog.example.com", "dest": "blog.internal:80"},
+//!   {"dest": 8080}
+//! ]
+//! ```
+//!
+//! `name` is the server name of the TLS (or REALITY) handshake, `alpn` the
+//! ALPN protocol it agreed on and `path` the path of the HTTP/1.x request
+//! the connection starts with; `dest` is `host:port` or a port on this
+//! host, and `xver` 1 or 2 sends the destination a PROXY protocol header of
+//! that version with the client's address. Of the entries whose conditions
+//! all hold, the one with the most conditions takes the connection (the
+//! earlier one of equals); an entry without conditions is the default, as
+//! `fallback` is. See [`engine_inbound::fallback`].
 
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 
 use engine_inbound::registry::Settings;
-use engine_inbound::FallbackSettings;
+use engine_inbound::{FallbackRule, FallbackSettings};
 use engine_outbound::TargetAddr;
 use serde::Deserialize;
 
@@ -103,9 +125,9 @@ fn any_address() -> IpAddr {
 }
 
 impl InboundConfig {
-    /// Targets this inbound relays to by design (`fallback`, REALITY
-    /// `handshake`, a forward's `server` or `targets`, a reverse proxy's
-    /// upstreams), which the private-target filter
+    /// Targets this inbound relays to by design (`fallback`, the `dest` of
+    /// `fallbacks`, REALITY `handshake`, a forward's `server` or `targets`,
+    /// a reverse proxy's upstreams), which the private-target filter
     /// lets through.
     pub fn allowed_targets(&self) -> Vec<(String, u16)> {
         let fallback = self.settings.get("fallback");
@@ -119,6 +141,11 @@ impl InboundConfig {
             .filter_map(|value| serde_json::from_value::<FallbackSettings>(value.clone()).ok())
             .map(|target| (target.server, target.server_port))
             .collect();
+        let rules = self.settings.get("fallbacks").cloned();
+        let rules = rules.and_then(|rules| serde_json::from_value::<Vec<FallbackRule>>(rules).ok());
+        for target in rules.iter().flatten().filter_map(FallbackRule::target) {
+            allowed.push((target.host(), target.port()));
+        }
         if self.kind == crate::FORWARD_TYPE {
             let targets = self
                 .settings
@@ -186,6 +213,7 @@ mod tests {
                 "accept_proxy_protocol": true,
                 "users": [],
                 "fallback": {"server": "127.0.0.1", "server_port": 8080},
+                "fallbacks": [{"alpn": "h2", "dest": 8443}, {"path": "/ws", "dest": "[::1]:81"}],
                 "reality": {"handshake": {"server": "www.example.com", "server_port": 443}}
             }]
         }))
@@ -203,7 +231,9 @@ mod tests {
             inbound.allowed_targets(),
             vec![
                 ("127.0.0.1".to_owned(), 8080),
-                ("www.example.com".to_owned(), 443)
+                ("www.example.com".to_owned(), 443),
+                ("127.0.0.1".to_owned(), 8443),
+                ("::1".to_owned(), 81)
             ]
         );
     }

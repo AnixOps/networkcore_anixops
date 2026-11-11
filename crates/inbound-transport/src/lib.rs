@@ -29,7 +29,7 @@ use std::time::{Duration, Instant, SystemTime};
 use engine_inbound::registry::BuildError;
 use engine_inbound::server::ConnectionContext;
 use engine_inbound::udp::DatagramInbound;
-use engine_inbound::{Accepted, Rejected, StreamInbound, UserStore};
+use engine_inbound::{Accepted, ConnInfo, Rejected, StreamInbound, UserStore};
 use engine_outbound::{BoxFuture, BoxStream, TcpOutbound};
 use rustls::crypto::CryptoProvider;
 use rustls::pki_types::pem::PemObject;
@@ -131,12 +131,22 @@ impl StreamInbound for TlsInbound {
         stream: BoxStream,
         peer: SocketAddr,
     ) -> BoxFuture<'a, Result<Accepted, Rejected>> {
+        self.accept_with(stream, ConnInfo::new(peer))
+    }
+
+    fn accept_with<'a>(
+        &'a self,
+        stream: BoxStream,
+        conn: ConnInfo<'a>,
+    ) -> BoxFuture<'a, Result<Accepted, Rejected>> {
         Box::pin(async move {
             let tls = match self.acceptor.accept(stream).await {
                 Ok(tls) => tls,
                 Err(_) => return Err(Rejected::close("tls handshake failed")),
             };
-            self.inner.accept(Box::new(tls), peer).await
+            let (server_name, alpn) = negotiated(&tls);
+            let conn = conn.with_tls(server_name.as_deref(), alpn.as_deref());
+            self.inner.accept_with(Box::new(tls), conn).await
         })
     }
 
@@ -155,7 +165,11 @@ impl StreamInbound for TlsInbound {
                 self.acceptor.accept(stream),
             );
             match handshake.await {
-                Ok(Ok(tls)) => self.inner.serve_connection(Box::new(tls), context).await,
+                Ok(Ok(tls)) => {
+                    let (server_name, alpn) = negotiated(&tls);
+                    let context = context.with_tls(server_name.as_deref(), alpn.as_deref());
+                    self.inner.serve_connection(Box::new(tls), context).await
+                }
                 _ => context.handshake_failed(),
             }
         })
@@ -172,6 +186,18 @@ impl StreamInbound for TlsInbound {
     fn target_health(&self) -> Option<Vec<engine_inbound::health::TargetHealth>> {
         self.inner.target_health()
     }
+}
+
+/// The server name the client asked for and the ALPN protocol the handshake
+/// agreed on, which the protocol's fallback rules match.
+fn negotiated(
+    tls: &tokio_rustls::server::TlsStream<BoxStream>,
+) -> (Option<String>, Option<Vec<u8>>) {
+    let session = tls.get_ref().1;
+    (
+        session.server_name().map(str::to_owned),
+        session.alpn_protocol().map(<[u8]>::to_vec),
+    )
 }
 
 /// The rustls server configuration for `settings`, for transports that run
