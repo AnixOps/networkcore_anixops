@@ -42,6 +42,30 @@ config type picks the protocol by method name.
 - Config: `{"type": "shadowsocks", "method": "aes-128-gcm", "users": [{"name":
   "...", "password": "..."}]}`.
 
+## Behind ShadowTLS v3
+
+A `"shadow_tls"` object puts the TCP side of either protocol behind a
+ShadowTLS v3 server (`engine_inbound::shadow_tls`): clients make a real TLS
+1.3 handshake with the `handshake` site through the port and then carry
+Shadowsocks in authenticated ApplicationData records; anything else that
+connects is relayed to that site.
+
+- `{"type": "shadowsocks", "method": "...", "password": "...", "users": [...],
+  "shadow_tls": {"password": "...", "handshake": {"server":
+  "www.example.com", "server_port": 443}}}`: one ShadowTLS password for all
+  clients. The users are the Shadowsocks users, and Shadowsocks UDP stays
+  on the same port, outside ShadowTLS.
+- `"shadow_tls": {"users": [{"name": "...", "password": "..."}],
+  "handshake": {...}}` on an inbound without Shadowsocks users: each client
+  has its own ShadowTLS password and the inbound's users are these
+  (`StreamInbound::users()`, traffic, limits, online IPs). The UDP port is
+  not opened, as a datagram names no ShadowTLS user; clients carry UDP in a
+  sing-mux stream. A `password` beside `users` serves clients that are no
+  user.
+- `"strict_mode": true` serves clients only when the handshake site
+  answered in TLS 1.3 and relays them to it otherwise; `"version"` may be
+  given and must be 3.
+
 `tests/ss2022_server.rs` and `tests/aead_server.rs` run the engine's own client and the
 shadowsocks-rust client (TCP and UDP) against the server; all verification runs in
 GitHub Actions.

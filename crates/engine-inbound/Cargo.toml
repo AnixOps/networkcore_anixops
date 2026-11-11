@@ -15,7 +15,8 @@ futures-util = { version = "0.3", default-features = false, features = ["alloc"]
 h2 = "0.4"
 http = "1"
 # QUIC Initial keys (HKDF, AES-128-GCM, header protection) to read the SNI of
-# UDP flows for the destination statistics.
+# UDP flows for the destination statistics; HMAC-SHA1 and SHA-256 for
+# ShadowTLS.
 ring = "0.17"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

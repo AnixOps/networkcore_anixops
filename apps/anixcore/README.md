@@ -71,6 +71,26 @@ number, beside HTTP/2 and HTTP/1.1 on TCP, so both ports have to be open:
  "transport": {"type": "xhttp", "path": "/xh"}}
 ```
 
+A Shadowsocks inbound with a `"shadow_tls"` object is served behind
+ShadowTLS v3: clients make a real TLS 1.3 handshake with the `handshake`
+site through the port, and everything that is not a ShadowTLS client is
+relayed to that site.
+
+```json
+{"tag": "ss-stls", "type": "shadowsocks", "listen_port": 443,
+ "method": "2022-blake3-aes-128-gcm", "password": "<base64 key>",
+ "shadow_tls": {"users": [{"name": "1001", "password": "<password>"}],
+                "handshake": {"server": "www.example.com", "server_port": 443},
+                "strict_mode": true}}
+```
+
+With `users` in `shadow_tls` the inbound's users are the ShadowTLS users
+(the Shadowsocks inbound then has none of its own, and its UDP port stays
+closed); with `"password"` instead, all clients share that password and the
+users are the Shadowsocks users. `strict_mode` serves clients only when the
+site answered in TLS 1.3. The kernel lists `shadow_tls` in `GET /v1/status`
+`features`.
+
 The config format is documented in `crates/node-runtime/src/config.rs` and
 the API in `crates/node-runtime/src/api.rs`. Users relay through a direct
 outbound that refuses loopback and private targets unless

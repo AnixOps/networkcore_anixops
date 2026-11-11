@@ -9,7 +9,7 @@
 //! The direct outbound refuses loopback, private and link-local targets
 //! unless `allow_private_targets` is set, so users cannot reach services on
 //! the node or its network; an inbound's own `fallback`, `fallbacks` and
-//! REALITY `handshake` addresses are always allowed.
+//! REALITY or ShadowTLS `handshake` addresses are always allowed.
 //!
 //! Every inbound relays through the node's [`egress::Router`]: the domain
 //! egress routes of the panel ([`Node::apply_egress`]) send chosen domains
@@ -206,8 +206,9 @@ impl From<io::Error> for NodeError {
 }
 
 /// Optional API capabilities this kernel has, answered in `GET /v1/status`
-/// so an agent can tell whether it may send them. `reverse_proxy` says the
-/// `reverse_proxy` inbound type is built in.
+/// so an agent can tell whether it may send them. `shadow_tls` says the
+/// `shadowsocks` inbound takes a `shadow_tls` object, `reverse_proxy` that
+/// the `reverse_proxy` inbound type is built in.
 pub const FEATURES: &[&str] = &[
     "user_limits",
     "block_rules",
@@ -220,6 +221,8 @@ pub const FEATURES: &[&str] = &[
     "sing_mux_h2mux",
     "fallbacks",
     "xhttp_h3",
+    #[cfg(feature = "shadowsocks")]
+    "shadow_tls",
     #[cfg(feature = "reverse_proxy")]
     "reverse_proxy",
 ];

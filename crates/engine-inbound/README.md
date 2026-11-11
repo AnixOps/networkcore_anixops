@@ -65,6 +65,23 @@ kernel that anix-agent drives on a proxy server). It mirrors `engine-outbound`:
   UDP outbound), with the user's traffic, speed limit, destination counts
   and QoS; at most 256 streams per connection, a stream counting until its
   relay has ended. TCP Brutal is not negotiated.
+- `shadow_tls`: a ShadowTLS v3 server in front of a protocol inbound
+  (`shadow_tls::wrap`, from a `"shadow_tls"` object in the inbound's
+  settings; the Shadowsocks factory takes one). It relays the client's TLS
+  handshake record by record to the `handshake` site through the inbound's
+  outbound, finds the client by the HMAC-SHA1 tag in its ClientHello
+  session id, marks the site's ApplicationData records (XOR with
+  SHA-256(password ‖ ServerRandom), a four-byte tag of a running HMAC in
+  front) and, from the client's first tagged record on, carries the wrapped
+  protocol in tagged ApplicationData records. A record with a wrong tag is
+  answered with what an encrypted alert looks like and the connection ends.
+  Everything that is not a ShadowTLS client (no TLS, a ClientHello signed
+  with no known password, with `strict_mode` a site that does not answer in
+  TLS 1.3) is relayed to the site unchanged. Clients share one `password`,
+  or `users` gives each a password: those users are then the inbound's
+  (added and removed at runtime, charged, limited), the wrapped protocol
+  must have none of its own, and its UDP side stays closed. Versions 1 and
+  2, a handshake site per server name and wildcard SNI are not implemented.
 - `registry`: config `type` name to `InboundFactory`, one crate and cargo
   feature per protocol.
 
@@ -72,5 +89,6 @@ Errors and counters never contain credentials. The fallback matcher has unit
 tests in `src/fallback.rs`, and `node-runtime`'s `tests/fallbacks.rs` runs
 it behind TLS. `tests/serve_loop.rs` covers
 traffic, online IPs, revocation and held rejections, `tests/sing_mux.rs` the
-smux, yamux and h2mux streams and a padded session; all verification runs
+smux, yamux and h2mux streams and a padded session, `tests/shadow_tls.rs`
+a ShadowTLS session, its fallbacks and the alert; all verification runs
 in GitHub Actions.

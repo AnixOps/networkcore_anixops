@@ -25,7 +25,7 @@
 //!   `NC_SERVER_CERT_SHA256`, its fingerprint for mihomo to pin
 //! - `NC_REALITY_PRIVATE_KEY`, `NC_REALITY_PUBLIC_KEY`, `NC_REALITY_SHORT_ID`,
 //!   `NC_REALITY_SERVER_NAME`, `NC_REALITY_DEST`: REALITY settings and the
-//!   camouflage target
+//!   camouflage target, which is the ShadowTLS handshake site as well
 //! - `NC_VLESS_UUID`, `NC_TCP_ECHO`, `NC_UDP_ECHO`
 
 use std::fmt::Write as _;
@@ -48,6 +48,7 @@ const SS_USER_KEY: &str = "EA8ODQwLCgkIBwYFBAMCAQ==";
 const SS_AEAD_METHOD: &str = "aes-256-gcm";
 const PASSWORD: &str = "interop-password";
 const OBFS_PASSWORD: &str = "interop-obfs";
+const SHADOW_TLS_PASSWORD: &str = "interop-shadow-tls";
 const WS_PATH: &str = "/ws";
 const HTTPUPGRADE_PATH: &str = "/up";
 const GRPC_SERVICE: &str = "interop";
@@ -116,6 +117,12 @@ enum Proto {
     AnyTls,
     /// Snell version 4 without users, as mihomo sends no client id.
     Snell,
+    /// Shadowsocks 2022 behind ShadowTLS v3: a ShadowTLS password in front
+    /// of the Shadowsocks users, or with `users` a single-key Shadowsocks
+    /// inbound whose users are the ShadowTLS users.
+    ShadowTls {
+        users: bool,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -568,6 +575,22 @@ const CASES: &[Case] = &[
         mux: None,
         source: "https://wiki.metacubex.one/config/proxies/snell/",
     },
+    Case {
+        tag: "ss2022-shadowtls",
+        proto: Proto::ShadowTls { users: false },
+        net: Net::Tcp,
+        tls: false,
+        mux: None,
+        source: "https://wiki.metacubex.one/config/proxies/ss/",
+    },
+    Case {
+        tag: "ss2022-shadowtls-smux",
+        proto: Proto::ShadowTls { users: true },
+        net: Net::Tcp,
+        tls: false,
+        mux: Some("smux"),
+        source: sing_box_reference!("outbound/shadowtls"),
+    },
 ];
 
 impl Case {
@@ -576,7 +599,7 @@ impl Case {
             Proto::VlessReality { .. } | Proto::Vless => "vless",
             Proto::Vmess => "vmess",
             Proto::Trojan => "trojan",
-            Proto::Shadowsocks => "shadowsocks-2022",
+            Proto::Shadowsocks | Proto::ShadowTls { .. } => "shadowsocks-2022",
             Proto::ShadowsocksAead => "shadowsocks",
             Proto::Hysteria2 { .. } => "hysteria2",
             Proto::Tuic => "tuic",
@@ -613,8 +636,18 @@ impl Case {
             Proto::VlessReality { vision: true } => "reality + vision",
             Proto::VlessReality { vision: false } => "reality",
             Proto::Hysteria2 { obfs: true } => "tls + salamander",
+            Proto::ShadowTls { .. } => "shadow-tls v3",
             _ if self.tls => "tls",
             _ => "none",
+        }
+    }
+
+    /// What a Shadowsocks 2022 client has for a password: the server key
+    /// and alice's, or the server key alone for a single-key inbound.
+    fn ss_password(&self) -> String {
+        match self.proto {
+            Proto::ShadowTls { users: true } => SS_SERVER_KEY.to_owned(),
+            _ => format!("{SS_SERVER_KEY}:{SS_USER_KEY}"),
         }
     }
 }
@@ -700,6 +733,27 @@ fn inbound(env: &Env, case: &Case) -> Value {
             object.insert("type".into(), "snell".into());
             object.insert("psk".into(), PASSWORD.into());
             object.insert("version".into(), 4.into());
+        }
+        Proto::ShadowTls { users } => {
+            object.insert("type".into(), "shadowsocks".into());
+            object.insert("method".into(), SS_METHOD.into());
+            object.insert("password".into(), SS_SERVER_KEY.into());
+            // The camouflage target answers in TLS 1.3, so strict mode
+            // serves too.
+            let mut shadow_tls = json!({
+                "strict_mode": users,
+                "handshake": {
+                    "server": env.reality_dest.ip().to_string(),
+                    "server_port": env.reality_dest.port(),
+                },
+            });
+            if users {
+                shadow_tls["users"] = user(json!({"password": SHADOW_TLS_PASSWORD}));
+            } else {
+                object.insert("users".into(), user(json!({"password": SS_USER_KEY})));
+                shadow_tls["password"] = SHADOW_TLS_PASSWORD.into();
+            }
+            object.insert("shadow_tls".into(), shadow_tls);
         }
     }
     match case.net {
@@ -795,16 +849,26 @@ impl Client {
 
     fn supports(self, case: &Case) -> bool {
         match self {
-            // Xray has no sing-mux.
+            // Xray has no sing-mux and no ShadowTLS.
             Client::Xray => {
                 case.mux.is_none()
                     && !matches!(
                         case.proto,
-                        Proto::Hysteria2 { .. } | Proto::Tuic | Proto::AnyTls | Proto::Snell
+                        Proto::Hysteria2 { .. }
+                            | Proto::Tuic
+                            | Proto::AnyTls
+                            | Proto::Snell
+                            | Proto::ShadowTls { .. }
                     )
             }
-            // sing-box has no XHTTP and no Snell.
-            Client::SingBox => !matches!(case.net, Net::Xhttp { .. }) && case.proto != Proto::Snell,
+            // sing-box has no XHTTP and no Snell, and its ShadowTLS outbound
+            // dials TCP only: UDP gets through it as a stream of a
+            // multiplexed connection.
+            Client::SingBox => {
+                !matches!(case.net, Net::Xhttp { .. })
+                    && case.proto != Proto::Snell
+                    && (case.mux.is_some() || !matches!(case.proto, Proto::ShadowTls { .. }))
+            }
             Client::Hysteria => matches!(case.proto, Proto::Hysteria2 { .. }),
             // mihomo's XHTTP and HTTPUpgrade are left to Xray and sing-box.
             Client::Mihomo => !matches!(case.net, Net::Xhttp { .. } | Net::HttpUpgrade),
@@ -875,7 +939,11 @@ fn xray_config(env: &Env, case: &Case, server: SocketAddr, socks: u16) -> Value 
             json!({"servers": [{"address": address, "port": port, "method": SS_AEAD_METHOD,
                 "password": PASSWORD}]}),
         ),
-        Proto::Hysteria2 { .. } | Proto::Tuic | Proto::AnyTls | Proto::Snell => {
+        Proto::Hysteria2 { .. }
+        | Proto::Tuic
+        | Proto::AnyTls
+        | Proto::Snell
+        | Proto::ShadowTls { .. } => {
             unreachable!("not an Xray client case")
         }
     };
@@ -998,13 +1066,10 @@ fn sing_box_config(env: &Env, case: &Case, server: SocketAddr, socks: u16) -> Va
             object.insert("type".into(), "trojan".into());
             object.insert("password".into(), PASSWORD.into());
         }
-        Proto::Shadowsocks => {
+        Proto::Shadowsocks | Proto::ShadowTls { .. } => {
             object.insert("type".into(), "shadowsocks".into());
             object.insert("method".into(), SS_METHOD.into());
-            object.insert(
-                "password".into(),
-                format!("{SS_SERVER_KEY}:{SS_USER_KEY}").into(),
-            );
+            object.insert("password".into(), case.ss_password().into());
         }
         Proto::ShadowsocksAead => {
             object.insert("type".into(), "shadowsocks".into());
@@ -1032,6 +1097,28 @@ fn sing_box_config(env: &Env, case: &Case, server: SocketAddr, socks: u16) -> Va
             object.insert("congestion_control".into(), "bbr".into());
         }
         Proto::Snell => unreachable!("not a sing-box client case"),
+    }
+    let mut outbounds = Vec::new();
+    if let Proto::ShadowTls { .. } = case.proto {
+        // The Shadowsocks outbound dials through a ShadowTLS outbound. Its
+        // TLS handshake is with the camouflage target, whose certificate
+        // names nothing a client could verify; what the client checks of
+        // our server is the ShadowTLS tag on the handshake.
+        object.insert("detour".into(), "shadow-tls".into());
+        outbounds.push(json!({
+            "type": "shadowtls",
+            "tag": "shadow-tls",
+            "server": server.ip().to_string(),
+            "server_port": server.port(),
+            "version": 3,
+            "password": SHADOW_TLS_PASSWORD,
+            "tls": {
+                "enabled": true,
+                "server_name": env.reality_server_name,
+                "insecure": true,
+                "utls": {"enabled": true, "fingerprint": "chrome"},
+            },
+        }));
     }
     match case.net {
         Net::Tcp => {}
@@ -1068,10 +1155,12 @@ fn sing_box_config(env: &Env, case: &Case, server: SocketAddr, socks: u16) -> Va
     if let Some(mux) = case.mux {
         object.insert("multiplex".into(), multiplex(mux));
     }
+    // The first outbound takes everything from the SOCKS5 port.
+    outbounds.insert(0, outbound);
     json!({
         "log": {"level": "debug"},
         "inbounds": [{"type": "socks", "listen": "127.0.0.1", "listen_port": socks}],
-        "outbounds": [outbound],
+        "outbounds": outbounds,
     })
 }
 
@@ -1120,13 +1209,25 @@ fn mihomo_config(env: &Env, case: &Case, server: SocketAddr, socks: u16) -> Valu
             object.insert("type".into(), "trojan".into());
             object.insert("password".into(), PASSWORD.into());
         }
-        Proto::Shadowsocks => {
+        Proto::Shadowsocks | Proto::ShadowTls { .. } => {
             object.insert("type".into(), "ss".into());
             object.insert("cipher".into(), SS_METHOD.into());
-            object.insert(
-                "password".into(),
-                format!("{SS_SERVER_KEY}:{SS_USER_KEY}").into(),
-            );
+            object.insert("password".into(), case.ss_password().into());
+            if let Proto::ShadowTls { .. } = case.proto {
+                // The plugin's TLS handshake is with the camouflage target,
+                // whose certificate is not ours to pin.
+                object.insert("plugin".into(), "shadow-tls".into());
+                object.insert("client-fingerprint".into(), "chrome".into());
+                object.insert(
+                    "plugin-opts".into(),
+                    json!({
+                        "host": env.reality_server_name,
+                        "password": SHADOW_TLS_PASSWORD,
+                        "version": 3,
+                        "skip-cert-verify": true,
+                    }),
+                );
+            }
         }
         Proto::ShadowsocksAead => {
             object.insert("type".into(), "ss".into());

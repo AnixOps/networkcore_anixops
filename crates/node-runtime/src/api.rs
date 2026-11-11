@@ -72,7 +72,8 @@
 //! h2mux, which those clients run when no protocol is set, and with
 //! padding), `fallbacks` (the `fallbacks` list of VLESS, Trojan and AnyTLS
 //! inbounds), `xhttp_h3` (an XHTTP inbound with `h3` in its TLS `alpn` also
-//! serves HTTP/3 on the UDP port).
+//! serves HTTP/3 on the UDP port), `shadow_tls` (a `shadowsocks` inbound
+//! takes a `shadow_tls` object and is then served behind ShadowTLS v3).
 //!
 //! A user may carry `speed_limit` (Mbit/s for each direction, shared by
 //! all of its connections) and `device_limit` (most client IPs online at

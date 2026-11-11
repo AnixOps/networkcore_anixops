@@ -13,7 +13,8 @@
 //! That is the surface a node agent (anix-agent) drives.
 //!
 //! [`registry`] maps config `type` names to inbound factories, mirroring
-//! `engine_outbound::registry`.
+//! `engine_outbound::registry`. [`shadow_tls`] puts a ShadowTLS v3 server in
+//! front of a protocol inbound.
 //!
 //! Errors are plain [`std::io::Error`] values or fixed `&'static str`
 //! reasons. Implementations must keep credentials out of both.
@@ -30,6 +31,7 @@ mod quic;
 pub mod registry;
 pub mod replay;
 pub mod server;
+pub mod shadow_tls;
 mod sing_mux;
 pub mod stream;
 pub mod udp;

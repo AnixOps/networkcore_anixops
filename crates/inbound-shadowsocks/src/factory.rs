@@ -4,6 +4,7 @@ use std::io;
 use std::sync::Arc;
 
 use engine_inbound::registry::{parse_settings, BuildError, InboundFactory, Settings};
+use engine_inbound::shadow_tls::{self, ShadowTlsSettings};
 use engine_inbound::{StreamInbound, User};
 use serde::Deserialize;
 
@@ -22,13 +23,18 @@ struct ShadowsocksInboundSettings {
     password: String,
     #[serde(default)]
     users: Vec<User>,
+    /// A ShadowTLS v3 server in front of the TCP side.
+    #[serde(default)]
+    shadow_tls: Option<ShadowTlsSettings>,
 }
 
 /// Builds Shadowsocks inbounds. A 2022 method makes a Shadowsocks-2022
 /// inbound: without `users` it is single-key, with `users` multi-user (AES
 /// methods only). An AEAD method (`aes-128-gcm`, `aes-256-gcm`,
 /// `chacha20-ietf-poly1305`) makes a SIP004 inbound that always takes users
-/// and adds users at runtime, with or without `users` at creation.
+/// and adds users at runtime, with or without `users` at creation. With
+/// `shadow_tls` either is served behind ShadowTLS v3
+/// ([`engine_inbound::shadow_tls`]).
 pub struct ShadowsocksInboundFactory;
 
 impl InboundFactory for ShadowsocksInboundFactory {
@@ -47,7 +53,7 @@ impl InboundFactory for ShadowsocksInboundFactory {
             let inbound = AeadInbound::new(method, &settings.password)
                 .map_err(|_| "inbound could not be created")?;
             inbound.users().add_all(settings.users)?;
-            return Ok(Arc::new(inbound));
+            return shadow_tls::wrap(Arc::new(inbound), settings.shadow_tls.as_ref());
         }
         let method =
             Method::parse(&settings.method).map_err(|_| "unsupported shadowsocks method")?;
@@ -60,7 +66,7 @@ impl InboundFactory for ShadowsocksInboundFactory {
                 _ => "inbound could not be created",
             })?;
         inbound.users().add_all(settings.users)?;
-        Ok(Arc::new(inbound))
+        shadow_tls::wrap(Arc::new(inbound), settings.shadow_tls.as_ref())
     }
 }
 
@@ -100,6 +106,48 @@ mod tests {
             assert_eq!(users.users().names(), ["1"]);
         }
         assert!(build(r#"{"method":"aes-128-gcm","users":[{"name":"1"}]}"#).is_err());
+    }
+
+    #[test]
+    fn builds_inbounds_behind_shadow_tls() {
+        let key = r#""method":"2022-blake3-aes-128-gcm","password":"AAECAwQFBgcICQoLDA0ODw==""#;
+        let user = r#"{"name":"a","password":"EBESExQVFhcYGRobHB0eHw=="}"#;
+        let front = r#"{"name":"b","password":"front"}"#;
+        let handshake = r#""handshake":{"server":"www.example.com","server_port":443}"#;
+
+        // A shared ShadowTLS password: the users are the protocol's.
+        let shared = build(&format!(
+            r#"{{{key},"users":[{user}],"shadow_tls":{{"password":"front",{handshake}}}}}"#
+        ))
+        .unwrap();
+        assert_eq!(shared.protocol(), "shadowsocks-2022");
+        assert!(shared.serves_connections());
+        assert_eq!(shared.users().names(), ["a"]);
+        assert!(shared.datagram().is_some());
+
+        // ShadowTLS users on a single-key inbound: the users are theirs, and
+        // the UDP port, which could not tell them apart, stays closed.
+        let users = build(&format!(
+            r#"{{{key},"shadow_tls":{{"version":3,"strict_mode":true,"users":[{front}],{handshake}}}}}"#
+        ))
+        .unwrap();
+        assert_eq!(users.users().names(), ["b"]);
+        assert!(users.datagram().is_none());
+        assert!(users.users().add(User::with_password("c", "")).is_err());
+
+        for shadow_tls in [
+            // No password and no users, another version, no handshake site.
+            format!("{{{handshake}}}"),
+            format!(r#"{{"version":2,"password":"front",{handshake}}}"#),
+            r#"{"password":"front"}"#.to_owned(),
+        ] {
+            assert!(build(&format!(r#"{{{key},"shadow_tls":{shadow_tls}}}"#)).is_err());
+        }
+        // Two user tables.
+        assert!(build(&format!(
+            r#"{{{key},"users":[{user}],"shadow_tls":{{"users":[{front}],{handshake}}}}}"#
+        ))
+        .is_err());
     }
 
     #[test]

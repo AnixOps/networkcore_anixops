@@ -40,12 +40,18 @@ accounting.
   listener, with the same users, outbound and counters.
   `accept_proxy_protocol` and the connection cap apply to the TCP side
   only. `GET /v1/status` lists the feature as `xhttp_h3`.
+- A `shadowsocks` inbound takes a `"shadow_tls"` object (`password` or
+  `users`, `handshake`, `strict_mode`) and is then served behind ShadowTLS
+  v3 (`engine_inbound::shadow_tls`): the TLS handshake clients see is the
+  `handshake` site's, and whatever is not a ShadowTLS client is relayed to
+  that site. With `users` there, the inbound's users are the ShadowTLS
+  users. `GET /v1/status` lists the feature as `shadow_tls`.
 - `api`: local HTTP/JSON management API with a bearer token, shaped after
   what anix-agent's core interface needs (add/remove node, add/remove users,
   traffic slices, online devices).
 - The direct outbound refuses loopback, private, CGNAT and link-local
   targets unless `allow_private_targets` is set; each inbound's `fallback`,
-  `fallbacks` and REALITY `handshake` addresses stay reachable.
+  `fallbacks` and REALITY or ShadowTLS `handshake` addresses stay reachable.
 - `egress`: the panel's domain egress routes (anix-control 「转发 → 分流」,
   the desired-config member `egress`, set with `PUT /v1/egress`). As a source
   node, connections to a route's domains go to the exit node's
