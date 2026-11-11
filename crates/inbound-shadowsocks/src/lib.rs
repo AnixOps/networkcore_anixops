@@ -19,8 +19,13 @@
 //! UDP on the same port is relayed when the node has a UDP outbound (see
 //! `src/udp.rs` for the packet format): one socket per client session, the same
 //! timestamp window and a per-session packet id replay window.
+//!
+//! Both protocols also serve SIP003 plugin clients without a plugin process:
+//! simple-obfs in [`obfs`], and v2ray-plugin's WebSocket mode through the
+//! `ws` transport and TLS of `inbound-transport` (see `src/factory.rs`).
 
 mod factory;
+pub mod obfs;
 pub mod sip004;
 mod udp;
 

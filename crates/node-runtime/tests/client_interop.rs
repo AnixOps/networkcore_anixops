@@ -138,6 +138,10 @@ enum Net {
         mode: &'static str,
         alpn: Option<&'static str>,
     },
+    /// simple-obfs in `mode` (`http` or `tls`) in front of Shadowsocks.
+    Obfs {
+        mode: &'static str,
+    },
 }
 
 struct Case {
@@ -174,6 +178,8 @@ const XHTTP_REFERENCE: &str = "https://github.com/XTLS/Xray-core/discussions/411
 const TRANSPORT_REFERENCE: &str = sing_box_reference!("shared/v2ray-transport");
 const MULTIPLEX_REFERENCE: &str = sing_box_reference!("shared/multiplex");
 const HYSTERIA_REFERENCE: &str = "https://v2.hysteria.network/docs/advanced/Full-Client-Config/";
+const SIMPLE_OBFS: &str = "https://github.com/shadowsocks/simple-obfs";
+const V2RAY_PLUGIN: &str = "https://github.com/shadowsocks/v2ray-plugin";
 
 const CASES: &[Case] = &[
     Case {
@@ -536,6 +542,38 @@ const CASES: &[Case] = &[
         source: MULTIPLEX_REFERENCE,
     },
     Case {
+        tag: "ss-aead-obfs-http",
+        proto: Proto::ShadowsocksAead,
+        net: Net::Obfs { mode: "http" },
+        tls: false,
+        mux: None,
+        source: SIMPLE_OBFS,
+    },
+    Case {
+        tag: "ss2022-obfs-tls",
+        proto: Proto::Shadowsocks,
+        net: Net::Obfs { mode: "tls" },
+        tls: false,
+        mux: None,
+        source: SIMPLE_OBFS,
+    },
+    Case {
+        tag: "ss-aead-v2ray-plugin",
+        proto: Proto::ShadowsocksAead,
+        net: Net::Ws,
+        tls: false,
+        mux: None,
+        source: V2RAY_PLUGIN,
+    },
+    Case {
+        tag: "ss2022-v2ray-plugin-tls",
+        proto: Proto::Shadowsocks,
+        net: Net::Ws,
+        tls: true,
+        mux: None,
+        source: V2RAY_PLUGIN,
+    },
+    Case {
         tag: "anytls",
         proto: Proto::AnyTls,
         net: Net::Tcp,
@@ -594,6 +632,14 @@ const CASES: &[Case] = &[
 ];
 
 impl Case {
+    /// Whether sing-box and mihomo reach the Shadowsocks inbound through a
+    /// SIP003 plugin: simple-obfs, or v2ray-plugin for `ws`. Xray has no
+    /// plugins and runs Shadowsocks on its own `ws` transport, which is
+    /// what v2ray-plugin sends without its multiplexing.
+    fn plugin(&self) -> bool {
+        matches!(self.proto, Proto::Shadowsocks | Proto::ShadowsocksAead) && self.net != Net::Tcp
+    }
+
     fn protocol(&self) -> &'static str {
         match self.proto {
             Proto::VlessReality { .. } | Proto::Vless => "vless",
@@ -623,6 +669,7 @@ impl Case {
                     alpn: Some(alpn),
                 },
             ) => format!("xhttp {mode}, {alpn}"),
+            (_, Net::Obfs { mode }) => format!("simple-obfs {mode}"),
         };
         match self.mux {
             Some("default") => format!("{net} + mux, protocol unset"),
@@ -779,6 +826,12 @@ fn inbound(env: &Env, case: &Case) -> Value {
                 json!({"type": "xhttp", "path": XHTTP_PATH}),
             );
         }
+        Net::Obfs { mode } => {
+            object.insert(
+                "obfs".into(),
+                json!({"type": mode, "host": env.server_name}),
+            );
+        }
     }
     if case.tls {
         let alpn: &[&str] = match (case.proto, case.net) {
@@ -849,9 +902,10 @@ impl Client {
 
     fn supports(self, case: &Case) -> bool {
         match self {
-            // Xray has no sing-mux and no ShadowTLS.
+            // Xray has no sing-mux, no ShadowTLS and no simple-obfs.
             Client::Xray => {
                 case.mux.is_none()
+                    && !matches!(case.net, Net::Obfs { .. })
                     && !matches!(
                         case.proto,
                         Proto::Hysteria2 { .. }
@@ -953,6 +1007,7 @@ fn xray_config(env: &Env, case: &Case, server: SocketAddr, socks: u16) -> Value 
         Net::HttpUpgrade => "httpupgrade",
         Net::Grpc => "grpc",
         Net::Xhttp { .. } => "xhttp",
+        Net::Obfs { .. } => unreachable!("not an Xray client case"),
     }});
     let stream_object = stream.as_object_mut().unwrap();
     match case.net {
@@ -979,6 +1034,7 @@ fn xray_config(env: &Env, case: &Case, server: SocketAddr, socks: u16) -> Value 
                 json!({"path": XHTTP_PATH, "mode": mode}),
             );
         }
+        Net::Obfs { .. } => unreachable!("not an Xray client case"),
     }
     if let Proto::VlessReality { .. } = case.proto {
         stream_object.insert("security".into(), "reality".into());
@@ -1122,6 +1178,26 @@ fn sing_box_config(env: &Env, case: &Case, server: SocketAddr, socks: u16) -> Va
     }
     match case.net {
         Net::Tcp => {}
+        // sing-box runs the plugins itself. Its v2ray-plugin multiplexes
+        // unless told not to, and takes the certificate to trust as `cert`.
+        Net::Ws if case.plugin() => {
+            let mut opts = format!(
+                "mode=websocket;host={};path={WS_PATH};mux=0",
+                env.server_name
+            );
+            if case.tls {
+                write!(opts, ";tls;cert={}", env.cert).unwrap();
+            }
+            object.insert("plugin".into(), "v2ray-plugin".into());
+            object.insert("plugin_opts".into(), opts.into());
+        }
+        Net::Obfs { mode } => {
+            object.insert("plugin".into(), "obfs-local".into());
+            object.insert(
+                "plugin_opts".into(),
+                format!("obfs={mode};obfs-host={}", env.server_name).into(),
+            );
+        }
         Net::Ws => {
             object.insert(
                 "transport".into(),
@@ -1144,7 +1220,7 @@ fn sing_box_config(env: &Env, case: &Case, server: SocketAddr, socks: u16) -> Va
         }
         Net::Xhttp { .. } => unreachable!("not a sing-box client case"),
     }
-    if case.tls {
+    if case.tls && !case.plugin() {
         let alpn: &[&str] = match (case.proto, case.net) {
             (Proto::Hysteria2 { .. } | Proto::Tuic, _) => &["h3"],
             (_, Net::Grpc) => &["h2"],
@@ -1263,6 +1339,25 @@ fn mihomo_config(env: &Env, case: &Case, server: SocketAddr, socks: u16) -> Valu
     }
     match case.net {
         Net::Tcp => {}
+        // mihomo's v2ray-plugin multiplexes unless `mux` is false, and pins
+        // the certificate in the plugin options.
+        Net::Ws if case.plugin() => {
+            let mut opts = json!({"mode": "websocket", "host": env.server_name,
+                "path": WS_PATH, "mux": false});
+            if case.tls {
+                opts["tls"] = true.into();
+                opts["fingerprint"] = env.cert_sha256.clone().into();
+            }
+            object.insert("plugin".into(), "v2ray-plugin".into());
+            object.insert("plugin-opts".into(), opts);
+        }
+        Net::Obfs { mode } => {
+            object.insert("plugin".into(), "obfs".into());
+            object.insert(
+                "plugin-opts".into(),
+                json!({"mode": mode, "host": env.server_name}),
+            );
+        }
         Net::Ws => {
             object.insert("network".into(), "ws".into());
             object.insert(
@@ -1292,7 +1387,7 @@ fn mihomo_config(env: &Env, case: &Case, server: SocketAddr, socks: u16) -> Valu
             "reality-opts".into(),
             json!({"public-key": env.reality_public_key, "short-id": env.reality_short_id}),
         );
-    } else if case.tls {
+    } else if case.tls && !case.plugin() {
         object.insert("tls".into(), true.into());
         object.insert(name_key.into(), env.server_name.clone().into());
         object.insert("fingerprint".into(), env.cert_sha256.clone().into());

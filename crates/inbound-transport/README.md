@@ -13,7 +13,8 @@ Server-side transports that wrap an `engine_inbound::StreamInbound`.
 
 - `WsInbound` / `GrpcInbound` / `wrap_all`: the server side of the outbound
   `transport` object, between TLS and the protocol (`"transport"` in the
-  Trojan, VLESS and VMess inbound configs):
+  Trojan, VLESS and VMess inbound configs; Shadowsocks takes `ws` only, for
+  v2ray-plugin clients):
   - `{"type": "ws", "path": "/x", "host": "...", "max_early_data": 8192,
     "early_data_header_name": "Sec-WebSocket-Protocol"}`: WebSocket upgrade
     on `path` (query ignored), optional `Host` check, Xray-style early data

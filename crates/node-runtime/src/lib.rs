@@ -207,8 +207,9 @@ impl From<io::Error> for NodeError {
 
 /// Optional API capabilities this kernel has, answered in `GET /v1/status`
 /// so an agent can tell whether it may send them. `shadow_tls` says the
-/// `shadowsocks` inbound takes a `shadow_tls` object, `reverse_proxy` that
-/// the `reverse_proxy` inbound type is built in.
+/// `shadowsocks` inbound takes a `shadow_tls` object, `shadowsocks_plugins`
+/// that it takes `obfs`, `transport` and `tls`, `reverse_proxy` that the
+/// `reverse_proxy` inbound type is built in.
 pub const FEATURES: &[&str] = &[
     "user_limits",
     "block_rules",
@@ -223,6 +224,8 @@ pub const FEATURES: &[&str] = &[
     "xhttp_h3",
     #[cfg(feature = "shadowsocks")]
     "shadow_tls",
+    #[cfg(feature = "shadowsocks")]
+    "shadowsocks_plugins",
     #[cfg(feature = "reverse_proxy")]
     "reverse_proxy",
 ];

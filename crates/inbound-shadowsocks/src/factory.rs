@@ -6,8 +6,10 @@ use std::sync::Arc;
 use engine_inbound::registry::{parse_settings, BuildError, InboundFactory, Settings};
 use engine_inbound::shadow_tls::{self, ShadowTlsSettings};
 use engine_inbound::{StreamInbound, User};
+use inbound_transport::{TlsServerSettings, TransportSettings};
 use serde::Deserialize;
 
+use crate::obfs::{ObfsInbound, ObfsSettings};
 use crate::{sip004, AeadInbound, Method, Ss2022Inbound};
 
 pub const TYPE_NAME: &str = "shadowsocks";
@@ -26,15 +28,29 @@ struct ShadowsocksInboundSettings {
     /// A ShadowTLS v3 server in front of the TCP side.
     #[serde(default)]
     shadow_tls: Option<ShadowTlsSettings>,
+    /// simple-obfs (`obfs-local` clients) in front of the protocol:
+    /// `{"type": "http" | "tls", "host": "..."}`. Not with `tls` or
+    /// `transport`.
+    #[serde(default)]
+    obfs: Option<ObfsSettings>,
+    /// TLS in front of the `ws` transport, v2ray-plugin's `tls` option.
+    #[serde(default)]
+    tls: Option<TlsServerSettings>,
+    /// `{"type": "ws", "path": ..., "host": ...}`: v2ray-plugin's
+    /// `websocket` mode without its multiplexing (`mux=0`).
+    #[serde(default)]
+    transport: Option<TransportSettings>,
 }
 
 /// Builds Shadowsocks inbounds. A 2022 method makes a Shadowsocks-2022
 /// inbound: without `users` it is single-key, with `users` multi-user (AES
 /// methods only). An AEAD method (`aes-128-gcm`, `aes-256-gcm`,
 /// `chacha20-ietf-poly1305`) makes a SIP004 inbound that always takes users
-/// and adds users at runtime, with or without `users` at creation. With
-/// `shadow_tls` either is served behind ShadowTLS v3
-/// ([`engine_inbound::shadow_tls`]).
+/// and adds users at runtime, with or without `users` at creation. Either
+/// may sit behind what the SIP003 plugins simple-obfs (`obfs`) and
+/// v2ray-plugin (`transport`, `tls`) put on the TCP connection, or, with
+/// `shadow_tls`, behind ShadowTLS v3 ([`engine_inbound::shadow_tls`]); the
+/// two do not combine.
 pub struct ShadowsocksInboundFactory;
 
 impl InboundFactory for ShadowsocksInboundFactory {
@@ -47,27 +63,49 @@ impl InboundFactory for ShadowsocksInboundFactory {
             settings,
             "shadowsocks inbound settings are missing or invalid",
         )?;
-        if !settings.method.starts_with("2022-") {
-            let method = sip004::parse_method(&settings.method)
-                .map_err(|_| "unsupported shadowsocks method")?;
-            let inbound = AeadInbound::new(method, &settings.password)
-                .map_err(|_| "inbound could not be created")?;
-            inbound.users().add_all(settings.users)?;
-            return shadow_tls::wrap(Arc::new(inbound), settings.shadow_tls.as_ref());
+        let inbound = protocol(&settings.method, &settings.password, settings.users)?;
+        let (tls, transport) = (settings.tls.as_ref(), settings.transport.as_ref());
+        let plugin = settings.obfs.is_some() || tls.is_some() || transport.is_some();
+        match (&settings.obfs, transport) {
+            _ if settings.shadow_tls.is_some() && plugin => {
+                Err("shadowsocks shadow_tls does not combine with obfs, tls or transport")
+            }
+            (Some(_), _) if tls.is_some() || transport.is_some() => {
+                Err("shadowsocks obfs does not combine with tls or transport")
+            }
+            (Some(obfs), _) => Ok(Arc::new(ObfsInbound::new(inbound, obfs))),
+            (None, None | Some(TransportSettings::Tcp | TransportSettings::Ws { .. })) => {
+                let inbound = inbound_transport::wrap_all(inbound, transport, tls)?;
+                shadow_tls::wrap(inbound, settings.shadow_tls.as_ref())
+            }
+            (None, Some(_)) => Err("shadowsocks takes the ws transport only"),
         }
-        let method =
-            Method::parse(&settings.method).map_err(|_| "unsupported shadowsocks method")?;
-        let multi_user = !settings.users.is_empty();
+    }
+}
+
+/// The inbound of the protocol that `method` names.
+fn protocol(
+    method: &str,
+    password: &str,
+    users: Vec<User>,
+) -> Result<Arc<dyn StreamInbound>, BuildError> {
+    if !method.starts_with("2022-") {
+        let method = sip004::parse_method(method).map_err(|_| "unsupported shadowsocks method")?;
         let inbound =
-            Ss2022Inbound::new(method, &settings.password, multi_user).map_err(|err| match err
-                .kind()
-            {
+            AeadInbound::new(method, password).map_err(|_| "inbound could not be created")?;
+        inbound.users().add_all(users)?;
+        return Ok(Arc::new(inbound));
+    }
+    let method = Method::parse(method).map_err(|_| "unsupported shadowsocks method")?;
+    let inbound =
+        Ss2022Inbound::new(method, password, !users.is_empty()).map_err(|err| {
+            match err.kind() {
                 io::ErrorKind::InvalidInput => "shadowsocks inbound settings are invalid",
                 _ => "inbound could not be created",
-            })?;
-        inbound.users().add_all(settings.users)?;
-        shadow_tls::wrap(Arc::new(inbound), settings.shadow_tls.as_ref())
-    }
+            }
+        })?;
+    inbound.users().add_all(users)?;
+    Ok(Arc::new(inbound))
 }
 
 #[cfg(test)]
@@ -148,6 +186,38 @@ mod tests {
             r#"{{{key},"users":[{user}],"shadow_tls":{{"users":[{front}],{handshake}}}}}"#
         ))
         .is_err());
+        // ShadowTLS and a plugin layer on one inbound.
+        for layer in [r#""obfs":{"type":"http"}"#, r#""transport":{"type":"ws"}"#] {
+            assert!(build(&format!(
+                r#"{{{key},{layer},"shadow_tls":{{"password":"front",{handshake}}}}}"#
+            ))
+            .is_err());
+        }
+    }
+
+    #[test]
+    fn builds_plugin_layers_and_refuses_to_mix_them() {
+        let protocol = r#""method":"aes-128-gcm","password":"p""#;
+        for layer in [
+            r#""obfs":{"type":"http"}"#,
+            r#""obfs":{"type":"tls","host":"cdn.example"}"#,
+            r#""transport":{"type":"ws","path":"/ss","host":"cdn.example"}"#,
+            r#""transport":{"type":"tcp"}"#,
+        ] {
+            let inbound = build(&format!("{{{protocol},{layer}}}")).unwrap();
+            assert_eq!(inbound.protocol(), "shadowsocks");
+            assert!(inbound.datagram().is_some());
+        }
+        for layers in [
+            r#""obfs":{"type":"quic"}"#,
+            r#""obfs":{"type":"http","hots":"cdn.example"}"#,
+            r#""obfs":{"type":"http"},"transport":{"type":"ws"}"#,
+            r#""obfs":{"type":"tls"},"tls":{"certificate":"c","key":"k"}"#,
+            r#""transport":{"type":"grpc","service_name":"ss"}"#,
+            r#""transport":{"type":"ws","path":"ss"}"#,
+        ] {
+            assert!(build(&format!("{{{protocol},{layers}}}")).is_err());
+        }
     }
 
     #[test]

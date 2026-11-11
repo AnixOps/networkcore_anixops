@@ -46,6 +46,11 @@ accounting.
   `handshake` site's, and whatever is not a ShadowTLS client is relayed to
   that site. With `users` there, the inbound's users are the ShadowTLS
   users. `GET /v1/status` lists the feature as `shadow_tls`.
+- A `shadowsocks` inbound serves SIP003 plugin clients itself: `obfs`
+  (`{"type": "http" | "tls", "host": ...}`) for simple-obfs, and `transport`
+  `ws` with or without `tls` for v2ray-plugin's `websocket` mode with
+  `mux=0` (see `inbound-shadowsocks`). `GET /v1/status` lists the feature as
+  `shadowsocks_plugins`.
 - `api`: local HTTP/JSON management API with a bearer token, shaped after
   what anix-agent's core interface needs (add/remove node, add/remove users,
   traffic slices, online devices).

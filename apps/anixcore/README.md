@@ -91,6 +91,14 @@ users are the Shadowsocks users. `strict_mode` serves clients only when the
 site answered in TLS 1.3. The kernel lists `shadow_tls` in `GET /v1/status`
 `features`.
 
+A Shadowsocks inbound serves SIP003 plugin clients without a plugin
+process: `"obfs": {"type": "http" | "tls", "host": "..."}` for simple-obfs
+(`obfs-local`), and `"transport": {"type": "ws", "path": "/x"}` with or
+without `"tls": {...}` for v2ray-plugin's `websocket` mode. v2ray-plugin
+clients multiplex by default, which is not served: set `mux=0` (mihomo
+`mux: false`). UDP is not part of either plugin and stays plain Shadowsocks
+on the port.
+
 The config format is documented in `crates/node-runtime/src/config.rs` and
 the API in `crates/node-runtime/src/api.rs`. Users relay through a direct
 outbound that refuses loopback and private targets unless
