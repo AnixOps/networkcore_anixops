@@ -658,7 +658,10 @@ fn mitm_inspect_plugin_describes_a_plugin_without_a_runtime() {
 #[test]
 fn bound_interface_clears_and_is_apple_only() {
     // Both zero removes the pin and never installs a protector.
-    assert_eq!(networkcore_ios_set_bound_interface(0, 0), NETWORKCORE_IOS_OK);
+    assert_eq!(
+        networkcore_ios_set_bound_interface(0, 0),
+        NETWORKCORE_IOS_OK
+    );
     assert!(!engine_embedded::protect::socket_protector_installed());
     // IP_BOUND_IF exists only on Apple platforms; elsewhere a pin is refused
     // and nothing is installed (Apple CI builds cover the other branch).

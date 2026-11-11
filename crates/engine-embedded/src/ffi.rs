@@ -628,7 +628,11 @@ mod bound_interface {
 
     /// Binds `socket` to interface `index`; `0` leaves it to the routing table.
     #[cfg(any(target_os = "macos", target_os = "ios"))]
-    fn bind(socket: crate::protect::RawSocketHandle, index: u32, ipv6: bool) -> std::io::Result<()> {
+    fn bind(
+        socket: crate::protect::RawSocketHandle,
+        index: u32,
+        ipv6: bool,
+    ) -> std::io::Result<()> {
         if index == 0 {
             return Ok(());
         }
