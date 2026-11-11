@@ -2,12 +2,15 @@
 //!
 //! [`XhttpServer::serve_connection`] serves one accepted connection (plain
 //! TCP or TLS) as HTTP/2 when it starts with the HTTP/2 preface, otherwise
-//! as HTTP/1.1. Every download `GET {path}{session}` and every
+//! as HTTP/1.1; [`XhttpServer::serve_quic`] serves one QUIC connection as
+//! HTTP/3. Every download `GET {path}{session}` and every
 //! `POST {path}` (`stream-one`) becomes one proxied stream handed to the
 //! caller; uploads (`POST {path}{session}/{seq}` or a streaming
 //! `POST {path}{session}`) feed the session's upload side. A session's
 //! requests may arrive on different connections, so sessions live in the
 //! server, and a session whose download does not arrive in time is dropped.
+
+mod http3;
 
 use std::collections::{BTreeMap, HashMap};
 use std::future::poll_fn;
@@ -222,7 +225,8 @@ impl XhttpServer {
         "X".repeat(self.padding.sample() as usize)
     }
 
-    /// Wraps a proxied stream's future so the session ends with it.
+    /// Wraps a proxied stream's future so the session ends with it, also
+    /// when the future is dropped with its connection.
     fn finish_with<'a>(
         self: &Arc<Self>,
         call: BoxFuture<'a, ()>,
@@ -231,11 +235,35 @@ impl XhttpServer {
         let Some(id) = session else {
             return call;
         };
-        let server = self.clone();
+        let session = SessionGuard {
+            server: self.clone(),
+            id,
+        };
         Box::pin(async move {
+            let _session = session;
             call.await;
-            server.remove(&id);
         })
+    }
+
+    /// Where `request` goes, by its method, host, path and padding.
+    fn route_request<B>(&self, request: &http::Request<B>) -> Route {
+        let host = request.uri().authority().map(|a| a.as_str()).or_else(|| {
+            request
+                .headers()
+                .get(http::header::HOST)
+                .and_then(|value| value.to_str().ok())
+        });
+        let referer = request
+            .headers()
+            .get(http::header::REFERER)
+            .and_then(|value| value.to_str().ok());
+        self.route(
+            request.method().as_str(),
+            host,
+            request.uri().path(),
+            request.uri().query(),
+            referer,
+        )
     }
 
     async fn serve_h2<'a, F>(
@@ -294,24 +322,7 @@ impl XhttpServer {
         request: http::Request<RecvStream>,
         mut respond: SendResponse<Bytes>,
     ) -> Option<(BoxStream, Option<String>)> {
-        let host = request.uri().authority().map(|a| a.as_str()).or_else(|| {
-            request
-                .headers()
-                .get(http::header::HOST)
-                .and_then(|value| value.to_str().ok())
-        });
-        let referer = request
-            .headers()
-            .get(http::header::REFERER)
-            .and_then(|value| value.to_str().ok());
-        let route = self.route(
-            request.method().as_str(),
-            host,
-            request.uri().path(),
-            request.uri().query(),
-            referer,
-        );
-        match route {
+        match self.route_request(&request) {
             Route::Reject(status) => {
                 let _ = respond.send_response(self.h2_status(status), true);
                 None
@@ -512,6 +523,18 @@ impl XhttpServer {
         );
         out.write_all(response.as_bytes()).await?;
         out.flush().await
+    }
+}
+
+/// Removes a session when its proxied stream ends or is dropped.
+struct SessionGuard {
+    server: Arc<XhttpServer>,
+    id: String,
+}
+
+impl Drop for SessionGuard {
+    fn drop(&mut self) {
+        self.server.remove(&self.id);
     }
 }
 

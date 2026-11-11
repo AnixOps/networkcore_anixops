@@ -1,5 +1,6 @@
 //! sing-mux through the serve loop: TCP and UDP streams on one client
-//! connection, in smux and yamux frames the way sing-box clients send them.
+//! connection, in smux and yamux frames and as h2mux requests the way
+//! sing-box clients send them, with and without padding.
 
 use std::io;
 use std::net::SocketAddr;
@@ -7,11 +8,14 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
+use bytes::Bytes;
 use engine_inbound::addr::{write_addr_port, SOCKS};
 use engine_inbound::server::{serve_with_udp, InboundStats, ServeSettings};
 use engine_inbound::udp::BoundUdpOutbound;
 use engine_inbound::{Accepted, Rejected, StreamInbound, User, UserStore};
 use engine_outbound::{BoxFuture, BoxStream, TargetAddr, TcpOutbound};
+use h2::client::SendRequest;
+use h2::{RecvStream, SendStream};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::time::timeout;
@@ -237,6 +241,96 @@ async fn yamux_echo(client: &mut TcpStream, len: usize) -> (Vec<u8>, usize) {
     (received, granted)
 }
 
+/// The HTTP/2 side of an h2mux client, on a connection that starts with
+/// `session`.
+async fn h2mux(server: SocketAddr, session: &[u8]) -> SendRequest<Bytes> {
+    let mut client = TcpStream::connect(server).await.unwrap();
+    client.write_all(session).await.unwrap();
+    let (requests, connection) = h2::client::handshake(client).await.unwrap();
+    tokio::spawn(async move {
+        let _ = connection.await;
+    });
+    requests
+}
+
+/// Opens an h2mux stream: a CONNECT request, answered 200 ahead of any
+/// data. What the client sends is the request body, what it receives the
+/// response body.
+async fn h2_stream(requests: &SendRequest<Bytes>) -> (SendStream<Bytes>, RecvStream) {
+    let mut requests = requests.clone().ready().await.unwrap();
+    let request = http::Request::builder()
+        .method(http::Method::CONNECT)
+        .uri("localhost")
+        .body(())
+        .unwrap();
+    let (response, send) = requests.send_request(request, false).unwrap();
+    let response = timeout(TIMEOUT, response)
+        .await
+        .expect("h2mux response timed out")
+        .unwrap();
+    assert_eq!(response.status(), http::StatusCode::OK);
+    (send, response.into_body())
+}
+
+/// The next `len` bytes the server sends on an h2mux stream.
+async fn h2_data(body: &mut RecvStream, len: usize) -> Vec<u8> {
+    let mut received = Vec::new();
+    while received.len() < len {
+        let chunk = timeout(TIMEOUT, body.data())
+            .await
+            .expect("h2mux data timed out")
+            .expect("h2mux stream ended")
+            .unwrap();
+        let _ = body.flow_control().release_capacity(chunk.len());
+        received.extend_from_slice(&chunk);
+    }
+    received
+}
+
+/// A padded record: `data` behind its length and that of the padding.
+fn record(data: &[u8], padding: usize) -> Vec<u8> {
+    let mut out = (data.len() as u16).to_be_bytes().to_vec();
+    out.extend_from_slice(&(padding as u16).to_be_bytes());
+    out.extend_from_slice(data);
+    out.resize(out.len() + padding, 0xee);
+    out
+}
+
+/// The client's reading of a padded connection: the data of the server's
+/// first 16 records, then its bytes as they are.
+#[derive(Default)]
+struct Unpadded {
+    records: usize,
+    data: Vec<u8>,
+}
+
+impl Unpadded {
+    /// The next `len` bytes of the server's multiplexer.
+    async fn read(&mut self, client: &mut TcpStream, len: usize) -> Vec<u8> {
+        let fill = async {
+            while self.data.len() < len {
+                if self.records == 16 {
+                    let mut plain = vec![0u8; len - self.data.len()];
+                    client.read_exact(&mut plain).await.unwrap();
+                    self.data.extend(plain);
+                    break;
+                }
+                let mut header = [0u8; 4];
+                client.read_exact(&mut header).await.unwrap();
+                let data = usize::from(u16::from_be_bytes([header[0], header[1]]));
+                let padding = usize::from(u16::from_be_bytes([header[2], header[3]]));
+                assert!((256..768).contains(&padding), "{padding}");
+                let mut record = vec![0u8; data + padding];
+                client.read_exact(&mut record).await.unwrap();
+                self.data.extend_from_slice(&record[..data]);
+                self.records += 1;
+            }
+        };
+        timeout(TIMEOUT, fill).await.expect("padded data timed out");
+        self.data.drain(..len).collect()
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn smux_streams_share_one_connection() {
     let (server, users, _stats) = start().await;
@@ -396,12 +490,101 @@ async fn yamux_reset_ends_a_half_closed_stream() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn h2mux_streams_are_connect_requests() {
+    let (server, users, _stats) = start().await;
+    let tcp = tcp_echo().await;
+    let udp = udp_echo().await;
+    // Version 0, h2mux.
+    let requests = h2mux(server, &[0, 2]).await;
+
+    // A TCP stream: the request with the first payload, and the status
+    // ahead of the first data.
+    let (mut send, mut body) = h2_stream(&requests).await;
+    let first = [request(0, tcp), b"hello".to_vec()].concat();
+    send.send_data(first.into(), false).unwrap();
+    assert_eq!(h2_data(&mut body, 6).await, b"\0hello");
+
+    // More than a window at once, either way: the server reopens its own
+    // as the target takes the data and sends within the client's.
+    let chunk = vec![0x5a; 300_000];
+    send.send_data(chunk.clone().into(), false).unwrap();
+    assert!(h2_data(&mut body, chunk.len()).await == chunk);
+
+    // A UDP stream with packet addresses on the same connection.
+    let (mut packets, mut replies) = h2_stream(&requests).await;
+    let open = [request(3, udp), packet(Some(udp), b"ping")].concat();
+    packets.send_data(open.into(), false).unwrap();
+    let reply = [vec![0], packet(Some(udp), b"ping")].concat();
+    assert_eq!(h2_data(&mut replies, reply.len()).await, reply);
+
+    // The end of the request body closes the target side, and the response
+    // body ends when the target has closed.
+    send.send_data(Bytes::new(), true).unwrap();
+    // The end may come as an empty DATA frame with END_STREAM.
+    while let Some(end) = timeout(TIMEOUT, body.data())
+        .await
+        .expect("h2mux end timed out")
+    {
+        assert!(end.unwrap().is_empty());
+    }
+
+    // A request that is not CONNECT is not a stream.
+    let mut other = requests.clone().ready().await.unwrap();
+    let get = http::Request::builder()
+        .uri("https://localhost/")
+        .body(())
+        .unwrap();
+    let (response, _) = other.send_request(get, true).unwrap();
+    let response = timeout(TIMEOUT, response)
+        .await
+        .expect("h2mux response timed out")
+        .unwrap();
+    assert_eq!(response.status(), http::StatusCode::BAD_REQUEST);
+
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let traffic = users.traffic(false);
+    assert_eq!((traffic[0].up, traffic[0].down), (300_009, 300_009));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn padded_sessions_pad_their_first_writes() {
+    let (server, _users, _stats) = start().await;
+    let tcp = tcp_echo().await;
+    let mut client = TcpStream::connect(server).await.unwrap();
+    // Version 1, smux, padding: two bytes of it behind the request.
+    client
+        .write_all(&[1, 0, 1, 0, 2, 0xee, 0xee])
+        .await
+        .unwrap();
+    let mut server_data = Unpadded::default();
+
+    // The first 16 writes of each side are records, the rest plain: the
+    // client's first opens a stream, and one echo follows another.
+    let mut open = smux(0, 1, &[]);
+    open.extend(smux(2, 1, &[request(0, tcp), b"hello".to_vec()].concat()));
+    client.write_all(&record(&open, 300)).await.unwrap();
+    let echo = smux(2, 1, b"\0hello");
+    assert_eq!(server_data.read(&mut client, echo.len()).await, echo);
+    for round in 1..20u8 {
+        let frame = smux(2, 1, &[round; 10]);
+        let sent = if round < 16 {
+            record(&frame, usize::from(round))
+        } else {
+            frame.clone()
+        };
+        client.write_all(&sent).await.unwrap();
+        assert_eq!(server_data.read(&mut client, frame.len()).await, frame);
+    }
+    assert_eq!(server_data.records, 16);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn refuses_what_it_does_not_serve() {
     let (server, _users, stats) = start().await;
     let tcp = tcp_echo().await;
 
-    // h2mux and padding close the connection.
-    for session in [[1u8, 2, 0], [1, 0, 1]] {
+    // An unknown protocol and a later version close the connection.
+    for session in [[1u8, 3, 0], [2, 0, 0]] {
         let mut client = TcpStream::connect(server).await.unwrap();
         client.write_all(&session).await.unwrap();
         let end = timeout(TIMEOUT, client.read(&mut [0u8; 1])).await.unwrap();
@@ -426,4 +609,19 @@ async fn refuses_what_it_does_not_serve() {
     open.extend(smux(2, 5, &[request(0, tcp), b"next".to_vec()].concat()));
     client.write_all(&open).await.unwrap();
     assert_eq!(smux_data(&mut client, 5, 5).await, b"\0next");
+
+    // h2mux resets such a stream, and its connection stays usable too.
+    let requests = h2mux(server, &[0, 2]).await;
+    let (mut send, mut body) = h2_stream(&requests).await;
+    send.send_data(request(0, refused).into(), false).unwrap();
+    let end = timeout(TIMEOUT, body.data())
+        .await
+        .expect("h2mux reset timed out");
+    assert!(matches!(end, Some(Err(_))), "{end:?}");
+    assert_eq!(stats.connect_failed.load(Ordering::Relaxed), 2);
+
+    let (mut send, mut body) = h2_stream(&requests).await;
+    let first = [request(0, tcp), b"next".to_vec()].concat();
+    send.send_data(first.into(), false).unwrap();
+    assert_eq!(h2_data(&mut body, 5).await, b"\0next");
 }

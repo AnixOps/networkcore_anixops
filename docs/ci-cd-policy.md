@@ -143,6 +143,8 @@ CI summary job 必须显式输出 commit SHA、workflow run ID/URL、变更来�
 入站配置起节点，让 Xray-core、sing-box、官方 Hysteria 客户端和 mihomo（`MIHOMO_VERSION`，默认最新正式 release；
 下载不到时只告警，其用例记为 `skip`）经 SOCKS5 连入，回显 TCP 与 UDP 并核对按用户计费。四个客户端都跑完后，
 测试把 协议 × 传输 × 安全层 × 客户端 的 `pass` / `fail` / `skip` / `n/a` 表追加到 Step Summary。
+sing-box 的 `naive` 出站要从二进制同目录加载 release 包里的 `libcronet.so`，`reality-interop.sh` 会一并拷到
+`NC_INTEROP_BIN`；release 包里没有该文件时只告警，`naive` 用例记为 `skip`。
 
 该文件里的 `CASES` 表是兼容矩阵的唯一来源，不另设清单文件。按上游示例新增一个兼容用例：
 

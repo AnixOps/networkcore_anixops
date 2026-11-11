@@ -1,20 +1,27 @@
 //! WebSocket, HTTPUpgrade, gRPC and XHTTP server transports between the client
-//! connection (or its TLS layer) and the protocol inbound.
+//! connection (or its TLS layer) and the protocol inbound, and the QUIC side
+//! of XHTTP for HTTP/3.
 
+use std::io;
 use std::net::SocketAddr;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use engine_inbound::registry::BuildError;
-use engine_inbound::server::ConnectionContext;
-use engine_inbound::udp::DatagramInbound;
-use engine_inbound::{Accepted, Rejected, StreamInbound, UserStore};
-use engine_outbound::{BoxFuture, BoxStream};
+use engine_inbound::server::{ConnectionContext, InboundStats, ServeSettings};
+use engine_inbound::udp::{DatagramInbound, UdpOutbound};
+use engine_inbound::{Accepted, PacketInbound, Rejected, StreamInbound, UserStore};
+use engine_outbound::{BoxFuture, BoxStream, TcpOutbound};
 use serde::Deserialize;
+use transport_quic::quinn::crypto::rustls::QuicServerConfig;
+use transport_quic::{quinn, Congestion};
 use transport_ws::server::{
     HttpUpgradeAcceptor, WsAcceptor, WsServerSettings, DEFAULT_MAX_EARLY_DATA,
 };
 use transport_xhttp::server::XhttpServer;
 use transport_xhttp::XhttpSettings;
+
+use crate::TlsServerSettings;
 
 /// `"transport"` in inbound settings, the server side of the outbound
 /// `transport` object.
@@ -130,11 +137,33 @@ pub fn wrap_transport(
             Ok(Arc::new(GrpcInbound { path, inner }))
         }
         Some(TransportSettings::Xhttp(settings)) => {
-            let server = XhttpServer::new(settings)
-                .map_err(|_| "xhttp transport path, ranges or mode are invalid")?;
-            Ok(Arc::new(XhttpInbound { server, inner }))
+            Ok(Arc::new(XhttpInbound::new(inner, settings)?))
         }
     }
+}
+
+/// An XHTTP inbound's TCP side and its HTTP/3 side.
+type XhttpSides = (Arc<dyn StreamInbound>, Arc<dyn PacketInbound>);
+
+/// Wraps `inner` in XHTTP and builds its HTTP/3 side: a QUIC endpoint with
+/// the certificate of `tls` and ALPN `h3`, serving the same sessions.
+pub(crate) fn wrap_xhttp_with_quic(
+    inner: Arc<dyn StreamInbound>,
+    settings: &XhttpSettings,
+    tls: &TlsServerSettings,
+) -> Result<XhttpSides, BuildError> {
+    let xhttp = Arc::new(XhttpInbound::new(inner, settings)?);
+    let tls = TlsServerSettings {
+        alpn: vec!["h3".to_owned()],
+        ..tls.clone()
+    };
+    let crypto = QuicServerConfig::try_from(crate::server_config(&tls)?)
+        .map_err(|_| "tls settings are unusable for quic")?;
+    let quic: Arc<dyn PacketInbound> = Arc::new(XhttpQuicInbound {
+        xhttp: xhttp.clone(),
+        crypto: Arc::new(crypto),
+    });
+    Ok((xhttp as Arc<dyn StreamInbound>, quic))
 }
 
 /// A protocol inbound behind a WebSocket server handshake.
@@ -309,6 +338,14 @@ pub struct XhttpInbound {
     inner: Arc<dyn StreamInbound>,
 }
 
+impl XhttpInbound {
+    fn new(inner: Arc<dyn StreamInbound>, settings: &XhttpSettings) -> Result<Self, BuildError> {
+        let server = XhttpServer::new(settings)
+            .map_err(|_| "xhttp transport path, ranges or mode are invalid")?;
+        Ok(Self { server, inner })
+    }
+}
+
 impl StreamInbound for XhttpInbound {
     fn protocol(&self) -> &'static str {
         self.inner.protocol()
@@ -352,6 +389,102 @@ impl StreamInbound for XhttpInbound {
 
     fn datagram(&self) -> Option<Arc<dyn DatagramInbound>> {
         self.inner.datagram()
+    }
+}
+
+/// XHTTP over HTTP/3: the QUIC side of an [`XhttpInbound`] under TLS, on the
+/// UDP port of the same number. Every download (or `stream-one` request) of
+/// a QUIC connection is one client stream for the protocol, and a session
+/// may spread over QUIC and TCP connections.
+struct XhttpQuicInbound {
+    xhttp: Arc<XhttpInbound>,
+    crypto: Arc<QuicServerConfig>,
+}
+
+impl XhttpQuicInbound {
+    async fn connection(
+        self: Arc<Self>,
+        incoming: quinn::Incoming,
+        outbound: Arc<dyn TcpOutbound>,
+        udp: Option<Arc<dyn UdpOutbound>>,
+        settings: Arc<ServeSettings>,
+        stats: Arc<InboundStats>,
+    ) {
+        let Ok(connecting) = incoming.accept() else {
+            return;
+        };
+        let handshake_timeout = settings.handshake_timeout;
+        let Ok(Ok(connection)) = tokio::time::timeout(handshake_timeout, connecting).await else {
+            stats.handshake_failed.fetch_add(1, Ordering::Relaxed);
+            return;
+        };
+        let peer = connection.remote_address();
+        let call = {
+            let (this, stats) = (self.clone(), stats.clone());
+            move |stream: BoxStream| -> BoxFuture<'static, ()> {
+                let (this, outbound, udp) = (this.clone(), outbound.clone(), udp.clone());
+                let (settings, stats) = (settings.clone(), stats.clone());
+                Box::pin(async move {
+                    let context = ConnectionContext::new(
+                        peer,
+                        &settings,
+                        &stats,
+                        outbound.as_ref(),
+                        udp.as_deref(),
+                    );
+                    context.handle(stream, this.xhttp.inner.as_ref()).await;
+                })
+            }
+        };
+        stats.active.fetch_add(1, Ordering::Relaxed);
+        let served = self
+            .xhttp
+            .server
+            .serve_quic(connection, handshake_timeout, call);
+        if served.await.is_err() {
+            stats.handshake_failed.fetch_add(1, Ordering::Relaxed);
+        }
+        stats.active.fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
+impl PacketInbound for XhttpQuicInbound {
+    fn protocol(&self) -> &'static str {
+        self.xhttp.inner.protocol()
+    }
+
+    fn users(&self) -> &Arc<UserStore> {
+        self.xhttp.inner.users()
+    }
+
+    fn serve(
+        self: Arc<Self>,
+        socket: std::net::UdpSocket,
+        outbound: Arc<dyn TcpOutbound>,
+        udp: Option<Arc<dyn UdpOutbound>>,
+        settings: ServeSettings,
+        stats: Arc<InboundStats>,
+    ) -> BoxFuture<'static, io::Result<()>> {
+        Box::pin(async move {
+            let endpoint = transport_quic::server_endpoint(
+                socket,
+                self.crypto.clone(),
+                Congestion::Cubic,
+                None,
+            )?;
+            let settings = Arc::new(settings);
+            while let Some(incoming) = endpoint.accept().await {
+                stats.accepted.fetch_add(1, Ordering::Relaxed);
+                tokio::spawn(self.clone().connection(
+                    incoming,
+                    outbound.clone(),
+                    udp.clone(),
+                    settings.clone(),
+                    stats.clone(),
+                ));
+            }
+            Ok(())
+        })
     }
 }
 

@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use engine_inbound::registry::{parse_settings, BuildError, InboundFactory, Settings};
-use engine_inbound::{FallbackSettings, StreamInbound, User};
+use engine_inbound::{FallbackRule, FallbackSettings, Fallbacks, StreamInbound, User};
 use inbound_transport::{TlsServerSettings, TransportSettings};
 use serde::Deserialize;
 
@@ -28,6 +28,10 @@ struct VlessInboundSettings {
     reality: Option<RealitySettings>,
     #[serde(default)]
     fallback: Option<FallbackSettings>,
+    /// Fallbacks by server name, ALPN and HTTP path, see
+    /// `engine_inbound::fallback`.
+    #[serde(default)]
+    fallbacks: Vec<FallbackRule>,
 }
 
 pub struct VlessInboundFactory;
@@ -46,7 +50,7 @@ impl InboundFactory for VlessInboundFactory {
             .filter(|transport| **transport != TransportSettings::Tcp);
         // Vision needs the raw connection, so it comes with raw REALITY only.
         let inbound = VlessInbound::with_vision(
-            settings.fallback.as_ref().map(FallbackSettings::target),
+            Fallbacks::new(settings.fallback.as_ref(), &settings.fallbacks)?,
             settings.reality.is_some() && transport.is_none(),
         );
         inbound.users().add_all(settings.users)?;

@@ -24,7 +24,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use engine_inbound::registry::BuildError;
 use engine_inbound::server::ConnectionContext;
 use engine_inbound::{
-    fallback_or_hold, Accepted, FallbackSettings, Rejected, StreamInbound, UserStore,
+    fallback_or_hold, Accepted, ConnInfo, FallbackSettings, Rejected, StreamInbound, UserStore,
 };
 use engine_outbound::{BoxFuture, BoxStream, TargetAddr};
 use outbound_vless::reality::derive_auth_key;
@@ -79,7 +79,8 @@ pub struct RealityInbound {
 
 /// How the REALITY server handshake ended.
 enum Handshake {
-    Tls(Box<TlsStream<BoxStream>>),
+    /// The session, and the server name the client asked for.
+    Tls(Box<TlsStream<BoxStream>>, Option<String>),
     /// Relayed to the handshake site, held, or closed.
     Done(Result<Accepted, Rejected>),
 }
@@ -158,7 +159,7 @@ impl RealityInbound {
             alpn: &self.alpn,
         };
         match accept(stream, &hello, &identity).await {
-            Ok(tls) => Handshake::Tls(Box::new(tls)),
+            Ok(tls) => Handshake::Tls(Box::new(tls), hello.server_name),
             Err(_) => Handshake::Done(Err(Rejected::close("reality tls handshake failed"))),
         }
     }
@@ -243,14 +244,25 @@ impl StreamInbound for RealityInbound {
     fn accept<'a>(
         &'a self,
         stream: BoxStream,
-        _peer: SocketAddr,
+        peer: SocketAddr,
+    ) -> BoxFuture<'a, Result<Accepted, Rejected>> {
+        self.accept_with(stream, ConnInfo::new(peer))
+    }
+
+    fn accept_with<'a>(
+        &'a self,
+        stream: BoxStream,
+        conn: ConnInfo<'a>,
     ) -> BoxFuture<'a, Result<Accepted, Rejected>> {
         Box::pin(async move {
             match self.handshake(stream).await {
-                Handshake::Tls(_) if self.transport.is_some() => Err(Rejected::close(
+                Handshake::Tls(..) if self.transport.is_some() => Err(Rejected::close(
                     "reality transports serve whole connections",
                 )),
-                Handshake::Tls(tls) => self.inner.handshake_reality(*tls).await,
+                Handshake::Tls(tls, server_name) => {
+                    let conn = conn.with_tls(server_name.as_deref(), None);
+                    self.inner.handshake_reality(*tls, conn).await
+                }
                 Handshake::Done(result) => result,
             }
         })
@@ -272,7 +284,7 @@ impl StreamInbound for RealityInbound {
             let handshake =
                 tokio::time::timeout(context.settings.handshake_timeout, self.handshake(stream));
             match handshake.await {
-                Ok(Handshake::Tls(tls)) => transport.serve_connection(tls, context).await,
+                Ok(Handshake::Tls(tls, _)) => transport.serve_connection(tls, context).await,
                 Ok(Handshake::Done(Ok(accepted))) => context.relay_accepted(accepted).await,
                 Ok(Handshake::Done(Err(rejected))) => {
                     context.handshake_failed();

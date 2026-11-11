@@ -5,12 +5,15 @@
 //! [`DESTINATION`] (port 444) and then sends, on that connection,
 //!
 //! ```text
-//! VERSION PROTOCOL [PADDING]        (PADDING from version 1 on)
+//! VERSION PROTOCOL [PADDING [LENGTH(2) BYTES]]   (PADDING from version 1 on)
 //! ```
 //!
-//! and runs the multiplexer PROTOCOL names: 0 smux, 1 yamux, 2 h2mux. Every
-//! stream the client opens starts with a request and is answered with a
-//! status ahead of the first data:
+//! and runs the multiplexer PROTOCOL names: 0 smux, 1 yamux, 2 h2mux, which
+//! is what both clients run when none is configured. A request with PADDING
+//! set ends in LENGTH bytes that mean nothing, and what the two sides write
+//! after it is padded too ([`padding`]). Every stream the client opens
+//! starts with a request and is answered with a status ahead of the first
+//! data:
 //!
 //! ```text
 //! FLAGS(2) ATYP ADDR PORT           (client; a SOCKS address)
@@ -36,6 +39,9 @@
 //! server sends within the client's and reopens its own as the relay takes
 //! the data. A stream the client resets is dropped at once.
 //!
+//! h2mux is an HTTP/2 connection, each stream of it a CONNECT request
+//! ([`h2mux`]).
+//!
 //! Each stream is relayed like a client connection of its own
 //! ([`relay_stream`]): through the outbound or as a UDP session, counted
 //! against the user and held to its speed limit. The connection ends when
@@ -43,8 +49,10 @@
 //! loop relays get here: an inbound that connects its streams itself
 //! (AnyTLS, Snell) dials the name like any other.
 //!
-//! Not supported, and closed when asked for: h2mux, padding. TCP Brutal is
-//! not negotiated.
+//! TCP Brutal is not negotiated.
+
+mod h2mux;
+mod padding;
 
 use std::collections::HashMap;
 use std::io;
@@ -54,11 +62,12 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::task::{ready, Context, Poll};
 
-use engine_outbound::{BoxFuture, BoxStream, TargetAddr, TcpOutbound};
+use engine_outbound::{BoxFuture, BoxStream, ProxyStream, TargetAddr, TcpOutbound};
 use futures_util::stream::{FuturesUnordered, StreamExt};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, ReadBuf};
 use tokio::sync::{mpsc, Notify, Semaphore};
 
+use self::padding::Padded;
 use crate::addr::{read_addr_port, write_addr_port, SOCKS};
 use crate::mux::write_frames;
 use crate::server::{relay_stream, InboundStats, ServeSettings};
@@ -83,7 +92,7 @@ const FLAG_ACK: u16 = 2;
 const FLAG_FIN: u16 = 4;
 const FLAG_RST: u16 = 8;
 /// The yamux window of each direction of a new stream, and the client data
-/// held for a stream of either multiplexer.
+/// held for a stream of any multiplexer.
 const WINDOW: u32 = 256 * 1024;
 
 const STREAM_UDP: u16 = 1;
@@ -109,7 +118,16 @@ enum Protocol {
     Yamux,
 }
 
-/// One client frame, in the terms both multiplexers share.
+/// What a connection runs after its session request.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Session {
+    /// smux or yamux frames.
+    Framed(Protocol),
+    /// HTTP/2 (h2mux).
+    H2,
+}
+
+/// One client frame, in the terms smux and yamux share.
 #[derive(Debug, Default, PartialEq, Eq)]
 struct Frame {
     stream: u32,
@@ -228,19 +246,27 @@ async fn read_yamux<R: AsyncRead + Unpin>(reader: &mut R) -> io::Result<Frame> {
     Ok(frame)
 }
 
-/// Reads the session request and answers the multiplexer the client runs.
-async fn read_request<R: AsyncRead + Unpin>(reader: &mut R) -> io::Result<Protocol> {
+/// Reads the session request and answers the multiplexer the client runs
+/// and whether the connection is padded from here on.
+async fn read_request<R: AsyncRead + Unpin>(reader: &mut R) -> io::Result<(Session, bool)> {
     let version = reader.read_u8().await?;
     let protocol = reader.read_u8().await?;
-    // Version 1 adds the padding flag; padded sessions are not supported.
-    if version > 1 || (version == 1 && reader.read_u8().await? != 0) {
-        return Err(invalid("sing-mux version or padding is not supported"));
+    if version > 1 {
+        return Err(invalid("sing-mux version is not supported"));
     }
-    match protocol {
-        0 => Ok(Protocol::Smux),
-        1 => Ok(Protocol::Yamux),
-        _ => Err(invalid("sing-mux protocol is not supported")),
+    // Version 1 adds the padding flag, and behind it the request's own.
+    let padded = version == 1 && reader.read_u8().await? != 0;
+    if padded {
+        let mut padding = vec![0u8; usize::from(reader.read_u16().await?)];
+        reader.read_exact(&mut padding).await?;
     }
+    let session = match protocol {
+        0 => Session::Framed(Protocol::Smux),
+        1 => Session::Framed(Protocol::Yamux),
+        2 => Session::H2,
+        _ => return Err(invalid("sing-mux protocol is not supported")),
+    };
+    Ok((session, padded))
 }
 
 /// Reads a stream's request: its flags and destination.
@@ -462,18 +488,56 @@ struct Handle {
 /// Serves a multiplexed connection until the client closes it, writing to
 /// it fails or the user is removed.
 pub(crate) async fn relay(
-    stream: BoxStream,
+    mut stream: BoxStream,
     user: Option<Arc<UserEntry>>,
     outbound: &dyn TcpOutbound,
     udp: Option<&dyn UdpOutbound>,
     settings: &ServeSettings,
     stats: &Arc<InboundStats>,
 ) {
-    let (mut reader, mut writer) = tokio::io::split(stream);
-    let Ok(protocol) = read_request(&mut reader).await else {
+    let Ok((session, padded)) = read_request(&mut stream).await else {
         stats.handshake_failed.fetch_add(1, Ordering::Relaxed);
         return;
     };
+    if padded {
+        stream = Box::new(Padded::new(stream));
+    }
+    let serve = async {
+        match session {
+            Session::Framed(protocol) => {
+                relay_frames(protocol, stream, &user, outbound, udp, settings, stats).await
+            }
+            Session::H2 => h2mux::relay(stream, &user, outbound, udp, settings, stats).await,
+        }
+    };
+    let revoked = async {
+        match &user {
+            Some(user) => user.revoked().await,
+            None => std::future::pending().await,
+        }
+    };
+    tokio::select! {
+        // The streams watch the user too; the connection goes first.
+        biased;
+        _ = revoked => {
+            stats.revoked.fetch_add(1, Ordering::Relaxed);
+        }
+        _ = serve => {}
+    }
+}
+
+/// Serves the streams of an smux or yamux connection until the client
+/// closes it or writing to it fails.
+async fn relay_frames(
+    protocol: Protocol,
+    stream: BoxStream,
+    user: &Option<Arc<UserEntry>>,
+    outbound: &dyn TcpOutbound,
+    udp: Option<&dyn UdpOutbound>,
+    settings: &ServeSettings,
+    stats: &Arc<InboundStats>,
+) {
+    let (mut reader, mut writer) = tokio::io::split(stream);
     let (frames, mut outgoing) = mpsc::channel::<Vec<u8>>(QUEUE);
     let (updates, mut granted) = mpsc::unbounded_channel::<Vec<u8>>();
     let (spawn, mut spawned) = mpsc::unbounded_channel::<MuxStream>();
@@ -487,23 +551,11 @@ pub(crate) async fn relay(
             let _ = frames.send(update).await;
         }
     };
-    let revoked = async {
-        match &user {
-            Some(user) => user.revoked().await,
-            None => std::future::pending().await,
-        }
-    };
-    tokio::pin!(read, write, grant, revoked);
+    tokio::pin!(read, write, grant);
 
     let mut running = FuturesUnordered::new();
     loop {
         tokio::select! {
-            // The streams watch the user too; the connection goes first.
-            biased;
-            _ = &mut revoked => {
-                stats.revoked.fetch_add(1, Ordering::Relaxed);
-                break;
-            }
             _ = &mut read => break,
             _ = &mut write => break,
             _ = &mut grant => break,
@@ -610,10 +662,10 @@ async fn read_loop<R: AsyncRead + Unpin>(
     }
 }
 
-/// Reads the stream's request and relays it to its destination, until the
-/// relay ends or the client resets the stream.
+/// Serves an smux or yamux stream until its relay ends or the client resets
+/// the stream.
 async fn serve_stream(
-    mut stream: MuxStream,
+    stream: MuxStream,
     user: Option<Arc<UserEntry>>,
     outbound: &dyn TcpOutbound,
     udp: Option<&dyn UdpOutbound>,
@@ -622,26 +674,36 @@ async fn serve_stream(
 ) {
     let (frames, reset) = (stream.frames.clone(), stream.protocol.reset(stream.id));
     let dropped = stream.dropped.clone();
-    let serve = async {
-        if let Ok((flags, target)) = read_stream_request(&mut stream).await {
-            // The status goes out with the first payload.
-            let stream = PrefixedStream::new(Box::new(stream)).with_write_prefix(vec![STATUS_OK]);
-            let accepted = Accepted {
-                user,
-                udp: Datagrams::of(flags, &target),
-                target,
-                stream: Box::new(stream),
-                mux: false,
-            };
-            relay_stream(accepted, outbound, udp, settings, stats).await;
-        }
-    };
     tokio::select! {
-        _ = serve => {}
+        _ = relay_request(stream, user, outbound, udp, settings, stats) => {}
         _ = dropped.notified() => {}
     }
     // The client ignores it for a stream both sides have closed.
     let _ = frames.send(reset).await;
+}
+
+/// Reads the request of a stream, of any multiplexer, and relays the stream
+/// to its destination.
+async fn relay_request(
+    mut stream: impl ProxyStream,
+    user: Option<Arc<UserEntry>>,
+    outbound: &dyn TcpOutbound,
+    udp: Option<&dyn UdpOutbound>,
+    settings: &ServeSettings,
+    stats: &Arc<InboundStats>,
+) {
+    if let Ok((flags, target)) = read_stream_request(&mut stream).await {
+        // The status goes out with the first payload.
+        let stream = PrefixedStream::new(Box::new(stream)).with_write_prefix(vec![STATUS_OK]);
+        let accepted = Accepted {
+            user,
+            udp: Datagrams::of(flags, &target),
+            target,
+            stream: Box::new(stream),
+            mux: false,
+        };
+        relay_stream(accepted, outbound, udp, settings, stats).await;
+    }
 }
 
 fn invalid(message: &'static str) -> io::Error {
@@ -652,7 +714,7 @@ fn invalid(message: &'static str) -> io::Error {
 mod tests {
     use super::*;
 
-    async fn request(mut bytes: &[u8]) -> io::Result<Protocol> {
+    async fn request(mut bytes: &[u8]) -> io::Result<(Session, bool)> {
         read_request(&mut bytes).await
     }
 
@@ -661,10 +723,18 @@ mod tests {
         assert!(requested(&TargetAddr::Domain(DESTINATION.into(), 444)));
         assert!(!requested(&TargetAddr::Domain("example.com".into(), 444)));
         // Version 0 has no padding flag.
-        assert_eq!(request(&[0, 0]).await.unwrap(), Protocol::Smux);
-        assert_eq!(request(&[1, 1, 0]).await.unwrap(), Protocol::Yamux);
-        // h2mux, padding, a later version and a request cut short.
-        for bad in [&[1, 2, 0][..], &[1, 0, 1, 0, 0], &[2, 0, 0], &[1, 0]] {
+        let smux = Session::Framed(Protocol::Smux);
+        assert_eq!(request(&[0, 0]).await.unwrap(), (smux, false));
+        let yamux = Session::Framed(Protocol::Yamux);
+        assert_eq!(request(&[1, 1, 0]).await.unwrap(), (yamux, false));
+        assert_eq!(request(&[0, 2]).await.unwrap(), (Session::H2, false));
+        // The request's padding is read, and nothing behind it.
+        let mut padded: &[u8] = &[1, 2, 1, 0, 2, 9, 9, 7];
+        let session = read_request(&mut padded).await.unwrap();
+        assert_eq!(session, (Session::H2, true));
+        assert_eq!(padded, [7]);
+        // An unknown protocol, a later version and requests cut short.
+        for bad in [&[1, 3, 0][..], &[2, 0, 0], &[1, 0], &[1, 0, 1, 0, 2, 9]] {
             assert!(request(bad).await.is_err(), "{bad:?}");
         }
     }

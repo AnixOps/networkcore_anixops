@@ -7,7 +7,7 @@ repository.workspace = true
 description = "Node server runtime: inbounds by tag, domain egress routes, a direct outbound and a local management API for node agents."
 
 [features]
-default = ["shadowsocks", "trojan", "vless", "vmess", "hysteria2", "tuic", "snell", "iwan", "forward", "anytls", "reverse_proxy"]
+default = ["shadowsocks", "trojan", "vless", "vmess", "hysteria2", "tuic", "snell", "iwan", "forward", "anytls", "naive", "reverse_proxy"]
 shadowsocks = ["dep:inbound-shadowsocks"]
 trojan = ["dep:inbound-trojan"]
 snell = ["dep:inbound-snell"]
@@ -18,6 +18,7 @@ tuic = ["dep:inbound-tuic"]
 iwan = ["dep:inbound-iwan"]
 forward = ["dep:inbound-forward"]
 anytls = ["dep:inbound-anytls"]
+naive = ["dep:inbound-naive"]
 reverse_proxy = ["dep:inbound-reverse-proxy"]
 
 [dependencies]
@@ -27,6 +28,7 @@ inbound-anytls = { path = "../inbound-anytls", optional = true }
 inbound-forward = { path = "../inbound-forward", optional = true }
 inbound-hysteria2 = { path = "../inbound-hysteria2", optional = true }
 inbound-iwan = { path = "../inbound-iwan", optional = true }
+inbound-naive = { path = "../inbound-naive", optional = true }
 inbound-reverse-proxy = { path = "../inbound-reverse-proxy", optional = true }
 inbound-shadowsocks = { path = "../inbound-shadowsocks", optional = true }
 inbound-snell = { path = "../inbound-snell", optional = true }
@@ -49,7 +51,10 @@ socket2 = { version = "0.6", features = ["all"] }
 tokio = { version = "1", default-features = false, features = ["io-util", "net", "rt", "sync", "time", "macros"] }
 
 [dev-dependencies]
+# The certificate and the TLS clients of `tests/fallbacks.rs`.
+rcgen = "0.14.8"
 tokio = { version = "1", default-features = false, features = ["io-util", "net", "rt", "rt-multi-thread", "sync", "time", "macros"] }
+transport-tls = { path = "../transport-tls" }
 
 [lib]
 path = "src/lib.rs"

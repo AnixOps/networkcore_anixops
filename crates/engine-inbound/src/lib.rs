@@ -13,13 +13,15 @@
 //! That is the surface a node agent (anix-agent) drives.
 //!
 //! [`registry`] maps config `type` names to inbound factories, mirroring
-//! `engine_outbound::registry`.
+//! `engine_outbound::registry`. [`shadow_tls`] puts a ShadowTLS v3 server in
+//! front of a protocol inbound.
 //!
 //! Errors are plain [`std::io::Error`] values or fixed `&'static str`
 //! reasons. Implementations must keep credentials out of both.
 
 pub mod addr;
 pub mod destinations;
+pub mod fallback;
 pub mod health;
 pub mod limit;
 mod mux;
@@ -29,6 +31,7 @@ mod quic;
 pub mod registry;
 pub mod replay;
 pub mod server;
+pub mod shadow_tls;
 mod sing_mux;
 pub mod stream;
 pub mod udp;
@@ -44,6 +47,7 @@ use tokio::io::AsyncReadExt;
 use crate::stream::PrefixedStream;
 
 pub use destinations::DestinationTraffic;
+pub use fallback::{ConnInfo, FallbackRule, Fallbacks};
 pub use users::{OnlineUser, User, UserEntry, UserStore, UserTraffic};
 
 /// A client that passed the protocol handshake.
@@ -52,8 +56,8 @@ pub struct Accepted {
     /// table.
     pub user: Option<Arc<UserEntry>>,
     /// Where the client wants to go. The sing-mux destination
-    /// (`sp.mux.sing-box.arpa`) makes the serve loop run smux or yamux on
-    /// `stream`, each of its streams relayed like a connection.
+    /// (`sp.mux.sing-box.arpa`) makes the serve loop run smux, yamux or
+    /// h2mux on `stream`, each of its streams relayed like a connection.
     pub target: TargetAddr,
     /// Payload stream: reads return what the client sends to `target`,
     /// writes go back to the client.
@@ -116,6 +120,18 @@ pub trait StreamInbound: Send + Sync {
         peer: SocketAddr,
     ) -> BoxFuture<'a, Result<Accepted, Rejected>>;
 
+    /// [`StreamInbound::accept`] with what the layers in front know about
+    /// the connection; the serve loop calls this one. Protocols with
+    /// [`fallback`] rules read `conn`, and a TLS layer adds the server name
+    /// and ALPN protocol to it.
+    fn accept_with<'a>(
+        &'a self,
+        stream: BoxStream,
+        conn: ConnInfo<'a>,
+    ) -> BoxFuture<'a, Result<Accepted, Rejected>> {
+        self.accept(stream, conn.peer)
+    }
+
     /// Whether the serve loop hands whole connections to
     /// [`StreamInbound::serve_connection`] instead of calling
     /// [`StreamInbound::accept`] once and relaying one target. Protocols
@@ -141,6 +157,14 @@ pub trait StreamInbound: Send + Sync {
     /// The UDP side of inbounds that also take datagrams on their port, such
     /// as Shadowsocks. The node binds the same port for UDP when present.
     fn datagram(&self) -> Option<Arc<dyn udp::DatagramInbound>> {
+        None
+    }
+
+    /// The QUIC side of inbounds that also serve on the UDP port of the same
+    /// number, such as XHTTP over HTTP/3 beside HTTP/2 on TCP. The node
+    /// binds that port for UDP when present; an inbound has this or
+    /// [`StreamInbound::datagram`], not both.
+    fn packet(&self) -> Option<Arc<dyn PacketInbound>> {
         None
     }
 
@@ -194,7 +218,8 @@ pub async fn read_first(stream: &mut BoxStream) -> io::Result<Vec<u8>> {
 /// Answers a client that failed authentication: with a fallback (usually a
 /// local web server) the connection is relayed there unchanged, starting
 /// with the bytes already read, and charged to no user; without one it is
-/// held open and drained.
+/// held open and drained. [`Fallbacks::or_hold`] picks the fallback by an
+/// inbound's rules.
 pub fn fallback_or_hold(
     fallback: Option<&TargetAddr>,
     consumed: Vec<u8>,
@@ -214,7 +239,8 @@ pub fn fallback_or_hold(
 }
 
 /// `"fallback": {"server": "127.0.0.1", "server_port": 8080}` in inbound
-/// settings.
+/// settings: where every connection goes that no entry of `"fallbacks"`
+/// ([`FallbackRule`]) takes.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FallbackSettings {

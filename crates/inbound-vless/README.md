@@ -6,6 +6,12 @@ VLESS server inbound for the node kernel, built on `engine-inbound`.
   users can be added and removed at runtime.
 - The response header goes out with the first payload. Clients that are not a
   known VLESS user are relayed to the `fallback` or held open and drained.
+  `"fallbacks": [{"name": ..., "alpn": ..., "path": ..., "dest": ...,
+  "xver": ...}]` picks the fallback by the TLS server name, the ALPN protocol
+  and the HTTP/1.x path of the connection, as Xray's `fallbacks` do (see
+  `engine_inbound::fallback`); `fallback` is the entry without conditions.
+  They apply behind `tls` and, for a client that passed REALITY but is no
+  VLESS user, behind `reality`.
 - REALITY (`"reality"` instead of `"tls"`): clients whose ClientHello carries
   a valid REALITY marker (server private key, listed short id and SNI, clock
   window) get a TLS 1.3 handshake with a temporary certificate; everything

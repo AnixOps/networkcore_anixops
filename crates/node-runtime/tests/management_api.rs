@@ -150,6 +150,10 @@ async fn agent_workflow() {
         .as_array()
         .unwrap()
         .contains(&json!("block_cidrs")));
+    assert!(body["features"]
+        .as_array()
+        .unwrap()
+        .contains(&json!("shadowsocks_plugins")));
 
     // Traffic priorities: an invalid entry refuses the body, a valid one
     // answers its classes, `{}` turns them off.

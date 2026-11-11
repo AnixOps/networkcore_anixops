@@ -843,8 +843,11 @@ dependencies = [
 name = "engine-inbound"
 version = "0.2.0"
 dependencies = [
+ "bytes",
  "engine-outbound",
  "futures-util",
+ "h2",
+ "http",
  "ring",
  "serde",
  "serde_json",
@@ -1530,6 +1533,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "inbound-naive"
+version = "0.2.0"
+dependencies = [
+ "base64 0.22.1",
+ "bytes",
+ "engine-inbound",
+ "engine-outbound",
+ "futures-util",
+ "h2",
+ "http",
+ "inbound-transport",
+ "rcgen",
+ "ring",
+ "serde",
+ "serde_json",
+ "tokio",
+ "transport-tls",
+]
+
+[[package]]
 name = "inbound-reverse-proxy"
 version = "0.2.0"
 dependencies = [
@@ -1556,12 +1579,16 @@ dependencies = [
  "chacha20poly1305 0.10.1",
  "engine-inbound",
  "engine-outbound",
+ "inbound-transport",
  "outbound-shadowsocks",
+ "rcgen",
  "ring",
  "serde",
  "serde_json",
  "shadowsocks",
  "tokio",
+ "transport-tls",
+ "transport-ws",
 ]
 
 [[package]]
@@ -1589,6 +1616,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "transport-grpc",
+ "transport-quic",
  "transport-tls",
  "transport-ws",
  "transport-xhttp",
@@ -2089,6 +2117,7 @@ dependencies = [
  "inbound-forward",
  "inbound-hysteria2",
  "inbound-iwan",
+ "inbound-naive",
  "inbound-reverse-proxy",
  "inbound-shadowsocks",
  "inbound-snell",
@@ -2098,12 +2127,14 @@ dependencies = [
  "inbound-vmess",
  "outbound-shadowsocks",
  "outbound-vless",
+ "rcgen",
  "regex",
  "serde",
  "serde_json",
  "socket2",
  "tls-mimic",
  "tokio",
+ "transport-tls",
 ]
 
 [[package]]

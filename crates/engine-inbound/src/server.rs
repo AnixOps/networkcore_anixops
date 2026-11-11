@@ -19,7 +19,7 @@ use crate::limit::Throttle;
 use crate::proxy_protocol::read_header;
 use crate::qos::Classing;
 use crate::udp::{relay_datagrams, UdpOutbound};
-use crate::{Accepted, StreamInbound, UserEntry};
+use crate::{Accepted, ConnInfo, StreamInbound, UserEntry};
 
 const RELAY_BUFFER_BYTES: usize = 16 * 1024;
 
@@ -186,11 +186,22 @@ async fn run(
             stats,
             outbound,
             udp,
+            server_name: None,
+            alpn: None,
         };
         inbound.serve_connection(stream, context).await;
         return;
     }
-    let handshake = tokio::time::timeout(settings.handshake_timeout, inbound.accept(stream, peer));
+    let conn = ConnInfo {
+        peer,
+        local,
+        server_name: None,
+        alpn: None,
+    };
+    let handshake = tokio::time::timeout(
+        settings.handshake_timeout,
+        inbound.accept_with(stream, conn),
+    );
     let accepted = match handshake.await {
         Ok(Ok(accepted)) => accepted,
         Ok(Err(rejected)) => {
@@ -345,9 +356,67 @@ pub struct ConnectionContext<'a> {
     pub stats: &'a Arc<InboundStats>,
     outbound: &'a dyn TcpOutbound,
     udp: Option<&'a dyn UdpOutbound>,
+    /// Of the TLS handshake in front, see [`ConnectionContext::with_tls`].
+    server_name: Option<&'a str>,
+    alpn: Option<&'a [u8]>,
 }
 
 impl<'a> ConnectionContext<'a> {
+    /// The context of a connection the serve loop did not accept, such as
+    /// a QUIC connection of a [`crate::PacketInbound`] that carries the
+    /// streams of a [`StreamInbound`].
+    pub fn new(
+        peer: SocketAddr,
+        settings: &'a ServeSettings,
+        stats: &'a Arc<InboundStats>,
+        outbound: &'a dyn TcpOutbound,
+        udp: Option<&'a dyn UdpOutbound>,
+    ) -> Self {
+        Self {
+            peer,
+            local: None,
+            settings,
+            stats,
+            outbound,
+            udp,
+            server_name: None,
+            alpn: None,
+        }
+    }
+
+    /// What the layers in front know about the connection, for the
+    /// [`crate::fallback`] rules.
+    pub fn conn(&self) -> ConnInfo<'a> {
+        ConnInfo {
+            peer: self.peer,
+            local: self.local,
+            server_name: self.server_name,
+            alpn: self.alpn,
+        }
+    }
+
+    /// The context of the same connection behind a TLS handshake that
+    /// agreed on `server_name` and `alpn`.
+    pub fn with_tls<'b>(
+        self,
+        server_name: Option<&'b str>,
+        alpn: Option<&'b [u8]>,
+    ) -> ConnectionContext<'b>
+    where
+        'a: 'b,
+    {
+        ConnectionContext {
+            peer: self.peer,
+            local: self.local,
+            settings: self.settings,
+            stats: self.stats,
+            outbound: self.outbound,
+            udp: self.udp,
+            server_name,
+            alpn,
+        }
+    }
+
     /// Counts a client that failed the protocol handshake.
     pub fn handshake_failed(&self) {
         self.stats.handshake_failed.fetch_add(1, Ordering::Relaxed);

@@ -7,11 +7,16 @@ repository.workspace = true
 description = "Server inbound interfaces: protocol inbounds, the user table with traffic and online counters, and the serve loop."
 
 [dependencies]
+bytes = "1"
 engine-outbound = { path = "../engine-outbound" }
 # FuturesUnordered for the sessions of one Mux.Cool connection.
 futures-util = { version = "0.3", default-features = false, features = ["alloc"] }
+# HTTP/2 for the h2mux protocol of sing-mux.
+h2 = "0.4"
+http = "1"
 # QUIC Initial keys (HKDF, AES-128-GCM, header protection) to read the SNI of
-# UDP flows for the destination statistics.
+# UDP flows for the destination statistics; HMAC-SHA1 and SHA-256 for
+# ShadowTLS.
 ring = "0.17"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

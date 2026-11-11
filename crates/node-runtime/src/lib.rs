@@ -8,8 +8,8 @@
 //!
 //! The direct outbound refuses loopback, private and link-local targets
 //! unless `allow_private_targets` is set, so users cannot reach services on
-//! the node or its network; an inbound's own `fallback` and REALITY
-//! `handshake` addresses are always allowed.
+//! the node or its network; an inbound's own `fallback`, `fallbacks` and
+//! REALITY or ShadowTLS `handshake` addresses are always allowed.
 //!
 //! Every inbound relays through the node's [`egress::Router`]: the domain
 //! egress routes of the panel ([`Node::apply_egress`]) send chosen domains
@@ -158,6 +158,8 @@ pub fn default_registry() -> InboundRegistry {
     registry.register(Arc::new(inbound_forward::ForwardInboundFactory));
     #[cfg(feature = "anytls")]
     registry.register(Arc::new(inbound_anytls::AnyTlsInboundFactory));
+    #[cfg(feature = "naive")]
+    registry.register(Arc::new(inbound_naive::NaiveInboundFactory));
     #[cfg(feature = "reverse_proxy")]
     registry.register(Arc::new(inbound_reverse_proxy::ReverseProxyInboundFactory));
     registry
@@ -206,7 +208,9 @@ impl From<io::Error> for NodeError {
 }
 
 /// Optional API capabilities this kernel has, answered in `GET /v1/status`
-/// so an agent can tell whether it may send them. `reverse_proxy` says the
+/// so an agent can tell whether it may send them. `shadow_tls` says the
+/// `shadowsocks` inbound takes a `shadow_tls` object, `shadowsocks_plugins`
+/// that it takes `obfs`, `transport` and `tls`, `reverse_proxy` that the
 /// `reverse_proxy` inbound type is built in.
 pub const FEATURES: &[&str] = &[
     "user_limits",
@@ -217,6 +221,13 @@ pub const FEATURES: &[&str] = &[
     "tls_fingerprints",
     "accept_proxy_protocol",
     "sing_mux",
+    "sing_mux_h2mux",
+    "fallbacks",
+    "xhttp_h3",
+    #[cfg(feature = "shadowsocks")]
+    "shadow_tls",
+    #[cfg(feature = "shadowsocks")]
+    "shadowsocks_plugins",
     #[cfg(feature = "reverse_proxy")]
     "reverse_proxy",
 ];
@@ -558,13 +569,21 @@ impl Node {
             Inbound::Stream(stream) => {
                 let listener = bind_tcp(address)?;
                 let listen = listener.local_addr()?;
-                // UDP on the same port, for inbounds that take it.
-                let datagrams = match stream.datagram() {
-                    Some(datagram) => {
+                // UDP on the same port, for inbounds that take it: their
+                // own datagrams, or QUIC (XHTTP over HTTP/3).
+                let datagrams = match (stream.datagram(), stream.packet()) {
+                    (Some(datagram), _) => {
                         let socket = bind_udp(listen)?;
                         Some(datagram.serve(socket, udp.clone(), stats.clone()))
                     }
-                    None => None,
+                    (None, Some(packet)) => Some(packet.serve(
+                        bind_udp(listen)?,
+                        outbound.clone(),
+                        Some(udp.clone()),
+                        settings.clone(),
+                        stats.clone(),
+                    )),
+                    (None, None) => None,
                 };
                 let task = tokio::spawn({
                     let (stream, stats) = (stream.clone(), stats.clone());

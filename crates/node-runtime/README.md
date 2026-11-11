@@ -18,18 +18,46 @@ accounting.
   only that relay may reach the port. `GET /v1/status` lists the feature as
   `accept_proxy_protocol`.
 - Clients may multiplex with sing-mux (sing-box `multiplex`, mihomo `smux`)
-  in `smux` or `yamux` on VLESS, VMess, Trojan and Shadowsocks inbounds
-  (with TLS, REALITY or a transport too); nothing is configured for it.
-  AnyTLS and Snell inbounds do not serve it, and on Hysteria2 and TUIC it
-  carries TCP streams only. `h2mux` (what those clients pick when no
-  protocol is set), padding and TCP Brutal are not supported.
-  `GET /v1/status` lists the feature as `sing_mux`.
+  in `smux`, `yamux` or `h2mux` (what those clients run when no protocol is
+  set), with or without `padding`, on VLESS, VMess, Trojan and Shadowsocks
+  inbounds (with TLS, REALITY or a transport too); nothing is configured
+  for it. AnyTLS, NaiveProxy and Snell inbounds do not serve it, and on
+  Hysteria2 and TUIC it carries TCP streams only. TCP Brutal is not
+  supported.
+  `GET /v1/status` lists the feature as `sing_mux`, and h2mux and padding
+  as `sing_mux_h2mux`.
+- `"fallbacks"` on VLESS, Trojan and AnyTLS inbounds: a list of `{"name",
+  "alpn", "path", "dest", "xver"}` entries that send a connection which is
+  not a user's to the destination matching its TLS server name, ALPN
+  protocol and HTTP/1.x request path (`dest`: `host:port` or a local port;
+  `xver` 1 or 2 writes a PROXY protocol header to it). The entry with the
+  most matching conditions wins, an entry without conditions is the
+  default, and the single `"fallback"` still works as that default. Behind
+  a transport (`ws`, `grpc`, ...) only `path` and the default match.
+  `GET /v1/status` lists the feature as `fallbacks`.
+- An XHTTP inbound (VLESS, VMess, Trojan) with `h3` in its TLS `alpn`
+  also serves HTTP/3: the node binds the UDP port of the same number for
+  the inbound's QUIC side (`StreamInbound::packet`), beside its TCP
+  listener, with the same users, outbound and counters.
+  `accept_proxy_protocol` and the connection cap apply to the TCP side
+  only. `GET /v1/status` lists the feature as `xhttp_h3`.
+- A `shadowsocks` inbound takes a `"shadow_tls"` object (`password` or
+  `users`, `handshake`, `strict_mode`) and is then served behind ShadowTLS
+  v3 (`engine_inbound::shadow_tls`): the TLS handshake clients see is the
+  `handshake` site's, and whatever is not a ShadowTLS client is relayed to
+  that site. With `users` there, the inbound's users are the ShadowTLS
+  users. `GET /v1/status` lists the feature as `shadow_tls`.
+- A `shadowsocks` inbound serves SIP003 plugin clients itself: `obfs`
+  (`{"type": "http" | "tls", "host": ...}`) for simple-obfs, and `transport`
+  `ws` with or without `tls` for v2ray-plugin's `websocket` mode with
+  `mux=0` (see `inbound-shadowsocks`). `GET /v1/status` lists the feature as
+  `shadowsocks_plugins`.
 - `api`: local HTTP/JSON management API with a bearer token, shaped after
   what anix-agent's core interface needs (add/remove node, add/remove users,
   traffic slices, online devices).
 - The direct outbound refuses loopback, private, CGNAT and link-local
-  targets unless `allow_private_targets` is set; each inbound's `fallback` and
-  REALITY `handshake` addresses stay reachable.
+  targets unless `allow_private_targets` is set; each inbound's `fallback`,
+  `fallbacks` and REALITY or ShadowTLS `handshake` addresses stay reachable.
 - `egress`: the panel's domain egress routes (anix-control 「转发 → 分流」,
   the desired-config member `egress`, set with `PUT /v1/egress`). As a source
   node, connections to a route's domains go to the exit node's
@@ -67,7 +95,8 @@ accounting.
 - Listeners on `::` accept IPv4 too on every OS and fall back to `0.0.0.0`
   on hosts without IPv6.
 - Protocols are cargo features (`shadowsocks`, `trojan`, `vless`, `vmess`,
-  `hysteria2`, `tuic`, `snell`), all on by default.
+  `hysteria2`, `tuic`, `snell`, `iwan`, `forward`, `anytls`, `naive`,
+  `reverse_proxy`), all on by default.
 
 `tests/management_api.rs` drives a node through the API with the engine's
 Shadowsocks-2022 client; `tests/egress.rs` routes domains between two nodes

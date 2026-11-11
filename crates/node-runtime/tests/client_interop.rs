@@ -19,13 +19,15 @@
 //! × security × client results go to `GITHUB_STEP_SUMMARY`:
 //!
 //! - `NC_INTEROP_BIN`: directory with `xray`, `sing-box`, `hysteria` and
-//!   `mihomo` (a missing binary skips that client)
+//!   `mihomo` (a missing binary skips that client), and `libcronet.so` of
+//!   the sing-box release, which its naive outbound loads from beside the
+//!   binary (the naive case is skipped without it)
 //! - `NC_SERVER_CERT`, `NC_SERVER_KEY`, `NC_SERVER_NAME`: a self-signed
 //!   certificate with that name, which the clients trust, and
 //!   `NC_SERVER_CERT_SHA256`, its fingerprint for mihomo to pin
 //! - `NC_REALITY_PRIVATE_KEY`, `NC_REALITY_PUBLIC_KEY`, `NC_REALITY_SHORT_ID`,
 //!   `NC_REALITY_SERVER_NAME`, `NC_REALITY_DEST`: REALITY settings and the
-//!   camouflage target
+//!   camouflage target, which is the ShadowTLS handshake site as well
 //! - `NC_VLESS_UUID`, `NC_TCP_ECHO`, `NC_UDP_ECHO`
 
 use std::fmt::Write as _;
@@ -48,6 +50,7 @@ const SS_USER_KEY: &str = "EA8ODQwLCgkIBwYFBAMCAQ==";
 const SS_AEAD_METHOD: &str = "aes-256-gcm";
 const PASSWORD: &str = "interop-password";
 const OBFS_PASSWORD: &str = "interop-obfs";
+const SHADOW_TLS_PASSWORD: &str = "interop-shadow-tls";
 const WS_PATH: &str = "/ws";
 const HTTPUPGRADE_PATH: &str = "/up";
 const GRPC_SERVICE: &str = "interop";
@@ -114,8 +117,16 @@ enum Proto {
     },
     Tuic,
     AnyTls,
+    /// NaiveProxy: HTTP/2 `CONNECT` in TLS, TCP only.
+    Naive,
     /// Snell version 4 without users, as mihomo sends no client id.
     Snell,
+    /// Shadowsocks 2022 behind ShadowTLS v3: a ShadowTLS password in front
+    /// of the Shadowsocks users, or with `users` a single-key Shadowsocks
+    /// inbound whose users are the ShadowTLS users.
+    ShadowTls {
+        users: bool,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -124,10 +135,16 @@ enum Net {
     Ws,
     HttpUpgrade,
     Grpc,
-    /// XHTTP in `mode`; `h1` makes the client offer only ALPN `http/1.1`.
+    /// XHTTP in `mode`. `alpn` is the one ALPN protocol the client offers,
+    /// which picks its HTTP version: `http/1.1`, or `h3` for HTTP/3 over
+    /// QUIC (our inbound then lists `h3` too); `None` is HTTP/2 under TLS.
     Xhttp {
         mode: &'static str,
-        h1: bool,
+        alpn: Option<&'static str>,
+    },
+    /// simple-obfs in `mode` (`http` or `tls`) in front of Shadowsocks.
+    Obfs {
+        mode: &'static str,
     },
 }
 
@@ -136,7 +153,9 @@ struct Case {
     proto: Proto,
     net: Net,
     tls: bool,
-    /// The sing-mux protocol the client multiplexes its streams with.
+    /// The sing-mux protocol the client multiplexes its streams with:
+    /// `default` sets none, which makes it h2mux, and ` + padding` behind
+    /// the name asks for padding.
     mux: Option<&'static str>,
     /// The upstream example or reference the case follows; a link only.
     source: &'static str,
@@ -158,9 +177,13 @@ macro_rules! sing_box_reference {
 }
 
 const XHTTP_EXAMPLE: &str = xray_example!("VLESS-TLS-SplitHTTP-CaddyNginx");
+/// "XHTTP: Beyond REALITY", which describes XHTTP over HTTP/3.
+const XHTTP_REFERENCE: &str = "https://github.com/XTLS/Xray-core/discussions/4113";
 const TRANSPORT_REFERENCE: &str = sing_box_reference!("shared/v2ray-transport");
 const MULTIPLEX_REFERENCE: &str = sing_box_reference!("shared/multiplex");
 const HYSTERIA_REFERENCE: &str = "https://v2.hysteria.network/docs/advanced/Full-Client-Config/";
+const SIMPLE_OBFS: &str = "https://github.com/shadowsocks/simple-obfs";
+const V2RAY_PLUGIN: &str = "https://github.com/shadowsocks/v2ray-plugin";
 
 const CASES: &[Case] = &[
     Case {
@@ -192,7 +215,7 @@ const CASES: &[Case] = &[
         proto: Proto::VlessReality { vision: false },
         net: Net::Xhttp {
             mode: "auto",
-            h1: false,
+            alpn: None,
         },
         tls: false,
         mux: None,
@@ -203,7 +226,7 @@ const CASES: &[Case] = &[
         proto: Proto::VlessReality { vision: false },
         net: Net::Xhttp {
             mode: "stream-up",
-            h1: false,
+            alpn: None,
         },
         tls: false,
         mux: None,
@@ -214,7 +237,7 @@ const CASES: &[Case] = &[
         proto: Proto::VlessReality { vision: false },
         net: Net::Xhttp {
             mode: "packet-up",
-            h1: false,
+            alpn: None,
         },
         tls: false,
         mux: None,
@@ -241,7 +264,7 @@ const CASES: &[Case] = &[
         proto: Proto::Vless,
         net: Net::Xhttp {
             mode: "auto",
-            h1: false,
+            alpn: None,
         },
         tls: false,
         mux: None,
@@ -252,7 +275,7 @@ const CASES: &[Case] = &[
         proto: Proto::Vless,
         net: Net::Xhttp {
             mode: "auto",
-            h1: false,
+            alpn: None,
         },
         tls: true,
         mux: None,
@@ -263,7 +286,7 @@ const CASES: &[Case] = &[
         proto: Proto::Vless,
         net: Net::Xhttp {
             mode: "packet-up",
-            h1: true,
+            alpn: Some("http/1.1"),
         },
         tls: true,
         mux: None,
@@ -274,7 +297,7 @@ const CASES: &[Case] = &[
         proto: Proto::Vless,
         net: Net::Xhttp {
             mode: "stream-up",
-            h1: false,
+            alpn: None,
         },
         tls: true,
         mux: None,
@@ -285,11 +308,44 @@ const CASES: &[Case] = &[
         proto: Proto::Vless,
         net: Net::Xhttp {
             mode: "stream-one",
-            h1: false,
+            alpn: None,
         },
         tls: true,
         mux: None,
         source: XHTTP_EXAMPLE,
+    },
+    Case {
+        tag: "vless-tls-xhttp-h3",
+        proto: Proto::Vless,
+        net: Net::Xhttp {
+            mode: "auto",
+            alpn: Some("h3"),
+        },
+        tls: true,
+        mux: None,
+        source: XHTTP_REFERENCE,
+    },
+    Case {
+        tag: "vless-tls-xhttp-h3-stream-up",
+        proto: Proto::Vless,
+        net: Net::Xhttp {
+            mode: "stream-up",
+            alpn: Some("h3"),
+        },
+        tls: true,
+        mux: None,
+        source: XHTTP_REFERENCE,
+    },
+    Case {
+        tag: "vless-tls-xhttp-h3-stream-one",
+        proto: Proto::Vless,
+        net: Net::Xhttp {
+            mode: "stream-one",
+            alpn: Some("h3"),
+        },
+        tls: true,
+        mux: None,
+        source: XHTTP_REFERENCE,
     },
     Case {
         tag: "vmess-tcp",
@@ -320,7 +376,7 @@ const CASES: &[Case] = &[
         proto: Proto::Vmess,
         net: Net::Xhttp {
             mode: "auto",
-            h1: false,
+            alpn: None,
         },
         tls: true,
         mux: None,
@@ -331,7 +387,7 @@ const CASES: &[Case] = &[
         proto: Proto::Trojan,
         net: Net::Xhttp {
             mode: "stream-up",
-            h1: false,
+            alpn: None,
         },
         tls: true,
         mux: None,
@@ -442,12 +498,100 @@ const CASES: &[Case] = &[
         source: MULTIPLEX_REFERENCE,
     },
     Case {
+        tag: "vless-reality-h2mux",
+        proto: Proto::VlessReality { vision: false },
+        net: Net::Tcp,
+        tls: false,
+        mux: Some("h2mux"),
+        source: MULTIPLEX_REFERENCE,
+    },
+    Case {
+        tag: "trojan-tls-h2mux",
+        proto: Proto::Trojan,
+        net: Net::Tcp,
+        tls: true,
+        mux: Some("h2mux"),
+        source: MULTIPLEX_REFERENCE,
+    },
+    Case {
+        tag: "ss2022-h2mux",
+        proto: Proto::Shadowsocks,
+        net: Net::Tcp,
+        tls: false,
+        mux: Some("h2mux"),
+        source: MULTIPLEX_REFERENCE,
+    },
+    Case {
+        tag: "trojan-tls-mux-default",
+        proto: Proto::Trojan,
+        net: Net::Tcp,
+        tls: true,
+        mux: Some("default"),
+        source: MULTIPLEX_REFERENCE,
+    },
+    Case {
+        tag: "vless-reality-h2mux-padding",
+        proto: Proto::VlessReality { vision: false },
+        net: Net::Tcp,
+        tls: false,
+        mux: Some("h2mux + padding"),
+        source: MULTIPLEX_REFERENCE,
+    },
+    Case {
+        tag: "ss2022-smux-padding",
+        proto: Proto::Shadowsocks,
+        net: Net::Tcp,
+        tls: false,
+        mux: Some("smux + padding"),
+        source: MULTIPLEX_REFERENCE,
+    },
+    Case {
+        tag: "ss-aead-obfs-http",
+        proto: Proto::ShadowsocksAead,
+        net: Net::Obfs { mode: "http" },
+        tls: false,
+        mux: None,
+        source: SIMPLE_OBFS,
+    },
+    Case {
+        tag: "ss2022-obfs-tls",
+        proto: Proto::Shadowsocks,
+        net: Net::Obfs { mode: "tls" },
+        tls: false,
+        mux: None,
+        source: SIMPLE_OBFS,
+    },
+    Case {
+        tag: "ss-aead-v2ray-plugin",
+        proto: Proto::ShadowsocksAead,
+        net: Net::Ws,
+        tls: false,
+        mux: None,
+        source: V2RAY_PLUGIN,
+    },
+    Case {
+        tag: "ss2022-v2ray-plugin-tls",
+        proto: Proto::Shadowsocks,
+        net: Net::Ws,
+        tls: true,
+        mux: None,
+        source: V2RAY_PLUGIN,
+    },
+    Case {
         tag: "anytls",
         proto: Proto::AnyTls,
         net: Net::Tcp,
         tls: true,
         mux: None,
         source: sing_box_reference!("outbound/anytls"),
+    },
+    Case {
+        tag: "naive",
+        proto: Proto::Naive,
+        net: Net::Tcp,
+        tls: true,
+        mux: None,
+        source: sing_box_reference!("outbound/naive"),
     },
     Case {
         tag: "hysteria2",
@@ -481,19 +625,44 @@ const CASES: &[Case] = &[
         mux: None,
         source: "https://wiki.metacubex.one/config/proxies/snell/",
     },
+    Case {
+        tag: "ss2022-shadowtls",
+        proto: Proto::ShadowTls { users: false },
+        net: Net::Tcp,
+        tls: false,
+        mux: None,
+        source: "https://wiki.metacubex.one/config/proxies/ss/",
+    },
+    Case {
+        tag: "ss2022-shadowtls-smux",
+        proto: Proto::ShadowTls { users: true },
+        net: Net::Tcp,
+        tls: false,
+        mux: Some("smux"),
+        source: sing_box_reference!("outbound/shadowtls"),
+    },
 ];
 
 impl Case {
+    /// Whether sing-box and mihomo reach the Shadowsocks inbound through a
+    /// SIP003 plugin: simple-obfs, or v2ray-plugin for `ws`. Xray has no
+    /// plugins and runs Shadowsocks on its own `ws` transport, which is
+    /// what v2ray-plugin sends without its multiplexing.
+    fn plugin(&self) -> bool {
+        matches!(self.proto, Proto::Shadowsocks | Proto::ShadowsocksAead) && self.net != Net::Tcp
+    }
+
     fn protocol(&self) -> &'static str {
         match self.proto {
             Proto::VlessReality { .. } | Proto::Vless => "vless",
             Proto::Vmess => "vmess",
             Proto::Trojan => "trojan",
-            Proto::Shadowsocks => "shadowsocks-2022",
+            Proto::Shadowsocks | Proto::ShadowTls { .. } => "shadowsocks-2022",
             Proto::ShadowsocksAead => "shadowsocks",
             Proto::Hysteria2 { .. } => "hysteria2",
             Proto::Tuic => "tuic",
             Proto::AnyTls => "anytls",
+            Proto::Naive => "naive",
             Proto::Snell => "snell",
         }
     }
@@ -501,14 +670,23 @@ impl Case {
     fn transport(&self) -> String {
         let net = match (self.proto, self.net) {
             (Proto::Hysteria2 { .. } | Proto::Tuic, _) => "quic".to_owned(),
+            (Proto::Naive, _) => "h2".to_owned(),
             (_, Net::Tcp) => "tcp".to_owned(),
             (_, Net::Ws) => "ws".to_owned(),
             (_, Net::HttpUpgrade) => "httpupgrade".to_owned(),
             (_, Net::Grpc) => "grpc".to_owned(),
-            (_, Net::Xhttp { mode, h1: false }) => format!("xhttp {mode}"),
-            (_, Net::Xhttp { mode, h1: true }) => format!("xhttp {mode}, http/1.1"),
+            (_, Net::Xhttp { mode, alpn: None }) => format!("xhttp {mode}"),
+            (
+                _,
+                Net::Xhttp {
+                    mode,
+                    alpn: Some(alpn),
+                },
+            ) => format!("xhttp {mode}, {alpn}"),
+            (_, Net::Obfs { mode }) => format!("simple-obfs {mode}"),
         };
         match self.mux {
+            Some("default") => format!("{net} + mux, protocol unset"),
             Some(mux) => format!("{net} + {mux}"),
             None => net,
         }
@@ -519,9 +697,30 @@ impl Case {
             Proto::VlessReality { vision: true } => "reality + vision",
             Proto::VlessReality { vision: false } => "reality",
             Proto::Hysteria2 { obfs: true } => "tls + salamander",
+            Proto::ShadowTls { .. } => "shadow-tls v3",
             _ if self.tls => "tls",
             _ => "none",
         }
+    }
+
+    /// What a Shadowsocks 2022 client has for a password: the server key
+    /// and alice's, or the server key alone for a single-key inbound.
+    fn ss_password(&self) -> String {
+        match self.proto {
+            Proto::ShadowTls { users: true } => SS_SERVER_KEY.to_owned(),
+            _ => format!("{SS_SERVER_KEY}:{SS_USER_KEY}"),
+        }
+    }
+
+    /// Whether the inbound relays UDP; NaiveProxy carries TCP only.
+    fn udp(&self) -> bool {
+        self.proto != Proto::Naive
+    }
+
+    /// A file beside the client binaries that `client` needs for the case:
+    /// sing-box's naive outbound loads Chromium's network stack from it.
+    fn library(&self, client: Client) -> Option<&'static str> {
+        (client == Client::SingBox && self.proto == Proto::Naive).then_some("libcronet.so")
     }
 }
 
@@ -584,6 +783,10 @@ fn inbound(env: &Env, case: &Case) -> Value {
             object.insert("type".into(), "anytls".into());
             object.insert("users".into(), user(json!({"password": PASSWORD})));
         }
+        Proto::Naive => {
+            object.insert("type".into(), "naive".into());
+            object.insert("users".into(), user(json!({"password": PASSWORD})));
+        }
         Proto::Hysteria2 { obfs } => {
             object.insert("type".into(), "hysteria2".into());
             object.insert("users".into(), user(json!({"password": PASSWORD})));
@@ -606,6 +809,27 @@ fn inbound(env: &Env, case: &Case) -> Value {
             object.insert("type".into(), "snell".into());
             object.insert("psk".into(), PASSWORD.into());
             object.insert("version".into(), 4.into());
+        }
+        Proto::ShadowTls { users } => {
+            object.insert("type".into(), "shadowsocks".into());
+            object.insert("method".into(), SS_METHOD.into());
+            object.insert("password".into(), SS_SERVER_KEY.into());
+            // The camouflage target answers in TLS 1.3, so strict mode
+            // serves too.
+            let mut shadow_tls = json!({
+                "strict_mode": users,
+                "handshake": {
+                    "server": env.reality_dest.ip().to_string(),
+                    "server_port": env.reality_dest.port(),
+                },
+            });
+            if users {
+                shadow_tls["users"] = user(json!({"password": SHADOW_TLS_PASSWORD}));
+            } else {
+                object.insert("users".into(), user(json!({"password": SS_USER_KEY})));
+                shadow_tls["password"] = SHADOW_TLS_PASSWORD.into();
+            }
+            object.insert("shadow_tls".into(), shadow_tls);
         }
     }
     match case.net {
@@ -631,15 +855,45 @@ fn inbound(env: &Env, case: &Case) -> Value {
                 json!({"type": "xhttp", "path": XHTTP_PATH}),
             );
         }
+        Net::Obfs { mode } => {
+            object.insert(
+                "obfs".into(),
+                json!({"type": mode, "host": env.server_name}),
+            );
+        }
     }
     if case.tls {
-        let alpn: &[&str] = match case.proto {
-            Proto::Hysteria2 { .. } | Proto::Tuic => &["h3"],
+        let alpn: &[&str] = match (case.proto, case.net) {
+            (Proto::Hysteria2 { .. } | Proto::Tuic, _) => &["h3"],
+            // `h3` adds the QUIC side on the UDP port of the same number.
+            (
+                _,
+                Net::Xhttp {
+                    alpn: Some("h3"), ..
+                },
+            ) => &["h3"],
             _ => &[],
         };
         object.insert("tls".into(), env.tls(alpn));
     }
     inbound
+}
+
+/// A client's sing-mux options for [`Case::mux`]: `multiplex` of a sing-box
+/// outbound and `smux` of a mihomo proxy take the same.
+fn multiplex(mux: &str) -> Value {
+    let (protocol, padding) = match mux.strip_suffix(" + padding") {
+        Some(protocol) => (protocol, true),
+        None => (mux, false),
+    };
+    let mut options = json!({"enabled": true});
+    if protocol != "default" {
+        options["protocol"] = protocol.into();
+    }
+    if padding {
+        options["padding"] = true.into();
+    }
+    options
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -677,19 +931,35 @@ impl Client {
 
     fn supports(self, case: &Case) -> bool {
         match self {
-            // Xray has no sing-mux.
+            // Xray has no sing-mux, no ShadowTLS and no simple-obfs.
             Client::Xray => {
                 case.mux.is_none()
+                    && !matches!(case.net, Net::Obfs { .. })
                     && !matches!(
                         case.proto,
-                        Proto::Hysteria2 { .. } | Proto::Tuic | Proto::AnyTls | Proto::Snell
+                        Proto::Hysteria2 { .. }
+                            | Proto::Tuic
+                            | Proto::AnyTls
+                            | Proto::Naive
+                            | Proto::Snell
+                            | Proto::ShadowTls { .. }
                     )
             }
-            // sing-box has no XHTTP and no Snell.
-            Client::SingBox => !matches!(case.net, Net::Xhttp { .. }) && case.proto != Proto::Snell,
+            // sing-box has no XHTTP and no Snell, and its ShadowTLS outbound
+            // dials TCP only: UDP gets through it as a stream of a
+            // multiplexed connection.
+            Client::SingBox => {
+                !matches!(case.net, Net::Xhttp { .. })
+                    && case.proto != Proto::Snell
+                    && (case.mux.is_some() || !matches!(case.proto, Proto::ShadowTls { .. }))
+            }
             Client::Hysteria => matches!(case.proto, Proto::Hysteria2 { .. }),
-            // mihomo's XHTTP and HTTPUpgrade are left to Xray and sing-box.
-            Client::Mihomo => !matches!(case.net, Net::Xhttp { .. } | Net::HttpUpgrade),
+            // mihomo's XHTTP and HTTPUpgrade are left to Xray and sing-box,
+            // and it has no naive outbound.
+            Client::Mihomo => {
+                !matches!(case.net, Net::Xhttp { .. } | Net::HttpUpgrade)
+                    && case.proto != Proto::Naive
+            }
         }
     }
 
@@ -757,7 +1027,12 @@ fn xray_config(env: &Env, case: &Case, server: SocketAddr, socks: u16) -> Value 
             json!({"servers": [{"address": address, "port": port, "method": SS_AEAD_METHOD,
                 "password": PASSWORD}]}),
         ),
-        Proto::Hysteria2 { .. } | Proto::Tuic | Proto::AnyTls | Proto::Snell => {
+        Proto::Hysteria2 { .. }
+        | Proto::Tuic
+        | Proto::AnyTls
+        | Proto::Naive
+        | Proto::Snell
+        | Proto::ShadowTls { .. } => {
             unreachable!("not an Xray client case")
         }
     };
@@ -767,6 +1042,7 @@ fn xray_config(env: &Env, case: &Case, server: SocketAddr, socks: u16) -> Value 
         Net::HttpUpgrade => "httpupgrade",
         Net::Grpc => "grpc",
         Net::Xhttp { .. } => "xhttp",
+        Net::Obfs { .. } => unreachable!("not an Xray client case"),
     }});
     let stream_object = stream.as_object_mut().unwrap();
     match case.net {
@@ -793,6 +1069,7 @@ fn xray_config(env: &Env, case: &Case, server: SocketAddr, socks: u16) -> Value 
                 json!({"path": XHTTP_PATH, "mode": mode}),
             );
         }
+        Net::Obfs { .. } => unreachable!("not an Xray client case"),
     }
     if let Proto::VlessReality { .. } = case.proto {
         stream_object.insert("security".into(), "reality".into());
@@ -811,9 +1088,13 @@ fn xray_config(env: &Env, case: &Case, server: SocketAddr, socks: u16) -> Value 
             "serverName": env.server_name,
             "certificates": [{"usage": "verify", "certificateFile": env.cert}],
         });
-        // Xray's XHTTP runs HTTP/1.1 when ALPN is exactly `http/1.1`.
-        if let Net::Xhttp { h1: true, .. } = case.net {
-            tls["alpn"] = json!(["http/1.1"]);
+        // Xray's XHTTP runs HTTP/1.1 when ALPN is exactly `http/1.1`, and
+        // HTTP/3 over QUIC when it is exactly `h3`.
+        if let Net::Xhttp {
+            alpn: Some(alpn), ..
+        } = case.net
+        {
+            tls["alpn"] = json!([alpn]);
         }
         stream_object.insert("tlsSettings".into(), tls);
     }
@@ -876,13 +1157,10 @@ fn sing_box_config(env: &Env, case: &Case, server: SocketAddr, socks: u16) -> Va
             object.insert("type".into(), "trojan".into());
             object.insert("password".into(), PASSWORD.into());
         }
-        Proto::Shadowsocks => {
+        Proto::Shadowsocks | Proto::ShadowTls { .. } => {
             object.insert("type".into(), "shadowsocks".into());
             object.insert("method".into(), SS_METHOD.into());
-            object.insert(
-                "password".into(),
-                format!("{SS_SERVER_KEY}:{SS_USER_KEY}").into(),
-            );
+            object.insert("password".into(), case.ss_password().into());
         }
         Proto::ShadowsocksAead => {
             object.insert("type".into(), "shadowsocks".into());
@@ -891,6 +1169,12 @@ fn sing_box_config(env: &Env, case: &Case, server: SocketAddr, socks: u16) -> Va
         }
         Proto::AnyTls => {
             object.insert("type".into(), "anytls".into());
+            object.insert("password".into(), PASSWORD.into());
+        }
+        // The user's name is the login name.
+        Proto::Naive => {
+            object.insert("type".into(), "naive".into());
+            object.insert("username".into(), "alice".into());
             object.insert("password".into(), PASSWORD.into());
         }
         Proto::Hysteria2 { obfs } => {
@@ -911,8 +1195,50 @@ fn sing_box_config(env: &Env, case: &Case, server: SocketAddr, socks: u16) -> Va
         }
         Proto::Snell => unreachable!("not a sing-box client case"),
     }
+    let mut outbounds = Vec::new();
+    if let Proto::ShadowTls { .. } = case.proto {
+        // The Shadowsocks outbound dials through a ShadowTLS outbound. Its
+        // TLS handshake is with the camouflage target, whose certificate
+        // names nothing a client could verify; what the client checks of
+        // our server is the ShadowTLS tag on the handshake.
+        object.insert("detour".into(), "shadow-tls".into());
+        outbounds.push(json!({
+            "type": "shadowtls",
+            "tag": "shadow-tls",
+            "server": server.ip().to_string(),
+            "server_port": server.port(),
+            "version": 3,
+            "password": SHADOW_TLS_PASSWORD,
+            "tls": {
+                "enabled": true,
+                "server_name": env.reality_server_name,
+                "insecure": true,
+                "utls": {"enabled": true, "fingerprint": "chrome"},
+            },
+        }));
+    }
     match case.net {
         Net::Tcp => {}
+        // sing-box runs the plugins itself. Its v2ray-plugin multiplexes
+        // unless told not to, and takes the certificate to trust as `cert`.
+        Net::Ws if case.plugin() => {
+            let mut opts = format!(
+                "mode=websocket;host={};path={WS_PATH};mux=0",
+                env.server_name
+            );
+            if case.tls {
+                write!(opts, ";tls;cert={}", env.cert).unwrap();
+            }
+            object.insert("plugin".into(), "v2ray-plugin".into());
+            object.insert("plugin_opts".into(), opts.into());
+        }
+        Net::Obfs { mode } => {
+            object.insert("plugin".into(), "obfs-local".into());
+            object.insert(
+                "plugin_opts".into(),
+                format!("obfs={mode};obfs-host={}", env.server_name).into(),
+            );
+        }
         Net::Ws => {
             object.insert(
                 "transport".into(),
@@ -935,7 +1261,7 @@ fn sing_box_config(env: &Env, case: &Case, server: SocketAddr, socks: u16) -> Va
         }
         Net::Xhttp { .. } => unreachable!("not a sing-box client case"),
     }
-    if case.tls {
+    if case.tls && !case.plugin() {
         let alpn: &[&str] = match (case.proto, case.net) {
             (Proto::Hysteria2 { .. } | Proto::Tuic, _) => &["h3"],
             (_, Net::Grpc) => &["h2"],
@@ -943,16 +1269,15 @@ fn sing_box_config(env: &Env, case: &Case, server: SocketAddr, socks: u16) -> Va
         };
         object.insert("tls".into(), tls(alpn));
     }
-    if let Some(protocol) = case.mux {
-        object.insert(
-            "multiplex".into(),
-            json!({"enabled": true, "protocol": protocol}),
-        );
+    if let Some(mux) = case.mux {
+        object.insert("multiplex".into(), multiplex(mux));
     }
+    // The first outbound takes everything from the SOCKS5 port.
+    outbounds.insert(0, outbound);
     json!({
         "log": {"level": "debug"},
         "inbounds": [{"type": "socks", "listen": "127.0.0.1", "listen_port": socks}],
-        "outbounds": [outbound],
+        "outbounds": outbounds,
     })
 }
 
@@ -1001,13 +1326,25 @@ fn mihomo_config(env: &Env, case: &Case, server: SocketAddr, socks: u16) -> Valu
             object.insert("type".into(), "trojan".into());
             object.insert("password".into(), PASSWORD.into());
         }
-        Proto::Shadowsocks => {
+        Proto::Shadowsocks | Proto::ShadowTls { .. } => {
             object.insert("type".into(), "ss".into());
             object.insert("cipher".into(), SS_METHOD.into());
-            object.insert(
-                "password".into(),
-                format!("{SS_SERVER_KEY}:{SS_USER_KEY}").into(),
-            );
+            object.insert("password".into(), case.ss_password().into());
+            if let Proto::ShadowTls { .. } = case.proto {
+                // The plugin's TLS handshake is with the camouflage target,
+                // whose certificate is not ours to pin.
+                object.insert("plugin".into(), "shadow-tls".into());
+                object.insert("client-fingerprint".into(), "chrome".into());
+                object.insert(
+                    "plugin-opts".into(),
+                    json!({
+                        "host": env.reality_server_name,
+                        "password": SHADOW_TLS_PASSWORD,
+                        "version": 3,
+                        "skip-cert-verify": true,
+                    }),
+                );
+            }
         }
         Proto::ShadowsocksAead => {
             object.insert("type".into(), "ss".into());
@@ -1040,9 +1377,29 @@ fn mihomo_config(env: &Env, case: &Case, server: SocketAddr, socks: u16) -> Valu
             object.insert("psk".into(), PASSWORD.into());
             object.insert("version".into(), 4.into());
         }
+        Proto::Naive => unreachable!("not a mihomo client case"),
     }
     match case.net {
         Net::Tcp => {}
+        // mihomo's v2ray-plugin multiplexes unless `mux` is false, and pins
+        // the certificate in the plugin options.
+        Net::Ws if case.plugin() => {
+            let mut opts = json!({"mode": "websocket", "host": env.server_name,
+                "path": WS_PATH, "mux": false});
+            if case.tls {
+                opts["tls"] = true.into();
+                opts["fingerprint"] = env.cert_sha256.clone().into();
+            }
+            object.insert("plugin".into(), "v2ray-plugin".into());
+            object.insert("plugin-opts".into(), opts);
+        }
+        Net::Obfs { mode } => {
+            object.insert("plugin".into(), "obfs".into());
+            object.insert(
+                "plugin-opts".into(),
+                json!({"mode": mode, "host": env.server_name}),
+            );
+        }
         Net::Ws => {
             object.insert("network".into(), "ws".into());
             object.insert(
@@ -1072,16 +1429,13 @@ fn mihomo_config(env: &Env, case: &Case, server: SocketAddr, socks: u16) -> Valu
             "reality-opts".into(),
             json!({"public-key": env.reality_public_key, "short-id": env.reality_short_id}),
         );
-    } else if case.tls {
+    } else if case.tls && !case.plugin() {
         object.insert("tls".into(), true.into());
         object.insert(name_key.into(), env.server_name.clone().into());
         object.insert("fingerprint".into(), env.cert_sha256.clone().into());
     }
-    if let Some(protocol) = case.mux {
-        object.insert(
-            "smux".into(),
-            json!({"enabled": true, "protocol": protocol}),
-        );
+    if let Some(mux) = case.mux {
+        object.insert("smux".into(), multiplex(mux));
     }
     json!({
         "socks-port": socks,
@@ -1337,7 +1691,11 @@ async fn run_client(
         // Xray sends VLESS and VMess UDP as XUDP (Mux.Cool), as does
         // sing-box for VLESS; the others use each protocol's UDP form, and
         // a multiplexing client a stream of its connection.
-        let udp = udp_echo(socks, env.udp_echo).await?;
+        let udp = if case.udp() {
+            udp_echo(socks, env.udp_echo).await?
+        } else {
+            0
+        };
         // Relayed bytes are charged to the user once the relay sees them.
         tokio::time::sleep(Duration::from_millis(200)).await;
         let (up, down) = traffic(node, case.tag);
@@ -1413,7 +1771,8 @@ fn summarize(client: Client, outcomes: Vec<&'static str>) {
         writeln!(table, " [link]({}) |", case.source).unwrap();
     }
     table.push_str(
-        "\n`skip`: the client binary is missing. `n/a`: the client does not speak the case.\n",
+        "\n`skip`: the client binary, or a library the case needs beside it, is missing. \
+         `n/a`: the client does not speak the case.\n",
     );
     let written = std::fs::OpenOptions::new()
         .append(true)
@@ -1447,6 +1806,12 @@ async fn interop(client: Client) {
             continue;
         }
         if !present {
+            outcomes.push("skip");
+            continue;
+        }
+        let library = case.library(client);
+        if let Some(missing) = library.filter(|library| !env.bin.join(library).exists()) {
+            eprintln!("skipping {}: {missing} is missing", case.tag);
             outcomes.push("skip");
             continue;
         }
