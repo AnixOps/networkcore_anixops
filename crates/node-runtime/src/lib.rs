@@ -215,6 +215,7 @@ pub const FEATURES: &[&str] = &[
     "destinations",
     "block_cidrs",
     "tls_fingerprints",
+    "accept_proxy_protocol",
     #[cfg(feature = "reverse_proxy")]
     "reverse_proxy",
 ];
@@ -485,6 +486,11 @@ impl Node {
             .registry
             .build(&config.kind, &config.settings)
             .map_err(NodeError::Invalid)?;
+        if config.accept_proxy_protocol && matches!(inbound, Inbound::Packet(_)) {
+            return Err(NodeError::Invalid(
+                "accept_proxy_protocol needs an inbound on a TCP listener",
+            ));
+        }
         let address = SocketAddr::new(config.listen, config.listen_port);
         let (tcp_outbound, udp_outbound): (Arc<dyn TcpOutbound>, Arc<dyn UdpOutbound>) =
             if config.kind == FORWARD_TYPE || config.kind == REVERSE_PROXY_TYPE {
@@ -503,6 +509,7 @@ impl Node {
                 address,
                 tcp_outbound.clone(),
                 udp_outbound.clone(),
+                config.accept_proxy_protocol,
             ) {
                 Err(error) if error.kind() == io::ErrorKind::AddrInUse && waited < REBIND_WAIT => {
                     tokio::time::sleep(REBIND_STEP).await;
@@ -539,9 +546,13 @@ impl Node {
         address: SocketAddr,
         outbound: Arc<dyn TcpOutbound>,
         udp: Arc<dyn UdpOutbound>,
+        accept_proxy_protocol: bool,
     ) -> io::Result<(SocketAddr, Arc<InboundStats>, JoinHandle<()>)> {
         let stats = Arc::new(InboundStats::default());
-        let settings = self.serve_settings.clone();
+        let settings = ServeSettings {
+            accept_proxy_protocol,
+            ..self.serve_settings.clone()
+        };
         let (listen, task) = match inbound {
             Inbound::Stream(stream) => {
                 let listener = bind_tcp(address)?;
@@ -679,7 +690,7 @@ impl Node {
                 relay.listen.unwrap_or(Ipv6Addr::UNSPECIFIED.into()),
                 relay.port,
             );
-            match self.spawn(&inbound, address, direct.clone(), direct) {
+            match self.spawn(&inbound, address, direct.clone(), direct, false) {
                 Ok((listen, stats, task)) => {
                     relays.insert(
                         relay.id,

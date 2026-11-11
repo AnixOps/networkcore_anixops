@@ -66,7 +66,8 @@
 //! can tell before sending it: `user_limits` (the user members below),
 //! `block_rules` (`/v1/rules`), `qos` (`/v1/qos`), `destinations`
 //! (`/v1/inbounds/{tag}/destinations`), `block_cidrs` (`block_cidrs` in
-//! `/v1/rules` and `/v1/rules/counters`).
+//! `/v1/rules` and `/v1/rules/counters`), `accept_proxy_protocol` (the
+//! inbound key of that name).
 //!
 //! A user may carry `speed_limit` (Mbit/s for each direction, shared by
 //! all of its connections) and `device_limit` (most client IPs online at

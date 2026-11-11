@@ -17,6 +17,12 @@ kernel that anix-agent drives on a proxy server). It mirrors `engine-outbound`:
   `engine_outbound::TcpOutbound` (direct or routed) and charges bytes to the
   user as they move. `server::handle_connection` is the same per-connection
   path for TLS or QUIC transports.
+- `proxy_protocol`: PROXY protocol versions 1 and 2. With
+  `ServeSettings::accept_proxy_protocol` the accept loop reads the header a
+  relay in front sent (`read_header`) before the protocol sees the stream
+  and uses its addresses as the client's and the reached one; a connection
+  without a valid header is closed. `ProxyProtocol::header` writes one, for
+  forwards.
 - `udp`: UDP egress (`UdpOutbound`, implemented by the node's direct
   outbound) and relays. Protocols that carry datagrams on the client stream
   (Trojan UDP associate, VLESS/VMess UDP) set `Accepted::udp` to their

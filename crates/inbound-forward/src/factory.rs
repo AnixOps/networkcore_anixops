@@ -3,13 +3,13 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use engine_inbound::proxy_protocol::ProxyProtocol;
 use engine_inbound::registry::{parse_settings, BuildError, InboundFactory, Settings};
 use engine_inbound::StreamInbound;
 use engine_outbound::TargetAddr;
 use serde::Deserialize;
 
 use crate::balance::{Health, Strategy, Target};
-use crate::proxy::ProxyProtocol;
 use crate::{ForwardInbound, Limits, Network};
 
 pub const TYPE_NAME: &str = "forward";

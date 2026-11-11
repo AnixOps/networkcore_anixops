@@ -12,7 +12,7 @@
 //! Per rule: a bandwidth cap per direction shared by all connections and
 //! UDP sessions ([`limit`]), a cap on concurrent TCP connections, and a
 //! PROXY protocol header written to the target ahead of the client's bytes
-//! ([`proxy`]).
+//! ([`engine_inbound::proxy_protocol`]).
 //!
 //! UDP is relayed per client address: each client gets its own outbound
 //! session, which ends after [`engine_inbound::udp::UDP_IDLE_TIMEOUT`]
@@ -22,7 +22,6 @@
 pub mod balance;
 mod factory;
 pub mod limit;
-pub mod proxy;
 
 use std::collections::HashMap;
 use std::io;
@@ -30,6 +29,7 @@ use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
+use engine_inbound::proxy_protocol::ProxyProtocol;
 use engine_inbound::server::{ConnectionContext, InboundStats};
 use engine_inbound::udp::{
     DatagramInbound, ReplySink, SessionRelay, UdpOutbound, MAX_DATAGRAM, MAX_SESSIONS,
@@ -41,7 +41,6 @@ use tokio::net::UdpSocket;
 
 use crate::balance::{Health, Strategy, Target, Targets};
 use crate::limit::{Bucket, Limited};
-use crate::proxy::ProxyProtocol;
 
 pub use factory::{ForwardInboundFactory, TYPE_NAME};
 

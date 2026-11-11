@@ -23,6 +23,7 @@ pub mod destinations;
 pub mod health;
 pub mod limit;
 mod mux;
+pub mod proxy_protocol;
 pub mod qos;
 mod quic;
 pub mod registry;

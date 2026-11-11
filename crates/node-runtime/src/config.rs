@@ -14,8 +14,8 @@
 //! ```
 //!
 //! Every inbound key other than `tag`, `type`, `listen`, `listen_port`,
-//! `outbound` and `ingress` is passed to the protocol factory as its
-//! settings. `egress` is optional and has the format of `PUT /v1/egress`
+//! `outbound`, `ingress` and `accept_proxy_protocol` is passed to the
+//! protocol factory as its settings. `egress` is optional and has the format of `PUT /v1/egress`
 //! ([`crate::egress::EgressConfig`]); `network` is optional and has the
 //! format of `PUT /v1/network` ([`crate::network::NetworkPlan`]).
 //!
@@ -25,6 +25,15 @@
 //! registered ([`crate::Node::with_outbound`]); plain `anixcore` registers
 //! none. `ingress` (instead of `outbound`) puts the inbound in an ingress
 //! of the network plan: it takes that ingress's active path.
+//!
+//! `"accept_proxy_protocol": true` is for an inbound behind a relay or load
+//! balancer that sends the PROXY protocol: every TCP connection must then
+//! start with a version 1 or 2 header, read ahead of TLS, REALITY or any
+//! transport, and the address in it is the client's for device limits,
+//! online IPs and what a `forward` writes on (its own `proxy_protocol`).
+//! A connection without a valid header is closed, so the port must be
+//! reachable by that relay only. Inbounds on a UDP socket (Hysteria2, TUIC)
+//! refuse the key; UDP on a stream inbound's port is not affected.
 
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 
@@ -81,6 +90,9 @@ pub struct InboundConfig {
     /// The network-model ingress; excludes `outbound`.
     #[serde(default)]
     pub ingress: Option<String>,
+    /// TCP connections start with a PROXY protocol header naming the client.
+    #[serde(default)]
+    pub accept_proxy_protocol: bool,
     #[serde(flatten)]
     pub settings: Settings,
 }
@@ -170,6 +182,7 @@ mod tests {
             "inbounds": [{
                 "tag": "vless", "type": "vless", "listen_port": 443,
                 "outbound": "direct",
+                "accept_proxy_protocol": true,
                 "users": [],
                 "fallback": {"server": "127.0.0.1", "server_port": 8080},
                 "reality": {"handshake": {"server": "www.example.com", "server_port": 443}}
@@ -182,6 +195,8 @@ mod tests {
         assert!(!inbound.settings.contains_key("listen_port"));
         assert_eq!(inbound.outbound.as_deref(), Some("direct"));
         assert!(!inbound.settings.contains_key("outbound"));
+        assert!(inbound.accept_proxy_protocol);
+        assert!(!inbound.settings.contains_key("accept_proxy_protocol"));
         assert!(inbound.settings.contains_key("users"));
         assert_eq!(
             inbound.allowed_targets(),
