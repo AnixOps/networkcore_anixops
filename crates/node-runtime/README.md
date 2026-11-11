@@ -7,8 +7,23 @@ runtime; per-user traffic (with reset) and online IPs are read back for
 accounting.
 
 - `config`: the `anixcore` config file (`management`, `allow_private_targets`,
-  `inbounds`, `egress`). Inbound keys besides `tag`, `type`, `listen` and `listen_port`
-  go to the protocol factory.
+  `inbounds`, `egress`). Inbound keys besides `tag`, `type`, `listen`, `listen_port`,
+  `outbound`, `ingress` and `accept_proxy_protocol` go to the protocol factory.
+- `"accept_proxy_protocol": true` on an inbound with a TCP listener, for a
+  node behind a relay or load balancer that sends the PROXY protocol: every
+  connection must start with a version 1 or 2 header (read before TLS,
+  REALITY or a transport), and the address in it is the client's for device
+  limits, online IPs and a forward's own `proxy_protocol`. Connections
+  without a valid header are closed and counted as failed handshakes, so
+  only that relay may reach the port. `GET /v1/status` lists the feature as
+  `accept_proxy_protocol`.
+- Clients may multiplex with sing-mux (sing-box `multiplex`, mihomo `smux`)
+  in `smux` or `yamux` on VLESS, VMess, Trojan and Shadowsocks inbounds
+  (with TLS, REALITY or a transport too); nothing is configured for it.
+  AnyTLS and Snell inbounds do not serve it, and on Hysteria2 and TUIC it
+  carries TCP streams only. `h2mux` (what those clients pick when no
+  protocol is set), padding and TCP Brutal are not supported.
+  `GET /v1/status` lists the feature as `sing_mux`.
 - `api`: local HTTP/JSON management API with a bearer token, shaped after
   what anix-agent's core interface needs (add/remove node, add/remove users,
   traffic slices, online devices).

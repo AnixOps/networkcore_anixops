@@ -28,6 +28,17 @@ Users may carry `"speed_limit"` (Mbit/s for each direction, shared by all
 of the user's connections) and `"device_limit"` (most client IPs online at
 once); both default to 0, no limit.
 
+An inbound behind a relay or load balancer that sends the PROXY protocol
+takes `"accept_proxy_protocol": true`: its TCP connections must start with
+a version 1 or 2 header, and the client address for device limits and
+online IPs is the one in it. Only that relay may reach such a port.
+
+Clients may multiplex their connections with sing-mux (sing-box
+`multiplex`, mihomo `smux`) using the `smux` or `yamux` protocol on VLESS,
+VMess, Trojan and Shadowsocks inbounds; there is nothing to configure on the
+inbound. `h2mux`, padding and TCP Brutal are not supported, so the client
+has to name one of the two protocols.
+
 The config format is documented in `crates/node-runtime/src/config.rs` and
 the API in `crates/node-runtime/src/api.rs`. Users relay through a direct
 outbound that refuses loopback and private targets unless

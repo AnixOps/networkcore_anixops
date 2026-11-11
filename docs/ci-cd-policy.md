@@ -137,6 +137,23 @@ CI summary job 必须显式输出 commit SHA、workflow run ID/URL、变更来�
   并写入 Step Summary），每次生成新的 REALITY 密钥、UUID 与 short id，只监听 127.0.0.1，再以 `--ignored`
   运行 `outbound-vless` 的互通测试。
 
+#### 客户端互通矩阵
+
+`REALITY interop (Linux)` 还会反向验证节点入站：`crates/node-runtime/tests/client_interop.rs` 用 `anixcore`
+入站配置起节点，让 Xray-core、sing-box、官方 Hysteria 客户端和 mihomo（`MIHOMO_VERSION`，默认最新正式 release；
+下载不到时只告警，其用例记为 `skip`）经 SOCKS5 连入，回显 TCP 与 UDP 并核对按用户计费。四个客户端都跑完后，
+测试把 协议 × 传输 × 安全层 × 客户端 的 `pass` / `fail` / `skip` / `n/a` 表追加到 Step Summary。
+
+该文件里的 `CASES` 表是兼容矩阵的唯一来源，不另设清单文件。按上游示例新增一个兼容用例：
+
+1. 在 `CASES` 加一项 `Case`：`tag`、协议、传输、是否 TLS、多路复用，`source` 填上游示例或参考文档的链接。
+2. 入站需要新设置时改 `inbound()`，再在各客户端的配置生成函数（`xray_config`、`sing_box_config`、
+   `hysteria_config`、`mihomo_config`）里补上对应字段。
+3. 在 `Client::supports` 里写明哪些客户端支持它；不支持的在表里是 `n/a`。
+
+许可说明：上游示例文件（如 XTLS/Xray-examples、各客户端文档里的配置）只在 `source` 里放链接，不得把其内容复制进
+本仓库；客户端配置一律按各客户端公开的配置项自行编写。参考客户端二进制只在 CI 中下载运行，不随产物分发。
+
 CI 的 `concurrency` 只取消同一 pull request 上被新提交取代的旧 run。`main`、tag 与手动触发的 run 不会被取消，保证每个合并提交都有完整的验证结果。
 
 ### CI 缓存策略

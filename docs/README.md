@@ -6,7 +6,7 @@
 
 ## 治理、发布与运维
 
-- [CI/CD Policy](ci-cd-policy.md)：本地与 GitHub Actions 的职责、按改动范围选择验证任务
+- [CI/CD Policy](ci-cd-policy.md)：本地与 GitHub Actions 的职责、按改动范围选择验证任务、客户端互通矩阵与新增兼容用例的方法
 - [Release Strategy](release-strategy.md)：tag 发布门禁、产物矩阵与回滚
 - [Alpha Release Feature Matrix](alpha-release-feature-matrix.md)：每个 alpha/beta/rc/stable 版本的能力边界
 - [Manual Intervention List](manual-intervention.md)：需要人工处理的事项

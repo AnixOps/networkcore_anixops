@@ -10,8 +10,8 @@
 //! non-TLS probes, is relayed unchanged to the `handshake` site, so a prober
 //! sees that site's real certificate.
 //!
-//! With a transport (XHTTP), the transport serves the connection inside the
-//! REALITY TLS session instead of VLESS reading it directly.
+//! With a transport (gRPC or XHTTP), the transport serves the connection
+//! inside the REALITY TLS session instead of VLESS reading it directly.
 //!
 //! Not yet: mirroring the handshake site's ServerHello and record sizes, and
 //! the ML-KEM part of hybrid key shares (the X25519 half is used).

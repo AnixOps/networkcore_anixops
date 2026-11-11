@@ -41,7 +41,9 @@ target is resolved and dialed at the last hop).
 - `proxy_protocol`: `off` (default), `v1` or `v2` (or `PROXY_PROTOCOL_V2`).
   The forward writes the PROXY header to the target ahead of the client's
   bytes, with the client's address and the address it reached; relays pass
-  it on untouched. TCP only.
+  it on untouched. TCP only. Behind a relay that sends the header itself,
+  the inbound key `"accept_proxy_protocol": true` (node-runtime) reads it,
+  and the addresses written on are the ones it carried.
 - UDP: one outbound session per client address, which keeps the target it
   was first given, ended after 120 s without traffic; replies leave from the
   listen port. At most 1024 clients at once.
@@ -52,4 +54,5 @@ target is resolved and dialed at the last hop).
   filter and does not apply egress routes to forwards.
 
 `crates/node-runtime/tests/forward.rs` covers TCP, UDP, traffic, a named
-outbound, balancing and failover, the PROXY header and `max_conns`.
+outbound, balancing and failover, the PROXY header (written and accepted)
+and `max_conns`.

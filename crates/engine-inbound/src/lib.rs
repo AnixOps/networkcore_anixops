@@ -23,11 +23,13 @@ pub mod destinations;
 pub mod health;
 pub mod limit;
 mod mux;
+pub mod proxy_protocol;
 pub mod qos;
 mod quic;
 pub mod registry;
 pub mod replay;
 pub mod server;
+mod sing_mux;
 pub mod stream;
 pub mod udp;
 pub mod users;
@@ -49,6 +51,9 @@ pub struct Accepted {
     /// The authenticated user; `None` for single-key inbounds without a user
     /// table.
     pub user: Option<Arc<UserEntry>>,
+    /// Where the client wants to go. The sing-mux destination
+    /// (`sp.mux.sing-box.arpa`) makes the serve loop run smux or yamux on
+    /// `stream`, each of its streams relayed like a connection.
     pub target: TargetAddr,
     /// Payload stream: reads return what the client sends to `target`,
     /// writes go back to the client.

@@ -28,7 +28,7 @@ use std::sync::{Arc, Mutex};
 
 use engine_outbound::{BoxStream, TargetAddr, TcpOutbound};
 use futures_util::stream::{FuturesUnordered, StreamExt};
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::mpsc;
 
 use crate::addr::{read_port_addr, write_port_addr, VMESS};
@@ -123,16 +123,7 @@ pub(crate) async fn relay_mux(
     let (spawn, mut spawned) = mpsc::unbounded_channel::<NewSession>();
 
     let read = read_loop(&mut reader, &frames, &spawn);
-    let write = async {
-        while let Some(frame) = outgoing.recv().await {
-            if writer.write_all(&frame).await.is_err() {
-                return;
-            }
-            if outgoing.is_empty() && writer.flush().await.is_err() {
-                return;
-            }
-        }
-    };
+    let write = write_frames(&mut writer, &mut outgoing);
     let revoked = async {
         match &user {
             Some(user) => user.revoked().await,
@@ -163,6 +154,22 @@ pub(crate) async fn relay_mux(
                 });
             }
             Some(()) = running.next(), if !running.is_empty() => {}
+        }
+    }
+}
+
+/// Writes queued frames to the client, flushing when the queue runs empty.
+/// Returns when writing fails or every sender is gone.
+pub(crate) async fn write_frames<W: AsyncWrite + Unpin>(
+    writer: &mut W,
+    outgoing: &mut mpsc::Receiver<Vec<u8>>,
+) {
+    while let Some(frame) = outgoing.recv().await {
+        if writer.write_all(&frame).await.is_err() {
+            return;
+        }
+        if outgoing.is_empty() && writer.flush().await.is_err() {
+            return;
         }
     }
 }

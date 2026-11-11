@@ -344,6 +344,42 @@ async fn writes_the_proxy_protocol_header() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn takes_the_client_address_from_a_proxy_protocol_header() {
+    let api = start_api(Node::new(default_registry(), false)).await;
+    let target = tagged_server("t").await;
+    let server = add_forward(
+        api,
+        json!({"tag": "behind", "type": "forward", "listen": "127.0.0.1", "listen_port": 0,
+               "network": "tcp", "accept_proxy_protocol": true, "proxy_protocol": "v1",
+               "server": "127.0.0.1", "server_port": target.port()}),
+    )
+    .await;
+    // The header of the relay in front is read off the connection, and the
+    // forward writes its addresses on instead of the relay's.
+    let header = "PROXY TCP4 198.51.100.7 203.0.113.1 50000 443\r\n";
+    let mut stream = TcpStream::connect(server).await.unwrap();
+    stream
+        .write_all(format!("{header}payload\n").as_bytes())
+        .await
+        .unwrap();
+    let mut reply = Vec::new();
+    tokio::time::timeout(TIMEOUT, stream.read_to_end(&mut reply))
+        .await
+        .expect("reply timed out")
+        .unwrap();
+    assert_eq!(String::from_utf8(reply).unwrap(), format!("t {header}"));
+
+    // A connection without a header is closed before anything is relayed.
+    let mut stream = TcpStream::connect(server).await.unwrap();
+    stream.write_all(b"no header here\n").await.unwrap();
+    let mut reply = Vec::new();
+    let _ = tokio::time::timeout(TIMEOUT, stream.read_to_end(&mut reply))
+        .await
+        .expect("close timed out");
+    assert!(reply.is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn caps_concurrent_connections() {
     let api = start_api(Node::new(default_registry(), false)).await;
     let target = echo_server().await;

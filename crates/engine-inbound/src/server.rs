@@ -11,11 +11,12 @@ use std::time::Duration;
 
 use engine_outbound::{BoxStream, TargetAddr, TcpOutbound};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, ReadBuf};
-use tokio::net::TcpListener;
+use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Semaphore;
 
 use crate::destinations::StreamDestination;
 use crate::limit::Throttle;
+use crate::proxy_protocol::read_header;
 use crate::qos::Classing;
 use crate::udp::{relay_datagrams, UdpOutbound};
 use crate::{Accepted, StreamInbound, UserEntry};
@@ -31,6 +32,11 @@ pub struct ServeSettings {
     /// How long a rejected client that the inbound asked to hold is kept open
     /// while its input is discarded.
     pub reject_hold: Duration,
+    /// Every TCP connection starts with a PROXY protocol header (version 1
+    /// or 2) from the relay or load balancer in front, and the client's
+    /// address is the one in it. A connection without a valid header is
+    /// closed, so only that relay may reach the listener.
+    pub accept_proxy_protocol: bool,
 }
 
 impl Default for ServeSettings {
@@ -40,6 +46,7 @@ impl Default for ServeSettings {
             handshake_timeout: Duration::from_secs(30),
             connect_timeout: Duration::from_secs(10),
             reject_hold: Duration::from_secs(30),
+            accept_proxy_protocol: false,
         }
     }
 }
@@ -87,7 +94,7 @@ pub async fn serve_with_udp(
     let permits = Arc::new(Semaphore::new(settings.max_connections));
     let settings = Arc::new(settings);
     loop {
-        let (stream, peer) = listener.accept().await?;
+        let (mut stream, peer) = listener.accept().await?;
         let Ok(permit) = permits.clone().try_acquire_owned() else {
             stats.rejected.fetch_add(1, Ordering::Relaxed);
             drop(stream);
@@ -102,22 +109,47 @@ pub async fn serve_with_udp(
         tokio::spawn(async move {
             let _permit = permit;
             let _ = stream.set_nodelay(true);
-            let local = stream.local_addr().ok();
             stats.active.fetch_add(1, Ordering::Relaxed);
-            run(
-                Box::new(stream),
-                peer,
-                local,
-                inbound.as_ref(),
-                outbound.as_ref(),
-                udp.as_deref(),
-                &settings,
-                &stats,
-            )
-            .await;
+            match endpoints(&mut stream, peer, &settings).await {
+                Ok((peer, local)) => {
+                    run(
+                        Box::new(stream),
+                        peer,
+                        local,
+                        inbound.as_ref(),
+                        outbound.as_ref(),
+                        udp.as_deref(),
+                        &settings,
+                        &stats,
+                    )
+                    .await
+                }
+                Err(_) => {
+                    stats.handshake_failed.fetch_add(1, Ordering::Relaxed);
+                }
+            }
             stats.active.fetch_sub(1, Ordering::Relaxed);
         });
     }
+}
+
+/// The client's address and the address it reached: the socket's, or with
+/// [`ServeSettings::accept_proxy_protocol`] those of the PROXY protocol
+/// header, which is read off `stream` within the handshake timeout.
+async fn endpoints(
+    stream: &mut TcpStream,
+    peer: SocketAddr,
+    settings: &ServeSettings,
+) -> io::Result<(SocketAddr, Option<SocketAddr>)> {
+    let local = stream.local_addr().ok();
+    if !settings.accept_proxy_protocol {
+        return Ok((peer, local));
+    }
+    let header = tokio::time::timeout(settings.handshake_timeout, read_header(stream)).await??;
+    Ok(match header {
+        Some((source, destination)) => (source, Some(destination)),
+        None => (peer, local),
+    })
 }
 
 /// Runs one client connection to completion. Transports other than plain TCP
@@ -198,14 +230,7 @@ async fn relay(
     settings: &ServeSettings,
     stats: &Arc<InboundStats>,
 ) {
-    let Accepted {
-        user,
-        target,
-        stream,
-        udp,
-        mux,
-    } = accepted;
-    let _online = match &user {
+    let _online = match &accepted.user {
         Some(entry) => match entry.try_connect(peer.ip()) {
             Some(guard) => Some(guard),
             None => {
@@ -215,14 +240,37 @@ async fn relay(
         },
         None => None,
     };
-    if user.as_ref().is_some_and(|user| user.is_revoked()) {
+    if accepted.user.as_ref().is_some_and(|user| user.is_revoked()) {
         stats.revoked.fetch_add(1, Ordering::Relaxed);
         return;
     }
-    if mux {
+    if accepted.mux {
+        let Accepted { user, stream, .. } = accepted;
         crate::mux::relay_mux(stream, user, outbound, udp_outbound, settings, stats).await;
-        return;
+    } else if crate::sing_mux::requested(&accepted.target) {
+        let Accepted { user, stream, .. } = accepted;
+        crate::sing_mux::relay(stream, user, outbound, udp_outbound, settings, stats).await;
+    } else {
+        relay_stream(accepted, outbound, udp_outbound, settings, stats).await;
     }
+}
+
+/// Relays one stream to its target: a client connection, or one stream of a
+/// multiplexed connection, which counts and is limited like a connection.
+pub(crate) async fn relay_stream(
+    accepted: Accepted,
+    outbound: &dyn TcpOutbound,
+    udp_outbound: Option<&dyn UdpOutbound>,
+    settings: &ServeSettings,
+    stats: &Arc<InboundStats>,
+) {
+    let Accepted {
+        user,
+        target,
+        stream,
+        udp,
+        ..
+    } = accepted;
     if let Some(codec) = udp {
         match udp_outbound {
             Some(outbound) => relay_datagrams(stream, codec.as_ref(), outbound, user, stats).await,
