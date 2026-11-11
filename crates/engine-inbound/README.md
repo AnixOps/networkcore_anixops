@@ -58,9 +58,9 @@ kernel that anix-agent drives on a proxy server). It mirrors `engine-outbound`:
   (the clients' default: HTTP/2 on the stream as it is, a CONNECT request
   per stream, served with the `h2` crate) on the stream, padded for its
   first 16 writes each way when the session request asks for padding.
-  Inbounds that connect their streams themselves (AnyTLS, Snell) do not
-  serve it, and a stream of a QUIC inbound (Hysteria2, TUIC) carries TCP
-  streams only. Each stream is relayed like a connection of its own (TCP
+  Inbounds that connect their streams themselves (AnyTLS, NaiveProxy,
+  Snell) do not serve it, and a stream of a QUIC inbound (Hysteria2, TUIC)
+  carries TCP streams only. Each stream is relayed like a connection of its own (TCP
   through the outbound, UDP with or without packet addresses through the
   UDP outbound), with the user's traffic, speed limit, destination counts
   and QoS; at most 256 streams per connection, a stream counting until its

@@ -1533,6 +1533,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "inbound-naive"
+version = "0.2.0"
+dependencies = [
+ "base64 0.22.1",
+ "bytes",
+ "engine-inbound",
+ "engine-outbound",
+ "futures-util",
+ "h2",
+ "http",
+ "inbound-transport",
+ "rcgen",
+ "ring",
+ "serde",
+ "serde_json",
+ "tokio",
+ "transport-tls",
+]
+
+[[package]]
 name = "inbound-reverse-proxy"
 version = "0.2.0"
 dependencies = [
@@ -2097,6 +2117,7 @@ dependencies = [
  "inbound-forward",
  "inbound-hysteria2",
  "inbound-iwan",
+ "inbound-naive",
  "inbound-reverse-proxy",
  "inbound-shadowsocks",
  "inbound-snell",

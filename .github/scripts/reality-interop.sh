@@ -53,6 +53,16 @@ download() {
     -p "sing-box-${singbox_version}-linux-amd64.tar.gz" -D "${work}" --clobber
   tar -xzf "${work}/sing-box-${singbox_version}-linux-amd64.tar.gz" -C "${work}"
   cp "${work}/sing-box-${singbox_version}-linux-amd64/sing-box" "${bin}/sing-box"
+  # sing-box's naive outbound loads libcronet.so from beside the binary; the
+  # naive client case is skipped without it.
+  local cronet
+  cronet="$(find "${work}/sing-box-${singbox_version}-linux-amd64" -name libcronet.so -print -quit)"
+  if [[ -n "${cronet}" ]]; then
+    cp "${cronet}" "${bin}/libcronet.so"
+  else
+    echo "::warning::sing-box ${singbox_tag} ships no libcronet.so; skipping its naive client case"
+    rm -f "${bin}/libcronet.so"
+  fi
   gh release download "${hysteria_tag}" -R apernet/hysteria -p hysteria-linux-amd64 \
     -O "${bin}/hysteria" --clobber
   chmod +x "${bin}/xray" "${bin}/sing-box" "${bin}/hysteria"

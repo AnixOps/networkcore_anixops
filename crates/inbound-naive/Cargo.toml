@@ -1,0 +1,30 @@
+[package]
+name = "inbound-naive"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "NaiveProxy server inbound: HTTP/2 CONNECT with Basic proxy authentication, payload padding and fallback."
+
+[dependencies]
+base64 = "0.22"
+bytes = "1"
+engine-inbound = { path = "../engine-inbound" }
+engine-outbound = { path = "../engine-outbound" }
+futures-util = { version = "0.3", default-features = false, features = ["alloc"] }
+h2 = "0.4"
+http = "1"
+inbound-transport = { path = "../inbound-transport" }
+# Padding lengths and the filler of the `padding` header.
+ring = "0.17"
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", default-features = false, features = ["io-util", "macros", "time"] }
+
+[dev-dependencies]
+rcgen = "0.14.8"
+serde_json = "1"
+tokio = { version = "1", default-features = false, features = ["io-util", "net", "rt", "rt-multi-thread", "macros", "sync", "time"] }
+transport-tls = { path = "../transport-tls" }
+
+[lib]
+path = "src/lib.rs"

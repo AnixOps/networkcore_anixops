@@ -19,7 +19,9 @@
 //! × security × client results go to `GITHUB_STEP_SUMMARY`:
 //!
 //! - `NC_INTEROP_BIN`: directory with `xray`, `sing-box`, `hysteria` and
-//!   `mihomo` (a missing binary skips that client)
+//!   `mihomo` (a missing binary skips that client), and `libcronet.so` of
+//!   the sing-box release, which its naive outbound loads from beside the
+//!   binary (the naive case is skipped without it)
 //! - `NC_SERVER_CERT`, `NC_SERVER_KEY`, `NC_SERVER_NAME`: a self-signed
 //!   certificate with that name, which the clients trust, and
 //!   `NC_SERVER_CERT_SHA256`, its fingerprint for mihomo to pin
@@ -115,6 +117,8 @@ enum Proto {
     },
     Tuic,
     AnyTls,
+    /// NaiveProxy: HTTP/2 `CONNECT` in TLS, TCP only.
+    Naive,
     /// Snell version 4 without users, as mihomo sends no client id.
     Snell,
     /// Shadowsocks 2022 behind ShadowTLS v3: a ShadowTLS password in front
@@ -582,6 +586,14 @@ const CASES: &[Case] = &[
         source: sing_box_reference!("outbound/anytls"),
     },
     Case {
+        tag: "naive",
+        proto: Proto::Naive,
+        net: Net::Tcp,
+        tls: true,
+        mux: None,
+        source: sing_box_reference!("outbound/naive"),
+    },
+    Case {
         tag: "hysteria2",
         proto: Proto::Hysteria2 { obfs: false },
         net: Net::Tcp,
@@ -650,6 +662,7 @@ impl Case {
             Proto::Hysteria2 { .. } => "hysteria2",
             Proto::Tuic => "tuic",
             Proto::AnyTls => "anytls",
+            Proto::Naive => "naive",
             Proto::Snell => "snell",
         }
     }
@@ -657,6 +670,7 @@ impl Case {
     fn transport(&self) -> String {
         let net = match (self.proto, self.net) {
             (Proto::Hysteria2 { .. } | Proto::Tuic, _) => "quic".to_owned(),
+            (Proto::Naive, _) => "h2".to_owned(),
             (_, Net::Tcp) => "tcp".to_owned(),
             (_, Net::Ws) => "ws".to_owned(),
             (_, Net::HttpUpgrade) => "httpupgrade".to_owned(),
@@ -696,6 +710,17 @@ impl Case {
             Proto::ShadowTls { users: true } => SS_SERVER_KEY.to_owned(),
             _ => format!("{SS_SERVER_KEY}:{SS_USER_KEY}"),
         }
+    }
+
+    /// Whether the inbound relays UDP; NaiveProxy carries TCP only.
+    fn udp(&self) -> bool {
+        self.proto != Proto::Naive
+    }
+
+    /// A file beside the client binaries that `client` needs for the case:
+    /// sing-box's naive outbound loads Chromium's network stack from it.
+    fn library(&self, client: Client) -> Option<&'static str> {
+        (client == Client::SingBox && self.proto == Proto::Naive).then_some("libcronet.so")
     }
 }
 
@@ -756,6 +781,10 @@ fn inbound(env: &Env, case: &Case) -> Value {
         }
         Proto::AnyTls => {
             object.insert("type".into(), "anytls".into());
+            object.insert("users".into(), user(json!({"password": PASSWORD})));
+        }
+        Proto::Naive => {
+            object.insert("type".into(), "naive".into());
             object.insert("users".into(), user(json!({"password": PASSWORD})));
         }
         Proto::Hysteria2 { obfs } => {
@@ -911,6 +940,7 @@ impl Client {
                         Proto::Hysteria2 { .. }
                             | Proto::Tuic
                             | Proto::AnyTls
+                            | Proto::Naive
                             | Proto::Snell
                             | Proto::ShadowTls { .. }
                     )
@@ -924,8 +954,12 @@ impl Client {
                     && (case.mux.is_some() || !matches!(case.proto, Proto::ShadowTls { .. }))
             }
             Client::Hysteria => matches!(case.proto, Proto::Hysteria2 { .. }),
-            // mihomo's XHTTP and HTTPUpgrade are left to Xray and sing-box.
-            Client::Mihomo => !matches!(case.net, Net::Xhttp { .. } | Net::HttpUpgrade),
+            // mihomo's XHTTP and HTTPUpgrade are left to Xray and sing-box,
+            // and it has no naive outbound.
+            Client::Mihomo => {
+                !matches!(case.net, Net::Xhttp { .. } | Net::HttpUpgrade)
+                    && case.proto != Proto::Naive
+            }
         }
     }
 
@@ -996,6 +1030,7 @@ fn xray_config(env: &Env, case: &Case, server: SocketAddr, socks: u16) -> Value 
         Proto::Hysteria2 { .. }
         | Proto::Tuic
         | Proto::AnyTls
+        | Proto::Naive
         | Proto::Snell
         | Proto::ShadowTls { .. } => {
             unreachable!("not an Xray client case")
@@ -1134,6 +1169,12 @@ fn sing_box_config(env: &Env, case: &Case, server: SocketAddr, socks: u16) -> Va
         }
         Proto::AnyTls => {
             object.insert("type".into(), "anytls".into());
+            object.insert("password".into(), PASSWORD.into());
+        }
+        // The user's name is the login name.
+        Proto::Naive => {
+            object.insert("type".into(), "naive".into());
+            object.insert("username".into(), "alice".into());
             object.insert("password".into(), PASSWORD.into());
         }
         Proto::Hysteria2 { obfs } => {
@@ -1336,6 +1377,7 @@ fn mihomo_config(env: &Env, case: &Case, server: SocketAddr, socks: u16) -> Valu
             object.insert("psk".into(), PASSWORD.into());
             object.insert("version".into(), 4.into());
         }
+        Proto::Naive => unreachable!("not a mihomo client case"),
     }
     match case.net {
         Net::Tcp => {}
@@ -1649,7 +1691,11 @@ async fn run_client(
         // Xray sends VLESS and VMess UDP as XUDP (Mux.Cool), as does
         // sing-box for VLESS; the others use each protocol's UDP form, and
         // a multiplexing client a stream of its connection.
-        let udp = udp_echo(socks, env.udp_echo).await?;
+        let udp = if case.udp() {
+            udp_echo(socks, env.udp_echo).await?
+        } else {
+            0
+        };
         // Relayed bytes are charged to the user once the relay sees them.
         tokio::time::sleep(Duration::from_millis(200)).await;
         let (up, down) = traffic(node, case.tag);
@@ -1725,7 +1771,8 @@ fn summarize(client: Client, outcomes: Vec<&'static str>) {
         writeln!(table, " [link]({}) |", case.source).unwrap();
     }
     table.push_str(
-        "\n`skip`: the client binary is missing. `n/a`: the client does not speak the case.\n",
+        "\n`skip`: the client binary, or a library the case needs beside it, is missing. \
+         `n/a`: the client does not speak the case.\n",
     );
     let written = std::fs::OpenOptions::new()
         .append(true)
@@ -1759,6 +1806,12 @@ async fn interop(client: Client) {
             continue;
         }
         if !present {
+            outcomes.push("skip");
+            continue;
+        }
+        let library = case.library(client);
+        if let Some(missing) = library.filter(|library| !env.bin.join(library).exists()) {
+            eprintln!("skipping {}: {missing} is missing", case.tag);
             outcomes.push("skip");
             continue;
         }

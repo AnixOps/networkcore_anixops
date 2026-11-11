@@ -158,6 +158,8 @@ pub fn default_registry() -> InboundRegistry {
     registry.register(Arc::new(inbound_forward::ForwardInboundFactory));
     #[cfg(feature = "anytls")]
     registry.register(Arc::new(inbound_anytls::AnyTlsInboundFactory));
+    #[cfg(feature = "naive")]
+    registry.register(Arc::new(inbound_naive::NaiveInboundFactory));
     #[cfg(feature = "reverse_proxy")]
     registry.register(Arc::new(inbound_reverse_proxy::ReverseProxyInboundFactory));
     registry

@@ -2,7 +2,7 @@
 
 The AnixOps node kernel: protocol server inbounds (Shadowsocks-2022 and
 Shadowsocks AEAD, Trojan,
-VLESS with REALITY, VMess, Hysteria2, TUIC, Snell, AnyTLS) in one process, driven by
+VLESS with REALITY, VMess, Hysteria2, TUIC, Snell, AnyTLS, NaiveProxy) in one process, driven by
 a local management API so that a node agent such as anix-agent can add and
 remove inbounds and users and collect per-user traffic and online IPs.
 
@@ -98,6 +98,23 @@ without `"tls": {...}` for v2ray-plugin's `websocket` mode. v2ray-plugin
 clients multiplex by default, which is not served: set `mux=0` (mihomo
 `mux: false`). UDP is not part of either plugin and stays plain Shadowsocks
 on the port.
+
+A `naive` inbound serves NaiveProxy clients (and sing-box's `naive`
+outbound): HTTP/2 `CONNECT` inside TLS with Basic proxy authentication and
+the payload padding, TCP only.
+
+```json
+{"tag": "naive", "type": "naive", "listen_port": 443,
+ "users": [{"name": "1001", "username": "alice", "password": "..."}],
+ "tls": {"certificate_path": "/etc/ssl/site.crt", "key_path": "/etc/ssl/site.key"},
+ "fallback": {"server": "127.0.0.1", "server_port": 8080}}
+```
+
+A client logs in with the user's `username` (its `name` without one) and
+`password`. Whatever is not such a client's request is answered by the
+`fallback` web server, which has to take HTTP/1.1 and cleartext HTTP/2 on
+its port; without a fallback such connections and requests are held and
+then dropped. See `crates/inbound-naive/README.md`.
 
 The config format is documented in `crates/node-runtime/src/config.rs` and
 the API in `crates/node-runtime/src/api.rs`. Users relay through a direct

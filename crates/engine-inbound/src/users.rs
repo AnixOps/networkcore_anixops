@@ -27,7 +27,8 @@ use crate::registry::BuildError;
 /// One user as configured. Which credential fields apply depends on the
 /// protocol: Shadowsocks and Trojan use `password`, VLESS and VMess use
 /// `uuid`, TUIC uses both, iWAN uses `username` (or `name`), `password` and
-/// optionally `address`. Has no `Debug` on purpose.
+/// optionally `address`, NaiveProxy uses `username` (or `name`) and
+/// `password`. Has no `Debug` on purpose.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct User {
@@ -39,8 +40,8 @@ pub struct User {
     /// VLESS flow, e.g. `xtls-rprx-vision`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub flow: Option<String>,
-    /// Login name for protocols whose clients type one in (iWAN); `name`
-    /// when absent.
+    /// Login name for protocols whose clients type one in (iWAN,
+    /// NaiveProxy); `name` when absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub username: Option<String>,
     /// Fixed tunnel address for layer-3 protocols (iWAN); assigned from the

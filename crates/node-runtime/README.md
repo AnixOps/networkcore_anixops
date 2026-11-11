@@ -21,8 +21,9 @@ accounting.
   in `smux`, `yamux` or `h2mux` (what those clients run when no protocol is
   set), with or without `padding`, on VLESS, VMess, Trojan and Shadowsocks
   inbounds (with TLS, REALITY or a transport too); nothing is configured
-  for it. AnyTLS and Snell inbounds do not serve it, and on Hysteria2 and
-  TUIC it carries TCP streams only. TCP Brutal is not supported.
+  for it. AnyTLS, NaiveProxy and Snell inbounds do not serve it, and on
+  Hysteria2 and TUIC it carries TCP streams only. TCP Brutal is not
+  supported.
   `GET /v1/status` lists the feature as `sing_mux`, and h2mux and padding
   as `sing_mux_h2mux`.
 - `"fallbacks"` on VLESS, Trojan and AnyTLS inbounds: a list of `{"name",
@@ -94,7 +95,8 @@ accounting.
 - Listeners on `::` accept IPv4 too on every OS and fall back to `0.0.0.0`
   on hosts without IPv6.
 - Protocols are cargo features (`shadowsocks`, `trojan`, `vless`, `vmess`,
-  `hysteria2`, `tuic`, `snell`), all on by default.
+  `hysteria2`, `tuic`, `snell`, `iwan`, `forward`, `anytls`, `naive`,
+  `reverse_proxy`), all on by default.
 
 `tests/management_api.rs` drives a node through the API with the engine's
 Shadowsocks-2022 client; `tests/egress.rs` routes domains between two nodes
