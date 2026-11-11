@@ -95,6 +95,12 @@ int32_t networkcore_ios_measure_delay(const uint8_t *config, size_t config_len, 
  * "map_local_data" resources and pass them as mitm.resource_assets; scripts need the user's
  * consent first. Needs no runtime handle. */
 int32_t networkcore_ios_mitm_inspect_plugin(const uint8_t *text, size_t text_len, NetworkCoreBuffer *out);
+/* Bound interface (macOS packet tunnel): pins every socket the engine opens to the interface with
+ * this index (if_nametoindex), so it leaves through the physical network instead of looping into
+ * the tunnel's default route. 0 leaves that family unpinned; both 0 removes the pin. Process-wide,
+ * no runtime handle; call before start_tunnel and again when the network changes. Apple platforms
+ * only (IP_BOUND_IF): elsewhere a non-zero index returns NETWORKCORE_IOS_ERR_INVALID_ARGUMENT. */
+int32_t networkcore_ios_set_bound_interface(uint32_t ipv4_index, uint32_t ipv6_index);
 void networkcore_ios_runtime_free_buffer(NetworkCoreBuffer buffer);
 void networkcore_ios_runtime_free_handle(NetworkCoreRuntime *handle);
 
