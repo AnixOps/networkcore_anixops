@@ -3,11 +3,11 @@
 # (outbound-hysteria2), TUIC (outbound-tuic), Snell (outbound-snell) and
 # Mieru (outbound-mieru) and iWAN (outbound-iwan) interop harness, plus the
 # reverse direction: Xray-core,
-# sing-box and Hysteria clients against our server inbounds
+# sing-box, Hysteria and mihomo clients against our server inbounds
 # (node-runtime client_interop). Linux runners only.
 #
-#   reality-interop.sh download   fetch Xray-core, sing-box and Hysteria
-#                                 release binaries, official snell-server
+#   reality-interop.sh download   fetch Xray-core, sing-box, Hysteria and
+#                                 mihomo release binaries, official snell-server
 #                                 builds and the official mita package, and
 #                                 build iwand-server and the iwand client
 #                                 from a pinned commit
@@ -16,8 +16,8 @@
 #   reality-interop.sh start      start targets and REALITY servers, write env
 #   reality-interop.sh logs       print server logs (for failed runs)
 #
-# Versions come from XRAY_VERSION / SINGBOX_VERSION / HYSTERIA_VERSION (a
-# release tag or "latest") and SNELL_VERSIONS (space-separated snell-server
+# Versions come from XRAY_VERSION / SINGBOX_VERSION / HYSTERIA_VERSION /
+# MIHOMO_VERSION (a release tag or "latest") and SNELL_VERSIONS (space-separated snell-server
 # versions; a version that cannot be downloaded is skipped with a warning,
 # except the v6 one) and MIERU_VERSION (an enfein/mieru release tag or
 # "latest") and IWAND_COMMIT (Ricky-Hao/iwand commit, default 9f6a0e3). Keys,
@@ -60,6 +60,21 @@ download() {
   "${bin}/xray" version | sed -n 1p
   "${bin}/sing-box" version | sed -n 1p
   "${bin}/hysteria" version | grep -i '^version' || true
+
+  # mihomo is a client for client_interop only, and its cases are skipped
+  # without the binary, so a release that cannot be fetched is a warning.
+  local mihomo_tag
+  mihomo_tag="$(resolve_tag MetaCubeX/mihomo "${MIHOMO_VERSION:-latest}" || true)"
+  if [[ -n "${mihomo_tag}" ]] && gh release download "${mihomo_tag}" -R MetaCubeX/mihomo \
+    -p "mihomo-linux-amd64-${mihomo_tag}.gz" -O "${work}/mihomo.gz" --clobber; then
+    gunzip -c "${work}/mihomo.gz" > "${bin}/mihomo"
+    chmod +x "${bin}/mihomo"
+    "${bin}/mihomo" -v | sed -n 1p
+  else
+    echo "::warning::mihomo ${mihomo_tag:-release} could not be downloaded; skipping its client cases"
+    rm -f "${bin}/mihomo"
+    mihomo_tag="not downloaded"
+  fi
 
   # Official snell-server builds, black-box interop only (docs/protocols/snell.md §10.1).
   local snell_version snell_rows=""
@@ -107,6 +122,7 @@ download() {
       echo "| Xray-core | ${xray_tag} |"
       echo "| sing-box | ${singbox_tag} |"
       echo "| Hysteria | ${hysteria_tag} |"
+      echo "| mihomo | ${mihomo_tag} |"
       printf '%s' "${snell_rows}"
       echo "| mita | ${mieru_tag} |"
       echo "| iwand-server, iwand | ${iwand_commit} |"
@@ -154,6 +170,9 @@ open(sys.argv[1], 'wb').write(data)
   openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes \
     -keyout "${work}/server.key" -out "${work}/server.crt" -days 2 \
     -subj /CN=server.interop.test -addext subjectAltName=DNS:server.interop.test 2>/dev/null
+  # mihomo pins a certificate by its SHA-256 instead of reading a CA file.
+  local server_cert_sha256
+  server_cert_sha256="$(openssl x509 -noout -fingerprint -sha256 -in "${work}/server.crt" | cut -d= -f2 | tr -d :)"
 
   # Inner TLS 1.3 target serving files, and the REALITY camouflage target.
   (cd "${www}" && exec openssl s_server -accept 127.0.0.1:18443 -tls1_3 -WWW -quiet \
@@ -447,6 +466,7 @@ NC_REALITY_PRIVATE_KEY=${private_key}
 NC_REALITY_DEST=127.0.0.1:18444
 NC_INTEROP_BIN=${bin}
 NC_SERVER_CERT=${work}/server.crt
+NC_SERVER_CERT_SHA256=${server_cert_sha256}
 NC_SERVER_KEY=${work}/server.key
 NC_SERVER_NAME=server.interop.test
 NC_REALITY_SHORT_ID=${short_id}

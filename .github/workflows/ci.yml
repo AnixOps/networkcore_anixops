@@ -2332,6 +2332,7 @@ jobs:
       XRAY_VERSION: latest
       SINGBOX_VERSION: latest
       HYSTERIA_VERSION: latest
+      MIHOMO_VERSION: latest
     needs:
       - changes
       - policy-fast
@@ -2379,7 +2380,7 @@ jobs:
           go-version: "1.22"
           cache: false
 
-      - name: Download Xray-core, sing-box, Hysteria, snell-server and mita; build iwand-server
+      - name: Download Xray-core, sing-box, Hysteria, mihomo, snell-server and mita; build iwand-server
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
