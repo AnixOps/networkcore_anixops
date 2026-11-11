@@ -520,10 +520,13 @@ async fn h2mux_streams_are_connect_requests() {
     // The end of the request body closes the target side, and the response
     // body ends when the target has closed.
     send.send_data(Bytes::new(), true).unwrap();
-    let end = timeout(TIMEOUT, body.data())
+    // The end may come as an empty DATA frame with END_STREAM.
+    while let Some(end) = timeout(TIMEOUT, body.data())
         .await
-        .expect("h2mux end timed out");
-    assert!(end.is_none());
+        .expect("h2mux end timed out")
+    {
+        assert!(end.unwrap().is_empty());
+    }
 
     // A request that is not CONNECT is not a stream.
     let mut other = requests.clone().ready().await.unwrap();
