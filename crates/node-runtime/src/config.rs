@@ -15,9 +15,10 @@
 //!
 //! Every inbound key other than `tag`, `type`, `listen`, `listen_port`,
 //! `outbound`, `ingress` and `accept_proxy_protocol` is passed to the
-//! protocol factory as its settings. `egress` is optional and has the format of `PUT /v1/egress`
-//! ([`crate::egress::EgressConfig`]); `network` is optional and has the
-//! format of `PUT /v1/network` ([`crate::network::NetworkPlan`]).
+//! protocol factory as its settings. `egress` is optional and has the
+//! format of `PUT /v1/egress` ([`crate::egress::EgressConfig`]); `network`
+//! is optional and has the format of `PUT /v1/network`
+//! ([`crate::network::NetworkPlan`]).
 //!
 //! `outbound` (on an inbound) and `default_outbound` (for all inbounds)
 //! name the base outbound traffic leaves through: `"direct"` (the default),

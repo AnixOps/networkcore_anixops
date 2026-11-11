@@ -17,9 +17,9 @@
 #   reality-interop.sh logs       print server logs (for failed runs)
 #
 # Versions come from XRAY_VERSION / SINGBOX_VERSION / HYSTERIA_VERSION /
-# MIHOMO_VERSION (a release tag or "latest") and SNELL_VERSIONS (space-separated snell-server
-# versions; a version that cannot be downloaded is skipped with a warning,
-# except the v6 one) and MIERU_VERSION (an enfein/mieru release tag or
+# MIHOMO_VERSION (a release tag or "latest") and SNELL_VERSIONS
+# (space-separated snell-server versions; a version that cannot be
+# downloaded is skipped with a warning, except the v6 one) and MIERU_VERSION (an enfein/mieru release tag or
 # "latest") and IWAND_COMMIT (Ricky-Hao/iwand commit, default 9f6a0e3). Keys,
 # UUID, short id and passwords are generated per run.
 
