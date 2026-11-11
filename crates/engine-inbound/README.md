@@ -28,7 +28,8 @@ kernel that anix-agent drives on a proxy server). It mirrors `engine-outbound`:
   AnyTLS) relays a connection that is not its protocol's. `Fallbacks` holds
   the rules of `"fallbacks"` (`name`: server name of the TLS or REALITY
   handshake, `alpn`: its ALPN protocol, `path`: path of the HTTP/1.x request
-  the connection starts with, `dest`: `host:port` or a local port, `xver`:
+  the connection starts with, `dest`: `host:port` (an IPv6 address in
+  brackets) or a local port, `xver`:
   PROXY protocol version written to the destination) and the single
   `"fallback"` as the rule without conditions. Of the matching rules the one
   with the most conditions wins, the earlier one of equals; without a match

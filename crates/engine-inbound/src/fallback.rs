@@ -14,7 +14,8 @@
 //! - `alpn`: the ALPN protocol that handshake agreed on.
 //! - `path`: the path of the HTTP/1.x request the connection starts with,
 //!   without its query.
-//! - `dest`: `"host:port"`, or a port on this host (`8080` or `"8080"`).
+//! - `dest`: `"host:port"` (an IPv6 address in brackets), or a port on this
+//!   host (`8080` or `"8080"`).
 //! - `xver`: 1 or 2 writes a PROXY protocol header of that version to the
 //!   destination ahead of the client's bytes; 0, the default, writes none.
 //!
@@ -107,14 +108,20 @@ impl FallbackRule {
         match &self.dest {
             FallbackDest::Port(port) => Some(local(*port)),
             FallbackDest::Address(address) => match address.rsplit_once(':') {
-                Some((host, port)) if !host.is_empty() => {
-                    Some(TargetAddr::from_host(host, port.parse().ok()?))
+                // Only brackets tell the colons of an IPv6 address from the
+                // one before the port.
+                Some((host, _)) if host.is_empty() || (host.contains(':') && !bracketed(host)) => {
+                    None
                 }
-                Some(_) => None,
+                Some((host, port)) => Some(TargetAddr::from_host(host, port.parse().ok()?)),
                 None => address.parse().ok().map(local),
             },
         }
     }
+}
+
+fn bracketed(host: &str) -> bool {
+    host.starts_with('[') && host.ends_with(']')
 }
 
 struct Rule {
@@ -305,6 +312,10 @@ mod tests {
         assert_eq!(target("web.example".into()), None);
         assert_eq!(target(":80".into()), None);
         assert_eq!(target("web.example:http".into()), None);
+        // IPv6 addresses without brackets.
+        assert_eq!(target("::1".into()), None);
+        assert_eq!(target("2001:db8::1".into()), None);
+        assert_eq!(target("2001:db8::1:80".into()), None);
     }
 
     #[test]
