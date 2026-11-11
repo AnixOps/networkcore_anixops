@@ -362,6 +362,28 @@ pub struct ConnectionContext<'a> {
 }
 
 impl<'a> ConnectionContext<'a> {
+    /// The context of a connection the serve loop did not accept, such as
+    /// a QUIC connection of a [`crate::PacketInbound`] that carries the
+    /// streams of a [`StreamInbound`].
+    pub fn new(
+        peer: SocketAddr,
+        settings: &'a ServeSettings,
+        stats: &'a Arc<InboundStats>,
+        outbound: &'a dyn TcpOutbound,
+        udp: Option<&'a dyn UdpOutbound>,
+    ) -> Self {
+        Self {
+            peer,
+            local: None,
+            settings,
+            stats,
+            outbound,
+            udp,
+            server_name: None,
+            alpn: None,
+        }
+    }
+
     /// What the layers in front know about the connection, for the
     /// [`crate::fallback`] rules.
     pub fn conn(&self) -> ConnInfo<'a> {

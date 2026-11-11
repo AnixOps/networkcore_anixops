@@ -69,7 +69,8 @@
 //! `/v1/rules` and `/v1/rules/counters`), `accept_proxy_protocol` (the
 //! inbound key of that name), `sing_mux` (inbounds serve clients that
 //! multiplex with sing-mux in smux or yamux), `fallbacks` (the `fallbacks`
-//! list of VLESS, Trojan and AnyTLS inbounds).
+//! list of VLESS, Trojan and AnyTLS inbounds), `xhttp_h3` (an XHTTP inbound
+//! with `h3` in its TLS `alpn` also serves HTTP/3 on the UDP port).
 //!
 //! A user may carry `speed_limit` (Mbit/s for each direction, shared by
 //! all of its connections) and `device_limit` (most client IPs online at

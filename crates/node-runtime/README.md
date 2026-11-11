@@ -33,6 +33,12 @@ accounting.
   default, and the single `"fallback"` still works as that default. Behind
   a transport (`ws`, `grpc`, ...) only `path` and the default match.
   `GET /v1/status` lists the feature as `fallbacks`.
+- An XHTTP inbound (VLESS, VMess, Trojan) with `h3` in its TLS `alpn`
+  also serves HTTP/3: the node binds the UDP port of the same number for
+  the inbound's QUIC side (`StreamInbound::packet`), beside its TCP
+  listener, with the same users, outbound and counters.
+  `accept_proxy_protocol` and the connection cap apply to the TCP side
+  only. `GET /v1/status` lists the feature as `xhttp_h3`.
 - `api`: local HTTP/JSON management API with a bearer token, shaped after
   what anix-agent's core interface needs (add/remove node, add/remove users,
   traffic slices, online devices).

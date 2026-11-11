@@ -16,7 +16,8 @@ kernel that anix-agent drives on a proxy server). It mirrors `engine-outbound`:
   timeouts that relays every accepted stream through an
   `engine_outbound::TcpOutbound` (direct or routed) and charges bytes to the
   user as they move. `server::handle_connection` is the same per-connection
-  path for TLS or QUIC transports.
+  path for TLS or QUIC transports, and `ConnectionContext::new` gives a
+  transport that accepts connections itself the context of the serve loop.
 - `proxy_protocol`: PROXY protocol versions 1 and 2. With
   `ServeSettings::accept_proxy_protocol` the accept loop reads the header a
   relay in front sent (`read_header`) before the protocol sees the stream
@@ -44,6 +45,8 @@ kernel that anix-agent drives on a proxy server). It mirrors `engine-outbound`:
   are refused. `SessionRelay` keeps one socket per protocol session id for
   QUIC protocols (Hysteria2, TUIC; `PacketInbound::serve` takes the UDP
   outbound) and Shadowsocks UDP (`StreamInbound::datagram`, same port).
+  `StreamInbound::packet` is the QUIC side of a stream inbound on the UDP
+  port of the same number (XHTTP over HTTP/3).
 - `mux` (internal): Mux.Cool for VLESS/VMess command 3. A protocol sets
   `Accepted::mux`; the serve loop then runs TCP sessions through the outbound
   and UDP sessions (XUDP, per-datagram addresses) through the UDP outbound on

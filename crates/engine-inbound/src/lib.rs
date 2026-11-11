@@ -158,6 +158,14 @@ pub trait StreamInbound: Send + Sync {
         None
     }
 
+    /// The QUIC side of inbounds that also serve on the UDP port of the same
+    /// number, such as XHTTP over HTTP/3 beside HTTP/2 on TCP. The node
+    /// binds that port for UDP when present; an inbound has this or
+    /// [`StreamInbound::datagram`], not both.
+    fn packet(&self) -> Option<Arc<dyn PacketInbound>> {
+        None
+    }
+
     /// Work that runs beside [`server::serve_with_udp`] for as long as it
     /// serves, given the inbound's outbound: a forward's health checks of
     /// its targets.

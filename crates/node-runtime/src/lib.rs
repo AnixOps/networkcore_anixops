@@ -218,6 +218,7 @@ pub const FEATURES: &[&str] = &[
     "accept_proxy_protocol",
     "sing_mux",
     "fallbacks",
+    "xhttp_h3",
     #[cfg(feature = "reverse_proxy")]
     "reverse_proxy",
 ];
@@ -559,13 +560,21 @@ impl Node {
             Inbound::Stream(stream) => {
                 let listener = bind_tcp(address)?;
                 let listen = listener.local_addr()?;
-                // UDP on the same port, for inbounds that take it.
-                let datagrams = match stream.datagram() {
-                    Some(datagram) => {
+                // UDP on the same port, for inbounds that take it: their
+                // own datagrams, or QUIC (XHTTP over HTTP/3).
+                let datagrams = match (stream.datagram(), stream.packet()) {
+                    (Some(datagram), _) => {
                         let socket = bind_udp(listen)?;
                         Some(datagram.serve(socket, udp.clone(), stats.clone()))
                     }
-                    None => None,
+                    (None, Some(packet)) => Some(packet.serve(
+                        bind_udp(listen)?,
+                        outbound.clone(),
+                        Some(udp.clone()),
+                        settings.clone(),
+                        stats.clone(),
+                    )),
+                    (None, None) => None,
                 };
                 let task = tokio::spawn({
                     let (stream, stats) = (stream.clone(), stats.clone());

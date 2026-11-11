@@ -124,10 +124,12 @@ enum Net {
     Ws,
     HttpUpgrade,
     Grpc,
-    /// XHTTP in `mode`; `h1` makes the client offer only ALPN `http/1.1`.
+    /// XHTTP in `mode`. `alpn` is the one ALPN protocol the client offers,
+    /// which picks its HTTP version: `http/1.1`, or `h3` for HTTP/3 over
+    /// QUIC (our inbound then lists `h3` too); `None` is HTTP/2 under TLS.
     Xhttp {
         mode: &'static str,
-        h1: bool,
+        alpn: Option<&'static str>,
     },
 }
 
@@ -158,6 +160,8 @@ macro_rules! sing_box_reference {
 }
 
 const XHTTP_EXAMPLE: &str = xray_example!("VLESS-TLS-SplitHTTP-CaddyNginx");
+/// "XHTTP: Beyond REALITY", which describes XHTTP over HTTP/3.
+const XHTTP_REFERENCE: &str = "https://github.com/XTLS/Xray-core/discussions/4113";
 const TRANSPORT_REFERENCE: &str = sing_box_reference!("shared/v2ray-transport");
 const MULTIPLEX_REFERENCE: &str = sing_box_reference!("shared/multiplex");
 const HYSTERIA_REFERENCE: &str = "https://v2.hysteria.network/docs/advanced/Full-Client-Config/";
@@ -192,7 +196,7 @@ const CASES: &[Case] = &[
         proto: Proto::VlessReality { vision: false },
         net: Net::Xhttp {
             mode: "auto",
-            h1: false,
+            alpn: None,
         },
         tls: false,
         mux: None,
@@ -203,7 +207,7 @@ const CASES: &[Case] = &[
         proto: Proto::VlessReality { vision: false },
         net: Net::Xhttp {
             mode: "stream-up",
-            h1: false,
+            alpn: None,
         },
         tls: false,
         mux: None,
@@ -214,7 +218,7 @@ const CASES: &[Case] = &[
         proto: Proto::VlessReality { vision: false },
         net: Net::Xhttp {
             mode: "packet-up",
-            h1: false,
+            alpn: None,
         },
         tls: false,
         mux: None,
@@ -241,7 +245,7 @@ const CASES: &[Case] = &[
         proto: Proto::Vless,
         net: Net::Xhttp {
             mode: "auto",
-            h1: false,
+            alpn: None,
         },
         tls: false,
         mux: None,
@@ -252,7 +256,7 @@ const CASES: &[Case] = &[
         proto: Proto::Vless,
         net: Net::Xhttp {
             mode: "auto",
-            h1: false,
+            alpn: None,
         },
         tls: true,
         mux: None,
@@ -263,7 +267,7 @@ const CASES: &[Case] = &[
         proto: Proto::Vless,
         net: Net::Xhttp {
             mode: "packet-up",
-            h1: true,
+            alpn: Some("http/1.1"),
         },
         tls: true,
         mux: None,
@@ -274,7 +278,7 @@ const CASES: &[Case] = &[
         proto: Proto::Vless,
         net: Net::Xhttp {
             mode: "stream-up",
-            h1: false,
+            alpn: None,
         },
         tls: true,
         mux: None,
@@ -285,11 +289,44 @@ const CASES: &[Case] = &[
         proto: Proto::Vless,
         net: Net::Xhttp {
             mode: "stream-one",
-            h1: false,
+            alpn: None,
         },
         tls: true,
         mux: None,
         source: XHTTP_EXAMPLE,
+    },
+    Case {
+        tag: "vless-tls-xhttp-h3",
+        proto: Proto::Vless,
+        net: Net::Xhttp {
+            mode: "auto",
+            alpn: Some("h3"),
+        },
+        tls: true,
+        mux: None,
+        source: XHTTP_REFERENCE,
+    },
+    Case {
+        tag: "vless-tls-xhttp-h3-stream-up",
+        proto: Proto::Vless,
+        net: Net::Xhttp {
+            mode: "stream-up",
+            alpn: Some("h3"),
+        },
+        tls: true,
+        mux: None,
+        source: XHTTP_REFERENCE,
+    },
+    Case {
+        tag: "vless-tls-xhttp-h3-stream-one",
+        proto: Proto::Vless,
+        net: Net::Xhttp {
+            mode: "stream-one",
+            alpn: Some("h3"),
+        },
+        tls: true,
+        mux: None,
+        source: XHTTP_REFERENCE,
     },
     Case {
         tag: "vmess-tcp",
@@ -320,7 +357,7 @@ const CASES: &[Case] = &[
         proto: Proto::Vmess,
         net: Net::Xhttp {
             mode: "auto",
-            h1: false,
+            alpn: None,
         },
         tls: true,
         mux: None,
@@ -331,7 +368,7 @@ const CASES: &[Case] = &[
         proto: Proto::Trojan,
         net: Net::Xhttp {
             mode: "stream-up",
-            h1: false,
+            alpn: None,
         },
         tls: true,
         mux: None,
@@ -505,8 +542,14 @@ impl Case {
             (_, Net::Ws) => "ws".to_owned(),
             (_, Net::HttpUpgrade) => "httpupgrade".to_owned(),
             (_, Net::Grpc) => "grpc".to_owned(),
-            (_, Net::Xhttp { mode, h1: false }) => format!("xhttp {mode}"),
-            (_, Net::Xhttp { mode, h1: true }) => format!("xhttp {mode}, http/1.1"),
+            (_, Net::Xhttp { mode, alpn: None }) => format!("xhttp {mode}"),
+            (
+                _,
+                Net::Xhttp {
+                    mode,
+                    alpn: Some(alpn),
+                },
+            ) => format!("xhttp {mode}, {alpn}"),
         };
         match self.mux {
             Some(mux) => format!("{net} + {mux}"),
@@ -633,8 +676,15 @@ fn inbound(env: &Env, case: &Case) -> Value {
         }
     }
     if case.tls {
-        let alpn: &[&str] = match case.proto {
-            Proto::Hysteria2 { .. } | Proto::Tuic => &["h3"],
+        let alpn: &[&str] = match (case.proto, case.net) {
+            (Proto::Hysteria2 { .. } | Proto::Tuic, _) => &["h3"],
+            // `h3` adds the QUIC side on the UDP port of the same number.
+            (
+                _,
+                Net::Xhttp {
+                    alpn: Some("h3"), ..
+                },
+            ) => &["h3"],
             _ => &[],
         };
         object.insert("tls".into(), env.tls(alpn));
@@ -811,9 +861,13 @@ fn xray_config(env: &Env, case: &Case, server: SocketAddr, socks: u16) -> Value 
             "serverName": env.server_name,
             "certificates": [{"usage": "verify", "certificateFile": env.cert}],
         });
-        // Xray's XHTTP runs HTTP/1.1 when ALPN is exactly `http/1.1`.
-        if let Net::Xhttp { h1: true, .. } = case.net {
-            tls["alpn"] = json!(["http/1.1"]);
+        // Xray's XHTTP runs HTTP/1.1 when ALPN is exactly `http/1.1`, and
+        // HTTP/3 over QUIC when it is exactly `h3`.
+        if let Net::Xhttp {
+            alpn: Some(alpn), ..
+        } = case.net
+        {
+            tls["alpn"] = json!([alpn]);
         }
         stream_object.insert("tlsSettings".into(), tls);
     }

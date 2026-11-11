@@ -1,6 +1,6 @@
 # XHTTP 传输规格（净室实现用）
 
-状态：草案 v0.5（2026-10-26）。适用：`transport-xhttp` 的客户端（`XhttpConnector`，用于 VLESS、VMess、Trojan 出站）和服务端（`server::XhttpServer`，经 `inbound-transport` 用于 VLESS、VMess、Trojan 入站）。
+状态：草案 v0.6（2026-11-11）。适用：`transport-xhttp` 的客户端（`XhttpConnector`，用于 VLESS、VMess、Trojan 出站）和服务端（`server::XhttpServer`，经 `inbound-transport` 用于 VLESS、VMess、Trojan 入站）。
 
 ## 0. 本文档的用途与净室规则
 
@@ -37,6 +37,7 @@ XHTTP（旧名 SplitHTTP）是 Xray-core 的 HTTP 传输：把一条代理流拆
 
 - `host` 为空时接受任意 Host；`mode` 为 `auto` 时三种上行都接受，否则只接受该模式（下载 `GET` 在 `packet-up` 和 `stream-up` 下都接受）。
 - TLS 未配置 ALPN 时提供 `h2` 和 `http/1.1`。
+- `tls` 的 `alpn` 含 `h3` 时同时提供 HTTP/3：入站在同一端口号的 UDP 上监听 QUIC（证书相同，ALPN 只有 `h3`），TCP 上的 TLS 提供列表中其余的协议（没有其余项时为 `h2` 和 `http/1.1`）。没有新的配置项；REALITY 上不提供 HTTP/3。
 - 服务端 `path` 不带查询串。
 - VLESS 入站可同时配置 `reality` 和 XHTTP `transport`（第 2.1 节）；此时不提供 Vision。
 
@@ -48,7 +49,7 @@ XHTTP（旧名 SplitHTTP）是 Xray-core 的 HTTP 传输：把一条代理流拆
 | --- | --- |
 | 无 TLS | HTTP/1.1 |
 | ALPN 恰好为 `http/1.1` | HTTP/1.1 |
-| ALPN 恰好为 `h3` | HTTP/3（QUIC，客户端支持；服务端暂不支持） |
+| ALPN 恰好为 `h3` | HTTP/3（QUIC） |
 | 其他（含空列表） | HTTP/2；空列表时客户端提供 `h2` |
 
 ### 2.1 REALITY 上的 XHTTP
@@ -59,7 +60,7 @@ XHTTP（旧名 SplitHTTP）是 Xray-core 的 HTTP 传输：把一条代理流拆
 
 HTTP/3 时每条代理流建立一条 QUIC 连接（TLS 1.3，ALPN `h3`，复用 `transport-quic`），请求与 HTTP/2 相同；各模式的行为与 HTTP/2 一致。
 
-服务端不看 ALPN：连接以 HTTP/2 前言（`PRI * HTTP/2.0…`）开头时按 HTTP/2（含明文 h2c）处理，否则按 HTTP/1.1。
+服务端在 TCP 上不看 ALPN：连接以 HTTP/2 前言（`PRI * HTTP/2.0…`）开头时按 HTTP/2（含明文 h2c）处理，否则按 HTTP/1.1。入站的 `alpn` 含 `h3` 时，UDP 上的 QUIC 连接按 HTTP/3 处理（第 3.1 节）。
 
 ## 3. 会话与模式
 
@@ -85,6 +86,8 @@ HTTP/3 时每条代理流建立一条 QUIC 连接（TLS 1.3，ALPN `h3`，复用
 - `packet-up`：每段 body 不超过 `sc_max_each_post_bytes` 的上限（超过 `413`）；按 `seq` 重排，最多领先 30 段（超过 `500` 并结束），重复的 `seq` 忽略。下载端读得慢时上传的 `200` 会延后，形成反压。
 - `stream-up`：`POST` 先回 `200`，body 结束后上行结束。
 - HTTP/1.1：`packet-up` 的上传连接可保持多次请求（keep-alive），空闲 300 秒关闭；下载 `GET` 以 chunked 回应并独占连接。HTTP/1.1 上的 `stream-up`、`stream-one` 返回 `400`。
+- HTTP/3：一条 QUIC 连接上的每个请求流独立处理，路由、状态码和三种模式都与 HTTP/2 相同；QUIC 握手和请求头各限时一个握手超时。会话表与 TCP 一侧共用，同一会话的请求可以分别走 HTTP/3 和 HTTP/2。连接关闭时，其上的代理流随之结束。
+- 代理流结束或其连接关闭时会话从表中移除。
 - 每个响应带随机长度的 `X-Padding` 头。
 
 ## 4. 填充
@@ -117,9 +120,10 @@ Xray 较新版本的可选混淆参数（填充位置、会话/序号位置、�
 - VMess、Trojan：`outbound-vmess`、`outbound-trojan` 的 `tests/xhttp_interop.rs` 连接 Xray 的 VMess、Trojan + XHTTP + TLS 入站，以 HTTP/1.1 `packet-up` 和 HTTP/2 三种模式测试；服务端测试让 Xray 客户端以 VMess HTTP/2 `auto`、Trojan HTTP/2 `stream-up` 连接本内核的对应入站。
 - 服务端：`node-runtime/tests/client_interop.rs` 让 Xray 客户端以同样五种组合连接本内核的 VLESS + XHTTP 入站，回显 256 KB、再开一条连接，并做 XUDP 的 UDP 回显。
 - REALITY：客户端测试另连 Xray 的 VLESS + REALITY + XHTTP 入站，以 `auto`（即 `stream-one`）、`stream-up`、`packet-up` 三种模式各测一次；服务端测试让 Xray 客户端以同样三种模式连接本内核的 VLESS + REALITY + XHTTP 入站。
-- HTTP/3：客户端测试另连 Xray 的 VLESS + XHTTP 入站（TLS ALPN 仅 `h3`，监听 UDP），以 `packet-up`、`stream-up`、`stream-one` 各测一次。
-- 本地：`transport-xhttp/tests/loopback.rs` 让本实现的客户端与服务端在 h1 `packet-up` 和 h2c 三种模式下互相回显。
+- HTTP/3：客户端测试另连 Xray 的 VLESS + XHTTP 入站（TLS ALPN 仅 `h3`，监听 UDP），以 `packet-up`、`stream-up`、`stream-one` 各测一次；服务端测试让 Xray 客户端（ALPN 仅 `h3`）以 `auto`（即 `packet-up`）、`stream-up`、`stream-one` 连接本内核 `alpn` 为 `h3` 的 VLESS + XHTTP 入站（`vless-tls-xhttp-h3*`）。**[待实测]** 这三项尚未在 CI 中跑过。
+- 本地：`transport-xhttp/tests/loopback.rs` 让本实现的客户端与服务端在 h1 `packet-up` 和 h2c 三种模式下互相回显；`inbound-transport/tests/xhttp_http3.rs` 让本实现的客户端以 HTTP/3 三种模式连接入站的 QUIC 一侧，再以 HTTP/2 连接同端口的 TCP 一侧。
 
 ## 7. 后续
 
-- 服务端 HTTP/3、`xmux` 连接复用、`downloadSettings`（上下行分离到不同服务器）。
+- `xmux` 连接复用、`downloadSettings`（上下行分离到不同服务器）。
+- 服务端 HTTP/3 的后续项：只监听 UDP 的入站（现在 TCP 一侧总是存在）、QUIC 连接计入 `max_connections`、`accept_proxy_protocol`（现在只作用于 TCP）。

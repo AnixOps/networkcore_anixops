@@ -11,6 +11,10 @@
 //! between TLS and the protocol, matching the outbound `transport` object;
 //! gRPC carries several client streams on one connection.
 //!
+//! XHTTP under TLS with `h3` in the ALPN list is also served over HTTP/3:
+//! the inbound gets a QUIC side ([`StreamInbound::packet`]) on the UDP port
+//! of the same number, and its TCP side offers the other protocols.
+//!
 //! Protocol factories parse a `"tls"` object into [`TlsServerSettings`] and a
 //! `"transport"` object into [`TransportSettings`], and call [`wrap_all`].
 
@@ -29,7 +33,7 @@ use std::time::{Duration, Instant, SystemTime};
 use engine_inbound::registry::BuildError;
 use engine_inbound::server::ConnectionContext;
 use engine_inbound::udp::DatagramInbound;
-use engine_inbound::{Accepted, ConnInfo, Rejected, StreamInbound, UserStore};
+use engine_inbound::{Accepted, ConnInfo, PacketInbound, Rejected, StreamInbound, UserStore};
 use engine_outbound::{BoxFuture, BoxStream, TcpOutbound};
 use rustls::crypto::CryptoProvider;
 use rustls::pki_types::pem::PemObject;
@@ -38,6 +42,7 @@ use rustls::server::{ClientHello, ResolvesServerCert};
 use rustls::sign::CertifiedKey;
 use rustls::ServerConfig;
 use serde::Deserialize;
+use transport::wrap_xhttp_with_quic;
 
 /// How often certificate files are checked for changes.
 const RELOAD_CHECK_INTERVAL: Duration = Duration::from_secs(30);
@@ -74,35 +79,45 @@ pub fn wrap(
 
 /// Wraps `inner` in `transport`, then in TLS when `tls` is set. Without a
 /// configured ALPN, gRPC under TLS offers `h2` and XHTTP `h2` and
-/// `http/1.1`.
+/// `http/1.1`. XHTTP with `h3` in the ALPN list also gets a QUIC side for
+/// HTTP/3, and offers the rest of the list (or its default) on TCP.
 pub fn wrap_all(
     inner: Arc<dyn StreamInbound>,
     transport: Option<&TransportSettings>,
     tls: Option<&TlsServerSettings>,
 ) -> Result<Arc<dyn StreamInbound>, BuildError> {
-    let inner = wrap_transport(inner, transport)?;
-    match tls {
-        Some(tls)
-            if tls.alpn.is_empty()
-                && transport.is_some_and(|transport| !transport.default_alpn().is_empty()) =>
-        {
-            let mut tls = tls.clone();
-            tls.alpn = transport
-                .map(TransportSettings::default_alpn)
-                .unwrap_or_default()
-                .iter()
-                .map(|protocol| (*protocol).to_owned())
-                .collect();
-            wrap(inner, Some(&tls))
+    let Some(tls) = tls else {
+        return wrap_transport(inner, transport);
+    };
+    let mut tls = tls.clone();
+    let http3 = tls.alpn.iter().any(|protocol| protocol == "h3");
+    let (inner, quic) = match transport {
+        Some(TransportSettings::Xhttp(settings)) if http3 => {
+            tls.alpn.retain(|protocol| protocol != "h3");
+            let (inner, quic) = wrap_xhttp_with_quic(inner, settings, &tls)?;
+            (inner, Some(quic))
         }
-        tls => wrap(inner, tls),
+        transport => (wrap_transport(inner, transport)?, None),
+    };
+    if tls.alpn.is_empty() {
+        tls.alpn = transport
+            .map(TransportSettings::default_alpn)
+            .unwrap_or_default()
+            .iter()
+            .map(|protocol| (*protocol).to_owned())
+            .collect();
     }
+    let mut inbound = TlsInbound::new(inner, &tls)?;
+    inbound.quic = quic;
+    Ok(Arc::new(inbound))
 }
 
 /// A protocol inbound behind a TLS server handshake.
 pub struct TlsInbound {
     acceptor: tokio_rustls::TlsAcceptor,
     inner: Arc<dyn StreamInbound>,
+    /// The QUIC side of the transport, served beside the TCP listener.
+    quic: Option<Arc<dyn PacketInbound>>,
 }
 
 impl TlsInbound {
@@ -113,6 +128,7 @@ impl TlsInbound {
         Ok(Self {
             acceptor: tokio_rustls::TlsAcceptor::from(Arc::new(server_config(settings)?)),
             inner,
+            quic: None,
         })
     }
 }
@@ -177,6 +193,10 @@ impl StreamInbound for TlsInbound {
 
     fn datagram(&self) -> Option<Arc<dyn DatagramInbound>> {
         self.inner.datagram()
+    }
+
+    fn packet(&self) -> Option<Arc<dyn PacketInbound>> {
+        self.quic.clone()
     }
 
     fn background(&self, outbound: Arc<dyn TcpOutbound>) -> Option<BoxFuture<'static, ()>> {

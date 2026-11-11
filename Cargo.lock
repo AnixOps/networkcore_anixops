@@ -1589,6 +1589,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "transport-grpc",
+ "transport-quic",
  "transport-tls",
  "transport-ws",
  "transport-xhttp",

@@ -58,6 +58,18 @@ port, and `xver` 1 or 2 sends the destination a PROXY protocol header. The
 entry with the most matching conditions takes the connection, and an entry
 without conditions (or `fallback`) is the default.
 
+A VLESS, VMess or Trojan inbound with the XHTTP transport and `h3` in its
+TLS `alpn` serves XHTTP over HTTP/3 (QUIC) on the UDP port of the same
+number, beside HTTP/2 and HTTP/1.1 on TCP, so both ports have to be open:
+
+```json
+{"tag": "vless-xhttp", "type": "vless", "listen_port": 443,
+ "users": [{"name": "1001", "uuid": "<uuid>"}],
+ "tls": {"certificate_path": "/etc/ssl/node.crt",
+         "key_path": "/etc/ssl/node.key", "alpn": ["h3"]},
+ "transport": {"type": "xhttp", "path": "/xh"}}
+```
+
 The config format is documented in `crates/node-runtime/src/config.rs` and
 the API in `crates/node-runtime/src/api.rs`. Users relay through a direct
 outbound that refuses loopback and private targets unless
