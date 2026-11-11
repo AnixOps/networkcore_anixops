@@ -34,12 +34,14 @@
 //! payload size of Data, the window increment of WindowUpdate and the value
 //! of a Ping. Each direction of a stream starts with a 256 KiB window: the
 //! server sends within the client's and reopens its own as the relay takes
-//! the data.
+//! the data. A stream the client resets is dropped at once.
 //!
 //! Each stream is relayed like a client connection of its own
 //! ([`relay_stream`]): through the outbound or as a UDP session, counted
 //! against the user and held to its speed limit. The connection ends when
-//! the client closes it or the user is removed.
+//! the client closes it or the user is removed. Only connections the serve
+//! loop relays get here: an inbound that connects its streams itself
+//! (AnyTLS, Snell) dials the name like any other.
 //!
 //! Not supported, and closed when asked for: h2mux, padding. TCP Brutal is
 //! not negotiated.
@@ -56,7 +58,7 @@ use std::task::{ready, Context, Poll};
 use engine_outbound::{BoxFuture, BoxStream, TargetAddr, TcpOutbound};
 use futures_util::stream::{FuturesUnordered, StreamExt};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, ReadBuf};
-use tokio::sync::{mpsc, Semaphore};
+use tokio::sync::{mpsc, Notify, Semaphore};
 
 use crate::addr::{read_addr_port, write_addr_port, SOCKS};
 use crate::mux::write_frames;
@@ -312,9 +314,8 @@ impl DatagramCodec for Datagrams {
 struct MuxStream {
     id: u32,
     protocol: Protocol,
-    /// Client data; the end of the queue is the client's FIN and an error
-    /// its reset.
-    input: mpsc::UnboundedReceiver<io::Result<Vec<u8>>>,
+    /// Client data; the end of the queue is the client's FIN.
+    input: mpsc::UnboundedReceiver<Vec<u8>>,
     chunk: Vec<u8>,
     /// How much of `chunk` the relay has read.
     read: usize,
@@ -327,11 +328,14 @@ struct MuxStream {
     window: Option<Arc<Semaphore>>,
     /// yamux: bytes read since the client's window was last reopened.
     taken: u32,
-    /// The window update and the frame on their way to the queue.
-    granting: Option<BoxFuture<'static, bool>>,
+    /// yamux: window updates on their way to the queue.
+    updates: mpsc::UnboundedSender<Vec<u8>>,
+    /// The frame on its way to the queue.
     sending: Option<BoxFuture<'static, bool>>,
     /// The server's FIN is out.
     shut: bool,
+    /// Notified when the client resets the stream.
+    dropped: Arc<Notify>,
 }
 
 impl MuxStream {
@@ -363,18 +367,14 @@ impl MuxStream {
     }
 
     /// yamux: reopens the client's window by what the relay has read, half
-    /// a window at a time.
-    fn grant(&mut self, cx: &mut Context<'_>) {
-        if self.granting.is_none() && self.taken >= WINDOW / 2 {
-            let frames = self.frames.clone();
+    /// a window at a time. The update waits for the queue in the
+    /// connection's loop, not here: reads are polled only while the relay
+    /// wants data, and a wait nobody polls keeps its place in the queue.
+    fn grant(&mut self) {
+        if self.taken >= WINDOW / 2 {
             let update = yamux_header(YAMUX_WINDOW_UPDATE, 0, self.id, self.taken);
+            let _ = self.updates.send(update);
             self.taken = 0;
-            self.granting = Some(Box::pin(async move { frames.send(update).await.is_ok() }));
-        }
-        if let Some(granting) = &mut self.granting {
-            if granting.as_mut().poll(cx).is_ready() {
-                self.granting = None;
-            }
         }
     }
 }
@@ -386,14 +386,12 @@ impl AsyncRead for MuxStream {
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
         let this = self.get_mut();
-        this.grant(cx);
         if this.read == this.chunk.len() && !this.ended {
             match ready!(this.input.poll_recv(cx)) {
-                Some(Ok(chunk)) => {
+                Some(chunk) => {
                     this.chunk = chunk;
                     this.read = 0;
                 }
-                Some(Err(error)) => return Poll::Ready(Err(error)),
                 // FIN, or the connection is gone.
                 None => this.ended = true,
             }
@@ -404,6 +402,7 @@ impl AsyncRead for MuxStream {
         this.room.add_permits(n);
         if this.window.is_some() {
             this.taken += n as u32;
+            this.grant();
         }
         Poll::Ready(Ok(()))
     }
@@ -455,9 +454,10 @@ impl Drop for MuxStream {
 /// What the read loop keeps of a stream.
 struct Handle {
     /// Gone once the client sent FIN.
-    input: Option<mpsc::UnboundedSender<io::Result<Vec<u8>>>>,
+    input: Option<mpsc::UnboundedSender<Vec<u8>>>,
     room: Arc<Semaphore>,
     window: Option<Arc<Semaphore>>,
+    dropped: Arc<Notify>,
 }
 
 /// Serves a multiplexed connection until the client closes it, writing to
@@ -476,17 +476,25 @@ pub(crate) async fn relay(
         return;
     };
     let (frames, mut outgoing) = mpsc::channel::<Vec<u8>>(QUEUE);
+    let (updates, mut granted) = mpsc::unbounded_channel::<Vec<u8>>();
     let (spawn, mut spawned) = mpsc::unbounded_channel::<MuxStream>();
 
-    let read = read_loop(protocol, &mut reader, &frames, &spawn);
+    let read = read_loop(protocol, &mut reader, &frames, &updates, &spawn);
     let write = write_frames(&mut writer, &mut outgoing);
+    // Window updates on their way to the queue; a client sends within its
+    // window, so there are never many.
+    let grant = async {
+        while let Some(update) = granted.recv().await {
+            let _ = frames.send(update).await;
+        }
+    };
     let revoked = async {
         match &user {
             Some(user) => user.revoked().await,
             None => std::future::pending().await,
         }
     };
-    tokio::pin!(read, write, revoked);
+    tokio::pin!(read, write, grant, revoked);
 
     let mut running = FuturesUnordered::new();
     loop {
@@ -499,6 +507,7 @@ pub(crate) async fn relay(
             }
             _ = &mut read => break,
             _ = &mut write => break,
+            _ = &mut grant => break,
             Some(stream) = spawned.recv() => {
                 running.push(serve_stream(stream, user.clone(), outbound, udp, settings, stats));
             }
@@ -513,6 +522,7 @@ async fn read_loop<R: AsyncRead + Unpin>(
     protocol: Protocol,
     reader: &mut R,
     frames: &mpsc::Sender<Vec<u8>>,
+    updates: &mpsc::UnboundedSender<Vec<u8>>,
     spawn: &mpsc::UnboundedSender<MuxStream>,
 ) {
     let mut streams: HashMap<u32, Handle> = HashMap::new();
@@ -523,7 +533,7 @@ async fn read_loop<R: AsyncRead + Unpin>(
             }
         }
         if frame.open {
-            // Streams that ended on the server side.
+            // Streams count until their relay is gone.
             streams.retain(|_, stream| !stream.room.is_closed());
             if streams.len() >= MAX_STREAMS || streams.contains_key(&frame.stream) {
                 if frames.send(protocol.reset(frame.stream)).await.is_err() {
@@ -535,6 +545,7 @@ async fn read_loop<R: AsyncRead + Unpin>(
             let room = Arc::new(Semaphore::new(WINDOW as usize));
             let window =
                 (protocol == Protocol::Yamux).then(|| Arc::new(Semaphore::new(WINDOW as usize)));
+            let dropped = Arc::new(Notify::new());
             let stream = MuxStream {
                 id: frame.stream,
                 protocol,
@@ -546,9 +557,10 @@ async fn read_loop<R: AsyncRead + Unpin>(
                 frames: frames.clone(),
                 window: window.clone(),
                 taken: 0,
-                granting: None,
+                updates: updates.clone(),
                 sending: None,
                 shut: false,
+                dropped: dropped.clone(),
             };
             if spawn.send(stream).is_err() {
                 return;
@@ -560,6 +572,7 @@ async fn read_loop<R: AsyncRead + Unpin>(
                     input,
                     room,
                     window,
+                    dropped,
                 },
             );
             // A yamux client waits for the stream to be acknowledged.
@@ -569,11 +582,10 @@ async fn read_loop<R: AsyncRead + Unpin>(
             }
         }
         if frame.reset {
-            if let Some(input) = streams
-                .remove(&frame.stream)
-                .and_then(|stream| stream.input)
-            {
-                let _ = input.send(Err(io::ErrorKind::ConnectionReset.into()));
+            // Ends its relay, whatever that waits for; the stream counts
+            // until the relay is gone.
+            if let Some(stream) = streams.get(&frame.stream) {
+                stream.dropped.notify_one();
             }
             continue;
         }
@@ -590,7 +602,7 @@ async fn read_loop<R: AsyncRead + Unpin>(
             // on the server side.
             if let Ok(room) = stream.room.acquire_many(frame.data.len() as u32).await {
                 room.forget();
-                let _ = input.send(Ok(frame.data));
+                let _ = input.send(frame.data);
             }
         }
         if frame.fin {
@@ -599,7 +611,8 @@ async fn read_loop<R: AsyncRead + Unpin>(
     }
 }
 
-/// Reads the stream's request and relays it to its destination.
+/// Reads the stream's request and relays it to its destination, until the
+/// relay ends or the client resets the stream.
 async fn serve_stream(
     mut stream: MuxStream,
     user: Option<Arc<UserEntry>>,
@@ -609,17 +622,24 @@ async fn serve_stream(
     stats: &Arc<InboundStats>,
 ) {
     let (frames, reset) = (stream.frames.clone(), stream.protocol.reset(stream.id));
-    if let Ok((flags, target)) = read_stream_request(&mut stream).await {
-        // The status goes out with the first payload.
-        let stream = PrefixedStream::new(Box::new(stream)).with_write_prefix(vec![STATUS_OK]);
-        let accepted = Accepted {
-            user,
-            udp: Datagrams::of(flags, &target),
-            target,
-            stream: Box::new(stream),
-            mux: false,
-        };
-        relay_stream(accepted, outbound, udp, settings, stats).await;
+    let dropped = stream.dropped.clone();
+    let serve = async {
+        if let Ok((flags, target)) = read_stream_request(&mut stream).await {
+            // The status goes out with the first payload.
+            let stream = PrefixedStream::new(Box::new(stream)).with_write_prefix(vec![STATUS_OK]);
+            let accepted = Accepted {
+                user,
+                udp: Datagrams::of(flags, &target),
+                target,
+                stream: Box::new(stream),
+                mux: false,
+            };
+            relay_stream(accepted, outbound, udp, settings, stats).await;
+        }
+    };
+    tokio::select! {
+        _ = serve => {}
+        _ = dropped.notified() => {}
     }
     // The client ignores it for a stream both sides have closed.
     let _ = frames.send(reset).await;

@@ -18,8 +18,10 @@ accounting.
   only that relay may reach the port. `GET /v1/status` lists the feature as
   `accept_proxy_protocol`.
 - Clients may multiplex with sing-mux (sing-box `multiplex`, mihomo `smux`)
-  in `smux` or `yamux` on every inbound whose protocol names a destination;
-  nothing is configured for it. `h2mux` (what those clients pick when no
+  in `smux` or `yamux` on VLESS, VMess, Trojan and Shadowsocks inbounds
+  (with TLS, REALITY or a transport too); nothing is configured for it.
+  AnyTLS and Snell inbounds do not serve it, and on Hysteria2 and TUIC it
+  carries TCP streams only. `h2mux` (what those clients pick when no
   protocol is set), padding and TCP Brutal are not supported.
   `GET /v1/status` lists the feature as `sing_mux`.
 - `api`: local HTTP/JSON management API with a bearer token, shaped after

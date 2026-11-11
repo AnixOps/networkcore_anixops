@@ -82,6 +82,18 @@ async fn tcp_echo() -> SocketAddr {
     addr
 }
 
+/// A target that sends for as long as it is connected.
+async fn tcp_source() -> SocketAddr {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        while let Ok((mut stream, _)) = listener.accept().await {
+            tokio::spawn(async move { while stream.write_all(&[0x5a; 4096]).await.is_ok() {} });
+        }
+    });
+    addr
+}
+
 async fn udp_echo() -> SocketAddr {
     let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
     let addr = socket.local_addr().unwrap();
@@ -348,6 +360,39 @@ async fn yamux_streams_keep_to_their_windows() {
     tokio::time::sleep(Duration::from_millis(50)).await;
     let traffic = users.traffic(false);
     assert_eq!((traffic[0].up, traffic[0].down), (300_005, 300_005));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn yamux_reset_ends_a_half_closed_stream() {
+    let (server, _users, _stats) = start().await;
+    let source = tcp_source().await;
+    let mut client = TcpStream::connect(server).await.unwrap();
+    client.write_all(&[1, 1, 0]).await.unwrap();
+
+    // The client closes its side and never reopens its window, so the
+    // server is left waiting with the rest of the download.
+    let mut open = yamux(1, 1, 1, 0, &[]);
+    open.extend(yamux_data(1, &request(0, source)));
+    open.extend(yamux(1, 4, 1, 0, &[]));
+    client.write_all(&open).await.unwrap();
+    assert_eq!(read_yamux(&mut client).await, (1, 2, 1, 0, Vec::new()));
+    let mut received = 0;
+    // No frame is larger than 16 KiB.
+    while received <= WINDOW - 16 * 1024 {
+        let (kind, flags, stream, length, _) = read_yamux(&mut client).await;
+        assert_eq!((kind, flags, stream), (0, 0, 1));
+        received += length as usize;
+    }
+
+    // A reset ends the stream all the same, and the server answers RST.
+    client.write_all(&yamux(1, 8, 1, 0, &[])).await.unwrap();
+    loop {
+        let (kind, flags, stream, _, _) = read_yamux(&mut client).await;
+        if kind == 1 {
+            assert_eq!((flags, stream), (8, 1));
+            break;
+        }
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
