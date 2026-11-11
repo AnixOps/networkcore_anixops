@@ -47,7 +47,6 @@
 //! not negotiated.
 
 use std::collections::HashMap;
-use std::future::Future;
 use std::io;
 use std::net::SocketAddr;
 use std::pin::Pin;
