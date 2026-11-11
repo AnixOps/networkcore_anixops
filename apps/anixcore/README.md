@@ -97,7 +97,7 @@ process: `"obfs": {"type": "http" | "tls", "host": "..."}` for simple-obfs
 without `"tls": {...}` for v2ray-plugin's `websocket` mode. v2ray-plugin
 clients multiplex by default, which is not served: set `mux=0` (mihomo
 `mux: false`). UDP is not part of either plugin and stays plain Shadowsocks
-on the port.
+on the port. Neither plugin layer combines with `shadow_tls`.
 
 A `naive` inbound serves NaiveProxy clients (and sing-box's `naive`
 outbound): HTTP/2 `CONNECT` inside TLS with Basic proxy authentication and

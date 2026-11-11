@@ -187,7 +187,10 @@ mod tests {
         ))
         .is_err());
         // ShadowTLS and a plugin layer on one inbound.
-        for layer in [r#""obfs":{"type":"http"}"#, r#""transport":{"type":"ws"}"#] {
+        for layer in [
+            r#""obfs":{"type":"http"}"#,
+            r#""transport":{"type":"ws","path":"/ss"}"#,
+        ] {
             assert!(build(&format!(
                 r#"{{{key},{layer},"shadow_tls":{{"password":"front",{handshake}}}}}"#
             ))
