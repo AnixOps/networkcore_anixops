@@ -23,8 +23,8 @@
 //! and in strict mode a handshake site that does not answer in TLS 1.3) is
 //! relayed to the handshake site unchanged, so a prober sees that site.
 //!
-//! The keys come from the latest ServerHello record, so from the one that
-//! follows a HelloRetryRequest. Not implemented: versions 1 and 2, a
+//! The keys come from the ServerHello record, from the second one when the
+//! first was a HelloRetryRequest. Not implemented: versions 1 and 2, a
 //! handshake site chosen by server name, and wildcard SNI.
 
 use std::io;
@@ -381,6 +381,12 @@ fn server_random(record: &[u8]) -> Option<&[u8]> {
     record.get(RANDOM_AT..RANDOM_AT + RANDOM)
 }
 
+/// Whether `random` makes its ServerHello a HelloRetryRequest: TLS 1.3
+/// gives those the SHA-256 of "HelloRetryRequest".
+fn is_retry_request(random: &[u8]) -> bool {
+    random == digest::digest(&digest::SHA256, b"HelloRetryRequest").as_ref()
+}
+
 /// Whether a ServerHello record picks TLS 1.3 in `supported_versions`.
 fn selects_tls13(record: &[u8]) -> bool {
     supported_version(record) == Some([3, 4])
@@ -503,6 +509,9 @@ async fn relay_handshake(
     strict: bool,
 ) -> io::Result<Option<(Vec<u8>, Keys)>> {
     let mut keys: Option<Keys> = None;
+    // A ServerHello is due first, and once more after a HelloRetryRequest.
+    // What looks like one later is an encrypted TLS 1.2 handshake message.
+    let mut hello_due = true;
     loop {
         let (from_client, mut record) = tokio::select! {
             record = client.next_record() => (true, record?),
@@ -515,11 +524,12 @@ async fn relay_handshake(
             server.io.write_all(&record).await?;
             continue;
         }
-        if let Some(random) = server_random(&record) {
+        if let Some(random) = server_random(&record).filter(|_| hello_due) {
             if strict && !selects_tls13(&record) {
                 client.io.write_all(&record).await?;
                 return Ok(None);
             }
+            hello_due = is_retry_request(random);
             keys = Some(Keys::new(password, random));
         } else if let (APPLICATION_DATA, Some(keys)) = (record[0], &mut keys) {
             keys.mark_relayed(&mut record);
@@ -775,6 +785,60 @@ mod tests {
         assert_eq!(server_random(&client_hello([0; TAG])), None);
         assert_eq!(server_random(&data_record([0; TAG], b"data")), None);
         assert_eq!(server_random(&[HANDSHAKE, 3, 3, 0, 1, SERVER_HELLO]), None);
+    }
+
+    /// Relays `flight` from the handshake site, then a data record of a
+    /// client keyed with `random`; whether the relay switched on it.
+    async fn switches(flight: &[Vec<u8>], random: &[u8]) -> bool {
+        let (mut client_far, client_near) = tokio::io::duplex(1024);
+        let (mut site_far, site_near) = tokio::io::duplex(1024);
+        let mut client = Records {
+            io: Box::new(client_near),
+            buf: Vec::new(),
+        };
+        let mut site = Records {
+            io: Box::new(site_near),
+            buf: Vec::new(),
+        };
+        let flight = flight.concat();
+        let mut keys = Keys::new(PASSWORD, random);
+        let first = data_record(keys.client.tag(b"hello", true), b"hello");
+        let drive = async {
+            site_far.write_all(&flight).await.unwrap();
+            let mut relayed = vec![0u8; flight.len()];
+            client_far.read_exact(&mut relayed).await.unwrap();
+            client_far.write_all(&first).await.unwrap();
+            // Ends a relay that does not take the record.
+            drop(client_far);
+        };
+        let relay = relay_handshake(&mut client, &mut site, PASSWORD, false);
+        let (switched, ()) = tokio::join!(relay, drive);
+        switched.is_ok_and(|switched| switched.is_some())
+    }
+
+    #[tokio::test]
+    async fn only_a_retry_request_is_followed_by_another_server_hello() {
+        const RETRY: [u8; RANDOM] = [
+            0xcf, 0x21, 0xad, 0x74, 0xe5, 0x9a, 0x61, 0x11, 0xbe, 0x1d, 0x8c, 0x02, 0x1e, 0x65,
+            0xb8, 0x91, 0xc2, 0xa2, 0x11, 0x16, 0x7a, 0xbb, 0x8c, 0x5e, 0x07, 0x9e, 0x09, 0xe2,
+            0xc8, 0xa8, 0x33, 0x9c,
+        ];
+        assert!(is_retry_request(&RETRY));
+        assert!(!is_retry_request(&random()));
+
+        let hello = server_hello(&[0, 43, 0, 2, 3, 4]);
+        let change_cipher_spec = vec![20, 3, 3, 0, 1, 1];
+        // An encrypted TLS 1.2 Finished whose first byte is a ServerHello's.
+        let mut finished = vec![HANDSHAKE, 3, 3, 0, 45, SERVER_HELLO];
+        finished.extend([0xee; 44]);
+        let tls12 = [server_hello(&[]), change_cipher_spec.clone(), finished];
+        assert!(switches(&tls12, &random()).await);
+
+        let mut retry = hello.clone();
+        retry[RANDOM_AT..RANDOM_AT + RANDOM].copy_from_slice(&RETRY);
+        let retried = [retry, change_cipher_spec, hello];
+        assert!(switches(&retried, &random()).await);
+        assert!(!switches(&retried, &RETRY).await);
     }
 
     #[test]
