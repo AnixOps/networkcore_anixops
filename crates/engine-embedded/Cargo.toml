@@ -71,8 +71,9 @@ tokio = { version = "1", default-features = false, features = ["rt", "net", "io-
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"], optional = true }
 transport-tls = { path = "../transport-tls", optional = true }
 
-# Desktop PROCESS-NAME lookup (src/process.rs).
-[target.'cfg(target_os = "macos")'.dependencies]
+# Desktop PROCESS-NAME lookup (src/process.rs) and the tunnel's bound interface
+# (networkcore_ios_set_bound_interface, IP_BOUND_IF).
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]

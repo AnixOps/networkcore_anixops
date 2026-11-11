@@ -413,6 +413,7 @@ fn header_declares_every_exported_symbol() {
         "networkcore_ios_runtime_control",
         "networkcore_ios_measure_delay",
         "networkcore_ios_mitm_inspect_plugin",
+        "networkcore_ios_set_bound_interface",
         "networkcore_ios_runtime_free_buffer",
         "networkcore_ios_runtime_free_handle",
     ] {
@@ -652,4 +653,21 @@ fn mitm_inspect_plugin_describes_a_plugin_without_a_runtime() {
     let no_out =
         unsafe { networkcore_ios_mitm_inspect_plugin(text.as_ptr(), text.len(), ptr::null_mut()) };
     assert_eq!(no_out, NETWORKCORE_IOS_ERR_INVALID_ARGUMENT);
+}
+
+#[test]
+fn bound_interface_clears_and_is_apple_only() {
+    // Both zero removes the pin and never installs a protector.
+    assert_eq!(networkcore_ios_set_bound_interface(0, 0), NETWORKCORE_IOS_OK);
+    assert!(!engine_embedded::protect::socket_protector_installed());
+    // IP_BOUND_IF exists only on Apple platforms; elsewhere a pin is refused
+    // and nothing is installed (Apple CI builds cover the other branch).
+    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+    {
+        assert_eq!(
+            networkcore_ios_set_bound_interface(1, 0),
+            NETWORKCORE_IOS_ERR_INVALID_ARGUMENT
+        );
+        assert!(!engine_embedded::protect::socket_protector_installed());
+    }
 }

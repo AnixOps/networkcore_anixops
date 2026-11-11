@@ -558,6 +558,105 @@ pub unsafe extern "C" fn networkcore_ios_mitm_inspect_plugin(
     })
 }
 
+/// Pins every socket the engine opens (to proxy servers, DNS upstreams and
+/// direct destinations) to a network interface, by interface index, so it
+/// leaves through that interface instead of the tunnel's default route.
+///
+/// On iOS a Network Extension's own sockets bypass its tunnel, but on macOS
+/// (packet tunnel System Extension) they follow the routing table: with the
+/// default route in the tunnel they would loop back into the engine. The
+/// tunnel calls this with the physical interface before it starts the engine
+/// and again whenever the network changes. `0` leaves that address family
+/// unpinned; both `0` removes the pin. Process-wide (no runtime handle), like
+/// [`crate::protect::set_socket_protector`]. Uses `IP_BOUND_IF` /
+/// `IPV6_BOUND_IF`, so a non-zero index returns
+/// `NETWORKCORE_IOS_ERR_INVALID_ARGUMENT` on other platforms.
+#[no_mangle]
+pub extern "C" fn networkcore_ios_set_bound_interface(ipv4_index: u32, ipv6_index: u32) -> i32 {
+    guarded(|| bound_interface::set(ipv4_index, ipv6_index))
+}
+
+mod bound_interface {
+    use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+
+    static IPV4: AtomicU32 = AtomicU32::new(0);
+    static IPV6: AtomicU32 = AtomicU32::new(0);
+    static INSTALLED: AtomicBool = AtomicBool::new(false);
+
+    pub(super) fn set(ipv4_index: u32, ipv6_index: u32) -> i32 {
+        if ipv4_index == 0 && ipv6_index == 0 {
+            IPV4.store(0, Ordering::SeqCst);
+            IPV6.store(0, Ordering::SeqCst);
+            if INSTALLED.swap(false, Ordering::SeqCst) {
+                crate::protect::set_socket_protector(None);
+            }
+            return super::NETWORKCORE_IOS_OK;
+        }
+        install(ipv4_index, ipv6_index)
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    fn install(ipv4_index: u32, ipv6_index: u32) -> i32 {
+        use std::sync::Arc;
+        IPV4.store(ipv4_index, Ordering::SeqCst);
+        IPV6.store(ipv6_index, Ordering::SeqCst);
+        if !INSTALLED.swap(true, Ordering::SeqCst) {
+            crate::protect::set_socket_protector(Some(Arc::new(
+                |socket: crate::protect::RawSocketHandle, target: std::net::SocketAddr| {
+                    let index = if target.is_ipv4() {
+                        IPV4.load(Ordering::SeqCst)
+                    } else {
+                        IPV6.load(Ordering::SeqCst)
+                    };
+                    bind(socket, index, target.is_ipv6())
+                },
+            )));
+        }
+        super::NETWORKCORE_IOS_OK
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+    fn install(_ipv4_index: u32, _ipv6_index: u32) -> i32 {
+        super::NETWORKCORE_IOS_ERR_INVALID_ARGUMENT
+    }
+
+    /// `IP_BOUND_IF` / `IPV6_BOUND_IF` from `<netinet/in.h>` / `<netinet6/in6.h>`.
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    const IP_BOUND_IF: libc::c_int = 25;
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    const IPV6_BOUND_IF: libc::c_int = 125;
+
+    /// Binds `socket` to interface `index`; `0` leaves it to the routing table.
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    fn bind(socket: crate::protect::RawSocketHandle, index: u32, ipv6: bool) -> std::io::Result<()> {
+        if index == 0 {
+            return Ok(());
+        }
+        let (level, name) = if ipv6 {
+            (libc::IPPROTO_IPV6, IPV6_BOUND_IF)
+        } else {
+            (libc::IPPROTO_IP, IP_BOUND_IF)
+        };
+        let value: libc::c_uint = index;
+        // SAFETY: `socket` is an open socket owned by the caller, and `value`
+        // lives for the call with the length passed.
+        let result = unsafe {
+            libc::setsockopt(
+                socket,
+                level,
+                name,
+                (&value as *const libc::c_uint).cast(),
+                std::mem::size_of::<libc::c_uint>() as libc::socklen_t,
+            )
+        };
+        if result == 0 {
+            Ok(())
+        } else {
+            Err(std::io::Error::last_os_error())
+        }
+    }
+}
+
 /// Releases a buffer returned by this library. A null buffer is ignored.
 ///
 /// # Safety
