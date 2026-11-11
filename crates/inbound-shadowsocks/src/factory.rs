@@ -33,7 +33,8 @@ struct ShadowsocksInboundSettings {
     /// `transport`.
     #[serde(default)]
     obfs: Option<ObfsSettings>,
-    /// TLS in front of the `ws` transport, v2ray-plugin's `tls` option.
+    /// TLS in front of the `ws` transport, v2ray-plugin's `tls` option; not
+    /// without that transport.
     #[serde(default)]
     tls: Option<TlsServerSettings>,
     /// `{"type": "ws", "path": ..., "host": ...}`: v2ray-plugin's
@@ -64,7 +65,10 @@ impl InboundFactory for ShadowsocksInboundFactory {
             "shadowsocks inbound settings are missing or invalid",
         )?;
         let inbound = protocol(&settings.method, &settings.password, settings.users)?;
-        let (tls, transport) = (settings.tls.as_ref(), settings.transport.as_ref());
+        let tls = settings.tls.as_ref();
+        // `tcp` is no transport.
+        let transport = settings.transport.as_ref();
+        let transport = transport.filter(|kind| !matches!(kind, TransportSettings::Tcp));
         let plugin = settings.obfs.is_some() || tls.is_some() || transport.is_some();
         match (&settings.obfs, transport) {
             _ if settings.shadow_tls.is_some() && plugin => {
@@ -74,7 +78,9 @@ impl InboundFactory for ShadowsocksInboundFactory {
                 Err("shadowsocks obfs does not combine with tls or transport")
             }
             (Some(obfs), _) => Ok(Arc::new(ObfsInbound::new(inbound, obfs))),
-            (None, None | Some(TransportSettings::Tcp | TransportSettings::Ws { .. })) => {
+            // v2ray-plugin has no TLS without its websocket.
+            (None, None) if tls.is_some() => Err("shadowsocks tls needs the ws transport"),
+            (None, None | Some(TransportSettings::Ws { .. })) => {
                 let inbound = inbound_transport::wrap_all(inbound, transport, tls)?;
                 shadow_tls::wrap(inbound, settings.shadow_tls.as_ref())
             }
@@ -196,6 +202,12 @@ mod tests {
             ))
             .is_err());
         }
+        // The `tcp` transport is no layer.
+        let tcp = build(&format!(
+            r#"{{{key},"transport":{{"type":"tcp"}},"shadow_tls":{{"password":"front",{handshake}}}}}"#
+        ))
+        .unwrap();
+        assert!(tcp.serves_connections());
     }
 
     #[test]
@@ -206,6 +218,7 @@ mod tests {
             r#""obfs":{"type":"tls","host":"cdn.example"}"#,
             r#""transport":{"type":"ws","path":"/ss","host":"cdn.example"}"#,
             r#""transport":{"type":"tcp"}"#,
+            r#""obfs":{"type":"http"},"transport":{"type":"tcp"}"#,
         ] {
             let inbound = build(&format!("{{{protocol},{layer}}}")).unwrap();
             assert_eq!(inbound.protocol(), "shadowsocks");
@@ -220,6 +233,14 @@ mod tests {
             r#""transport":{"type":"ws","path":"ss"}"#,
         ] {
             assert!(build(&format!("{{{protocol},{layers}}}")).is_err());
+        }
+        // TLS is v2ray-plugin's, in front of its websocket only.
+        for transport in ["", r#","transport":{"type":"tcp"}"#] {
+            let tls = r#""tls":{"certificate":"c","key":"k"}"#;
+            assert_eq!(
+                build(&format!("{{{protocol},{tls}{transport}}}")).err(),
+                Some("shadowsocks tls needs the ws transport")
+            );
         }
     }
 

@@ -96,7 +96,8 @@ it.
   `quic` mode is not served. Xray's Shadowsocks outbound on its own `ws`
   transport is the same on the wire.
 - `obfs` does not combine with `tls` or `transport`, `ws` is the only
-  transport taken, and none of the three combines with `shadow_tls`.
+  transport taken, `tls` needs it, and none of the three combines with
+  `shadow_tls`. `"transport": {"type": "tcp"}` is no transport.
 
 `tests/ss2022_server.rs` and `tests/aead_server.rs` run the engine's own client and the
 shadowsocks-rust client (TCP and UDP) against the server, `tests/plugins.rs`
