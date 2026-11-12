@@ -627,3 +627,55 @@ fn outbound_health_lists_reporting_nodes_and_resumes() {
     let health = control_json(&echo, r#"{"cmd":"outbound_health"}"#);
     assert_eq!(health["outbounds"].as_array().unwrap().len(), 0);
 }
+
+/// Records the target of every connection and echoes nothing.
+struct Recording(&'static str, Arc<std::sync::Mutex<Vec<TargetAddr>>>);
+
+impl TcpOutbound for Recording {
+    fn protocol(&self) -> &'static str {
+        self.0
+    }
+
+    fn connect<'a>(&'a self, target: &'a TargetAddr) -> BoxFuture<'a, io::Result<BoxStream>> {
+        self.1.lock().unwrap().push(target.clone());
+        Box::pin(async {
+            let (client, _server) = tokio::io::duplex(64);
+            Ok(Box::new(client) as BoxStream)
+        })
+    }
+}
+
+#[test]
+fn ipv6_flows_reach_a_proxy_by_their_sniffed_name() {
+    runtime().block_on(async {
+        let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let proxy = Dispatcher::single(Arc::new(Recording("test-proxy", seen.clone())));
+        proxy
+            .connect_flow(&ip("[2001:db8::1]:443"), Some("ipleak.example.test"))
+            .await
+            .unwrap();
+        proxy
+            .connect_flow(&ip("192.0.2.1:443"), Some("v4.example.test"))
+            .await
+            .unwrap();
+        proxy
+            .connect_flow(&ip("[2001:db8::2]:443"), None)
+            .await
+            .unwrap();
+        let direct = Dispatcher::single(Arc::new(Recording("direct", seen.clone())));
+        direct
+            .connect_flow(&ip("[2001:db8::3]:443"), Some("direct.example.test"))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            *seen.lock().unwrap(),
+            vec![
+                TargetAddr::Domain("ipleak.example.test".to_string(), 443),
+                ip("192.0.2.1:443"),
+                ip("[2001:db8::2]:443"),
+                ip("[2001:db8::3]:443"),
+            ]
+        );
+    });
+}
