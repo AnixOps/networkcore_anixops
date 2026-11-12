@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
-"""Markdown summary of tunnel_bench results: median per side, head vs base.
+"""Markdown summaries for perf.yml.
 
-Input files are named <side>-<outbound>-<round>.json (see perf.yml).
+Default: tunnel_bench results, median per side, head vs base. Input files are
+named <side>-<outbound>-<round>.json.
+
+--rules FILE: the rule_bench report (decision latency by query kind, gate).
 """
 
 import json
@@ -55,7 +58,44 @@ def fmt(value):
     return f"{value:.2f}"
 
 
+def rules_summary(path):
+    print("### Rule decision benchmark")
+    print()
+    try:
+        report = json.loads(Path(path).read_text())
+    except (OSError, ValueError):
+        print("No results.")
+        return
+    limit = report.get("max_p99_us")
+    p99 = pick(report, "all.p99_us")
+    verdict = "–"
+    if limit is not None and p99 is not None:
+        verdict = "✅ pass" if p99 <= limit else "❌ fail"
+    print(
+        f"{report.get('rules')} rules, {report.get('queries')} decisions per round, "
+        f"{report.get('miss_share', 0) * 100:.0f}% match no rule (whole list, resolve, FINAL); "
+        f"median round of {report.get('rounds')}. Build {fmt(report.get('build_ms'))} ms."
+    )
+    print()
+    print(f"Gate: p99 of all decisions ≤ {fmt(limit)} µs: {verdict} (p99 {fmt(p99)} µs)")
+    print()
+    print("| Queries | Count | Mean (µs) | p50 | p90 | p99 | p99.9 | Max |")
+    print("| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |")
+    rows = [("all", report.get("all", {}))]
+    rows += sorted((report.get("by_kind") or {}).items())
+    for name, row in rows:
+        cells = [fmt(row.get(key)) for key in ("mean_us", "p50_us", "p90_us", "p99_us", "p999_us", "max_us")]
+        print(f"| {name} | {row.get('count', 0)} | " + " | ".join(cells) + " |")
+    unexpected = report.get("unexpected_results", 0)
+    if unexpected:
+        print()
+        print(f"⚠️ {unexpected} decisions did not hit or miss as the generated list expects.")
+
+
 def main():
+    if len(sys.argv) > 2 and sys.argv[1] == "--rules":
+        rules_summary(sys.argv[2])
+        return
     root = Path(sys.argv[1] if len(sys.argv) > 1 else "results")
     runs = {}
     for path in sorted(root.glob("*.json")):

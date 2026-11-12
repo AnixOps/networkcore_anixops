@@ -821,12 +821,29 @@ jobs:
             echo "::endgroup::"
           done
 
+      # Runtime control JSON through the iOS C entry point; the dictionary
+      # holds the command and field names. Inputs above the 4 KiB request
+      # limit are generated on purpose to reach the size check.
+      - name: Run runtime control fuzz target
+        shell: bash
+        working-directory: crates/engine-embedded
+        run: |
+          set -euo pipefail
+          cargo fuzz run --target x86_64-unknown-linux-gnu runtime_control -- \
+            -max_total_time="${FUZZ_SECONDS_PER_TARGET}" \
+            -dict=fuzz/dict/runtime_control.dict \
+            -max_len=8192 \
+            -rss_limit_mb=2048 \
+            -timeout=20
+
       - name: Upload fuzz crash artifacts
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: h2-mitm-fuzz-artifacts-${{ github.sha }}
-          path: crates/engine-native/fuzz/artifacts
+          path: |
+            crates/engine-native/fuzz/artifacts
+            crates/engine-embedded/fuzz/artifacts
           if-no-files-found: ignore
 
   ios-runtime-static-libs:
