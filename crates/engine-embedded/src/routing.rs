@@ -411,6 +411,14 @@ impl RoutedOutbound {
             .collect()
     }
 
+    /// [`TcpOutbound::reuse_stats`] of every node that keeps them, by node id.
+    pub fn node_reuse_stats(&self) -> Vec<(String, &'static str, serde_json::Value)> {
+        self.nodes
+            .iter()
+            .filter_map(|(id, node)| node.reuse_stats().map(|s| (id.clone(), node.protocol(), s)))
+            .collect()
+    }
+
     /// [`TcpOutbound::resume`] on node `id`; `None` when there is no such node.
     pub fn resume_node(&self, id: &str) -> Option<bool> {
         self.nodes.get(id).map(|node| node.resume())

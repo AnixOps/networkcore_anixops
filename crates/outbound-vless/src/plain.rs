@@ -128,6 +128,11 @@ impl TcpOutbound for VlessTlsOutbound {
         "vless"
     }
 
+    /// TLS resumption counters, when the node runs over TLS (`outbound_reuse`).
+    fn reuse_stats(&self) -> Option<serde_json::Value> {
+        self.tls.as_ref().map(|tls| tls.stats().health_json())
+    }
+
     fn connect<'a>(&'a self, target: &'a TargetAddr) -> BoxFuture<'a, io::Result<BoxStream>> {
         Box::pin(async move {
             let header = encode_request_header(&self.uuid, Flow::None, target)?;

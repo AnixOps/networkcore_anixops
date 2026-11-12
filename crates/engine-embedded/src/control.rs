@@ -23,6 +23,7 @@
 //! | `run_script` | `tag` | `{"scheduled": bool}` |
 //! | `outbound_health` | | `{"outbounds": [{"node", "protocol", "health"}]}`, only outbounds that report health |
 //! | `resume_outbound` | `node` | `{"resumed": bool}` |
+//! | `outbound_reuse` | | `{"outbounds": [{"node", "protocol", "reuse"}]}`: connection pool (`mux`) and TLS resumption counters, only outbounds that keep them |
 //!
 //! The script commands need a MITM config with plugin scripts; the client
 //! sends `network_changed` when the device's network changes and polls
@@ -65,6 +66,7 @@ enum ControlRequest {
     RunScript { tag: String },
     OutboundHealth,
     ResumeOutbound { node: String },
+    OutboundReuse,
 }
 
 /// Script commands, answered by the flow interceptor.
@@ -177,6 +179,32 @@ pub fn handle_with_interceptor(
                                 "node": SINGLE_NODE,
                                 "protocol": outbound.protocol(),
                                 "health": health,
+                            })
+                        })
+                        .into_iter()
+                        .collect()
+                }
+            };
+            Ok(json!({ "outbounds": outbounds }))
+        }
+        ControlRequest::OutboundReuse => {
+            let outbounds: Vec<_> = match dispatcher.routed_outbound() {
+                Some(routed) => routed
+                    .node_reuse_stats()
+                    .into_iter()
+                    .map(|(node, protocol, reuse)| {
+                        json!({ "node": node, "protocol": protocol, "reuse": reuse })
+                    })
+                    .collect(),
+                None => {
+                    let outbound = dispatcher.outbound();
+                    outbound
+                        .reuse_stats()
+                        .map(|reuse| {
+                            json!({
+                                "node": SINGLE_NODE,
+                                "protocol": outbound.protocol(),
+                                "reuse": reuse,
                             })
                         })
                         .into_iter()
