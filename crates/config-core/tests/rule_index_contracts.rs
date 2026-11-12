@@ -205,3 +205,67 @@ fn generated_lists_decide_the_same_way() {
         );
     }
 }
+
+/// Reference glob: `*` any run, `?` one character, the whole text.
+fn glob(pattern: &[u8], text: &[u8]) -> bool {
+    match (pattern.first(), text.first()) {
+        (None, None) => true,
+        (Some(b'*'), _) => {
+            glob(&pattern[1..], text) || (!text.is_empty() && glob(pattern, &text[1..]))
+        }
+        (Some(b'?'), Some(_)) => glob(&pattern[1..], &text[1..]),
+        (Some(p), Some(t)) if p == t => glob(&pattern[1..], &text[1..]),
+        _ => false,
+    }
+}
+
+#[test]
+fn domain_wildcards_match_like_a_plain_glob() {
+    use config_core::routing::{RuleMatcher, StaticRoutingEnvironment};
+    let patterns = [
+        "*",
+        "?",
+        "a",
+        "a*",
+        "*a",
+        "*.example.com",
+        "a?c.*",
+        "*b*",
+        "a*b?c",
+        "??",
+        "ab*cd*ef",
+        "x.*.y",
+        "*.w1?.com",
+        "a.b",
+        "*?",
+        "?*?",
+    ];
+    let texts = [
+        "a",
+        "ab",
+        "abc",
+        "a.b",
+        "abbc",
+        "x.example.com",
+        "example.com",
+        "aXc.net",
+        "abcdef",
+        "abxcdyef",
+        "x.q.y",
+        "x..y",
+        "q.w12.com",
+        "q.w1.com",
+        "b",
+    ];
+    for pattern in patterns {
+        let matcher = RuleMatcher::DomainWildcard(pattern.to_string());
+        for text in texts {
+            let text = text.to_ascii_lowercase();
+            assert_eq!(
+                matcher.matches(&RouteQuery::domain(text.clone()), &StaticRoutingEnvironment),
+                glob(pattern.as_bytes(), text.as_bytes()),
+                "{pattern} vs {text}"
+            );
+        }
+    }
+}

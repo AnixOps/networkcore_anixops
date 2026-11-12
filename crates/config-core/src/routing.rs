@@ -779,7 +779,13 @@ impl RoutingModel {
         environment: &dyn RoutingEnvironment,
     ) -> RouteResolution {
         let domain = query.domain.as_deref().map(normalize_query_domain);
-        self.decide_over(0..self.rules.len(), None, domain, query, environment)
+        self.decide_over(
+            (0..self.rules.len()).map(|index| (index, false)),
+            None,
+            domain,
+            query,
+            environment,
+        )
     }
 
     /// [`RoutingModel::decide`] with the DOMAIN and DOMAIN-SUFFIX rules
@@ -801,7 +807,7 @@ impl RoutingModel {
             .and_then(|domain| index.first_domain_match(domain));
         let before = index
             .others
-            .partition_point(|&rule| first.is_none_or(|first| rule < first));
+            .partition_point(|&(rule, _)| first.is_none_or(|first| rule < first));
         self.decide_over(
             index.others[..before].iter().copied(),
             first,
@@ -811,11 +817,12 @@ impl RoutingModel {
         )
     }
 
-    /// Tries the rules at `candidates` (ascending) in order; when none
+    /// Tries the rules at `candidates` (ascending) in order, passing over
+    /// those flagged as needing an address while there is none; when none
     /// matches, the rule at `matched_after` is the match, else FINAL.
     fn decide_over(
         &self,
-        candidates: impl Iterator<Item = usize>,
+        candidates: impl Iterator<Item = (usize, bool)>,
         matched_after: Option<usize>,
         domain: Option<String>,
         query: &RouteQuery,
@@ -829,7 +836,10 @@ impl RoutingModel {
         let mut resolve_attempted = false;
         let balance_key = domain.clone().or_else(|| query.ip.map(|ip| ip.to_string()));
 
-        for index in candidates {
+        for (index, needs_ip) in candidates {
+            if needs_ip && ip.is_none() {
+                continue;
+            }
             let rule = &self.rules[index];
             if rule.matcher.matches_ip() && ip.is_none() && !rule.no_resolve && !resolve_attempted {
                 resolve_attempted = true;
@@ -974,8 +984,10 @@ pub struct RuleIndex {
     exact: HashMap<String, usize>,
     /// First rule index of each suffix (without a leading dot).
     suffix: HashMap<String, usize>,
-    /// Every other rule, ascending.
-    others: Vec<usize>,
+    /// Every other rule, ascending, with whether it is an IP-CIDR or GEOIP
+    /// rule marked `no-resolve`: such a rule neither matches nor resolves
+    /// while the connection has no address, so it is passed over then.
+    others: Vec<(usize, bool)>,
 }
 
 impl RuleIndex {
@@ -996,7 +1008,11 @@ impl RuleIndex {
                 {
                     index.suffix.entry(suffix.clone()).or_insert(position);
                 }
-                _ => index.others.push(position),
+                matcher => index.others.push((
+                    position,
+                    rule.no_resolve
+                        && matches!(matcher, RuleMatcher::IpCidr(_) | RuleMatcher::GeoIp(_)),
+                )),
             }
         }
         index
@@ -1573,6 +1589,14 @@ fn normalize_domain_wildcard(value: &str) -> DomainResult<String> {
 
 /// Glob match where `*` is any run (dots included) and `?` one byte.
 fn wildcard_matches(pattern: &[u8], text: &[u8]) -> bool {
+    // The literal runs before the first and after the last wildcard are
+    // anchored: a cheap reject for most texts before the backtracking walk.
+    let is_wild = |b: &u8| *b == b'*' || *b == b'?';
+    let head = pattern.iter().position(is_wild).unwrap_or(pattern.len());
+    let tail = pattern.iter().rposition(is_wild).map_or(0, |last| last + 1);
+    if !text.starts_with(&pattern[..head]) || !text.ends_with(&pattern[tail..]) {
+        return false;
+    }
     let (mut p, mut t) = (0, 0);
     let mut star: Option<(usize, usize)> = None;
     while t < text.len() {
