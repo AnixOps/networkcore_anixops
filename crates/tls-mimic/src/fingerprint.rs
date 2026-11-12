@@ -417,7 +417,8 @@ impl ClientHelloSpec {
         }
         for share in shares {
             match share {
-                Code::Grease | Code::Value(GROUP_X25519 | GROUP_X25519_MLKEM768) => {}
+                Code::Grease
+                | Code::Value(GROUP_X25519 | GROUP_X25519_MLKEM768 | GROUP_SECP256R1) => {}
                 Code::Value(_) => {
                     return Err(invalid_data(
                         "fingerprint has a key share for a group this client does not implement",
@@ -445,6 +446,14 @@ impl ClientHelloSpec {
 pub struct KeyShareSecrets {
     pub(crate) x25519: StaticSecret,
     pub(crate) mlkem768: Option<MlKemShare>,
+    /// The P-256 share (Firefox offers one); ring consumes the key in the
+    /// agreement, so it is taken out once the server picked the group.
+    pub(crate) secp256r1: Option<P256Share>,
+}
+
+pub(crate) struct P256Share {
+    pub(crate) private: std::sync::Mutex<Option<ring::agreement::EphemeralPrivateKey>>,
+    pub(crate) public: Vec<u8>,
 }
 
 pub(crate) struct MlKemShare {
@@ -453,7 +462,7 @@ pub(crate) struct MlKemShare {
 }
 
 impl KeyShareSecrets {
-    fn generate(with_mlkem: bool) -> Self {
+    fn generate(with_mlkem: bool, with_p256: bool) -> io::Result<Self> {
         let mut rng = rand_core::OsRng;
         let x25519 = StaticSecret::random_from_rng(rng);
         let mlkem768 = with_mlkem.then(|| {
@@ -463,7 +472,49 @@ impl KeyShareSecrets {
                 encapsulation: encapsulation.as_bytes().as_slice().to_vec(),
             }
         });
-        Self { x25519, mlkem768 }
+        let secp256r1 = if with_p256 {
+            let private = ring::agreement::EphemeralPrivateKey::generate(
+                &ring::agreement::ECDH_P256,
+                &ring::rand::SystemRandom::new(),
+            )
+            .map_err(|_| invalid_data("P-256 key generation failed"))?;
+            let public = private
+                .compute_public_key()
+                .map_err(|_| invalid_data("P-256 key generation failed"))?
+                .as_ref()
+                .to_vec();
+            Some(P256Share {
+                private: std::sync::Mutex::new(Some(private)),
+                public,
+            })
+        } else {
+            None
+        };
+        Ok(Self {
+            x25519,
+            mlkem768,
+            secp256r1,
+        })
+    }
+
+    /// ECDH over P-256 with the client's ephemeral key; usable once.
+    pub fn secp256r1_shared(&self, peer_public: &[u8]) -> io::Result<Vec<u8>> {
+        let share = self
+            .secp256r1
+            .as_ref()
+            .ok_or_else(|| invalid_data("server selected P-256 without an offer"))?;
+        let private = share
+            .private
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take()
+            .ok_or_else(|| invalid_data("P-256 key share was already used"))?;
+        ring::agreement::agree_ephemeral(
+            private,
+            &ring::agreement::UnparsedPublicKey::new(&ring::agreement::ECDH_P256, peer_public),
+            |shared| shared.to_vec(),
+        )
+        .map_err(|_| invalid_data("invalid P-256 key share"))
     }
 
     pub fn x25519_public(&self) -> [u8; 32] {
@@ -583,7 +634,10 @@ pub fn build_from_spec_with_psk(
     let with_mlkem = spec
         .key_share_groups()
         .contains(&Code::Value(GROUP_X25519_MLKEM768));
-    let secrets = KeyShareSecrets::generate(with_mlkem);
+    let with_p256 = spec
+        .key_share_groups()
+        .contains(&Code::Value(GROUP_SECP256R1));
+    let secrets = KeyShareSecrets::generate(with_mlkem, with_p256)?;
     let alpn: Vec<Vec<u8>> = alpn
         .map(|protocols| protocols.to_vec())
         .unwrap_or_else(|| spec.default_alpn.clone());
@@ -808,6 +862,13 @@ fn encode_extension(
                 let (id, data): (u16, Vec<u8>) = match group {
                     Code::Grease => (grease.group, vec![0]),
                     Code::Value(GROUP_X25519) => (GROUP_X25519, secrets.x25519_public().to_vec()),
+                    Code::Value(GROUP_SECP256R1) => {
+                        let share = secrets
+                            .secp256r1
+                            .as_ref()
+                            .ok_or_else(|| invalid_data("missing P-256 key"))?;
+                        (GROUP_SECP256R1, share.public.clone())
+                    }
                     Code::Value(GROUP_X25519_MLKEM768) => {
                         let share = secrets
                             .mlkem768
