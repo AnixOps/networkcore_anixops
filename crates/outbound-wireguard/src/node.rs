@@ -678,7 +678,7 @@ async fn drive(node: Arc<Node>, run: u64) {
     }
     let mut datagram = vec![0u8; DATAGRAM_BYTES];
     let mut next_tick = Instant::now() + TIMER_TICK;
-    let mut replies = Vec::new();
+    let mut replies: Vec<Vec<u8>> = Vec::new();
     loop {
         for reply in replies.drain(..) {
             let _ = socket.send(&reply).await;
