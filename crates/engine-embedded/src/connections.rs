@@ -640,6 +640,19 @@ impl Dispatcher {
         self.routed.as_ref()
     }
 
+    /// [`TcpOutbound::reset_sessions`] on every outbound flows can take
+    /// (the nodes, or the single outbound, and DIRECT), after the device
+    /// changed networks or woke up. Returns the total dropped.
+    pub fn reset_sessions(&self) -> usize {
+        let direct = if self.routed.is_some() {
+            // The routed outbound resets its own DIRECT.
+            0
+        } else {
+            self.direct.reset_sessions()
+        };
+        self.outbound.reset_sessions() + direct
+    }
+
     pub fn tracker(&self) -> &Arc<ConnectionTracker> {
         &self.tracker
     }
@@ -824,6 +837,10 @@ impl Dispatcher {
 impl TcpOutbound for Dispatcher {
     fn protocol(&self) -> &'static str {
         self.outbound.protocol()
+    }
+
+    fn reset_sessions(&self) -> usize {
+        Dispatcher::reset_sessions(self)
     }
 
     fn connect<'a>(&'a self, target: &'a TargetAddr) -> BoxFuture<'a, io::Result<BoxStream>> {

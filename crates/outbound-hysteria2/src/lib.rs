@@ -27,6 +27,7 @@ mod factory;
 pub mod udp;
 
 use std::io;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -62,11 +63,16 @@ pub struct Hysteria2Outbound {
     password: String,
     quic: QuicConnector,
     session: Mutex<Option<Session>>,
+    /// Bumped by [`TcpOutbound::reset_sessions`]; a session from an older
+    /// generation is never reused.
+    generation: AtomicU64,
 }
 
 /// One authenticated QUIC connection.
 struct Session {
     quic: QuicConnection,
+    /// The outbound's generation when this session was opened.
+    generation: u64,
     /// The connection closes when the last request sender is dropped.
     _requests: h3::client::SendRequest<h3_quinn::OpenStreams, Bytes>,
     driver: JoinHandle<()>,
@@ -98,6 +104,7 @@ impl Hysteria2Outbound {
             password,
             quic: QuicConnector::new(server, port, tls, &["h3"], Congestion::Cubic)?,
             session: Mutex::new(None),
+            generation: AtomicU64::new(0),
         })
     }
 
@@ -124,13 +131,17 @@ impl Hysteria2Outbound {
     /// its UDP dispatch when the server relays UDP.
     async fn connection(&self) -> io::Result<(quinn::Connection, Option<Arc<udp::Dispatch>>)> {
         let mut session = self.session.lock().await;
+        let generation = self.generation.load(Ordering::Acquire);
         if let Some(current) = session.as_ref() {
-            if current.quic.connection.close_reason().is_none() {
+            if current.generation == generation && current.quic.connection.close_reason().is_none()
+            {
                 return Ok((current.quic.connection.clone(), current.udp.clone()));
             }
         }
-        *session = None;
-        let fresh = tokio::time::timeout(HANDSHAKE_TIMEOUT, self.handshake())
+        if let Some(stale) = session.take() {
+            stale.quic.connection.close(0u32.into(), b"network changed");
+        }
+        let fresh = tokio::time::timeout(HANDSHAKE_TIMEOUT, self.handshake(generation))
             .await
             .map_err(|_| {
                 io::Error::new(io::ErrorKind::TimedOut, "hysteria2 handshake timed out")
@@ -141,7 +152,7 @@ impl Hysteria2Outbound {
         Ok((connection, dispatch))
     }
 
-    async fn handshake(&self) -> io::Result<Session> {
+    async fn handshake(&self, generation: u64) -> io::Result<Session> {
         let quic = self.quic.connect().await?;
         let connection = quic.connection.clone();
 
@@ -154,6 +165,7 @@ impl Hysteria2Outbound {
         });
         let mut session = Session {
             quic,
+            generation,
             _requests: requests.clone(),
             driver,
             udp: None,
@@ -199,6 +211,24 @@ impl Hysteria2Outbound {
 impl TcpOutbound for Hysteria2Outbound {
     fn protocol(&self) -> &'static str {
         PROTOCOL
+    }
+
+    /// Closes the shared QUIC connection, which still points at the old
+    /// network after the device changed networks or woke up; the next flow
+    /// opens a fresh one.
+    fn reset_sessions(&self) -> usize {
+        self.generation.fetch_add(1, Ordering::AcqRel);
+        match self.session.try_lock() {
+            Ok(mut session) => match session.take() {
+                Some(stale) => {
+                    stale.quic.connection.close(0u32.into(), b"network changed");
+                    1
+                }
+                None => 0,
+            },
+            // A dial holds the lock; it sees the new generation next time.
+            Err(_) => 1,
+        }
     }
 
     fn connect<'a>(&'a self, target: &'a TargetAddr) -> BoxFuture<'a, io::Result<BoxStream>> {
