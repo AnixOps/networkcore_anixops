@@ -567,23 +567,23 @@ impl Node {
         };
         let (listen, task) = match inbound {
             Inbound::Stream(stream) => {
-                let listener = bind_tcp(address)?;
-                let listen = listener.local_addr()?;
                 // UDP on the same port, for inbounds that take it: their
                 // own datagrams, or QUIC (XHTTP over HTTP/3).
-                let datagrams = match (stream.datagram(), stream.packet()) {
-                    (Some(datagram), _) => {
-                        let socket = bind_udp(listen)?;
+                let wants_udp = stream.datagram().is_some() || stream.packet().is_some();
+                let (listener, socket) = bind_tcp_and_udp(address, wants_udp)?;
+                let listen = listener.local_addr()?;
+                let datagrams = match (stream.datagram(), stream.packet(), socket) {
+                    (Some(datagram), _, Some(socket)) => {
                         Some(datagram.serve(socket, udp.clone(), stats.clone()))
                     }
-                    (None, Some(packet)) => Some(packet.serve(
-                        bind_udp(listen)?,
+                    (None, Some(packet), Some(socket)) => Some(packet.serve(
+                        socket,
                         outbound.clone(),
                         Some(udp.clone()),
                         settings.clone(),
                         stats.clone(),
                     )),
-                    (None, None) => None,
+                    _ => None,
                 };
                 let task = tokio::spawn({
                     let (stream, stats) = (stream.clone(), stats.clone());
@@ -921,6 +921,41 @@ fn prefer_congestion_control(socket: &socket2::Socket) {
 }
 
 /// Binds a UDP socket like [`bind_tcp`].
+/// Ephemeral ports tried for a TCP listener that needs UDP on the same
+/// number.
+const SAME_PORT_ATTEMPTS: usize = 8;
+
+/// Binds TCP on `address` and, when `udp` is set, UDP on the port TCP got.
+/// With port 0 that number was free for TCP only: UDP may hold it already, or
+/// on Windows it may fall in a range reserved for UDP (os error 10013), so
+/// another ephemeral port is tried.
+fn bind_tcp_and_udp(
+    address: SocketAddr,
+    udp: bool,
+) -> io::Result<(TcpListener, Option<std::net::UdpSocket>)> {
+    let mut attempt = 1;
+    loop {
+        let listener = bind_tcp(address)?;
+        if !udp {
+            return Ok((listener, None));
+        }
+        match bind_udp(listener.local_addr()?) {
+            Ok(socket) => return Ok((listener, Some(socket))),
+            Err(error)
+                if address.port() == 0
+                    && attempt < SAME_PORT_ATTEMPTS
+                    && matches!(
+                        error.kind(),
+                        io::ErrorKind::AddrInUse | io::ErrorKind::PermissionDenied
+                    ) =>
+            {
+                attempt += 1;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
 fn bind_udp(address: SocketAddr) -> io::Result<std::net::UdpSocket> {
     let socket = match bind(address, socket2::Type::DGRAM) {
         Err(error) if is_any_v6(address) && error.kind() != io::ErrorKind::AddrInUse => {

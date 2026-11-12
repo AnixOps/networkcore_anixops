@@ -93,6 +93,11 @@ impl Chunks {
         stream.read_exact(&mut size).await.ok()?;
         let size = usize::from(u16::from_be_bytes(size) ^ self.mask.next_mask());
         if size == 16 {
+            // The end chunk: an empty payload and its tag. Read the tag too,
+            // or it stays unread and closing the socket resets it (Windows
+            // reports that to the client as os error 10054).
+            let mut tag = [0u8; 16];
+            let _ = stream.read_exact(&mut tag).await;
             return None;
         }
         let mut sealed = vec![0u8; size];
