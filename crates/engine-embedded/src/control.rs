@@ -23,6 +23,7 @@
 //! | `run_script` | `tag` | `{"scheduled": bool}` |
 //! | `outbound_health` | | `{"outbounds": [{"node", "protocol", "health"}]}`, only outbounds that report health |
 //! | `resume_outbound` | `node` | `{"resumed": bool}` |
+//! | `metrics` | `anonymous` (optional bool) | `{"content_type", "text"}`: [`crate::metrics`] in the Prometheus text format |
 //!
 //! The script commands need a MITM config with plugin scripts; the client
 //! sends `network_changed` when the device's network changes and polls
@@ -36,6 +37,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::connections::{Dispatcher, Mode};
+use crate::metrics;
 use crate::tunnel::FlowInterceptor;
 use crate::{RuntimeError, RuntimeErrorCode};
 
@@ -51,20 +53,35 @@ pub const MAX_REQUEST_LEN: usize = 4096;
 enum ControlRequest {
     Traffic,
     Connections,
-    CloseConnection { id: u64 },
+    CloseConnection {
+        id: u64,
+    },
     CloseAll,
     Mode,
-    SetMode { mode: Mode },
+    SetMode {
+        mode: Mode,
+    },
     Groups,
-    Select { group: String, member: String },
+    Select {
+        group: String,
+        member: String,
+    },
     RuleSets,
     UpdateRuleSets,
     Scripts,
     ScriptNotifications,
     NetworkChanged,
-    RunScript { tag: String },
+    RunScript {
+        tag: String,
+    },
     OutboundHealth,
-    ResumeOutbound { node: String },
+    ResumeOutbound {
+        node: String,
+    },
+    Metrics {
+        #[serde(default)]
+        anonymous: bool,
+    },
 }
 
 /// Script commands, answered by the flow interceptor.
@@ -194,6 +211,17 @@ pub fn handle_with_interceptor(
                 None => return Err(invalid("no such node")),
             };
             Ok(json!({ "resumed": resumed }))
+        }
+        ControlRequest::Metrics { anonymous } => {
+            let labels = if anonymous {
+                metrics::Labels::Anonymous
+            } else {
+                metrics::Labels::Named
+            };
+            Ok(json!({
+                "content_type": metrics::CONTENT_TYPE,
+                "text": metrics::render(dispatcher, labels),
+            }))
         }
     };
     answer

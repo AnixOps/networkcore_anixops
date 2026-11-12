@@ -46,6 +46,7 @@ pub(crate) mod icmp;
 pub mod local_proxy;
 #[cfg(feature = "mitm")]
 pub mod mitm;
+pub mod metrics;
 pub mod nodes;
 #[cfg(feature = "local-proxy")]
 pub mod process;

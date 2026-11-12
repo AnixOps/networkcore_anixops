@@ -679,3 +679,46 @@ fn ipv6_flows_reach_a_proxy_by_their_sniffed_name() {
         );
     });
 }
+
+#[test]
+fn metrics_answer_prometheus_text() {
+    runtime().block_on(async {
+        let dispatcher = grouped();
+        let stream = dispatcher
+            .connect_flow(&TargetAddr::Domain("www.example.test".to_string(), 443), None)
+            .await
+            .unwrap();
+        drop(stream);
+
+        let answer = control_json(&dispatcher, r#"{"cmd":"metrics"}"#);
+        assert_eq!(answer["content_type"], engine_embedded::metrics::CONTENT_TYPE);
+        let text = answer["text"].as_str().unwrap();
+        for line in [
+            "# TYPE networkcore_upload_bytes_total counter",
+            "networkcore_mode{mode=\"rule\"} 1",
+            "networkcore_mode{mode=\"direct\"} 0",
+            "networkcore_connections_opened_total{network=\"tcp\"} 1",
+            "networkcore_connections_closed_total{network=\"tcp\",result=\"ok\"} 1",
+            "networkcore_connections_closed_total{network=\"udp\",result=\"ok\"} 0",
+            "networkcore_connections_active{network=\"tcp\"} 0",
+            "networkcore_policy_group_selected{group=\"Proxy\",type=\"select\",member=\"hk-1\"} 1",
+        ] {
+            assert!(text.lines().any(|l| l == line), "missing {line:?} in\n{text}");
+        }
+        // Every sample line is `name{labels} value` with a numeric value.
+        for line in text.lines().filter(|l| !l.starts_with('#')) {
+            let value = line.rsplit(' ').next().unwrap();
+            assert!(value.parse::<f64>().is_ok(), "{line}");
+        }
+        assert!(!text.contains("example.test"));
+
+        let anonymous = control_json(&dispatcher, r#"{"cmd":"metrics","anonymous":true}"#);
+        let text = anonymous["text"].as_str().unwrap();
+        assert!(text.contains(
+            "networkcore_policy_group_selected{group=\"group_1\",type=\"select\",member=\"member_1\"} 1"
+        ));
+        for name in ["Proxy", "Auto", "hk-1", "jp-1"] {
+            assert!(!text.contains(name), "{name} in\n{text}");
+        }
+    });
+}
