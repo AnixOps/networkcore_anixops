@@ -134,8 +134,9 @@ const FIRST_PAYLOAD_WAIT: Duration = Duration::from_millis(100);
 const FIRST_PAYLOAD_MAX: usize = 4096;
 const RELAY_BUFFER_BYTES: usize = 8 * 1024;
 const DNS_PORT: u16 = 53;
-/// UDP flows open at once; datagrams for a new flow beyond this are dropped.
-const MAX_UDP_FLOWS: usize = 256;
+/// UDP flows open at once by default ([`TunnelSettings::max_udp_flows`]);
+/// datagrams for a new flow beyond the limit are dropped.
+pub const DEFAULT_MAX_UDP_FLOWS: usize = 256;
 /// Datagrams queued per flow while it connects or sends.
 const UDP_FLOW_QUEUE: usize = 64;
 /// A UDP flow without traffic in either direction for this long is closed.
@@ -146,6 +147,9 @@ pub struct TunnelSettings {
     pub mtu: u16,
     pub tcp_window_bytes: u32,
     pub max_tcp_connections: usize,
+    /// UDP flows (app socket, destination) open at once; datagrams for a new
+    /// flow beyond this are dropped. DNS to port 53 does not count.
+    pub max_udp_flows: usize,
     pub max_dns_in_flight: usize,
     pub idle_timeout: Duration,
     pub connect_timeout: Duration,
@@ -791,9 +795,9 @@ impl UdpFlows {
             payload
         };
         self.0.remove(&key);
-        if self.0.len() >= MAX_UDP_FLOWS {
+        if self.0.len() >= settings.max_udp_flows {
             self.0.retain(|_, flow| !flow.is_closed());
-            if self.0.len() >= MAX_UDP_FLOWS {
+            if self.0.len() >= settings.max_udp_flows {
                 bump(&stats.udp_dropped);
                 return;
             }

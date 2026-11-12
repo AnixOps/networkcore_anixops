@@ -76,6 +76,7 @@ TCP flows to port 443 whose ClientHello SNI matches the hostname list are termin
   "dns": { "upstream": "1.1.1.1:53", "timeout_ms": 5000 },
   "limits": {
     "max_tcp_connections": 128,
+    "max_udp_flows": 256,
     "max_dns_in_flight": 32,
     "tcp_window_bytes": 65536,
     "idle_timeout_secs": 300,

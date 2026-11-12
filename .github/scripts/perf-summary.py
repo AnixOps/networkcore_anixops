@@ -5,6 +5,7 @@ Default: tunnel_bench results, median per side, head vs base. Input files are
 named <side>-<outbound>-<round>.json.
 
 --rules FILE: the rule_bench report (decision latency by query kind, gate).
+--scale DIR: tunnel_bench scale-<outbound>.json and udp-sessions.json (gates).
 """
 
 import json
@@ -94,9 +95,80 @@ def rules_summary(path):
         print(f"⚠️ {unexpected} decisions did not hit or miss as the generated list expects.")
 
 
+def verdict(report):
+    if report.get("pass"):
+        return "✅ pass"
+    failures = "; ".join(report.get("failures") or []) or "no result"
+    return f"❌ fail: {failures}"
+
+
+def scale_summary(root):
+    root = Path(root)
+    print("### Tunnel scale")
+    print()
+    udp = root / "udp-sessions.json"
+    if udp.exists():
+        report = json.loads(udp.read_text())
+        print(f"#### {report.get('flows')} UDP flows open at once: {verdict(report)}")
+        print()
+        print("| Metric | Value |")
+        print("| --- | ---: |")
+        rows = [
+            ("Flows opened", "opened", ""),
+            ("Failed / dropped", None, ""),
+            ("Time to open all", "open_secs", "s"),
+            ("Flows per second", "flows_per_s", "/s"),
+            ("RSS after start", "rss_started_kb", "KiB"),
+            ("RSS with all open", "rss_open_kb", "KiB"),
+            ("Memory per flow", "per_flow_kb", "KiB"),
+            ("RSS limit", "max_rss_mb", "MiB"),
+        ]
+        for label, key, unit in rows:
+            if key is None:
+                value = f"{report.get('failed', 0)} / {report.get('dropped', 0)}"
+            else:
+                raw = report.get(key)
+                if isinstance(raw, str):
+                    raw = float(raw)
+                value = fmt(raw) + (f" {unit}" if unit and raw is not None else "")
+            print(f"| {label} | {value} |")
+        print()
+    for path in sorted(root.glob("scale-*.json")):
+        report = json.loads(path.read_text())
+        outbound = report.get("outbound")
+        print(f"#### {report.get('concurrent')} connections at once, outbound `{outbound}`: {verdict(report)}")
+        print()
+        print("| Metric | Value |")
+        print("| --- | ---: |")
+        rows = [
+            ("Established", "established", ""),
+            ("Connect failures", "connect_failed", ""),
+            ("Time to open all", "open_secs", "s"),
+            ("Echo failures", "echo_failed", ""),
+            ("Echo p50, all open", "echo_p50_ms", "ms"),
+            ("Echo p99, all open", "echo_p99_ms", "ms"),
+            ("Tunnel TCP active", "tcp_active_open", ""),
+            ("Rejected by the tunnel", "tcp_rejected", ""),
+            ("RSS with all open", "rss_open_kb", "KiB"),
+            ("Memory per connection", "per_conn_kb", "KiB"),
+            ("RSS after close", "rss_after_close_kb", "KiB"),
+            ("TCP active after close", "tcp_active_after_close", ""),
+        ]
+        for label, key, unit in rows:
+            raw = report.get(key)
+            value = fmt(raw) + (f" {unit}" if unit and raw is not None else "")
+            print(f"| {label} | {value} |")
+        print()
+    if not udp.exists() and not any(root.glob("scale-*.json")):
+        print("No results.")
+
+
 def main():
     if len(sys.argv) > 2 and sys.argv[1] == "--rules":
         rules_summary(sys.argv[2])
+        return
+    if len(sys.argv) > 2 and sys.argv[1] == "--scale":
+        scale_summary(sys.argv[2])
         return
     root = Path(sys.argv[1] if len(sys.argv) > 1 else "results")
     runs = {}

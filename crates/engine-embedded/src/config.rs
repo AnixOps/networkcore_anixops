@@ -41,6 +41,9 @@ pub const CONFIG_SCHEMA_VERSION: u32 = 1;
 const MIN_MTU: u16 = 1280;
 const MAX_MTU: u16 = 9000;
 const MAX_PROFILE_ID_LEN: usize = 128;
+/// Largest `limits.max_udp_flows`: what a desktop or gateway can hold (the
+/// perf workflow measures 100 000 flows).
+const MAX_UDP_FLOWS_LIMIT: usize = 1_000_000;
 // Shared with the importer, which only offers routing that fits.
 use node_import::{MAX_POLICY_GROUPS, MAX_ROUTED_OUTBOUNDS, MAX_ROUTING_RULES};
 const MAX_RULE_SETS: usize = 32;
@@ -494,6 +497,9 @@ impl DnsRuleConfig {
 pub struct Limits {
     #[serde(default = "default_max_tcp_connections")]
     pub max_tcp_connections: usize,
+    /// UDP flows open at once (DNS excluded).
+    #[serde(default = "default_max_udp_flows")]
+    pub max_udp_flows: usize,
     #[serde(default = "default_max_dns_in_flight")]
     pub max_dns_in_flight: usize,
     /// Per-socket userspace TCP window in each direction, in bytes.
@@ -509,6 +515,7 @@ impl Default for Limits {
     fn default() -> Self {
         Self {
             max_tcp_connections: default_max_tcp_connections(),
+            max_udp_flows: default_max_udp_flows(),
             max_dns_in_flight: default_max_dns_in_flight(),
             tcp_window_bytes: default_tcp_window_bytes(),
             idle_timeout_secs: default_idle_timeout_secs(),
@@ -531,6 +538,10 @@ fn default_dns_timeout_ms() -> u64 {
 
 fn default_max_tcp_connections() -> usize {
     128
+}
+
+fn default_max_udp_flows() -> usize {
+    crate::tunnel::DEFAULT_MAX_UDP_FLOWS
 }
 
 fn default_max_dns_in_flight() -> usize {
@@ -671,6 +682,8 @@ impl RuntimeConfig {
         }
         let limits = &self.limits;
         if limits.max_tcp_connections == 0
+            || limits.max_udp_flows == 0
+            || limits.max_udp_flows > MAX_UDP_FLOWS_LIMIT
             || limits.max_dns_in_flight == 0
             || limits.tcp_window_bytes < 4 * 1024
             || limits.tcp_window_bytes > 1024 * 1024
