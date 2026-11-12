@@ -178,7 +178,7 @@ fn generated_lists_decide_the_same_way() {
         );
         let target = ["hk", "jp", "DIRECT", "REJECT", "Proxy"][next(5) as usize];
         rules.push(match next(8) {
-            0 | 1 | 2 => format!("DOMAIN-SUFFIX,{name},{target}"),
+            0..=2 => format!("DOMAIN-SUFFIX,{name},{target}"),
             3 => format!("DOMAIN,{}.{name},{target}", labels[next(8) as usize]),
             4 => format!("DOMAIN-KEYWORD,{},{target}", labels[next(8) as usize]),
             5 => format!("IP-CIDR,10.{}.0.0/16,{target},no-resolve", next(4)),
