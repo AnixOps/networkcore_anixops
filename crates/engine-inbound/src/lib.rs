@@ -176,6 +176,19 @@ pub trait StreamInbound: Send + Sync {
         None
     }
 
+    /// [`StreamInbound::background`] that also gets the node's UDP egress,
+    /// for inbounds whose background work serves clients of its own (a
+    /// second listener that relays datagrams). The serve loop calls this
+    /// one; the default ignores `udp` and calls `background`.
+    fn background_with_udp(
+        &self,
+        outbound: Arc<dyn TcpOutbound>,
+        udp: Option<Arc<dyn udp::UdpOutbound>>,
+    ) -> Option<BoxFuture<'static, ()>> {
+        let _ = udp;
+        self.background(outbound)
+    }
+
     /// The health of the upstreams an inbound dials itself (a forward's
     /// targets); `None` for inbounds whose clients name the destination.
     fn target_health(&self) -> Option<Vec<health::TargetHealth>> {

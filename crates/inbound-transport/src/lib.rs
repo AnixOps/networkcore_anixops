@@ -203,6 +203,14 @@ impl StreamInbound for TlsInbound {
         self.inner.background(outbound)
     }
 
+    fn background_with_udp(
+        &self,
+        outbound: Arc<dyn TcpOutbound>,
+        udp: Option<Arc<dyn engine_inbound::udp::UdpOutbound>>,
+    ) -> Option<BoxFuture<'static, ()>> {
+        self.inner.background_with_udp(outbound, udp)
+    }
+
     fn target_health(&self) -> Option<Vec<engine_inbound::health::TargetHealth>> {
         self.inner.target_health()
     }

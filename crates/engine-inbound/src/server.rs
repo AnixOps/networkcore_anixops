@@ -89,7 +89,9 @@ pub async fn serve_with_udp(
     stats: Arc<InboundStats>,
 ) -> io::Result<()> {
     // Ends with the serve loop, as the background work of the inbound does.
-    let background = inbound.background(outbound.clone()).map(tokio::spawn);
+    let background = inbound
+        .background_with_udp(outbound.clone(), udp.clone())
+        .map(tokio::spawn);
     let _background = background.map(AbortOnDrop);
     let permits = Arc::new(Semaphore::new(settings.max_connections));
     let settings = Arc::new(settings);
