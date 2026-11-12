@@ -726,6 +726,8 @@ fn build_routed_node(
     let outbound = configs
         .get(id)
         .ok_or_else(|| rejected("a via names a routing outbound that does not exist"))?;
+    // Not a routing node itself, so it resets with the node it carries.
+    let mut inline_via = None;
     let (node_dialer, below) = match &outbound.via {
         None => (dialer.clone(), 0),
         Some(Via::Node(via)) => {
@@ -737,11 +739,15 @@ fn build_routed_node(
         }
         Some(Via::Inline(via)) => {
             let (via, length) = build_chained(registry, via, dialer.clone())?;
+            inline_via = Some(via.clone());
             (Arc::new(OutboundDialer(via)) as Arc<dyn Dialer>, length)
         }
     };
     let node = (
-        build_single_outbound(registry, outbound, node_dialer)?,
+        with_inline_via(
+            build_single_outbound(registry, outbound, node_dialer)?,
+            inline_via,
+        ),
         checked_chain(below)?,
     );
     built.insert(id.to_string(), node.clone());
@@ -755,6 +761,7 @@ fn build_chained(
     outbound: &OutboundConfig,
     dialer: Arc<dyn Dialer>,
 ) -> Result<Chained, RuntimeError> {
+    let mut inline_via = None;
     let (dialer, below) = match &outbound.via {
         None => (dialer, 0),
         Some(Via::Node(_)) => {
@@ -764,13 +771,76 @@ fn build_chained(
         }
         Some(Via::Inline(via)) => {
             let (via, length) = build_chained(registry, via, dialer)?;
+            inline_via = Some(via.clone());
             (Arc::new(OutboundDialer(via)) as Arc<dyn Dialer>, length)
         }
     };
     Ok((
-        build_single_outbound(registry, outbound, dialer)?,
+        with_inline_via(
+            build_single_outbound(registry, outbound, dialer)?,
+            inline_via,
+        ),
         checked_chain(below)?,
     ))
+}
+
+/// `outbound`, resetting its inline `via` with it: a `via` written inline is
+/// no routing node, so nothing else would reach its sessions when the
+/// network changes.
+fn with_inline_via(
+    outbound: Arc<dyn TcpOutbound>,
+    via: Option<Arc<dyn TcpOutbound>>,
+) -> Arc<dyn TcpOutbound> {
+    match via {
+        Some(via) => Arc::new(InlineVia { outbound, via }),
+        None => outbound,
+    }
+}
+
+/// See [`with_inline_via`]. Everything but the reset is the outbound's own.
+struct InlineVia {
+    outbound: Arc<dyn TcpOutbound>,
+    via: Arc<dyn TcpOutbound>,
+}
+
+impl TcpOutbound for InlineVia {
+    fn protocol(&self) -> &'static str {
+        self.outbound.protocol()
+    }
+
+    fn connect<'a>(
+        &'a self,
+        target: &'a engine_outbound::TargetAddr,
+    ) -> engine_outbound::BoxFuture<'a, std::io::Result<engine_outbound::BoxStream>> {
+        self.outbound.connect(target)
+    }
+
+    fn open_udp<'a>(
+        &'a self,
+        target: &'a engine_outbound::TargetAddr,
+    ) -> engine_outbound::BoxFuture<'a, std::io::Result<engine_outbound::UdpFlow>> {
+        self.outbound.open_udp(target)
+    }
+
+    fn probe<'a>(
+        &'a self,
+        target: &'a engine_outbound::TargetAddr,
+        timeout: std::time::Duration,
+    ) -> engine_outbound::BoxFuture<'a, std::io::Result<std::time::Duration>> {
+        self.outbound.probe(target, timeout)
+    }
+
+    fn health(&self) -> Option<serde_json::Value> {
+        self.outbound.health()
+    }
+
+    fn resume(&self) -> bool {
+        self.outbound.resume()
+    }
+
+    fn reset_sessions(&self) -> usize {
+        self.outbound.reset_sessions() + self.via.reset_sessions()
+    }
 }
 
 /// The chain length of an outbound over a `via` chain of `below`.

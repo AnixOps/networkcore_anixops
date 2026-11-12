@@ -416,6 +416,16 @@ impl RoutedOutbound {
         self.nodes.get(id).map(|node| node.resume())
     }
 
+    /// [`TcpOutbound::reset_sessions`] on every node and the DIRECT
+    /// outbound; returns the total dropped.
+    pub fn reset_sessions(&self) -> usize {
+        self.nodes
+            .values()
+            .map(|node| node.reset_sessions())
+            .sum::<usize>()
+            + self.direct.reset_sessions()
+    }
+
     /// The outbound for connections that skip the rules (the direct mode).
     pub fn direct(&self) -> &Arc<dyn TcpOutbound> {
         &self.direct
@@ -743,6 +753,10 @@ impl TcpOutbound for RoutedOutbound {
 
     fn connect<'a>(&'a self, target: &'a TargetAddr) -> BoxFuture<'a, io::Result<BoxStream>> {
         Box::pin(async move { self.outbound_for(target).await?.connect(target).await })
+    }
+
+    fn reset_sessions(&self) -> usize {
+        RoutedOutbound::reset_sessions(self)
     }
 
     /// UDP follows the same rules as TCP, decided once per flow.
