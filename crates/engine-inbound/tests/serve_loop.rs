@@ -7,7 +7,8 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
-use engine_inbound::server::{serve, InboundStats, ServeSettings};
+use engine_inbound::server::{serve, serve_with_udp, InboundStats, ServeSettings};
+use engine_inbound::udp::{UdpOutbound, UdpSession};
 use engine_inbound::{Accepted, Rejected, StreamInbound, User, UserStore};
 use engine_outbound::{BoxFuture, BoxStream, TargetAddr, TcpOutbound};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
@@ -179,4 +180,69 @@ async fn unknown_users_are_held_then_closed() {
     assert!(matches!(read, Ok(0) | Err(_)));
     assert!(started.elapsed() >= Duration::from_millis(250));
     assert_eq!(stats.handshake_failed.load(Ordering::Relaxed), 1);
+}
+
+/// An inbound whose background work reports whether it got UDP egress.
+struct BackgroundProbe {
+    users: Arc<UserStore>,
+    got_udp: tokio::sync::mpsc::UnboundedSender<bool>,
+}
+
+impl StreamInbound for BackgroundProbe {
+    fn protocol(&self) -> &'static str {
+        "probe"
+    }
+
+    fn users(&self) -> &Arc<UserStore> {
+        &self.users
+    }
+
+    fn accept<'a>(
+        &'a self,
+        _stream: BoxStream,
+        _peer: SocketAddr,
+    ) -> BoxFuture<'a, Result<Accepted, Rejected>> {
+        Box::pin(async { Err(Rejected::close("probe")) })
+    }
+
+    fn background_with_udp(
+        &self,
+        _outbound: Arc<dyn TcpOutbound>,
+        udp: Option<Arc<dyn UdpOutbound>>,
+    ) -> Option<BoxFuture<'static, ()>> {
+        let _ = self.got_udp.send(udp.is_some());
+        None
+    }
+}
+
+struct NoUdp;
+
+impl UdpOutbound for NoUdp {
+    fn bind(&self) -> BoxFuture<'_, io::Result<Arc<dyn UdpSession>>> {
+        Box::pin(async { Err(io::ErrorKind::Unsupported.into()) })
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn background_work_gets_the_udp_egress() {
+    for udp in [None, Some(Arc::new(NoUdp) as Arc<dyn UdpOutbound>)] {
+        let expected = udp.is_some();
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let inbound = Arc::new(BackgroundProbe {
+            users: Arc::new(UserStore::default()),
+            got_udp: tx,
+        });
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let server = tokio::spawn(serve_with_udp(
+            listener,
+            inbound,
+            Arc::new(Direct),
+            udp,
+            ServeSettings::default(),
+            Arc::new(InboundStats::default()),
+        ));
+        let got = tokio::time::timeout(TIMEOUT, rx.recv()).await.unwrap();
+        assert_eq!(got, Some(expected));
+        server.abort();
+    }
 }
