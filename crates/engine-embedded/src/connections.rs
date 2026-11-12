@@ -756,7 +756,8 @@ impl Dispatcher {
         let outbound = self
             .route(target, host, process, RouteNetwork::Tcp, http, &guard)
             .await?;
-        let stream = outbound.connect(target).await?;
+        let named = proxied_name(target, host, &*outbound);
+        let stream = outbound.connect(named.as_ref().unwrap_or(target)).await?;
         guard.connected();
         Ok(Box::new(TrackedStream {
             inner: stream,
@@ -884,6 +885,37 @@ fn single_route(outbound: &dyn TcpOutbound) -> RouteInfo {
         chain: vec![name.clone()],
         outbound: name,
     }
+}
+
+/// Outbounds that reach an address themselves rather than through a proxy
+/// that resolves names on the far side.
+const ADDRESS_OUTBOUNDS: [&str; 3] = [crate::direct::PROTOCOL, crate::wireguard::PROTOCOL, "iwan"];
+
+/// The name to send a proxy instead of an IPv6 address the flow announced.
+///
+/// The packet tunnel installs an IPv6 default route and its DNS answers AAAA
+/// records, so a browser connects to a site's IPv6 address first. Many proxy
+/// servers have no IPv6 egress, so that connection is closed by the server
+/// after the local stack has accepted it, and the browser shows
+/// "connection closed" instead of falling back to IPv4 (curl -4 works,
+/// Chrome does not). Sending the sniffed name lets the server resolve the
+/// site with the address family it has. IPv4 targets and outbounds that
+/// dial the address themselves keep the address.
+fn proxied_name(
+    target: &TargetAddr,
+    host: Option<&str>,
+    outbound: &dyn TcpOutbound,
+) -> Option<TargetAddr> {
+    let (TargetAddr::Ip(address), Some(host)) = (target, host) else {
+        return None;
+    };
+    if !address.is_ipv6() || ADDRESS_OUTBOUNDS.contains(&outbound.protocol()) {
+        return None;
+    }
+    if host.parse::<std::net::IpAddr>().is_ok() {
+        return None;
+    }
+    Some(TargetAddr::Domain(host.to_string(), address.port()))
 }
 
 /// The route of the direct mode.
