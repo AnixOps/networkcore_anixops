@@ -23,16 +23,31 @@
 //! destination host over the members that answered (one site keeps one
 //! member) and round-robin takes them in turn; all of them use every member
 //! (url-test and fallback their first) until a check has finished.
+//!
+//! ## Hot reload
+//!
+//! The compiled rules live in a [`RoutingTable`] behind one pointer: every
+//! routing decision takes the current table once and keeps it until the
+//! decision is described, so a decision never mixes two rule lists.
+//! [`RoutedOutbound::reload_rules`] compiles a new table from new rule lines
+//! off to the side (the standby buffer), with the same checks a start runs,
+//! and only then swaps the pointer. Nothing else changes: nodes, groups,
+//! select choices, latencies, rule sets and every open connection stay as
+//! they are, so a reload drops no connection and no packet. Connections
+//! opened before the swap keep the outbound they were given; later ones use
+//! the new rules. A rule list that does not compile leaves the running table
+//! untouched and names the first bad line.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io;
 use std::net::IpAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 
 use config_core::routing::{
-    PolicyGroupKind, PolicyTarget, RouteMatch, RouteNetwork, RouteOutcome, RouteQuery,
-    RouteResolution, RoutingEnvironment, RoutingModel, RoutingRule, RoutingSpec, RuleMatcher,
+    parse_rule_line, PolicyGroupKind, PolicyGroupSpec, PolicyTarget, RouteMatch, RouteNetwork,
+    RouteOutcome, RouteQuery, RouteResolution, RoutingEnvironment, RoutingModel, RoutingRule,
+    RoutingSpec, RuleLine, RuleMatcher,
 };
 use config_core::rule_set::RuleSet;
 use engine_outbound::sniff::HttpRequestHead;
@@ -45,7 +60,14 @@ use crate::{RuntimeError, RuntimeErrorCode};
 pub const PROTOCOL: &str = "routed";
 
 pub struct RoutedOutbound {
-    model: RoutingModel,
+    /// The active rule table; [`RoutedOutbound::reload_rules`] swaps it.
+    table: RwLock<Arc<RoutingTable>>,
+    /// Policy groups as configured, to compile reloaded rules against.
+    group_specs: Vec<PolicyGroupSpec>,
+    /// MITM plugin rules as given, put ahead of reloaded rules again.
+    plugin_rules: Vec<RoutingRule>,
+    /// The configured global target, applied to reloaded tables again.
+    global_name: Option<String>,
     rule_sets: Arc<RuleSetStore>,
     direct: Arc<dyn TcpOutbound>,
     nodes: BTreeMap<String, Arc<dyn TcpOutbound>>,
@@ -53,14 +75,60 @@ pub struct RoutedOutbound {
     latencies: Arc<RwLock<Latencies>>,
     /// Members picked at runtime in select groups, by group id.
     selected: RwLock<BTreeMap<String, String>>,
-    /// Where the global mode sends every connection.
-    global: PolicyTarget,
     /// Connections routed by round-robin groups so far.
     round_robin: AtomicUsize,
+}
+
+/// One compiled rule list: the model, where the global mode goes, and
+/// whether a rule needs the local process. Immutable once built; a reload
+/// builds a new one and swaps it in.
+#[derive(Clone, Debug)]
+pub struct RoutingTable {
+    pub model: RoutingModel,
+    /// Where the global mode sends every connection.
+    pub global: PolicyTarget,
     /// Whether a rule matches the local process, so callers that can look
     /// it up should.
-    uses_process: bool,
+    pub uses_process: bool,
+    /// 0 for the table the engine started with, then one more per reload.
+    pub generation: u64,
 }
+
+/// What a successful [`RoutedOutbound::reload_rules`] did.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct RulesReload {
+    /// Rules now in force, plugin rules and the FINAL line included.
+    pub rules: usize,
+    /// Generation of the table now in force.
+    pub generation: u64,
+    /// `false` for a dry run: the rules were only checked.
+    pub applied: bool,
+}
+
+/// Why a rule list was refused. `line` is the 0-based index of the first
+/// bad line in the list the client sent (`None` when the list as a whole is
+/// wrong, such as a missing FINAL). Carries a stable code, never the text
+/// of the line.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct RulesRejection {
+    pub line: Option<usize>,
+    pub code: &'static str,
+}
+
+/// Codes of a [`RulesRejection`].
+pub mod reject_code {
+    pub const TOO_MANY: &str = "too_many_rules";
+    pub const LINE_TOO_LONG: &str = "line_too_long";
+    pub const SYNTAX: &str = "syntax";
+    pub const UNKNOWN_TARGET: &str = "unknown_target";
+    pub const UNKNOWN_RULE_SET: &str = "unknown_rule_set";
+    pub const FINAL_NOT_LAST: &str = "final_not_last";
+    pub const FINAL_MISSING: &str = "final_missing";
+    pub const INVALID: &str = "invalid";
+}
+
+/// Longest rule line a reload accepts.
+pub const MAX_RULE_LINE_LEN: usize = 2048;
 
 /// Last measured latency per url-test or fallback group, keyed by member name.
 /// A member that failed its last check is absent.
@@ -196,35 +264,9 @@ impl RoutedOutbound {
         nodes: BTreeMap<String, Arc<dyn TcpOutbound>>,
         rule_sets: RuleSetStore,
     ) -> Result<Self, RuntimeError> {
-        let node_ids = nodes.keys().cloned().collect();
-        let model = RoutingModel::from_spec(spec, &node_ids).map_err(|_| {
-            RuntimeError::new(
-                RuntimeErrorCode::ConfigRejected,
-                "routing rules or policy groups are invalid",
-            )
-        })?;
-        let mut named = Vec::new();
-        for rule in &model.rules {
-            named_sets(&rule.matcher, &mut named);
-        }
-        let uses_process = model
-            .rules
-            .iter()
-            .any(|rule| matches_process(&rule.matcher));
-        let unknown_set = named.iter().any(|name| !rule_sets.contains(name));
-        if unknown_set {
-            return Err(RuntimeError::new(
-                RuntimeErrorCode::ConfigRejected,
-                "a routing rule names a rule set that is not configured",
-            ));
-        }
-        let global = match model.groups.first() {
-            Some(group) => PolicyTarget::Group(group.id.clone()),
-            None => nodes
-                .keys()
-                .next()
-                .map_or(PolicyTarget::Direct, |id| PolicyTarget::Node(id.clone())),
-        };
+        let node_ids: BTreeSet<String> = nodes.keys().cloned().collect();
+        let table = compile_table(spec, &node_ids, &rule_sets, None, &[], 0)?;
+        let model = &table.model;
         let invalid_via = rule_sets.remotes().iter().any(|remote| {
             !matches!(
                 model.target_named(&remote.via, &node_ids),
@@ -238,22 +280,90 @@ impl RoutedOutbound {
             ));
         }
         Ok(Self {
-            model,
+            table: RwLock::new(Arc::new(table)),
+            group_specs: spec.groups.clone(),
+            plugin_rules: Vec::new(),
+            global_name: None,
             rule_sets: Arc::new(rule_sets),
             direct,
             nodes,
             resolver: Arc::new(SystemResolver),
             latencies: Arc::default(),
             selected: RwLock::default(),
-            global,
             round_robin: AtomicUsize::new(0),
-            uses_process,
+        })
+    }
+
+    /// The rule table in force now. A caller that routes and then describes
+    /// one connection keeps this one snapshot for both.
+    pub fn table(&self) -> Arc<RoutingTable> {
+        self.table
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+
+    fn node_ids(&self) -> BTreeSet<String> {
+        self.nodes.keys().cloned().collect()
+    }
+
+    /// Replaces the user's rule lines while the engine runs (see the module
+    /// docs): `rules` must end with a `FINAL` line and may only name the
+    /// configured nodes, groups and rule sets. The new table is compiled
+    /// first and swapped in one step; on any error the running rules stay.
+    /// With `dry_run` the rules are only checked.
+    pub fn reload_rules(
+        &self,
+        rules: &[String],
+        dry_run: bool,
+    ) -> Result<RulesReload, RulesRejection> {
+        let node_ids = self.node_ids();
+        let current = self.table();
+        check_rule_lines(rules, &node_ids, &current.model, &self.rule_sets)?;
+        let spec = RoutingSpec {
+            rules: rules.to_vec(),
+            groups: self.group_specs.clone(),
+        };
+        let table = compile_table(
+            &spec,
+            &node_ids,
+            &self.rule_sets,
+            self.global_name.as_deref(),
+            &self.plugin_rules,
+            current.generation,
+        )
+        .map_err(|_| RulesRejection {
+            line: None,
+            code: reject_code::INVALID,
+        })?;
+        let rules = table.model.rules.len() + 1;
+        if !dry_run {
+            let mut slot = self
+                .table
+                .write()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            // Two reloads at once: the later swap wins, with its own count.
+            let generation = slot.generation.max(current.generation) + 1;
+            *slot = Arc::new(RoutingTable {
+                generation,
+                ..table
+            });
+            return Ok(RulesReload {
+                rules,
+                generation,
+                applied: true,
+            });
+        }
+        Ok(RulesReload {
+            rules,
+            generation: current.generation,
+            applied: false,
         })
     }
 
     /// Whether a `PROCESS-NAME` rule exists, alone or inside a logical rule.
     pub fn uses_process(&self) -> bool {
-        self.uses_process
+        self.table().uses_process
     }
 
     /// Puts MITM plugin rules ahead of the user's rules. A plugin names a
@@ -262,46 +372,28 @@ impl RoutedOutbound {
     /// target the global mode uses. Rules naming a rule set that is not
     /// configured are left out.
     pub fn with_plugin_rules(mut self, rules: &[RoutingRule]) -> Self {
-        let node_ids = self.nodes.keys().cloned().collect();
-        let mut added = Vec::new();
-        for rule in rules {
-            let mut named = Vec::new();
-            named_sets(&rule.matcher, &mut named);
-            if named.iter().any(|name| !self.rule_sets.contains(name)) {
-                continue;
-            }
-            let target = match &rule.target {
-                PolicyTarget::Direct | PolicyTarget::Reject => rule.target.clone(),
-                PolicyTarget::Group(name) | PolicyTarget::Node(name) => self
-                    .model
-                    .target_named(name, &node_ids)
-                    .unwrap_or_else(|| self.global.clone()),
-            };
-            self.uses_process |= matches_process(&rule.matcher);
-            added.push(RoutingRule {
-                matcher: rule.matcher.clone(),
-                target,
-                no_resolve: rule.no_resolve,
-            });
-        }
-        added.append(&mut self.model.rules);
-        self.model.rules = added;
+        let node_ids = self.node_ids();
+        self.plugin_rules = rules.to_vec();
+        let table = Arc::make_mut(
+            self.table
+                .get_mut()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+        );
+        add_plugin_rules(table, rules, &node_ids, &self.rule_sets);
         self
     }
 
     /// Sets where the global mode sends connections: a policy group, a node
     /// or DIRECT. Without one it is the first group, else the first node.
     pub fn with_global(mut self, name: &str) -> Result<Self, RuntimeError> {
-        let node_ids = self.nodes.keys().cloned().collect();
-        self.global = match self.model.target_named(name, &node_ids) {
-            Some(PolicyTarget::Reject) | None => {
-                return Err(RuntimeError::new(
-                    RuntimeErrorCode::ConfigRejected,
-                    "the global target must be a policy group, a node or DIRECT",
-                ))
-            }
-            Some(target) => target,
-        };
+        let node_ids = self.node_ids();
+        let table = Arc::make_mut(
+            self.table
+                .get_mut()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+        );
+        table.global = global_target(&table.model, name, &node_ids)?;
+        self.global_name = Some(name.to_string());
         Ok(self)
     }
 
@@ -372,13 +464,14 @@ impl RoutedOutbound {
         const FETCH_TIMEOUT: Duration = Duration::from_secs(60);
         const MAX_LIST_BYTES: usize = 32 * 1024 * 1024;
 
-        let node_ids = self.nodes.keys().cloned().collect();
-        let target = self
+        let node_ids = self.node_ids();
+        let table = self.table();
+        let target = table
             .model
             .target_named(&remote.via, &node_ids)
             .ok_or("via_unknown")?;
         let resolution = self.with_environment(None, |environment| {
-            self.model.route_to(&target, environment)
+            table.model.route_to(&target, environment)
         });
         let outbound = self
             .outbound_of(&resolution.outcome)
@@ -427,19 +520,20 @@ impl RoutedOutbound {
         self
     }
 
-    pub fn model(&self) -> &RoutingModel {
-        &self.model
-    }
-
     /// Where a connection to `target` goes without resolving its domain: a
     /// domain that reaches an IP rule without `no-resolve` is rejected.
     pub fn route(&self, target: &TargetAddr) -> RouteOutcome {
-        self.decide(&query(target), None).outcome
+        self.decide(&self.table(), &query(target), None).outcome
     }
 
-    fn decide(&self, query: &RouteQuery, resolved: Option<IpAddr>) -> RouteResolution {
+    fn decide(
+        &self,
+        table: &RoutingTable,
+        query: &RouteQuery,
+        resolved: Option<IpAddr>,
+    ) -> RouteResolution {
         self.with_environment(resolved, |environment| {
-            self.model.decide(query, environment)
+            table.model.decide(query, environment)
         })
     }
 
@@ -470,7 +564,8 @@ impl RoutedOutbound {
     /// connection, without restarting. Returns the member's name.
     pub fn select(&self, group_id: &str, member: &str) -> Result<String, RuntimeError> {
         let invalid = |message| RuntimeError::new(RuntimeErrorCode::InvalidArgument, message);
-        let group = self
+        let table = self.table();
+        let group = table
             .model
             .group(group_id)
             .ok_or_else(|| invalid("no policy group has that id"))?;
@@ -492,14 +587,16 @@ impl RoutedOutbound {
     /// Every policy group with the member it picks now and the members'
     /// last measured latencies, in configuration order.
     pub fn groups(&self) -> Vec<GroupView> {
+        let table = self.table();
         self.with_environment(None, |environment| {
-            self.model
+            table
+                .model
                 .groups
                 .iter()
                 .map(|group| GroupView {
                     id: group.id.clone(),
                     kind: group.kind.as_str(),
-                    now: self
+                    now: table
                         .model
                         .group_member(&group.id, environment)
                         .map(|member| member.name().to_string())
@@ -535,10 +632,11 @@ impl RoutedOutbound {
     /// Routes a flow of the global mode: every connection to the global
     /// target, through its groups.
     pub fn route_global(&self) -> (RouteInfo, Option<Arc<dyn TcpOutbound>>) {
+        let table = self.table();
         let resolution = self.with_environment(None, |environment| {
-            self.model.route_to(&self.global, environment)
+            table.model.route_to(&table.global, environment)
         });
-        let mut route = self.describe(&resolution);
+        let mut route = describe(&table, &resolution);
         route.rule = "MODE,global".to_string();
         (route, self.outbound_of(&resolution.outcome))
     }
@@ -568,7 +666,9 @@ impl RoutedOutbound {
     /// Where a connection to `target` goes, resolving its domain only when an
     /// IP rule asks for an address before another rule matches.
     pub async fn route_resolving(&self, target: &TargetAddr) -> RouteOutcome {
-        self.resolve_query(&query(target)).await.outcome
+        self.resolve_query(&self.table(), &query(target))
+            .await
+            .outcome
     }
 
     /// Routes a flow to `target` and says why. For an address target,
@@ -606,13 +706,14 @@ impl RoutedOutbound {
             query.domain = sniffed.map(str::to_string);
         }
         query.process = process.map(str::to_string);
-        let resolution = self.resolve_query(&query).await;
+        let table = self.table();
+        let resolution = self.resolve_query(&table, &query).await;
         let outbound = self.outbound_of(&resolution.outcome);
-        (self.describe(&resolution), outbound)
+        (describe(&table, &resolution), outbound)
     }
 
-    async fn resolve_query(&self, query: &RouteQuery) -> RouteResolution {
-        let first = self.decide(query, None);
+    async fn resolve_query(&self, table: &RoutingTable, query: &RouteQuery) -> RouteResolution {
+        let first = self.decide(table, query, None);
         let (Some(domain), RouteMatch::ResolveFailed(_)) = (query.domain.as_deref(), first.matched)
         else {
             return first;
@@ -620,31 +721,7 @@ impl RoutedOutbound {
         let Ok(resolved) = self.resolver.resolve(domain).await else {
             return first;
         };
-        self.decide(query, Some(resolved))
-    }
-
-    /// The rule, group path and outbound of a decision, as the connection
-    /// list shows them.
-    fn describe(&self, resolution: &RouteResolution) -> RouteInfo {
-        let rule = match resolution.matched {
-            RouteMatch::Rule(index) => self.model.rules[index].matcher.to_string(),
-            RouteMatch::ResolveFailed(index) => {
-                format!("{} (resolve failed)", self.model.rules[index].matcher)
-            }
-            RouteMatch::Final => "FINAL".to_string(),
-        };
-        let outbound = match &resolution.outcome {
-            RouteOutcome::Direct => "DIRECT".to_string(),
-            RouteOutcome::Reject => "REJECT".to_string(),
-            RouteOutcome::Node(id) => id.clone(),
-        };
-        let mut chain = resolution.group_path.clone();
-        chain.push(outbound.clone());
-        RouteInfo {
-            rule,
-            chain,
-            outbound,
-        }
+        self.decide(table, query, Some(resolved))
     }
 
     /// Measures every member of the health-checked groups through its
@@ -656,7 +733,9 @@ impl RoutedOutbound {
         use std::time::Duration;
 
         const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
-        let checked: Vec<_> = self
+        // Groups never change on a reload, so the first table's are the ones.
+        let table = self.table();
+        let checked: Vec<_> = table
             .model
             .groups
             .iter()
@@ -702,6 +781,182 @@ impl RoutedOutbound {
             tokio::time::sleep(Duration::from_secs(u64::from(interval))).await;
         }
     }
+}
+
+/// The rule, group path and outbound of a decision, as the connection
+/// list shows them.
+fn describe(table: &RoutingTable, resolution: &RouteResolution) -> RouteInfo {
+    let rule = match resolution.matched {
+        RouteMatch::Rule(index) => table.model.rules[index].matcher.to_string(),
+        RouteMatch::ResolveFailed(index) => {
+            format!("{} (resolve failed)", table.model.rules[index].matcher)
+        }
+        RouteMatch::Final => "FINAL".to_string(),
+    };
+    let outbound = match &resolution.outcome {
+        RouteOutcome::Direct => "DIRECT".to_string(),
+        RouteOutcome::Reject => "REJECT".to_string(),
+        RouteOutcome::Node(id) => id.clone(),
+    };
+    let mut chain = resolution.group_path.clone();
+    chain.push(outbound.clone());
+    RouteInfo {
+        rule,
+        chain,
+        outbound,
+    }
+}
+
+/// Compiles one rule table: the model, the global target (`global_name`,
+/// else the first group, else the first node, else DIRECT), and the plugin
+/// rules ahead of the user's. The error message is fixed so rule text and
+/// node settings never reach status or logs.
+fn compile_table(
+    spec: &RoutingSpec,
+    node_ids: &BTreeSet<String>,
+    rule_sets: &RuleSetStore,
+    global_name: Option<&str>,
+    plugin_rules: &[RoutingRule],
+    generation: u64,
+) -> Result<RoutingTable, RuntimeError> {
+    let model = RoutingModel::from_spec(spec, node_ids).map_err(|_| {
+        RuntimeError::new(
+            RuntimeErrorCode::ConfigRejected,
+            "routing rules or policy groups are invalid",
+        )
+    })?;
+    let mut named = Vec::new();
+    for rule in &model.rules {
+        named_sets(&rule.matcher, &mut named);
+    }
+    if named.iter().any(|name| !rule_sets.contains(name)) {
+        return Err(RuntimeError::new(
+            RuntimeErrorCode::ConfigRejected,
+            "a routing rule names a rule set that is not configured",
+        ));
+    }
+    let uses_process = model
+        .rules
+        .iter()
+        .any(|rule| matches_process(&rule.matcher));
+    let global = match global_name {
+        Some(name) => global_target(&model, name, node_ids)?,
+        None => match model.groups.first() {
+            Some(group) => PolicyTarget::Group(group.id.clone()),
+            None => node_ids
+                .iter()
+                .next()
+                .map_or(PolicyTarget::Direct, |id| PolicyTarget::Node(id.clone())),
+        },
+    };
+    let mut table = RoutingTable {
+        model,
+        global,
+        uses_process,
+        generation,
+    };
+    add_plugin_rules(&mut table, plugin_rules, node_ids, rule_sets);
+    Ok(table)
+}
+
+fn global_target(
+    model: &RoutingModel,
+    name: &str,
+    node_ids: &BTreeSet<String>,
+) -> Result<PolicyTarget, RuntimeError> {
+    match model.target_named(name, node_ids) {
+        Some(PolicyTarget::Reject) | None => Err(RuntimeError::new(
+            RuntimeErrorCode::ConfigRejected,
+            "the global target must be a policy group, a node or DIRECT",
+        )),
+        Some(target) => Ok(target),
+    }
+}
+
+/// Puts MITM plugin rules ahead of the table's rules (see
+/// [`RoutedOutbound::with_plugin_rules`]).
+fn add_plugin_rules(
+    table: &mut RoutingTable,
+    rules: &[RoutingRule],
+    node_ids: &BTreeSet<String>,
+    rule_sets: &RuleSetStore,
+) {
+    let mut added = Vec::new();
+    for rule in rules {
+        let mut named = Vec::new();
+        named_sets(&rule.matcher, &mut named);
+        if named.iter().any(|name| !rule_sets.contains(name)) {
+            continue;
+        }
+        let target = match &rule.target {
+            PolicyTarget::Direct | PolicyTarget::Reject => rule.target.clone(),
+            PolicyTarget::Group(name) | PolicyTarget::Node(name) => table
+                .model
+                .target_named(name, node_ids)
+                .unwrap_or_else(|| table.global.clone()),
+        };
+        table.uses_process |= matches_process(&rule.matcher);
+        added.push(RoutingRule {
+            matcher: rule.matcher.clone(),
+            target,
+            no_resolve: rule.no_resolve,
+        });
+    }
+    added.append(&mut table.model.rules);
+    table.model.rules = added;
+}
+
+/// Checks a reloaded rule list line by line, so the client can point at the
+/// first bad line: size, syntax, target names, rule sets and FINAL last.
+fn check_rule_lines(
+    rules: &[String],
+    node_ids: &BTreeSet<String>,
+    model: &RoutingModel,
+    rule_sets: &RuleSetStore,
+) -> Result<(), RulesRejection> {
+    let reject = |line: Option<usize>, code| Err(RulesRejection { line, code });
+    if rules.len() > node_import::MAX_ROUTING_RULES {
+        return reject(None, reject_code::TOO_MANY);
+    }
+    // Groups and nodes never change on a reload, so the running model
+    // knows every name a new rule may use.
+    let known_target = |name: &str| model.target_named(name, node_ids).is_some();
+    let mut final_seen = false;
+    for (index, line) in rules.iter().enumerate() {
+        if line.len() > MAX_RULE_LINE_LEN {
+            return reject(Some(index), reject_code::LINE_TOO_LONG);
+        }
+        if final_seen {
+            return reject(Some(index), reject_code::FINAL_NOT_LAST);
+        }
+        let Ok(parsed) = parse_rule_line(line) else {
+            return reject(Some(index), reject_code::SYNTAX);
+        };
+        match parsed {
+            RuleLine::Rule {
+                matcher, target, ..
+            } => {
+                if !known_target(&target) {
+                    return reject(Some(index), reject_code::UNKNOWN_TARGET);
+                }
+                let mut named = Vec::new();
+                named_sets(&matcher, &mut named);
+                if named.iter().any(|name| !rule_sets.contains(name)) {
+                    return reject(Some(index), reject_code::UNKNOWN_RULE_SET);
+                }
+            }
+            RuleLine::Final { target } => {
+                if !known_target(&target) {
+                    return reject(Some(index), reject_code::UNKNOWN_TARGET);
+                }
+                final_seen = true;
+            }
+        }
+    }
+    if !final_seen {
+        return reject(None, reject_code::FINAL_MISSING);
+    }
+    Ok(())
 }
 
 fn query(target: &TargetAddr) -> RouteQuery {

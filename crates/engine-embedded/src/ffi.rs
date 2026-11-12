@@ -502,7 +502,7 @@ pub unsafe extern "C" fn networkcore_ios_runtime_control(
         }
         // SAFETY: checked non-null above.
         unsafe { out.write(NetworkCoreBuffer::from_vec(Vec::new())) };
-        if request.is_null() || request_len == 0 || request_len > crate::control::MAX_REQUEST_LEN {
+        if request.is_null() || request_len == 0 || request_len > crate::control::MAX_RELOAD_REQUEST_LEN {
             return NETWORKCORE_IOS_ERR_INVALID_ARGUMENT;
         }
         // SAFETY: the caller guarantees `request_len` readable bytes.
