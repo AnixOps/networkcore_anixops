@@ -35,8 +35,16 @@
 //!   outbound keeps every flow open in memory; every flow must open and the
 //!   process RSS with all of them open must stay under M MiB.
 //!
+//! `soak --tun NAME --minutes N [--max-slope-mb-per-h F]` keeps the tunnel
+//! busy for N minutes (short echo connections every second, a pool of held
+//! connections that is turned over, a download burst every 30 s), samples
+//! the tunnel process every `--sample-secs`, and fails when the RSS trend
+//! after warm-up grows faster than F MiB per hour, when more than
+//! `--max-failure-ratio` of the connections fail, or when connections or file
+//! descriptors are left over at the end.
+//!
 //! `.github/workflows/perf.yml` runs `run` for a pull request's base and head,
-//! and both scale tests on the head.
+//! and both scale tests on the head; `.github/workflows/soak.yml` runs `soak`.
 
 #[cfg(target_os = "linux")]
 fn main() {
@@ -95,6 +103,7 @@ mod linux {
             "run" => run(&args),
             "scale" => scale(&args),
             "udp-sessions" => udp_sessions(&args),
+            "soak" => soak(&args),
             "server" => server_child(),
             "tunnel" => tunnel_child(&args),
             _ => Err(io::Error::other(
@@ -109,6 +118,15 @@ mod linux {
     }
 
     fn num(args: &Args, key: &str, default: u64) -> io::Result<u64> {
+        match args.get(key) {
+            Some(value) => value
+                .parse()
+                .map_err(|_| io::Error::other(format!("--{key} is not a number"))),
+            None => Ok(default),
+        }
+    }
+
+    fn fnum(args: &Args, key: &str, default: f64) -> io::Result<f64> {
         match args.get(key) {
             Some(value) => value
                 .parse()
@@ -342,6 +360,7 @@ mod linux {
             "rss_kb": field("VmRSS:"),
             "hwm_kb": field("VmHWM:"),
             "threads": field("Threads:"),
+            "fds": std::fs::read_dir("/proc/self/fd").map_or(0, |dir| dir.count()),
             "cpu_us": micros(usage.ru_utime) + micros(usage.ru_stime),
             "nvcsw": usage.ru_nvcsw as u64,
             "nivcsw": usage.ru_nivcsw as u64,
@@ -917,6 +936,217 @@ mod linux {
         }
         rss_limit(args, rss_open, &mut failures)?;
         drop(tunnel);
+        verdict(args, report, failures)
+    }
+
+    // ---- soak: memory trend over hours ------------------------------------
+
+    /// One short connection: 1 KiB echoed, then closed.
+    fn short_echo() -> io::Result<()> {
+        let mut stream = connect(b'E')?;
+        stream.set_read_timeout(Some(Duration::from_secs(10)))?;
+        let payload = [0x5au8; 1024];
+        stream.write_all(&payload)?;
+        let mut back = [0u8; 1024];
+        stream.read_exact(&mut back)?;
+        if back != payload {
+            return Err(io::Error::other("echo differs"));
+        }
+        Ok(())
+    }
+
+    /// Least-squares slope of `points` (x, y).
+    fn slope(points: &[(f64, f64)]) -> Option<f64> {
+        if points.len() < 3 {
+            return None;
+        }
+        let n = points.len() as f64;
+        let mean_x = points.iter().map(|p| p.0).sum::<f64>() / n;
+        let mean_y = points.iter().map(|p| p.1).sum::<f64>() / n;
+        let (mut covariance, mut variance) = (0.0, 0.0);
+        for (x, y) in points {
+            covariance += (x - mean_x) * (y - mean_y);
+            variance += (x - mean_x) * (x - mean_x);
+        }
+        (variance > 0.0).then_some(covariance / variance)
+    }
+
+    fn soak(args: &Args) -> io::Result<()> {
+        let minutes = fnum(args, "minutes", 60.0)?;
+        let sample_secs = num(args, "sample-secs", 60)?.max(1);
+        let rate = num(args, "conns-per-s", 20)? as usize;
+        let pool = num(args, "pool", 50)? as usize;
+        let warmup = fnum(args, "warmup-share", 0.15)?.clamp(0.0, 0.9);
+        let max_slope = fnum(args, "max-slope-mb-per-h", 1.0)?;
+        let max_failure_ratio = fnum(args, "max-failure-ratio", 0.001)?;
+        let (children, _) = start(args)?;
+        thread::sleep(Duration::from_secs(1));
+        let baseline = stats(&children)?;
+
+        let mut held = Vec::with_capacity(pool);
+        for _ in 0..pool {
+            held.push(connect(b'H')?);
+        }
+        let begin = Instant::now();
+        let end = begin + Duration::from_secs_f64(minutes * 60.0);
+        let sample_every = Duration::from_secs(sample_secs);
+        let mut next_sample = begin;
+        let mut next_burst = begin + Duration::from_secs(30);
+        let mut next_turnover = begin + Duration::from_secs(60);
+        let mut tick = begin;
+        let mut samples: Vec<(f64, Value)> = Vec::new();
+        let (mut opened, mut failed, mut bursts, mut burst_failed) = (0u64, 0u64, 0u64, 0u64);
+        let mut burst_mbps = Vec::new();
+        let mut turnover = 0usize;
+
+        while Instant::now() < end {
+            let now = Instant::now();
+            if now >= next_sample {
+                let sample = stats(&children)?;
+                let hours = begin.elapsed().as_secs_f64() / 3600.0;
+                eprintln!(
+                    "soak {:>7.3} h: rss {} KiB, fds {}, tcp_active {}, conns {opened}, failed {failed}",
+                    hours,
+                    get(&sample, "rss_kb"),
+                    get(&sample, "fds"),
+                    sample["tunnel"]["tcp_active"],
+                );
+                samples.push((hours, sample));
+                next_sample += sample_every;
+            }
+            for _ in 0..rate {
+                match short_echo() {
+                    Ok(()) => opened += 1,
+                    Err(_) => failed += 1,
+                }
+            }
+            if now >= next_burst {
+                bursts += 1;
+                match download(&children, 4, 2.0) {
+                    Ok(result) => burst_mbps.push(get(&result, "mbps")),
+                    Err(_) => burst_failed += 1,
+                }
+                next_burst += Duration::from_secs(30);
+            }
+            if now >= next_turnover && !held.is_empty() {
+                let count = (pool / 10).clamp(1, held.len());
+                let first = turnover % held.len();
+                for slot in first..first + count {
+                    let slot = slot % held.len();
+                    match connect(b'H') {
+                        Ok(stream) => held[slot] = stream,
+                        Err(_) => failed += 1,
+                    }
+                }
+                turnover += count;
+                next_turnover += Duration::from_secs(60);
+            }
+            tick += Duration::from_secs(1);
+            if let Some(wait) = tick.checked_duration_since(Instant::now()) {
+                thread::sleep(wait);
+            } else {
+                tick = Instant::now();
+            }
+        }
+
+        let during = stats(&children)?;
+        samples.push((begin.elapsed().as_secs_f64() / 3600.0, during));
+        drop(held);
+        thread::sleep(Duration::from_secs(10));
+        let closed = stats(&children)?;
+
+        let skip = ((samples.len() as f64) * warmup).floor() as usize;
+        let trend: Vec<(f64, f64)> = samples
+            .iter()
+            .skip(skip)
+            .map(|(hours, sample)| (*hours, get(sample, "rss_kb") / 1024.0))
+            .collect();
+        let rss_slope = slope(&trend);
+        let fds_trend: Vec<(f64, f64)> = samples
+            .iter()
+            .skip(skip)
+            .map(|(hours, sample)| (*hours, get(sample, "fds")))
+            .collect();
+        burst_mbps.sort_by(f64::total_cmp);
+        let attempts = opened + failed;
+        let failure_ratio = if attempts > 0 {
+            failed as f64 / attempts as f64
+        } else {
+            0.0
+        };
+        let tunnel = |sample: &Value, key: &str| sample["tunnel"][key].as_f64().unwrap_or(0.0);
+        let series: Vec<Value> = samples
+            .iter()
+            .map(|(hours, sample)| {
+                json!({
+                    "h": hours,
+                    "rss_kb": get(sample, "rss_kb"),
+                    "fds": get(sample, "fds"),
+                    "threads": get(sample, "threads"),
+                    "tcp_active": tunnel(sample, "tcp_active"),
+                    "cpu_s": get(sample, "cpu_us") / 1e6,
+                })
+            })
+            .collect();
+        let report = json!({
+            "outbound": arg(args, "outbound", "redirect"),
+            "minutes": minutes,
+            "hours": begin.elapsed().as_secs_f64() / 3600.0,
+            "conns_per_s": rate,
+            "pool": pool,
+            "connections": opened,
+            "failed": failed,
+            "failure_ratio": failure_ratio,
+            "bursts": bursts,
+            "burst_failed": burst_failed,
+            "burst_mbps_p50": percentile(&burst_mbps, 0.5),
+            "burst_mbps_min": burst_mbps.first().copied().unwrap_or(0.0),
+            "samples": samples.len(),
+            "warmup_samples": skip,
+            "rss_baseline_kb": get(&baseline, "rss_kb"),
+            "rss_first_kb": trend.first().map_or(0.0, |p| p.1 * 1024.0),
+            "rss_last_kb": trend.last().map_or(0.0, |p| p.1 * 1024.0),
+            "rss_max_kb": samples.iter().map(|(_, s)| get(s, "rss_kb")).fold(0.0, f64::max),
+            "rss_slope_mb_per_h": rss_slope,
+            "max_slope_mb_per_h": max_slope,
+            "fds_slope_per_h": slope(&fds_trend),
+            "fds_baseline": get(&baseline, "fds"),
+            "fds_after_close": get(&closed, "fds"),
+            "tcp_active_after_close": tunnel(&closed, "tcp_active"),
+            "rss_after_close_kb": get(&closed, "rss_kb"),
+            "cpu_s": (get(&closed, "cpu_us") - get(&baseline, "cpu_us")) / 1e6,
+            "tunnel": closed["tunnel"].clone(),
+            "series": series,
+        });
+        let mut failures = Vec::new();
+        match rss_slope {
+            Some(value) if value > max_slope => failures.push(format!(
+                "RSS grows {value:.3} MiB/h after warm-up, above {max_slope} MiB/h"
+            )),
+            Some(_) => {}
+            None => failures.push("too few samples for a trend".to_string()),
+        }
+        if failure_ratio > max_failure_ratio {
+            failures.push(format!(
+                "{failed} of {attempts} connections failed ({:.4}%)",
+                failure_ratio * 100.0
+            ));
+        }
+        if bursts > 0 && burst_failed * 100 > bursts {
+            failures.push(format!("{burst_failed} of {bursts} download bursts failed"));
+        }
+        let leftover = tunnel(&closed, "tcp_active");
+        if leftover > 8.0 {
+            failures.push(format!(
+                "{leftover} TCP flows still active after every connection closed"
+            ));
+        }
+        let fds_left = get(&closed, "fds") - get(&baseline, "fds");
+        if fds_left > 32.0 {
+            failures.push(format!(
+                "{fds_left} more file descriptors open than at the start"
+            ));
+        }
         verdict(args, report, failures)
     }
 }
