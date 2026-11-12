@@ -380,6 +380,8 @@ EOF
     } > "${conf}"
     "${binary}" -l info -c "${conf}" > "${work}/snell-${name}.log" 2>&1 &
     wait_for_port "${snell_port}"
+    # Fact for docs/protocols/snell.md §6.4: whether this build also opens UDP on the same port.
+    echo "snell-server ${server_version} (${name}) UDP on ${snell_port}: $(ss -Hlun "sport = :${snell_port}" 2>/dev/null | wc -l) socket(s)"
     snell_servers+="${snell_servers:+,}${name}=127.0.0.1:${snell_port}:${version}:${mode}:${obfs}"
   }
   start_snell v3.0.1 snell-v3 3 - none
@@ -387,6 +389,7 @@ EOF
   start_snell v4.1.1 snell-v4 4 - none
   start_snell v4.1.1 snell-v4-http 4 - http
   start_snell v5.0.1 snell-v5 4 - none
+  start_snell v5.0.1 snell-v5-http 4 - http
   start_snell v6.0.0rc2 snell-v6-default 6 default none
   start_snell v6.0.0rc2 snell-v6-unshaped 6 unshaped none
   start_snell v6.0.0rc2 snell-v6-unsafe-raw 6 unsafe-raw none
