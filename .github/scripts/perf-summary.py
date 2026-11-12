@@ -74,7 +74,9 @@ def rules_summary(path):
     print(
         f"{report.get('rules')} rules, {report.get('queries')} decisions per round, "
         f"{report.get('miss_share', 0) * 100:.0f}% match no rule (whole list, resolve, FINAL); "
-        f"median round of {report.get('rounds')}. Build {fmt(report.get('build_ms'))} ms."
+        f"median round of {report.get('rounds')}. Build {fmt(report.get('build_ms'))} ms. "
+        f"Decide: {report.get('decide', 'linear')}, "
+        f"{report.get('rules_tried_one_by_one', '–')} rules tried one by one (the rest by hash lookup)."
     )
     print()
     print(f"Gate: p99 of all decisions ≤ {fmt(limit)} µs: {verdict} (p99 {fmt(p99)} µs)")

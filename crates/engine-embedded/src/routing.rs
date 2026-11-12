@@ -32,7 +32,8 @@ use std::sync::{Arc, RwLock};
 
 use config_core::routing::{
     PolicyGroupKind, PolicyTarget, RouteMatch, RouteNetwork, RouteOutcome, RouteQuery,
-    RouteResolution, RoutingEnvironment, RoutingModel, RoutingRule, RoutingSpec, RuleMatcher,
+    RouteResolution, RoutingEnvironment, RoutingModel, RoutingRule, RoutingSpec, RuleIndex,
+    RuleMatcher,
 };
 use config_core::rule_set::RuleSet;
 use engine_outbound::sniff::HttpRequestHead;
@@ -46,6 +47,8 @@ pub const PROTOCOL: &str = "routed";
 
 pub struct RoutedOutbound {
     model: RoutingModel,
+    /// Domain lookup for `model`; rebuilt whenever its rules change.
+    index: RuleIndex,
     rule_sets: Arc<RuleSetStore>,
     direct: Arc<dyn TcpOutbound>,
     nodes: BTreeMap<String, Arc<dyn TcpOutbound>>,
@@ -238,6 +241,7 @@ impl RoutedOutbound {
             ));
         }
         Ok(Self {
+            index: RuleIndex::new(&model),
             model,
             rule_sets: Arc::new(rule_sets),
             direct,
@@ -286,6 +290,7 @@ impl RoutedOutbound {
         }
         added.append(&mut self.model.rules);
         self.model.rules = added;
+        self.index = RuleIndex::new(&self.model);
         self
     }
 
@@ -439,7 +444,7 @@ impl RoutedOutbound {
 
     fn decide(&self, query: &RouteQuery, resolved: Option<IpAddr>) -> RouteResolution {
         self.with_environment(resolved, |environment| {
-            self.model.decide(query, environment)
+            self.model.decide_indexed(&self.index, query, environment)
         })
     }
 

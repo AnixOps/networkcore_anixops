@@ -1,5 +1,7 @@
-//! Rule decision benchmark: how long [`RoutingModel::decide`] takes for one
-//! connection against a large rule list.
+//! Rule decision benchmark: how long one routing decision takes against a
+//! large rule list, the way the engine decides
+//! ([`RoutingModel::decide_indexed`] with a [`RuleIndex`]; `--linear` times
+//! [`RoutingModel::decide`], which tries every rule in order).
 //!
 //! The list is synthetic but shaped like real subscriptions: mostly
 //! DOMAIN-SUFFIX and DOMAIN lines, a block of `no-resolve` IP-CIDR lines,
@@ -16,7 +18,7 @@
 //! Options: `--rules N`, `--queries N` (timed decisions per round),
 //! `--rounds N` (the round with the median p99 is reported), `--miss-share F`
 //! (share of queries that match no rule, 0..1), `--max-p99-us F` (exit 1 when
-//! the p99 of all queries is above it), `--json PATH`.
+//! the p99 of all queries is above it), `--linear 1`, `--json PATH`.
 //!
 //! `.github/workflows/perf.yml` runs it on pull requests that touch routing.
 
@@ -27,7 +29,7 @@ use std::time::Instant;
 
 use config_core::routing::{
     PolicyGroupSpec, RouteMatch, RouteNetwork, RouteQuery, RoutingEnvironment, RoutingModel,
-    RoutingSpec,
+    RoutingSpec, RuleIndex,
 };
 
 const TLDS: [&str; 8] = ["com", "net", "org", "io", "cn", "jp", "dev", "app"];
@@ -265,14 +267,17 @@ fn stats(samples: &mut [f64]) -> serde_json::Value {
 type Round = (Vec<f64>, HashMap<Kind, Vec<f64>>, usize);
 
 /// One timed pass over `queries`: microseconds per decision, by kind.
-fn round(model: &RoutingModel, queries: &[(Kind, RouteQuery)]) -> Round {
+fn round(model: &RoutingModel, index: Option<&RuleIndex>, queries: &[(Kind, RouteQuery)]) -> Round {
     let environment = BenchEnvironment;
     let mut all = Vec::with_capacity(queries.len());
     let mut by_kind: HashMap<Kind, Vec<f64>> = HashMap::new();
     let mut unexpected = 0;
     for (kind, query) in queries {
         let begin = Instant::now();
-        let resolution = black_box(model.decide(black_box(query), &environment));
+        let resolution = black_box(match index {
+            Some(index) => model.decide_indexed(index, black_box(query), &environment),
+            None => model.decide(black_box(query), &environment),
+        });
         let micros = begin.elapsed().as_secs_f64() * 1e6;
         let missed = matches!(resolution.matched, RouteMatch::Final);
         if missed != (*kind == Kind::Miss) {
@@ -309,16 +314,19 @@ fn main() {
     let list = build_rules(rules, &mut rng);
     let built = Instant::now();
     let model = model(list.lines.clone());
+    let index = RuleIndex::new(&model);
     let build_ms = built.elapsed().as_secs_f64() * 1e3;
+    let linear = args.get("linear").is_some_and(|value| value != "0");
+    let index = (!linear).then_some(&index);
     let queries = build_queries(&list, count, miss_share, &mut rng);
 
     // Warm caches and the branch predictor on a different slice of queries.
     let warmup = &queries[..queries.len().min(20_000)];
-    let _ = round(&model, warmup);
+    let _ = round(&model, index, warmup);
 
     let mut results = Vec::new();
     for _ in 0..rounds {
-        results.push(round(&model, &queries));
+        results.push(round(&model, index, &queries));
     }
     let mut p99s: Vec<(f64, usize)> = results
         .iter()
@@ -353,6 +361,8 @@ fn main() {
         "rounds": rounds,
         "miss_share": miss_share,
         "build_ms": build_ms,
+        "decide": if linear { "linear" } else { "indexed" },
+        "rules_tried_one_by_one": index.map_or(model.rules.len(), RuleIndex::unindexed_len),
         "all": overall,
         "by_kind": kinds,
         "unexpected_results": unexpected,
