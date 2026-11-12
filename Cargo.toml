@@ -40,6 +40,7 @@ members = [
     "crates/outbound-tuic",
     "crates/outbound-vless",
     "crates/outbound-vmess",
+    "crates/outbound-wireguard",
     "crates/platform-linux",
     "crates/platform-windows",
     "crates/script-runtime",

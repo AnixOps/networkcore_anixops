@@ -785,3 +785,33 @@ fn anixops_path_mark_tags_the_next_link() {
         assert!(json["nodes"][1].get("path").is_none());
     }
 }
+
+#[test]
+fn wireguard_links_import_with_allowed_ips_and_reserved() {
+    let key = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=";
+    let peer = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=";
+    let text = format!(
+        "wireguard://{key}@wg.example.test:51820?publickey={peer}&address=10.7.0.2%2F32%2Cfd00%3A7%3A%3A2%2F128&allowedips=10.0.0.0%2F8%2Cfd00%3A%3A%2F8&reserved=1%2C2%2C3&mtu=1380#Office%20WG"
+    );
+    let report = import_text(&text).unwrap();
+    assert!(report.unsupported.is_empty());
+    let node = &report.nodes[0];
+    assert_eq!(node.protocol, "wireguard");
+    assert_eq!(node.name, "Office WG");
+    let outbound = &node.outbound;
+    assert_eq!(outbound["type"], "wireguard");
+    assert_eq!(outbound["server"], "wg.example.test");
+    assert_eq!(outbound["port"], 51820);
+    assert_eq!(outbound["private_key"], key);
+    assert_eq!(outbound["peer_public_key"], peer);
+    assert_eq!(
+        outbound["local_address"],
+        serde_json::json!(["10.7.0.2/32", "fd00:7::2/128"])
+    );
+    assert_eq!(
+        outbound["allowed_ips"],
+        serde_json::json!(["10.0.0.0/8", "fd00::/8"])
+    );
+    assert_eq!(outbound["reserved"], serde_json::json!([1, 2, 3]));
+    assert_eq!(outbound["mtu"], 1380);
+}
