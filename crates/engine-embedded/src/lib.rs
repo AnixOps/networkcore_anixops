@@ -18,8 +18,9 @@
 //! - `local_proxy` (feature `local-proxy`): the desktop mode, the same
 //!   outbounds behind a SOCKS5/HTTP listener from `inbound-mixed`, and
 //!   `delay`, URL delay tests of a node's outbound.
-//! - `wireguard` (feature `wireguard`): an IP-level tunnel that bypasses the
-//!   TCP/IP stack and seals packets straight to one peer.
+//! - `wireguard` (feature `wireguard`): with a single `outbound`, an IP-level
+//!   tunnel that bypasses the TCP/IP stack and seals packets straight to one
+//!   peer; in `routing.outbounds`, a node like any other (`outbound-wireguard`).
 //! - `mitm` (feature `mitm`): HTTPS decryption for the policy's MITM host
 //!   list, offered every new TCP flow through [`tunnel::FlowInterceptor`].
 //!

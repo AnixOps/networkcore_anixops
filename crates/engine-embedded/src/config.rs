@@ -126,8 +126,9 @@ pub struct MitmConfig {
 /// One outbound: a `type` name looked up in the [`OutboundRegistry`] and the
 /// protocol's own settings, which only its factory parses.
 ///
-/// `wireguard` is not in the registry: it replaces the TCP/IP stack instead of
-/// carrying its flows, so the runtime handles it itself.
+/// A single `wireguard` outbound replaces the TCP/IP stack instead of carrying
+/// its flows (the whole-device tunnel), so the runtime handles it itself; in
+/// `routing.outbounds` it is an ordinary node from `outbound-wireguard`.
 #[derive(Deserialize)]
 pub struct OutboundConfig {
     #[serde(rename = "type")]
@@ -980,18 +981,13 @@ fn checked_chain(below: usize) -> Result<usize, RuntimeError> {
     Ok(below + 1)
 }
 
-/// Builds one TCP outbound. WireGuard runs as a packet tunnel, so it cannot be
-/// used here or as a routed node. With a `via`, the protocol must send all
-/// its traffic through the dialer.
+/// Builds one TCP outbound. With a `via`, the protocol must send all its
+/// traffic through the dialer.
 fn build_single_outbound(
     registry: &OutboundRegistry,
     outbound: &OutboundConfig,
     dialer: Arc<dyn Dialer>,
 ) -> Result<Arc<dyn TcpOutbound>, RuntimeError> {
-    #[cfg(feature = "wireguard")]
-    if outbound.kind == wireguard::TYPE_NAME {
-        return Err(rejected("wireguard is a packet tunnel, not a TCP outbound"));
-    }
     if outbound.via.is_some()
         && registry.contains(&outbound.kind)
         && !registry.supports_via(&outbound.kind)
