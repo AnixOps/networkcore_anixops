@@ -18,8 +18,9 @@
 //! - `local_proxy` (feature `local-proxy`): the desktop mode, the same
 //!   outbounds behind a SOCKS5/HTTP listener from `inbound-mixed`, and
 //!   `delay`, URL delay tests of a node's outbound.
-//! - `wireguard` (feature `wireguard`): an IP-level tunnel that bypasses the
-//!   TCP/IP stack and seals packets straight to one peer.
+//! - `wireguard` (feature `wireguard`): with a single `outbound`, an IP-level
+//!   tunnel that bypasses the TCP/IP stack and seals packets straight to one
+//!   peer; in `routing.outbounds`, a node like any other (`outbound-wireguard`).
 //! - `mitm` (feature `mitm`): HTTPS decryption for the policy's MITM host
 //!   list, offered every new TCP flow through [`tunnel::FlowInterceptor`].
 //!
@@ -36,6 +37,7 @@ pub mod dns;
 pub mod dns_cache;
 pub mod dns_policy;
 pub mod dns_resolver;
+pub mod fake_ip;
 #[cfg(feature = "local-proxy")]
 pub mod fetch;
 pub mod ffi;
@@ -143,6 +145,9 @@ pub struct RuntimeStatus {
     pub state: RuntimeState,
     pub last_error: Option<&'static str>,
     pub stats: TunnelStatsSnapshot,
+    /// Fake-IP table counters, when `dns.fake_ip` is on.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fake_ip: Option<fake_ip::FakeIpStats>,
 }
 
 /// What carries the traffic: a TCP outbound behind the userspace stack, or a
@@ -201,7 +206,8 @@ impl EmbeddedRuntime {
                 TunnelMode::Stack(outbound) => {
                     let dispatcher = Dispatcher::single(outbound)
                         .with_direct(Arc::new(direct::DirectOutbound::new(dialer)))
-                        .with_redirects(config.redirect_table()?);
+                        .with_redirects(config.redirect_table()?)
+                        .with_fake_ip(config.fake_ip_pool()?);
                     dispatcher.set_mode(config.mode);
                     Engine::Stack(Arc::new(dispatcher))
                 }
@@ -257,6 +263,7 @@ impl EmbeddedRuntime {
             mtu: self.config.mtu,
             tcp_window_bytes: limits.tcp_window_bytes,
             max_tcp_connections: limits.max_tcp_connections,
+            max_udp_flows: limits.max_udp_flows,
             max_dns_in_flight: limits.max_dns_in_flight,
             idle_timeout: Duration::from_secs(limits.idle_timeout_secs),
             connect_timeout: Duration::from_secs(limits.connect_timeout_secs),
@@ -337,6 +344,11 @@ impl EmbeddedRuntime {
             stats: match &self.tunnel {
                 Some(tunnel) => tunnel.stats(),
                 None => self.last_stats.clone(),
+            },
+            fake_ip: match &self.engine {
+                Engine::Stack(dispatcher) => dispatcher.fake_ip().map(|pool| pool.stats()),
+                #[cfg(feature = "wireguard")]
+                Engine::WireGuard(_) => None,
             },
         }
     }

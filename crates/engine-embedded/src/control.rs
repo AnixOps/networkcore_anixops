@@ -20,10 +20,20 @@
 //! | `scripts` | | `{"scripts": [`[`ScheduledScriptView`]`]}` |
 //! | `script_notifications` | | `{"notifications": [`[`ScriptNotificationView`]`]}`, each returned once |
 //! | `network_changed` | | `{"scheduled": network-change script count}` |
+//! | `reset_network` | `close_connections` (default `true`) | `{"reset": dropped sessions, "closed": closed connections}` |
 //! | `run_script` | `tag` | `{"scheduled": bool}` |
 //! | `outbound_health` | | `{"outbounds": [{"node", "protocol", "health"}]}`, only outbounds that report health |
 //! | `resume_outbound` | `node` | `{"resumed": bool}` |
 //! | `metrics` | `anonymous` (optional bool) | `{"content_type", "text"}`: [`crate::metrics`] in the Prometheus text format |
+//!
+//! `reset_network` is what the client sends when the network under the
+//! engine changed (another Wi-Fi, Wi-Fi to cellular, the default interface
+//! moved) or the device woke from a long sleep: every outbound drops the
+//! sessions it keeps between flows (see
+//! [`engine_outbound::TcpOutbound::reset_sessions`]) and, unless
+//! `close_connections` is `false`, the open connections are closed so the
+//! apps behind them reconnect at once instead of waiting for a dead path to
+//! time out. It works with or without plugin scripts.
 //!
 //! The script commands need a MITM config with plugin scripts; the client
 //! sends `network_changed` when the device's network changes and polls
@@ -71,6 +81,10 @@ enum ControlRequest {
     Scripts,
     ScriptNotifications,
     NetworkChanged,
+    ResetNetwork {
+        #[serde(default = "default_true")]
+        close_connections: bool,
+    },
     RunScript {
         tag: String,
     },
@@ -175,6 +189,15 @@ pub fn handle_with_interceptor(
             Ok(script(interceptor, ScriptControl::Notifications)?)
         }
         ControlRequest::NetworkChanged => Ok(script(interceptor, ScriptControl::NetworkChanged)?),
+        ControlRequest::ResetNetwork { close_connections } => {
+            let reset = dispatcher.reset_sessions();
+            let closed = if close_connections {
+                tracker.close_all()
+            } else {
+                0
+            };
+            Ok(json!({ "reset": reset, "closed": closed }))
+        }
         ControlRequest::RunScript { tag } => Ok(script(interceptor, ScriptControl::Run { tag })?),
         ControlRequest::OutboundHealth => {
             let outbounds: Vec<_> = match dispatcher.routed_outbound() {
@@ -243,6 +266,10 @@ fn script(
     interceptor
         .and_then(|interceptor| interceptor.script_control(&request))
         .ok_or_else(|| invalid("this config runs no plugin scripts"))
+}
+
+fn default_true() -> bool {
+    true
 }
 
 fn invalid(message: &'static str) -> RuntimeError {

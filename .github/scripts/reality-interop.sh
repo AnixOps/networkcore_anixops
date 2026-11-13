@@ -88,7 +88,7 @@ download() {
 
   # Official snell-server builds, black-box interop only (docs/protocols/snell.md §10.1).
   local snell_version snell_rows=""
-  for snell_version in ${SNELL_VERSIONS:-v3.0.1 v4.1.1 v5.0.1 v6.0.0rc2}; do
+  for snell_version in ${SNELL_VERSIONS:-v3.0.1 v4.1.1 v5.0.1 v6.0.0}; do
     local zip="${work}/snell-server-${snell_version}.zip"
     # No public v3.0.1 build is downloadable today (dl.nssurge.com and the
     # surge-networks GitHub releases both return 404), so v3 is skipped with
@@ -387,9 +387,10 @@ EOF
   start_snell v4.1.1 snell-v4 4 - none
   start_snell v4.1.1 snell-v4-http 4 - http
   start_snell v5.0.1 snell-v5 4 - none
-  start_snell v6.0.0rc2 snell-v6-default 6 default none
-  start_snell v6.0.0rc2 snell-v6-unshaped 6 unshaped none
-  start_snell v6.0.0rc2 snell-v6-unsafe-raw 6 unsafe-raw none
+  start_snell v5.0.1 snell-v5-http 4 - http
+  start_snell v6.0.0 snell-v6-default 6 default none
+  start_snell v6.0.0 snell-v6-unshaped 6 unshaped none
+  start_snell v6.0.0 snell-v6-unsafe-raw 6 unsafe-raw none
 
   # TCP echo target.
   python3 -c "

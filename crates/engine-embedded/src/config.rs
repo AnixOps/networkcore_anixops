@@ -27,6 +27,7 @@ use crate::connections::{Dispatcher, Mode};
 use crate::direct::DirectOutbound;
 use crate::dns_policy::DnsPolicy;
 use crate::dns_resolver::PolicyResolver;
+use crate::fake_ip::FakeIpPool;
 use crate::routing::RoutedOutbound;
 use crate::rule_sets::{
     RemoteRuleSet, RuleSetStore, DEFAULT_UPDATE_INTERVAL_SECS, MIN_UPDATE_INTERVAL_SECS,
@@ -40,6 +41,9 @@ pub const CONFIG_SCHEMA_VERSION: u32 = 1;
 const MIN_MTU: u16 = 1280;
 const MAX_MTU: u16 = 9000;
 const MAX_PROFILE_ID_LEN: usize = 128;
+/// Largest `limits.max_udp_flows`: what a desktop or gateway can hold (the
+/// perf workflow measures 100 000 flows).
+const MAX_UDP_FLOWS_LIMIT: usize = 1_000_000;
 // Shared with the importer, which only offers routing that fits.
 use node_import::{MAX_POLICY_GROUPS, MAX_ROUTED_OUTBOUNDS, MAX_ROUTING_RULES};
 const MAX_RULE_SETS: usize = 32;
@@ -125,8 +129,9 @@ pub struct MitmConfig {
 /// One outbound: a `type` name looked up in the [`OutboundRegistry`] and the
 /// protocol's own settings, which only its factory parses.
 ///
-/// `wireguard` is not in the registry: it replaces the TCP/IP stack instead of
-/// carrying its flows, so the runtime handles it itself.
+/// A single `wireguard` outbound replaces the TCP/IP stack instead of carrying
+/// its flows (the whole-device tunnel), so the runtime handles it itself; in
+/// `routing.outbounds` it is an ordinary node from `outbound-wireguard`.
 #[derive(Deserialize)]
 pub struct OutboundConfig {
     #[serde(rename = "type")]
@@ -209,6 +214,13 @@ pub struct RuleSetConfig {
     /// `DIRECT` by default.
     #[serde(default)]
     pub via: Option<String>,
+    /// Ed25519 public key (32 bytes, base64): every download must come
+    /// with a valid detached signature, see [`crate::rule_sets`].
+    #[serde(default)]
+    pub public_key: Option<String>,
+    /// Where the signature is; `<url>.sig` by default. Needs `public_key`.
+    #[serde(default)]
+    pub signature_url: Option<String>,
 }
 
 impl RuleSetConfig {
@@ -231,7 +243,12 @@ impl RuleSetConfig {
     /// The download settings of a remote set, validated.
     fn remote(&self, name: &str) -> Result<Option<RemoteRuleSet>, RuntimeError> {
         let Some(url) = &self.url else {
-            if self.format.is_some() || self.interval_secs.is_some() || self.via.is_some() {
+            if self.format.is_some()
+                || self.interval_secs.is_some()
+                || self.via.is_some()
+                || self.public_key.is_some()
+                || self.signature_url.is_some()
+            {
                 return Err(rejected("rule set download settings need a url"));
             }
             return Ok(None);
@@ -252,13 +269,56 @@ impl RuleSetConfig {
         if interval_secs < MIN_UPDATE_INTERVAL_SECS {
             return Err(rejected("rule set interval_secs must be at least 600"));
         }
+        let signature = self.signature(url)?;
         Ok(Some(RemoteRuleSet {
             name: name.to_string(),
             url: url.to_string(),
             interval_secs,
             bare,
             via: self.via.clone().unwrap_or_else(|| "DIRECT".to_string()),
+            signature,
         }))
+    }
+
+    #[cfg(feature = "local-proxy")]
+    fn signature(
+        &self,
+        url: &str,
+    ) -> Result<Option<crate::rule_sets::RuleSetSignature>, RuntimeError> {
+        let Some(key) = &self.public_key else {
+            if self.signature_url.is_some() {
+                return Err(rejected("rule set signature_url needs a public_key"));
+            }
+            return Ok(None);
+        };
+        let public_key: [u8; 32] = crate::rule_sets::decode_base64(key)
+            .and_then(|bytes| bytes.try_into().ok())
+            .ok_or_else(|| {
+                rejected("rule set public_key must be a base64 Ed25519 key of 32 bytes")
+            })?;
+        let signature_url = match &self.signature_url {
+            Some(signature_url) => signature_url.trim().to_string(),
+            None => format!("{}.sig", url.split('#').next().unwrap_or(url)),
+        };
+        if !(signature_url.starts_with("https://") || signature_url.starts_with("http://"))
+            || signature_url.len() > 2048
+        {
+            return Err(rejected(
+                "rule set signature_url must be an http or https URL",
+            ));
+        }
+        Ok(Some(crate::rule_sets::RuleSetSignature {
+            public_key,
+            url: signature_url,
+        }))
+    }
+
+    #[cfg(not(feature = "local-proxy"))]
+    fn signature(
+        &self,
+        _url: &str,
+    ) -> Result<Option<crate::rule_sets::RuleSetSignature>, RuntimeError> {
+        Ok(None)
     }
 }
 
@@ -302,6 +362,58 @@ pub struct DnsConfig {
     /// Per-domain servers, first match wins.
     #[serde(default)]
     pub rules: Vec<DnsRuleConfig>,
+    /// Fake-IP answers for the packet tunnel; see [`crate::fake_ip`].
+    #[serde(default)]
+    pub fake_ip: FakeIpConfig,
+}
+
+/// The `dns.fake_ip` section; off unless `enabled`.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FakeIpConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    /// IPv4 network the fake addresses come from, /8 to /22; its first 256
+    /// addresses are never handed out (the tunnel's own interface and DNS).
+    #[serde(default = "default_fake_ip_range")]
+    pub range: String,
+    /// Most names kept; the least recently used name gives up its address
+    /// when the table is full.
+    #[serde(default = "default_fake_ip_max_entries")]
+    pub max_entries: usize,
+    /// Names that keep their real answers, besides the built-in list:
+    /// `name`, `+.name` (it and its subdomains) or `*` for one label
+    /// (`time.*.com`).
+    #[serde(default)]
+    pub filter: Vec<String>,
+    /// Whether the built-in list ([`crate::fake_ip::DEFAULT_FILTER`]: LAN,
+    /// NTP, STUN, captive portal, push) applies.
+    #[serde(default = "default_true")]
+    pub default_filter: bool,
+}
+
+impl Default for FakeIpConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            range: default_fake_ip_range(),
+            max_entries: default_fake_ip_max_entries(),
+            filter: Vec::new(),
+            default_filter: true,
+        }
+    }
+}
+
+fn default_fake_ip_range() -> String {
+    "198.18.0.0/15".to_string()
+}
+
+fn default_fake_ip_max_entries() -> usize {
+    65_536
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Default for DnsConfig {
@@ -313,6 +425,7 @@ impl Default for DnsConfig {
             default: None,
             hosts: BTreeMap::new(),
             rules: Vec::new(),
+            fake_ip: FakeIpConfig::default(),
         }
     }
 }
@@ -385,6 +498,9 @@ impl DnsRuleConfig {
 pub struct Limits {
     #[serde(default = "default_max_tcp_connections")]
     pub max_tcp_connections: usize,
+    /// UDP flows open at once (DNS excluded).
+    #[serde(default = "default_max_udp_flows")]
+    pub max_udp_flows: usize,
     #[serde(default = "default_max_dns_in_flight")]
     pub max_dns_in_flight: usize,
     /// Per-socket userspace TCP window in each direction, in bytes.
@@ -400,6 +516,7 @@ impl Default for Limits {
     fn default() -> Self {
         Self {
             max_tcp_connections: default_max_tcp_connections(),
+            max_udp_flows: default_max_udp_flows(),
             max_dns_in_flight: default_max_dns_in_flight(),
             tcp_window_bytes: default_tcp_window_bytes(),
             idle_timeout_secs: default_idle_timeout_secs(),
@@ -422,6 +539,10 @@ fn default_dns_timeout_ms() -> u64 {
 
 fn default_max_tcp_connections() -> usize {
     128
+}
+
+fn default_max_udp_flows() -> usize {
+    crate::tunnel::DEFAULT_MAX_UDP_FLOWS
 }
 
 fn default_max_dns_in_flight() -> usize {
@@ -485,6 +606,24 @@ impl RuntimeConfig {
     #[cfg(not(feature = "tls-fingerprints"))]
     pub fn install_tls_fingerprints(&self) {}
 
+    /// The Fake-IP pool of `dns.fake_ip`, `None` when it is off. Each call
+    /// builds a new, empty pool: build it once per runtime.
+    pub fn fake_ip_pool(&self) -> Result<Option<Arc<FakeIpPool>>, RuntimeError> {
+        let pool = FakeIpPool::from_config(&self.dns.fake_ip).map_err(rejected)?;
+        if let Some(pool) = &pool {
+            if self
+                .dns
+                .hosts
+                .values()
+                .flatten()
+                .any(|address| pool.contains(*address))
+            {
+                return Err(rejected("dns hosts must not use the fake_ip range"));
+            }
+        }
+        Ok(pool)
+    }
+
     /// The parsed `redirects` lines.
     pub fn redirect_table(&self) -> Result<RedirectTable, RuntimeError> {
         RedirectTable::parse(&self.redirects).map_err(|error| {
@@ -544,6 +683,8 @@ impl RuntimeConfig {
         }
         let limits = &self.limits;
         if limits.max_tcp_connections == 0
+            || limits.max_udp_flows == 0
+            || limits.max_udp_flows > MAX_UDP_FLOWS_LIMIT
             || limits.max_dns_in_flight == 0
             || limits.tcp_window_bytes < 4 * 1024
             || limits.tcp_window_bytes > 1024 * 1024
@@ -554,6 +695,7 @@ impl RuntimeConfig {
             return Err(rejected("resource limits are out of range"));
         }
         crate::dns_policy::DnsPolicy::from_config(&self.dns).map_err(rejected)?;
+        self.fake_ip_pool()?;
         Ok(())
     }
 
@@ -608,7 +750,8 @@ impl RuntimeConfig {
             None => Dispatcher::single(self.build_outbound(registry, dialer.clone())?)
                 .with_direct(Arc::new(DirectOutbound::new(dialer))),
         }
-        .with_redirects(self.redirect_table()?);
+        .with_redirects(self.redirect_table()?)
+        .with_fake_ip(self.fake_ip_pool()?);
         dispatcher.set_mode(self.mode);
         Ok(dispatcher)
     }
@@ -726,6 +869,8 @@ fn build_routed_node(
     let outbound = configs
         .get(id)
         .ok_or_else(|| rejected("a via names a routing outbound that does not exist"))?;
+    // Not a routing node itself, so it resets with the node it carries.
+    let mut inline_via = None;
     let (node_dialer, below) = match &outbound.via {
         None => (dialer.clone(), 0),
         Some(Via::Node(via)) => {
@@ -737,11 +882,15 @@ fn build_routed_node(
         }
         Some(Via::Inline(via)) => {
             let (via, length) = build_chained(registry, via, dialer.clone())?;
+            inline_via = Some(via.clone());
             (Arc::new(OutboundDialer(via)) as Arc<dyn Dialer>, length)
         }
     };
     let node = (
-        build_single_outbound(registry, outbound, node_dialer)?,
+        with_inline_via(
+            build_single_outbound(registry, outbound, node_dialer)?,
+            inline_via,
+        ),
         checked_chain(below)?,
     );
     built.insert(id.to_string(), node.clone());
@@ -755,6 +904,7 @@ fn build_chained(
     outbound: &OutboundConfig,
     dialer: Arc<dyn Dialer>,
 ) -> Result<Chained, RuntimeError> {
+    let mut inline_via = None;
     let (dialer, below) = match &outbound.via {
         None => (dialer, 0),
         Some(Via::Node(_)) => {
@@ -764,13 +914,76 @@ fn build_chained(
         }
         Some(Via::Inline(via)) => {
             let (via, length) = build_chained(registry, via, dialer)?;
+            inline_via = Some(via.clone());
             (Arc::new(OutboundDialer(via)) as Arc<dyn Dialer>, length)
         }
     };
     Ok((
-        build_single_outbound(registry, outbound, dialer)?,
+        with_inline_via(
+            build_single_outbound(registry, outbound, dialer)?,
+            inline_via,
+        ),
         checked_chain(below)?,
     ))
+}
+
+/// `outbound`, resetting its inline `via` with it: a `via` written inline is
+/// no routing node, so nothing else would reach its sessions when the
+/// network changes.
+fn with_inline_via(
+    outbound: Arc<dyn TcpOutbound>,
+    via: Option<Arc<dyn TcpOutbound>>,
+) -> Arc<dyn TcpOutbound> {
+    match via {
+        Some(via) => Arc::new(InlineVia { outbound, via }),
+        None => outbound,
+    }
+}
+
+/// See [`with_inline_via`]. Everything but the reset is the outbound's own.
+struct InlineVia {
+    outbound: Arc<dyn TcpOutbound>,
+    via: Arc<dyn TcpOutbound>,
+}
+
+impl TcpOutbound for InlineVia {
+    fn protocol(&self) -> &'static str {
+        self.outbound.protocol()
+    }
+
+    fn connect<'a>(
+        &'a self,
+        target: &'a engine_outbound::TargetAddr,
+    ) -> engine_outbound::BoxFuture<'a, std::io::Result<engine_outbound::BoxStream>> {
+        self.outbound.connect(target)
+    }
+
+    fn open_udp<'a>(
+        &'a self,
+        target: &'a engine_outbound::TargetAddr,
+    ) -> engine_outbound::BoxFuture<'a, std::io::Result<engine_outbound::UdpFlow>> {
+        self.outbound.open_udp(target)
+    }
+
+    fn probe<'a>(
+        &'a self,
+        target: &'a engine_outbound::TargetAddr,
+        timeout: std::time::Duration,
+    ) -> engine_outbound::BoxFuture<'a, std::io::Result<std::time::Duration>> {
+        self.outbound.probe(target, timeout)
+    }
+
+    fn health(&self) -> Option<serde_json::Value> {
+        self.outbound.health()
+    }
+
+    fn resume(&self) -> bool {
+        self.outbound.resume()
+    }
+
+    fn reset_sessions(&self) -> usize {
+        self.outbound.reset_sessions() + self.via.reset_sessions()
+    }
 }
 
 /// The chain length of an outbound over a `via` chain of `below`.
@@ -781,18 +994,13 @@ fn checked_chain(below: usize) -> Result<usize, RuntimeError> {
     Ok(below + 1)
 }
 
-/// Builds one TCP outbound. WireGuard runs as a packet tunnel, so it cannot be
-/// used here or as a routed node. With a `via`, the protocol must send all
-/// its traffic through the dialer.
+/// Builds one TCP outbound. With a `via`, the protocol must send all its
+/// traffic through the dialer.
 fn build_single_outbound(
     registry: &OutboundRegistry,
     outbound: &OutboundConfig,
     dialer: Arc<dyn Dialer>,
 ) -> Result<Arc<dyn TcpOutbound>, RuntimeError> {
-    #[cfg(feature = "wireguard")]
-    if outbound.kind == wireguard::TYPE_NAME {
-        return Err(rejected("wireguard is a packet tunnel, not a TCP outbound"));
-    }
     if outbound.via.is_some()
         && registry.contains(&outbound.kind)
         && !registry.supports_via(&outbound.kind)

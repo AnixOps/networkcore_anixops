@@ -1,0 +1,24 @@
+[package]
+name = "outbound-wireguard"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "WireGuard as a routable outbound: one peer, cryptokey routing by AllowedIPs, and a private userspace TCP/IP stack per node."
+
+[dependencies]
+base64 = "0.22"
+# WireGuard Noise state machine only; the `device` feature (its own TUN and sockets) stays off.
+boringtun = { version = "0.7", default-features = false }
+engine-outbound = { path = "../engine-outbound" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# The node's private TCP/IP stack; `async` adds the socket wakers.
+smoltcp = { version = "0.12", default-features = false, features = ["std", "log", "medium-ip", "proto-ipv4", "proto-ipv6", "socket-tcp", "socket-udp", "async"] }
+tokio = { version = "1", default-features = false, features = ["net", "rt", "sync", "time", "macros"] }
+
+[dev-dependencies]
+tokio = { version = "1", default-features = false, features = ["io-util", "net", "rt", "rt-multi-thread", "macros", "sync", "time"] }
+
+[lib]
+path = "src/lib.rs"

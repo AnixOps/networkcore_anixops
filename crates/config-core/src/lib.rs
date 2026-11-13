@@ -41,9 +41,10 @@ use control_domain::{
     NODE_METADATA_V2RAY_TRANSPORT_SERVICE_NAME, NODE_METADATA_V2RAY_TRANSPORT_TYPE,
     NODE_METADATA_VIA, NODE_METADATA_VIA_UNRESOLVED, NODE_METADATA_VLESS_ENCRYPTION,
     NODE_METADATA_VLESS_FLOW, NODE_METADATA_VLESS_UUID, NODE_METADATA_VMESS_ALTER_ID,
-    NODE_METADATA_VMESS_SECURITY, NODE_METADATA_VMESS_UUID, NODE_METADATA_WIREGUARD_LOCAL_ADDRESS,
-    NODE_METADATA_WIREGUARD_MTU, NODE_METADATA_WIREGUARD_PEER_PUBLIC_KEY,
-    NODE_METADATA_WIREGUARD_PRE_SHARED_KEY, NODE_METADATA_WIREGUARD_PRIVATE_KEY,
+    NODE_METADATA_VMESS_SECURITY, NODE_METADATA_VMESS_UUID, NODE_METADATA_WIREGUARD_ALLOWED_IPS,
+    NODE_METADATA_WIREGUARD_LOCAL_ADDRESS, NODE_METADATA_WIREGUARD_MTU,
+    NODE_METADATA_WIREGUARD_PEER_PUBLIC_KEY, NODE_METADATA_WIREGUARD_PRE_SHARED_KEY,
+    NODE_METADATA_WIREGUARD_PRIVATE_KEY, NODE_METADATA_WIREGUARD_RESERVED,
 };
 use routing::{PolicyGroupSpec, RoutingModel, RoutingSpec};
 use serde::Deserialize;
@@ -3729,6 +3730,18 @@ fn parse_wireguard_link(link: &str) -> DomainResult<NodeDescriptor> {
             value: mtu.to_string(),
         });
     }
+    if let Some(value) = parsed.query.get("allowedips") {
+        metadata.push(MetadataEntry {
+            key: NODE_METADATA_WIREGUARD_ALLOWED_IPS.to_string(),
+            value: normalize_wireguard_addresses(value, SUBSCRIPTION_WIREGUARD_LINK_INVALID_CODE)?,
+        });
+    }
+    if let Some(value) = parsed.query.get("reserved") {
+        metadata.push(MetadataEntry {
+            key: NODE_METADATA_WIREGUARD_RESERVED.to_string(),
+            value: normalize_wireguard_reserved(value, SUBSCRIPTION_WIREGUARD_LINK_INVALID_CODE)?,
+        });
+    }
     Ok(quic_node_descriptor(
         "wireguard",
         Protocol::WireGuard,
@@ -3759,6 +3772,19 @@ fn validate_wireguard_key(
         ));
     }
     Ok(value.to_string())
+}
+
+/// Three reserved header bytes as `a,b,c` decimals (`reserved=1,2,3`).
+fn normalize_wireguard_reserved(value: &str, code: &'static str) -> DomainResult<String> {
+    let bytes = value
+        .split(',')
+        .map(|byte| byte.trim().parse::<u8>())
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| domain_error(code, "wireguard reserved must be three bytes"))?;
+    if bytes.len() != 3 {
+        return Err(domain_error(code, "wireguard reserved must be three bytes"));
+    }
+    Ok(format!("{},{},{}", bytes[0], bytes[1], bytes[2]))
 }
 
 fn normalize_wireguard_addresses(value: &str, code: &'static str) -> DomainResult<String> {

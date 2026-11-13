@@ -1,0 +1,30 @@
+[package]
+name = "engine-embedded-fuzz"
+version = "0.0.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+description = "cargo-fuzz targets for the engine-embedded runtime control JSON (networkcore_ios_runtime_control)."
+
+[package.metadata]
+cargo-fuzz = true
+
+# Standalone workspace: the fuzz crate needs nightly sanitizers and is built
+# only by the CI fuzz job, never by the locked stable workspace matrix.
+[workspace]
+members = ["."]
+
+[dependencies]
+arbitrary = "1"
+# The control commands need no protocol: `direct` nodes and policy groups
+# reach every command without opening a socket.
+engine-embedded = { path = "..", default-features = false }
+libfuzzer-sys = "0.4"
+serde_json = "1"
+
+[[bin]]
+name = "runtime_control"
+path = "fuzz_targets/runtime_control.rs"
+test = false
+doc = false
+bench = false

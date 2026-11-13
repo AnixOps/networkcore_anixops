@@ -430,6 +430,33 @@ rules:
     assert!(import_text(&plain).unwrap().routing.unwrap()["rule_sets"].is_null());
 }
 
+/// A `#anixops:pubkey=` mark on a list URL becomes the set's signing key and
+/// leaves the URL the engine downloads.
+#[test]
+fn rule_set_public_key_mark_becomes_public_key() {
+    let key = "11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=";
+    let text = format!(
+        r#"
+proxies:
+  - {{ name: HK 01, type: ss, server: 82.47.34.99, port: 11111, cipher: aes-256-gcm, password: f43c0eee-13b9-4f07-bec9-d4b744141503 }}
+rule-providers:
+  gfw:
+    type: http
+    behavior: domain
+    url: "https://rules.example/gfw.txt#anixops:pubkey={key}"
+rules:
+  - RULE-SET,gfw,HK 01
+  - MATCH,DIRECT
+"#
+    );
+    let routing = import_text(&text).unwrap().routing.unwrap();
+    assert_eq!(
+        routing["rule_sets"]["gfw"]["url"],
+        "https://rules.example/gfw.txt"
+    );
+    assert_eq!(routing["rule_sets"]["gfw"]["public_key"], key);
+}
+
 /// A land node behind a Panabit iWAN line, as the panel sends it to the App:
 /// sing-box JSON with `detour`, and `iwan` as an AnixOps extension type.
 const IWAN_LINE: &str = r#"{
@@ -784,4 +811,34 @@ fn anixops_path_mark_tags_the_next_link() {
         assert_eq!(json["nodes"][0]["path"], "trunk");
         assert!(json["nodes"][1].get("path").is_none());
     }
+}
+
+#[test]
+fn wireguard_links_import_with_allowed_ips_and_reserved() {
+    let key = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=";
+    let peer = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=";
+    let text = format!(
+        "wireguard://{key}@wg.example.test:51820?publickey={peer}&address=10.7.0.2%2F32%2Cfd00%3A7%3A%3A2%2F128&allowedips=10.0.0.0%2F8%2Cfd00%3A%3A%2F8&reserved=1%2C2%2C3&mtu=1380#Office%20WG"
+    );
+    let report = import_text(&text).unwrap();
+    assert!(report.unsupported.is_empty());
+    let node = &report.nodes[0];
+    assert_eq!(node.protocol, "wireguard");
+    assert_eq!(node.name, "Office WG");
+    let outbound = &node.outbound;
+    assert_eq!(outbound["type"], "wireguard");
+    assert_eq!(outbound["server"], "wg.example.test");
+    assert_eq!(outbound["port"], 51820);
+    assert_eq!(outbound["private_key"], key);
+    assert_eq!(outbound["peer_public_key"], peer);
+    assert_eq!(
+        outbound["local_address"],
+        serde_json::json!(["10.7.0.2/32", "fd00:7::2/128"])
+    );
+    assert_eq!(
+        outbound["allowed_ips"],
+        serde_json::json!(["10.0.0.0/8", "fd00::/8"])
+    );
+    assert_eq!(outbound["reserved"], serde_json::json!([1, 2, 3]));
+    assert_eq!(outbound["mtu"], 1380);
 }

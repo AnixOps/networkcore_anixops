@@ -8,6 +8,12 @@
 //! copy, possibly empty), is downloaded right away when it starts empty, and
 //! is replaced atomically after each successful download; a failed one keeps
 //! the previous entries and is retried sooner. URLs never appear in status.
+//!
+//! A remote set may carry an Ed25519 `public_key`: each download then also
+//! fetches the detached signature (`signature_url`, `<url>.sig` by default)
+//! and installs the list only when the signature over its exact bytes
+//! verifies ([`verify_list_signature`]). A missing or wrong signature keeps
+//! the previous entries like any failed download.
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard};
@@ -33,6 +39,61 @@ pub struct RemoteRuleSet {
     /// The outbound the download goes through: a policy group, a node or
     /// `DIRECT`.
     pub via: String,
+    /// When set, a list is installed only with a valid signature.
+    pub signature: Option<RuleSetSignature>,
+}
+
+/// How a remote set's downloads are verified.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RuleSetSignature {
+    /// Raw Ed25519 public key.
+    pub public_key: [u8; 32],
+    /// Where the detached signature of the list is.
+    pub url: String,
+}
+
+/// Largest signature file accepted: a base64 signature with some slack for
+/// a trailing newline or a minisign-style comment line.
+pub const MAX_SIGNATURE_BYTES: usize = 1024;
+
+/// Checks an Ed25519 signature over the exact bytes of a downloaded list.
+///
+/// `signature` is the signature file: the 64-byte signature in standard or
+/// URL-safe base64 (padding optional) on its own line. Blank lines and lines
+/// starting with `#` or `untrusted comment:` are skipped, so a file with a
+/// comment header works too.
+#[cfg(feature = "local-proxy")]
+pub fn verify_list_signature(
+    public_key: &[u8; 32],
+    body: &[u8],
+    signature: &[u8],
+) -> Result<(), &'static str> {
+    let text = std::str::from_utf8(signature).map_err(|_| "signature_malformed")?;
+    let line = text
+        .lines()
+        .map(str::trim)
+        .find(|line| {
+            !line.is_empty() && !line.starts_with('#') && !line.starts_with("untrusted comment:")
+        })
+        .ok_or("signature_malformed")?;
+    let bytes = decode_base64(line).ok_or("signature_malformed")?;
+    if bytes.len() != 64 {
+        return Err("signature_malformed");
+    }
+    ring::signature::UnparsedPublicKey::new(&ring::signature::ED25519, public_key)
+        .verify(body, &bytes)
+        .map_err(|_| "signature_invalid")
+}
+
+/// Standard or URL-safe base64, with or without padding.
+#[cfg(feature = "local-proxy")]
+pub fn decode_base64(text: &str) -> Option<Vec<u8>> {
+    use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD, URL_SAFE, URL_SAFE_NO_PAD};
+    use base64::Engine as _;
+    let text = text.trim();
+    [STANDARD, STANDARD_NO_PAD, URL_SAFE, URL_SAFE_NO_PAD]
+        .iter()
+        .find_map(|engine| engine.decode(text).ok())
 }
 
 /// One rule set as the client's rule page shows it.
@@ -46,6 +107,8 @@ pub struct RuleSetStatus {
     pub updated_at_ms: Option<u64>,
     /// Why the last download failed, cleared by the next success.
     pub last_error: Option<&'static str>,
+    /// Whether downloads must carry a valid signature.
+    pub signed: bool,
 }
 
 pub struct RuleSetStore {
@@ -67,13 +130,14 @@ impl RuleSetStore {
         let status = sets
             .iter()
             .map(|(name, set)| {
-                let remote = remotes.iter().any(|remote| &remote.name == name);
+                let remote = remotes.iter().find(|remote| &remote.name == name);
                 let status = RuleSetStatus {
                     name: name.clone(),
-                    source: if remote { "remote" } else { "inline" },
+                    source: if remote.is_some() { "remote" } else { "inline" },
                     entries: set.len(),
                     updated_at_ms: None,
                     last_error: None,
+                    signed: remote.is_some_and(|remote| remote.signature.is_some()),
                 };
                 (name.clone(), status)
             })
@@ -155,4 +219,83 @@ fn unix_millis() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|elapsed| u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX))
         .unwrap_or(0)
+}
+
+#[cfg(all(test, feature = "local-proxy"))]
+mod tests {
+    use super::*;
+    use base64::engine::general_purpose::STANDARD;
+    use base64::Engine as _;
+    use ring::signature::{Ed25519KeyPair, KeyPair};
+
+    fn key_pair() -> Ed25519KeyPair {
+        let rng = ring::rand::SystemRandom::new();
+        let pkcs8 = Ed25519KeyPair::generate_pkcs8(&rng).unwrap();
+        Ed25519KeyPair::from_pkcs8(pkcs8.as_ref()).unwrap()
+    }
+
+    fn public_key(pair: &Ed25519KeyPair) -> [u8; 32] {
+        pair.public_key().as_ref().try_into().unwrap()
+    }
+
+    #[test]
+    fn accepts_a_valid_signature_in_any_base64_shape() {
+        let pair = key_pair();
+        let body = b"DOMAIN-SUFFIX,example.com\n";
+        let signature = pair.sign(body);
+        let plain = STANDARD.encode(signature.as_ref());
+        assert_eq!(
+            verify_list_signature(&public_key(&pair), body, plain.as_bytes()),
+            Ok(())
+        );
+        let commented = format!(
+            "untrusted comment: list\n\n{}\n",
+            plain.trim_end_matches('=')
+        );
+        assert_eq!(
+            verify_list_signature(&public_key(&pair), body, commented.as_bytes()),
+            Ok(())
+        );
+        let url_safe = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(signature.as_ref());
+        assert_eq!(
+            verify_list_signature(&public_key(&pair), body, url_safe.as_bytes()),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn refuses_a_changed_list_another_key_and_junk() {
+        let pair = key_pair();
+        let body = b"DOMAIN-SUFFIX,example.com\n";
+        let signature = STANDARD.encode(pair.sign(body).as_ref());
+        assert_eq!(
+            verify_list_signature(
+                &public_key(&pair),
+                b"DOMAIN-SUFFIX,evil.example\n",
+                signature.as_bytes()
+            ),
+            Err("signature_invalid")
+        );
+        assert_eq!(
+            verify_list_signature(&public_key(&key_pair()), body, signature.as_bytes()),
+            Err("signature_invalid")
+        );
+        assert_eq!(
+            verify_list_signature(&public_key(&pair), body, b""),
+            Err("signature_malformed")
+        );
+        assert_eq!(
+            verify_list_signature(&public_key(&pair), body, b"not base64!"),
+            Err("signature_malformed")
+        );
+        let short = STANDARD.encode([0u8; 32]);
+        assert_eq!(
+            verify_list_signature(&public_key(&pair), body, short.as_bytes()),
+            Err("signature_malformed")
+        );
+        assert_eq!(
+            verify_list_signature(&public_key(&pair), body, &[0xff, 0xfe]),
+            Err("signature_malformed")
+        );
+    }
 }

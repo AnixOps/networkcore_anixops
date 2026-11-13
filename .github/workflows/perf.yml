@@ -3,11 +3,19 @@ name: Tunnel perf
 # Packet-tunnel benchmark (crates/engine-embedded/examples/tunnel_bench.rs):
 # kernel TCP -> TUN -> Tunnel -> outbound -> local server, the same code path as
 # the iOS Network Extension. Pull requests run base and head on the same runner
-# and the summary shows the change; the numbers are informational, never a gate.
+# and the summary shows the change; the tunnel numbers are informational.
+#
+# Gates (the job fails when a target is missed):
+# - rules: 10 000 routing rules, p99 of one decision under 50 us
+#   (crates/config-core/examples/rule_bench.rs).
+# - scale: 5000 connections open at once through the tunnel, every one
+#   established and echoing; 100 000 UDP flows open at once with the
+#   process RSS under 300 MiB (tunnel_bench scale / udp-sessions).
 
 on:
   pull_request:
     paths:
+      - crates/config-core/**
       - crates/engine-embedded/**
       - crates/engine-outbound/**
       - crates/netstack-smoltcp/**
@@ -33,6 +41,22 @@ on:
         description: "Also record a perf CPU profile of the tunnel process (head only)"
         type: boolean
         default: false
+      max_rule_p99_us:
+        description: "Rule decision gate: p99 of one decision in microseconds"
+        type: string
+        default: "50"
+      concurrent:
+        description: "Scale gate: TCP connections open at once"
+        type: string
+        default: "5000"
+      udp_flows:
+        description: "Scale gate: UDP flows open at once"
+        type: string
+        default: "100000"
+      max_udp_rss_mb:
+        description: "Scale gate: process RSS limit with every UDP flow open, MiB"
+        type: string
+        default: "300"
 
 permissions:
   contents: read
@@ -42,6 +66,130 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Routing decision latency with 10 000 rules (a gate). Pure CPU, a minute.
+  rules:
+    name: Rule decision benchmark (10k rules)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CARGO_INCREMENTAL: "0"
+      MAX_RULE_P99_US: ${{ inputs.max_rule_p99_us || '50' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Restore Rust build cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: false
+
+      - name: Build
+        run: cargo build --locked --release -p config-core --example rule_bench
+
+      - name: Run
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p results
+          target/release/examples/rule_bench --rules 10000 --queries 200000 --rounds 3 \
+            --miss-share 0.1 --max-p99-us "${MAX_RULE_P99_US}" --json results/rules.json
+
+      - name: Summary
+        if: always()
+        shell: bash
+        run: python3 .github/scripts/perf-summary.py --rules results/rules.json >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rule-bench
+          path: results
+          retention-days: 14
+          if-no-files-found: ignore
+
+  # Head only, gates: F2 concurrent connections and F3 UDP flow table.
+  scale:
+    name: Tunnel scale (5000 conns, 100k UDP flows)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CARGO_INCREMENTAL: "0"
+      CONCURRENT: ${{ inputs.concurrent || '5000' }}
+      UDP_FLOWS: ${{ inputs.udp_flows || '100000' }}
+      MAX_UDP_RSS_MB: ${{ inputs.max_udp_rss_mb || '300' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - name: Setup Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Restore Rust build cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: false
+
+      - name: Build
+        run: cargo build --locked --release -p engine-embedded --example tunnel_bench
+
+      - name: Create TUN device
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo ip tuntap add dev ncb0 mode tun user "$(id -u)"
+          sudo ip addr add 198.18.0.1/16 dev ncb0
+          sudo ip link set ncb0 mtu 1500 up
+          nproc
+          ulimit -n
+
+      - name: UDP flows
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p results
+          target/release/examples/tunnel_bench udp-sessions --flows "${UDP_FLOWS}" \
+            --max-rss-mb "${MAX_UDP_RSS_MB}" --json results/udp-sessions.json
+
+      - name: Concurrent connections
+        if: success() || failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Client, tunnel and server each hold one socket per connection.
+          ulimit -n 65536 || ulimit -n "$(ulimit -Hn)"
+          mkdir -p results
+          for outbound in redirect ss2022; do
+            echo "::group::${outbound}"
+            target/release/examples/tunnel_bench scale --tun ncb0 --outbound "${outbound}" \
+              --concurrent "${CONCURRENT}" --max-conns "$((CONCURRENT + 256))" \
+              --json "results/scale-${outbound}.json"
+            echo "::endgroup::"
+          done
+
+      - name: Summary
+        if: always()
+        shell: bash
+        run: python3 .github/scripts/perf-summary.py --scale results >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tunnel-scale
+          path: results
+          retention-days: 14
+          if-no-files-found: ignore
+
   bench:
     name: Tunnel benchmark (Linux TUN)
     runs-on: ubuntu-latest
