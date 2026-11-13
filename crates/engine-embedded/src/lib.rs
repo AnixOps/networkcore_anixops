@@ -209,6 +209,7 @@ impl EmbeddedRuntime {
                         .with_redirects(config.redirect_table()?)
                         .with_fake_ip(config.fake_ip_pool()?);
                     dispatcher.set_mode(config.mode);
+                    dispatcher.set_block_quic(config.block_quic);
                     Engine::Stack(Arc::new(dispatcher))
                 }
                 #[cfg(feature = "wireguard")]
@@ -226,10 +227,9 @@ impl EmbeddedRuntime {
 
     /// Uses a caller-provided outbound, for tests and future protocol crates.
     pub fn with_outbound(config: RuntimeConfig, outbound: Arc<dyn TcpOutbound>) -> Self {
-        Self::with_engine(
-            config,
-            Engine::Stack(Arc::new(Dispatcher::single(outbound))),
-        )
+        let dispatcher = Dispatcher::single(outbound);
+        dispatcher.set_block_quic(config.block_quic);
+        Self::with_engine(config, Engine::Stack(Arc::new(dispatcher)))
     }
 
     fn with_engine(config: RuntimeConfig, engine: Engine) -> Self {

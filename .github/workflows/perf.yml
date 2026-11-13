@@ -74,6 +74,7 @@ jobs:
     env:
       CARGO_INCREMENTAL: "0"
       MAX_RULE_P99_US: ${{ inputs.max_rule_p99_us || '50' }}
+      BASE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -91,13 +92,40 @@ jobs:
       - name: Build
         run: cargo build --locked --release -p config-core --example rule_bench
 
+      # The limit is absolute, but hosted runners differ in CPU speed by about
+      # 1.5x. When the head misses it on a pull request, the base is measured
+      # on the same runner: a miss the base shares (head within 15% of base)
+      # is the runner, not the change, and only warns.
       - name: Run
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p results
-          target/release/examples/rule_bench --rules 10000 --queries 200000 --rounds 3 \
-            --miss-share 0.1 --max-p99-us "${MAX_RULE_P99_US}" --json results/rules.json
+          bench() {
+            "$1" --rules 10000 --queries 200000 --rounds 3 --miss-share 0.1 \
+              --max-p99-us "${MAX_RULE_P99_US}" --json "$2"
+          }
+          if bench target/release/examples/rule_bench results/rules.json; then
+            exit 0
+          fi
+          if [ -z "${BASE_REF}" ]; then
+            exit 1
+          fi
+          git fetch --no-tags --depth=1 origin "${BASE_REF}"
+          git worktree add --detach ../base "${BASE_REF}"
+          cargo build --locked --release -p config-core --example rule_bench \
+            --manifest-path ../base/Cargo.toml --target-dir target/base
+          bench target/base/release/examples/rule_bench results/rules-base.json || true
+          python3 - <<'PY'
+          import json, sys
+          head = json.load(open("results/rules.json"))["all"]["p99_us"]
+          base = json.load(open("results/rules-base.json"))["all"]["p99_us"]
+          print(f"rule decision p99: head {head:.2f} us, base {base:.2f} us on this runner")
+          if head > base * 1.15:
+              print("::error::rule decisions are more than 15% slower than the base on the same runner")
+              sys.exit(1)
+          print("::warning::the p99 limit is missed by the base too on this runner (slow runner); not a regression")
+          PY
 
       - name: Summary
         if: always()

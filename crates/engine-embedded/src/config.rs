@@ -68,6 +68,12 @@ pub struct RuntimeConfig {
     /// client switches it later with a `set_mode` control request.
     #[serde(default)]
     pub mode: Mode,
+    /// Refuse UDP flows to port 443 so apps fall back from QUIC (HTTP/3) to
+    /// TCP, where HTTPS decryption and domain rules see them. Off by
+    /// default; the client switches it later with a `set_block_quic`
+    /// control request. See [`Dispatcher::set_block_quic`].
+    #[serde(default)]
+    pub block_quic: bool,
     #[serde(default)]
     pub dns: DnsConfig,
     #[serde(default)]
@@ -759,6 +765,7 @@ impl RuntimeConfig {
         .with_redirects(self.redirect_table()?)
         .with_fake_ip(self.fake_ip_pool()?);
         dispatcher.set_mode(self.mode);
+        dispatcher.set_block_quic(self.block_quic);
         Ok(dispatcher)
     }
 

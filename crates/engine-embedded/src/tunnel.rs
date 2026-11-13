@@ -931,9 +931,9 @@ fn next_reply(mut recv: Box<dyn engine_outbound::DatagramRecv>) -> PendingReply 
     })
 }
 
-/// QUIC's port: a flow there that cannot be opened is refused with ICMP so
-/// the app falls back to TCP at once.
-const QUIC_PORT: u16 = 443;
+// QUIC's port: a flow there that cannot be opened (no UDP on the outbound,
+// or `block_quic`) is refused with ICMP so the app falls back to TCP at once.
+use crate::connections::QUIC_PORT;
 /// ICMP errors sent per refused flow (QUIC clients resend their first
 /// packet a few times).
 const MAX_ICMP_PER_FLOW: u32 = 4;

@@ -109,6 +109,8 @@ struct 必须采用 C-compatible layout，字段必须固定大小、对齐和 o
 | `close_all` | | `{"closed": 关闭数量}` |
 | `mode` | | `{"mode": "rule" \| "global" \| "direct"}` |
 | `set_mode` | `mode` | `{"mode": ...}`；之后的新连接按新模式选路，已建立的连接不变 |
+| `block_quic` | | `{"block_quic": bool}` |
+| `set_block_quic` | `enabled` | `{"block_quic": bool}`；之后的新 UDP 流按新设置处理，已建立的流不变 |
 | `groups` | | `{"groups": [{"id", "type", "now", "members": [{"name", "latency_ms"}]}]}`，单出站配置为空列表 |
 | `select` | `group`、`member` | `{"now": member}`；只用于 select 组，未知组、非 select 组或非成员返回 `INVALID_ARGUMENT` |
 
@@ -116,10 +118,15 @@ struct 必须采用 C-compatible layout，字段必须固定大小、对齐和 o
 没有策略组时为第一个节点），单出站配置走该出站；`direct` 全部直连。启动模式取配置顶层的 `mode`（缺省 `rule`）。运行时切换的模式和
 select 组选择只保留到 runtime 停止，客户端应把它们写回 profile（`mode`、select 组的 `default`）供下次启动使用。
 
+屏蔽 QUIC：配置顶层 `block_quic`（缺省 `false`）或运行时 `set_block_quic` 打开后，所有模式（含 `direct`）下发往 UDP 443
+的新流都被拒绝，连接列表显示 `rule` 为 `BLOCK-QUIC`、`outbound` 为 `REJECT`、`error` 为 `quic_blocked`。隧道对被拒的数据报
+回 ICMP 端口不可达，应用立即回落到 TCP（HTTP/2、HTTP/1.1），从而经过 MITM 解密与域名规则。判断用应用请求的端口，`redirects`
+改写后的端口不影响。客户端应把开关写回 profile（`block_quic`）供下次启动使用。
+
 每条连接包含 `id`、`network`（`tcp`/`udp`）、`host`（请求的域名，或隧道从 TLS SNI / HTTP `Host` 嗅探到的名字）、
 `destination`、`rule`（命中的规则如 `DOMAIN-SUFFIX,example.com`，无规则命中时为 `FINAL`，单出站配置为 `DEFAULT`）、
 `chain`（经过的策略组与最终出站）、`outbound`（节点 id、`DIRECT` 或 `REJECT`）、`started_at_ms` / `ended_at_ms`
-（Unix 毫秒）、`upload`、`download`、`error`（`rejected` 或 `connect_failed`）。
+（Unix 毫秒）、`upload`、`download`、`error`（`rejected`、`quic_blocked` 或 `connect_failed`）。
 
 连接列表包含用户访问的目的地址，只保存在内存中，只在显式的 `connections` 请求中返回，不写入 status、日志或错误；
 负载内容与出站配置（密钥、UUID、密码）不会进入列表。隧道自身的 DNS 查询不列为连接。

@@ -138,7 +138,7 @@ pub fn render(dispatcher: &Dispatcher, labels: Labels) -> String {
     out.family(
         "networkcore_connections_closed_total",
         "counter",
-        "Connections and UDP flows closed since the engine started, by result (ok, rejected, connect_failed).",
+        "Connections and UDP flows closed since the engine started, by result (ok, rejected, quic_blocked, connect_failed).",
     );
     for network in [Network::Tcp, Network::Udp] {
         // `ok` is always written, so a scrape sees the series from the start.

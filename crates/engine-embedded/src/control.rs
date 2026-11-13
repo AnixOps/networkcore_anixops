@@ -13,6 +13,8 @@
 //! | `close_all` | | `{"closed": count}` |
 //! | `mode` | | `{"mode": "rule" \| "global" \| "direct"}` |
 //! | `set_mode` | `mode` | `{"mode": ...}` |
+//! | `block_quic` | | `{"block_quic": bool}` |
+//! | `set_block_quic` | `enabled` | `{"block_quic": bool}`: refuse UDP to port 443 so apps fall back to TCP |
 //! | `groups` | | `{"groups": [`[`crate::routing::GroupView`]`]}` |
 //! | `select` | `group`, `member` | `{"now": member}` |
 //! | `rule_sets` | | `{"rule_sets": [`[`crate::rule_sets::RuleSetStatus`]`]}` |
@@ -52,9 +54,9 @@
 //! sends `network_changed` when the device's network changes and polls
 //! `script_notifications` to show what scripts posted.
 //!
-//! Mode and group choices last until the engine stops; the client keeps
-//! them in its profile (`mode`, a select group's `default`) for the next
-//! start.
+//! Mode, `block_quic` and group choices last until the engine stops; the
+//! client keeps them in its profile (`mode`, `block_quic`, a select group's
+//! `default`) for the next start.
 
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -86,6 +88,10 @@ enum ControlRequest {
     Mode,
     SetMode {
         mode: Mode,
+    },
+    BlockQuic,
+    SetBlockQuic {
+        enabled: bool,
     },
     Groups,
     Select {
@@ -183,6 +189,11 @@ pub fn handle_with_interceptor(
         ControlRequest::SetMode { mode } => {
             dispatcher.set_mode(mode);
             Ok(json!({ "mode": dispatcher.mode() }))
+        }
+        ControlRequest::BlockQuic => Ok(json!({ "block_quic": dispatcher.block_quic() })),
+        ControlRequest::SetBlockQuic { enabled } => {
+            dispatcher.set_block_quic(enabled);
+            Ok(json!({ "block_quic": dispatcher.block_quic() }))
         }
         ControlRequest::Groups => {
             let groups = dispatcher

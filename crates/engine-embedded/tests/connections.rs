@@ -965,3 +965,96 @@ fn only_reload_rules_may_exceed_the_short_request_limit() {
         .is_err());
     });
 }
+
+#[test]
+fn block_quic_refuses_udp_443_in_every_mode_and_switches_at_runtime() {
+    runtime().block_on(async {
+        let dispatcher = routed();
+        let udp_kind = |target: &'static str| {
+            let dispatcher = &dispatcher;
+            async move {
+                dispatcher
+                    .open_udp_flow(&ip(target), None)
+                    .await
+                    .err()
+                    .map(|err| err.kind())
+            }
+        };
+        // Off by default: UDP 443 goes to its outbound (which has no UDP here).
+        assert_eq!(
+            control_json(&dispatcher, r#"{"cmd":"block_quic"}"#)["block_quic"],
+            false
+        );
+        assert_ne!(
+            udp_kind("192.0.2.1:443").await,
+            Some(io::ErrorKind::PermissionDenied)
+        );
+
+        let answer = control_json(&dispatcher, r#"{"cmd":"set_block_quic","enabled":true}"#);
+        assert_eq!(answer["block_quic"], true);
+        assert!(dispatcher.block_quic());
+        assert_eq!(
+            udp_kind("192.0.2.1:443").await,
+            Some(io::ErrorKind::PermissionDenied)
+        );
+        // Other UDP ports are untouched.
+        assert_ne!(
+            udp_kind("192.0.2.1:53").await,
+            Some(io::ErrorKind::PermissionDenied)
+        );
+        // TCP 443 is untouched.
+        assert!(dispatcher
+            .connect_flow(&ip("192.0.2.2:443"), None)
+            .await
+            .is_ok());
+        // The direct mode blocks too.
+        dispatcher.set_mode(Mode::Direct);
+        assert_eq!(
+            udp_kind("[2001:db8::1]:443").await,
+            Some(io::ErrorKind::PermissionDenied)
+        );
+
+        let list = dispatcher.tracker().connections();
+        let blocked: Vec<_> = list
+            .closed
+            .iter()
+            .filter(|c| c.error == Some("quic_blocked"))
+            .collect();
+        assert_eq!(blocked.len(), 2);
+        for c in blocked {
+            assert_eq!(c.network, Network::Udp);
+            assert_eq!(c.rule, "BLOCK-QUIC");
+            assert_eq!(c.outbound, "REJECT");
+        }
+
+        control_json(&dispatcher, r#"{"cmd":"set_block_quic","enabled":false}"#);
+        assert!(!dispatcher.block_quic());
+        assert_ne!(
+            udp_kind("192.0.2.1:443").await,
+            Some(io::ErrorKind::PermissionDenied)
+        );
+        assert!(control::handle(&dispatcher, br#"{"cmd":"set_block_quic"}"#).is_err());
+    });
+}
+
+#[test]
+fn block_quic_starts_from_the_config() {
+    let config = |extra: &str| {
+        format!(r#"{{"schema_version":1,"profile_id":"p",{extra}"outbound":{{"type":"direct"}}}}"#)
+    };
+    let ask = |runtime: &EmbeddedRuntime| -> serde_json::Value {
+        serde_json::from_slice(&runtime.control_json(br#"{"cmd":"block_quic"}"#).unwrap()).unwrap()
+    };
+    let off =
+        EmbeddedRuntime::from_json(config("").as_bytes()).unwrap_or_else(|err| panic!("{err}"));
+    assert_eq!(ask(&off)["block_quic"], false);
+    let on = EmbeddedRuntime::from_json(config(r#""block_quic":true,"#).as_bytes())
+        .unwrap_or_else(|err| panic!("{err}"));
+    assert_eq!(ask(&on)["block_quic"], true);
+    let routed = EmbeddedRuntime::from_json(
+        br#"{"schema_version":1,"profile_id":"p","block_quic":true,"routing":{"outbounds":{"hk-1":{"type":"direct"}},"rules":["FINAL,hk-1"]}}"#,
+    )
+    .unwrap_or_else(|err| panic!("{err}"));
+    assert_eq!(ask(&routed)["block_quic"], true);
+    assert!(EmbeddedRuntime::from_json(config(r#""block_quic":"yes","#).as_bytes()).is_err());
+}

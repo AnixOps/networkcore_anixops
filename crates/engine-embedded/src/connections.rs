@@ -124,7 +124,8 @@ pub struct ConnectionSnapshot {
     pub ended_at_ms: Option<u64>,
     pub upload: u64,
     pub download: u64,
-    /// `rejected` (a REJECT rule) or `connect_failed`.
+    /// `rejected` (a REJECT rule), `quic_blocked` (a UDP flow to port 443
+    /// refused by `block_quic`) or `connect_failed`.
     pub error: Option<&'static str>,
 }
 
@@ -612,7 +613,16 @@ pub struct Dispatcher {
     /// section of a routed config); without one the direct dialer gets the
     /// name.
     resolver: Option<Arc<dyn DomainResolver>>,
+    /// `block_quic`: refuse UDP flows to [`QUIC_PORT`]; see
+    /// [`Dispatcher::set_block_quic`].
+    block_quic: AtomicBool,
 }
+
+/// The port QUIC (HTTP/3) runs on: `block_quic` refuses UDP flows to it.
+pub const QUIC_PORT: u16 = 443;
+
+/// The rule a flow refused by `block_quic` shows in the connection list.
+pub const BLOCK_QUIC_RULE: &str = "BLOCK-QUIC";
 
 impl Dispatcher {
     /// Every flow through `outbound`, as a config with one outbound runs. The
@@ -627,6 +637,7 @@ impl Dispatcher {
             redirects: Arc::default(),
             fake_ip: None,
             resolver: None,
+            block_quic: AtomicBool::new(false),
         }
     }
 
@@ -642,6 +653,7 @@ impl Dispatcher {
             tracker: Arc::default(),
             redirects: Arc::default(),
             fake_ip: None,
+            block_quic: AtomicBool::new(false),
         }
     }
 
@@ -758,6 +770,21 @@ impl Dispatcher {
     /// route.
     pub fn set_mode(&self, mode: Mode) {
         self.mode.store(mode as u8, Ordering::Relaxed);
+    }
+
+    /// Whether UDP flows to port 443 are refused, so apps fall back from
+    /// QUIC (HTTP/3) to TCP, where HTTPS decryption and domain rules see
+    /// them.
+    pub fn block_quic(&self) -> bool {
+        self.block_quic.load(Ordering::Relaxed)
+    }
+
+    /// Turns `block_quic` on or off for every later UDP flow; open flows
+    /// keep going. It holds in every mode, DIRECT included. The packet
+    /// tunnel answers a refused datagram with ICMP port unreachable, so the
+    /// app gives up on QUIC at once instead of waiting for a timeout.
+    pub fn set_block_quic(&self, enabled: bool) {
+        self.block_quic.store(enabled, Ordering::Relaxed);
     }
 
     /// The rule-based outbound of a routing config, for its policy groups.
@@ -935,6 +962,15 @@ impl Dispatcher {
             None => (target, host),
         };
         let guard = self.tracker.open(Network::Udp, target, host, None);
+        // The port the app asked for: a redirect does not let QUIC through.
+        if target.port() == QUIC_PORT && self.block_quic() {
+            guard.set_route(block_quic_route());
+            guard.fail("quic_blocked");
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "QUIC blocked by block_quic",
+            ));
+        }
         let redirected = self.redirect(target, host, None, RouteNetwork::Udp, None);
         let (target, host) = match &redirected {
             Some((new, rule)) => {
@@ -1094,6 +1130,14 @@ fn proxied_name(
 }
 
 /// The route of the direct mode.
+fn block_quic_route() -> RouteInfo {
+    RouteInfo {
+        rule: BLOCK_QUIC_RULE.to_string(),
+        chain: vec!["REJECT".to_string()],
+        outbound: "REJECT".to_string(),
+    }
+}
+
 fn direct_route() -> RouteInfo {
     RouteInfo {
         rule: "MODE,direct".to_string(),
