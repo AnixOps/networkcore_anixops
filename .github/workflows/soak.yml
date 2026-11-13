@@ -1,0 +1,144 @@
+name: Tunnel soak
+
+# Long-run stability of the packet tunnel (F7): tunnel_bench soak keeps the
+# tunnel busy for hours and fails when its RSS trend after warm-up grows
+# faster than 1 MiB per hour, when connections fail, or when flows or file
+# descriptors are left over.
+#
+# - Pull requests that change the soak itself: a 30 min smoke run with a
+#   loose slope gate (too short to measure a trend), so the script and the
+#   other gates are known to work before the weekly run.
+# - Weekly: 5.5 h on a GitHub-hosted runner (a hosted job stops at 6 h).
+# - Manual: any length; 24 h needs runner=self-hosted, a Linux runner with
+#   passwordless sudo that this repository may use (docs/manual-intervention.md).
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/soak.yml"
+      - ".github/scripts/soak.sh"
+      - "crates/engine-embedded/examples/tunnel_bench.rs"
+  schedule:
+    - cron: "17 18 * * 6"
+  workflow_dispatch:
+    inputs:
+      hours:
+        description: "Duration in hours (GitHub-hosted: at most 5.5; 24 needs self-hosted)"
+        type: string
+        default: "5.5"
+      runner:
+        description: "Where to run"
+        type: choice
+        options:
+          - github-hosted
+          - self-hosted
+        default: github-hosted
+      runner_label:
+        description: "Extra label of the self-hosted runner (empty: any self-hosted Linux runner)"
+        type: string
+        default: ""
+      outbound:
+        description: "Tunnel outbound"
+        type: choice
+        options:
+          - redirect
+          - ss2022
+        default: ss2022
+      max_slope_mb_per_h:
+        description: "Gate: RSS growth after warm-up, MiB per hour"
+        type: string
+        default: "1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: soak-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_INCREMENTAL: "0"
+  OUTBOUND: ${{ inputs.outbound || 'ss2022' }}
+  MAX_SLOPE_MB_PER_H: ${{ github.event_name == 'pull_request' && '20' || inputs.max_slope_mb_per_h || '1' }}
+  RESULTS: results
+
+jobs:
+  hosted:
+    name: Tunnel soak (GitHub-hosted)
+    if: github.event_name == 'schedule' || github.event_name == 'pull_request' || inputs.runner == 'github-hosted'
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    env:
+      SOAK_HOURS: ${{ github.event_name == 'schedule' && '5.5' || github.event_name == 'pull_request' && '0.5' || inputs.hours }}
+    steps:
+      - name: Check duration
+        shell: bash
+        run: |
+          python3 -c "import sys; h = float(sys.argv[1]); sys.exit(0 if 0 < h <= 5.5 else 1)" "${SOAK_HOURS}" \
+            || { echo "::error::GitHub-hosted jobs stop at 6 h; use runner=self-hosted for ${SOAK_HOURS} h"; exit 1; }
+
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - name: Setup Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Restore Rust build cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: false
+
+      - name: Soak
+        run: bash .github/scripts/soak.sh
+
+      - name: Summary
+        if: always()
+        run: python3 .github/scripts/perf-summary.py --soak results/soak.json >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tunnel-soak
+          path: results
+          retention-days: 30
+          if-no-files-found: ignore
+
+  self-hosted:
+    name: Tunnel soak (self-hosted)
+    if: github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted'
+    runs-on: ${{ fromJSON(inputs.runner_label && format('["self-hosted","linux","{0}"]', inputs.runner_label) || '["self-hosted","linux"]') }}
+    # 24 h of load plus build and slack; longer runs need a larger value.
+    timeout-minutes: 1560
+    env:
+      SOAK_HOURS: ${{ inputs.hours }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - name: Setup Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Soak
+        run: bash .github/scripts/soak.sh
+
+      - name: Summary
+        if: always()
+        run: python3 .github/scripts/perf-summary.py --soak results/soak.json >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tunnel-soak
+          path: results
+          retention-days: 30
+          if-no-files-found: ignore
