@@ -20,7 +20,7 @@ use engine_outbound::mux::{MuxOutbound, MuxSettings};
 use engine_outbound::{BoxFuture, BoxStream, TargetAddr, TcpOutbound};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::time::{sleep, timeout, Sleep};
+use tokio::time::{sleep, sleep_until, timeout, Sleep};
 
 const TIMEOUT: Duration = Duration::from_secs(20);
 
@@ -97,6 +97,7 @@ impl TcpOutbound for ToServer {
                 Some(rate) => Box::new(Throttled {
                     inner: stream,
                     rate,
+                    free_at: Instant::now(),
                     wait: None,
                 }) as BoxStream,
             })
@@ -105,10 +106,21 @@ impl TcpOutbound for ToServer {
 }
 
 /// A link that sends `rate` bytes a second, 4 KiB at a time.
+///
+/// It paces against a clock rather than sleeping a fixed time per chunk:
+/// timers are coarse on some systems (about 15.6 ms on Windows), and a
+/// fixed sleep per 4 KiB chunk would slow the link to a quarter there.
+/// A sleep that runs late is made up by sending up to `BURST` early.
 struct Throttled {
     inner: TcpStream,
     rate: u64,
+    /// When the link has sent everything written so far.
+    free_at: Instant,
     wait: Option<Pin<Box<Sleep>>>,
+}
+
+impl Throttled {
+    const BURST: Duration = Duration::from_millis(20);
 }
 
 impl AsyncRead for Throttled {
@@ -134,8 +146,14 @@ impl AsyncWrite for Throttled {
         }
         let chunk = buf.len().min(4096);
         let n = ready!(Pin::new(&mut this.inner).poll_write(cx, &buf[..chunk]))?;
-        let pause = Duration::from_secs_f64(n as f64 / this.rate as f64);
-        this.wait = Some(Box::pin(sleep(pause)));
+        let now = Instant::now();
+        let start = this
+            .free_at
+            .max(now.checked_sub(Throttled::BURST).unwrap_or(now));
+        this.free_at = start + Duration::from_secs_f64(n as f64 / this.rate as f64);
+        if this.free_at > now + Throttled::BURST / 4 {
+            this.wait = Some(Box::pin(sleep_until(this.free_at.into())));
+        }
         Poll::Ready(Ok(n))
     }
 
