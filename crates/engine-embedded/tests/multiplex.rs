@@ -147,7 +147,7 @@ async fn shadowsocks_connections_share_one_multiplexed_connection() {
     let reuse = routed.node_reuse_stats();
     assert_eq!(reuse.len(), 1, "{reuse:?}");
     let (node, protocol, stats_json) = &reuse[0];
-    assert_eq!((node.as_str(), *protocol), ("a", "shadowsocks"));
+    assert_eq!((node.as_str(), *protocol), ("a", "shadowsocks-2022"));
     assert_eq!(stats_json["mux"]["sessions_opened"], 1);
     assert_eq!(stats_json["mux"]["streams_opened"], 20);
     assert!(stats_json["mux"]["reuse_rate"].as_f64().unwrap() >= 0.9);
