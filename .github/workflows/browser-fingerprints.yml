@@ -210,7 +210,20 @@ jobs:
           bash "${capture}" safari "${out}" nscurl || failed=1
           # The simulator runs the iOS network stack; its capture is checked against
           # the safari profile (the file name picks the profile).
-          bash "${capture}" safari-ios "${out}" xcrun simctl openurl "${UDID}" || failed=1
+          # A freshly booted simulator sometimes times out opening the first
+          # URL (Safari is still starting), so launch Safari first and retry.
+          xcrun simctl launch "${UDID}" com.apple.mobilesafari || true
+          sleep 5
+          ios=1
+          for attempt in 1 2 3; do
+            if bash "${capture}" safari-ios "${out}" xcrun simctl openurl "${UDID}"; then
+              ios=0
+              break
+            fi
+            echo "iOS simulator capture attempt ${attempt} failed"
+            sleep 10
+          done
+          [ "${ios}" -eq 0 ] || failed=1
           echo "TLS_MIMIC_CAPTURES=${out}" >> "${GITHUB_ENV}"
           exit "${failed}"
 
