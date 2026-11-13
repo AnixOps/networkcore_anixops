@@ -36,3 +36,7 @@
 "null"
 "true"
 "[]"
+"\"reload_rules\""
+"\"rules\""
+"\"dry_run\""
+"FINAL,DIRECT"
