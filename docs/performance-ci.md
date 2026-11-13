@@ -7,7 +7,7 @@
 | R2 规则决策 | 1 万条规则，单次决策 p99 ≤ 50 µs | `crates/config-core/examples/rule_bench.rs` | `perf.yml` / Rule decision benchmark | 改动 config-core 或引擎的 PR、手动 |
 | F2 并发连接 | 5000 条 TCP 同时建立并各回显 1 字节（redirect、ss2022 两种出站） | `tunnel_bench scale` | `perf.yml` / Tunnel scale | 同上 |
 | F3 UDP 会话 | 10 万个 UDP 流同时打开，进程 RSS ≤ 300 MiB | `tunnel_bench udp-sessions` | `perf.yml` / Tunnel scale | 同上 |
-| F7 长稳 | 预热后 RSS 斜率 ≤ 1 MiB/h，连接失败率 ≤ 0.1%，结束无残留流与 fd | `tunnel_bench soak` | `soak.yml` | 每周六 5.5 h（托管 runner）；24 h 手动选自托管 runner |
+| F7 长稳 | 预热后 RSS 斜率 ≤ 1 MiB/h，连接失败率 ≤ 0.1%，结束无残留流与 fd | `tunnel_bench soak` | `soak.yml` | 每周六 5.5 h（托管 runner）；24 h 手动选自托管 runner；改动 soak 本身的 PR 跑 30 min 冒烟（斜率门槛放宽到 20 MiB/h） |
 | C4 IPC 模糊测试 | `networkcore_ios_runtime_control` 不 panic、回答必为 JSON 对象、错误码在文档集合内 | `crates/engine-embedded/fuzz` 的 `runtime_control` | `ci.yml` / HTTP/2 MITM fuzz | 每个 Rust PR（30 s）、main（60 s） |
 
 `perf.yml` 的隧道基准（base 对 head）仍只做信息展示，不设门槛。

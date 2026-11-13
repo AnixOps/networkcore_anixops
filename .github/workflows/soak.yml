@@ -3,13 +3,21 @@ name: Tunnel soak
 # Long-run stability of the packet tunnel (F7): tunnel_bench soak keeps the
 # tunnel busy for hours and fails when its RSS trend after warm-up grows
 # faster than 1 MiB per hour, when connections fail, or when flows or file
-# descriptors are left over. Never runs on pull requests.
+# descriptors are left over.
 #
+# - Pull requests that change the soak itself: a 30 min smoke run with a
+#   loose slope gate (too short to measure a trend), so the script and the
+#   other gates are known to work before the weekly run.
 # - Weekly: 5.5 h on a GitHub-hosted runner (a hosted job stops at 6 h).
 # - Manual: any length; 24 h needs runner=self-hosted, a Linux runner with
 #   passwordless sudo that this repository may use (docs/manual-intervention.md).
 
 on:
+  pull_request:
+    paths:
+      - ".github/workflows/soak.yml"
+      - ".github/scripts/soak.sh"
+      - "crates/engine-embedded/examples/tunnel_bench.rs"
   schedule:
     - cron: "17 18 * * 6"
   workflow_dispatch:
@@ -51,17 +59,17 @@ concurrency:
 env:
   CARGO_INCREMENTAL: "0"
   OUTBOUND: ${{ inputs.outbound || 'ss2022' }}
-  MAX_SLOPE_MB_PER_H: ${{ inputs.max_slope_mb_per_h || '1' }}
+  MAX_SLOPE_MB_PER_H: ${{ github.event_name == 'pull_request' && '20' || inputs.max_slope_mb_per_h || '1' }}
   RESULTS: results
 
 jobs:
   hosted:
     name: Tunnel soak (GitHub-hosted)
-    if: github.event_name == 'schedule' || inputs.runner == 'github-hosted'
+    if: github.event_name == 'schedule' || github.event_name == 'pull_request' || inputs.runner == 'github-hosted'
     runs-on: ubuntu-latest
     timeout-minutes: 355
     env:
-      SOAK_HOURS: ${{ github.event_name == 'schedule' && '5.5' || inputs.hours }}
+      SOAK_HOURS: ${{ github.event_name == 'schedule' && '5.5' || github.event_name == 'pull_request' && '0.5' || inputs.hours }}
     steps:
       - name: Check duration
         shell: bash
