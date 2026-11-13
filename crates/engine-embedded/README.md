@@ -26,7 +26,7 @@ Each protocol is its own crate behind a cargo feature; `src/protocols.rs` regist
 | `trojan` | `trojan` (TCP, or `"transport": {"type": "ws"}` / `{"type": "grpc", "service_name": ...}`) | `outbound-trojan` (TLS from `transport-tls`, WebSocket from `transport-ws`, gRPC from `transport-grpc`) |
 | `vless` | `vless` (`reality`, or `tls` and/or `"transport": {"type": "ws"}` / `{"type": "grpc"}`) | `outbound-vless` |
 | `vmess` | `vmess` (AEAD, alterId 0; `security` `auto`/`aes-128-gcm`/`chacha20-poly1305`; optional `tls` and `"transport": {"type": "ws"}` / `{"type": "grpc"}`) | `outbound-vmess` |
-| `wireguard` | `wireguard` | this crate + boringtun |
+| `wireguard` | `wireguard` (a single `outbound` runs as the whole-device tunnel below; in `routing.outbounds` it is a routable node: `server`, `port`, `private_key`, `peer_public_key`, optional `preshared_key`, `local_address` (required), `allowed_ips` (default everything; destinations and received sources outside it are refused/dropped), `dns` (inside the tunnel, else the system resolver), `mtu`, `persistent_keepalive_secs`, `reserved`, `tcp_buffer_bytes`; TCP and UDP through a per-node userspace stack, IPv4 and IPv6) | this crate + boringtun; `outbound-wireguard` for routed nodes |
 | `local-proxy` | (desktop mode, not a protocol) | `inbound-mixed` |
 
 `cargo build -p engine-embedded --no-default-features --features vless` builds a runtime with only VLESS and direct; any other `type` is rejected with `config_rejected`. To add a protocol: create an `outbound-<name>` crate that implements `TcpOutbound` and `engine_outbound::registry::OutboundFactory`, add it as an optional dependency with a feature here, and register its factory in `protocols::default_registry`. `EmbeddedRuntime::with_registry` accepts a caller-built registry, for protocol crates kept outside this repository. The CI job `Protocol feature matrix` builds, lints and runs the C ABI contract tests with each feature alone.
@@ -76,6 +76,7 @@ TCP flows to port 443 whose ClientHello SNI matches the hostname list are termin
   "dns": { "upstream": "1.1.1.1:53", "timeout_ms": 5000 },
   "limits": {
     "max_tcp_connections": 128,
+    "max_udp_flows": 256,
     "max_dns_in_flight": 32,
     "tcp_window_bytes": 65536,
     "idle_timeout_secs": 300,

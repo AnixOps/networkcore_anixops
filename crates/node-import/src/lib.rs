@@ -40,7 +40,10 @@ use control_domain::{
     NODE_METADATA_V2RAY_TRANSPORT_SERVICE_NAME, NODE_METADATA_V2RAY_TRANSPORT_TYPE,
     NODE_METADATA_VIA, NODE_METADATA_VIA_UNRESOLVED, NODE_METADATA_VLESS_ENCRYPTION,
     NODE_METADATA_VLESS_FLOW, NODE_METADATA_VLESS_UUID, NODE_METADATA_VMESS_ALTER_ID,
-    NODE_METADATA_VMESS_SECURITY, NODE_METADATA_VMESS_UUID,
+    NODE_METADATA_VMESS_SECURITY, NODE_METADATA_VMESS_UUID, NODE_METADATA_WIREGUARD_ALLOWED_IPS,
+    NODE_METADATA_WIREGUARD_LOCAL_ADDRESS, NODE_METADATA_WIREGUARD_MTU,
+    NODE_METADATA_WIREGUARD_PEER_PUBLIC_KEY, NODE_METADATA_WIREGUARD_PRE_SHARED_KEY,
+    NODE_METADATA_WIREGUARD_PRIVATE_KEY, NODE_METADATA_WIREGUARD_RESERVED,
 };
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -68,6 +71,7 @@ pub fn outbound_json(node: &NodeDescriptor) -> Result<Value, Unsupported> {
         Protocol::Mieru => mieru(node),
         Protocol::Iwan => iwan(node),
         Protocol::Anx => anx(node),
+        Protocol::WireGuard => wireguard(node),
         _ => Err("protocol is not implemented by the embedded engine yet"),
     }?;
     if let Some(via) = metadata(node, NODE_METADATA_VIA) {
@@ -606,6 +610,54 @@ fn iwan(node: &NodeDescriptor) -> Result<Value, Unsupported> {
     }
     if let Some(encrypt) = metadata(node, NODE_METADATA_IWAN_ENCRYPT) {
         outbound["encrypt"] = json!(encrypt == "true");
+    }
+    Ok(outbound)
+}
+
+/// WireGuard as a routable node (`outbound-wireguard`). A routed config may
+/// put it behind rules; a single node can also run as the whole-device tunnel.
+fn wireguard(node: &NodeDescriptor) -> Result<Value, Unsupported> {
+    let private_key = metadata(node, NODE_METADATA_WIREGUARD_PRIVATE_KEY)
+        .ok_or("wireguard private key is missing")?;
+    let peer_public_key = metadata(node, NODE_METADATA_WIREGUARD_PEER_PUBLIC_KEY)
+        .ok_or("wireguard peer public key is missing")?;
+    let local_address = metadata(node, NODE_METADATA_WIREGUARD_LOCAL_ADDRESS)
+        .ok_or("wireguard local address is missing")?;
+    let split = |list: &str| -> Vec<String> {
+        list.split(',')
+            .map(str::trim)
+            .filter(|entry| !entry.is_empty())
+            .map(str::to_owned)
+            .collect()
+    };
+    let mut outbound = json!({
+        "type": "wireguard",
+        "server": node.endpoint.host,
+        "port": node.endpoint.port,
+        "private_key": private_key,
+        "peer_public_key": peer_public_key,
+        "local_address": split(local_address),
+    });
+    if let Some(preshared_key) = metadata(node, NODE_METADATA_WIREGUARD_PRE_SHARED_KEY) {
+        outbound["preshared_key"] = json!(preshared_key);
+    }
+    if let Some(allowed_ips) = metadata(node, NODE_METADATA_WIREGUARD_ALLOWED_IPS) {
+        outbound["allowed_ips"] = json!(split(allowed_ips));
+    }
+    if let Some(mtu) = metadata(node, NODE_METADATA_WIREGUARD_MTU) {
+        let mtu: u16 = mtu.parse().map_err(|_| "wireguard mtu is not a number")?;
+        outbound["mtu"] = json!(mtu);
+    }
+    if let Some(reserved) = metadata(node, NODE_METADATA_WIREGUARD_RESERVED) {
+        let bytes = reserved
+            .split(',')
+            .map(|byte| byte.trim().parse::<u8>())
+            .collect::<Result<Vec<u8>, _>>()
+            .map_err(|_| "wireguard reserved is not three bytes")?;
+        if bytes.len() != 3 {
+            return Err("wireguard reserved is not three bytes");
+        }
+        outbound["reserved"] = json!(bytes);
     }
     Ok(outbound)
 }

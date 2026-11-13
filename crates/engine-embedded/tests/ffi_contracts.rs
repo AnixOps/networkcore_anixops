@@ -122,14 +122,24 @@ fn supported_types_follow_cargo_features() {
 
 #[cfg(feature = "wireguard")]
 #[test]
-fn wireguard_cannot_be_a_routed_node() {
+fn wireguard_can_be_a_routed_node() {
     let key = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=";
-    let config = format!(
-        r#"{{"schema_version":1,"profile_id":"p","routing":{{"outbounds":{{"wg":{{"type":"wireguard","private_key":"{key}","peer_public_key":"{key}","server":"192.0.2.1","port":51820}}}},"rules":["FINAL,wg"]}}}}"#
-    );
-    let (code, handle) = init(&config);
+    // A routed node needs its interface address.
+    let config = |extra: &str| {
+        format!(
+            r#"{{"schema_version":1,"profile_id":"p","routing":{{"outbounds":{{"wg":{{"type":"wireguard","private_key":"{key}","peer_public_key":"{key}","server":"192.0.2.1","port":51820{extra}}}}},"rules":["IP-CIDR,10.0.0.0/8,wg","FINAL,DIRECT"]}}}}"#
+        )
+    };
+    let (code, handle) = init(&config(""));
     assert_eq!(code, NETWORKCORE_IOS_ERR_CONFIG_REJECTED);
     assert!(handle.is_null());
+
+    let (code, handle) = init(&config(
+        r#","local_address":["10.7.0.2/32"],"allowed_ips":["10.0.0.0/8"]"#,
+    ));
+    assert_eq!(code, NETWORKCORE_IOS_OK);
+    assert!(!handle.is_null());
+    unsafe { networkcore_ios_runtime_free_handle(handle) };
 }
 
 #[cfg(feature = "shadowsocks")]
