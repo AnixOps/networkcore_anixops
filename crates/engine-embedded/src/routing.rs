@@ -4,7 +4,8 @@
 //! The tunnel only sees destination addresses, so domain rules match a
 //! [`TargetAddr::Domain`] (the desktop local proxy passes one) or the host
 //! name the tunnel sniffed from the flow, given to
-//! [`RoutedOutbound::route_flow`]; FakeIP is not wired yet. A domain target that reaches
+//! [`RoutedOutbound::route_flow`]; with Fake-IP the dispatcher hands over the
+//! name of a fake address as a domain target (see [`crate::fake_ip`]). A domain target that reaches
 //! an IP rule without `no-resolve` is resolved once with the
 //! [`DomainResolver`] (the config's `dns` section through
 //! [`crate::dns_resolver::PolicyResolver`] in a built runtime, never the
@@ -386,6 +387,17 @@ impl RoutedOutbound {
         let body = crate::fetch::fetch(&*outbound, &remote.url, FETCH_TIMEOUT, MAX_LIST_BYTES)
             .await
             .map_err(crate::fetch::FetchError::as_str)?;
+        if let Some(signature) = &remote.signature {
+            let detached = crate::fetch::fetch(
+                &*outbound,
+                &signature.url,
+                FETCH_TIMEOUT,
+                crate::rule_sets::MAX_SIGNATURE_BYTES,
+            )
+            .await
+            .map_err(|_| "signature_missing")?;
+            crate::rule_sets::verify_list_signature(&signature.public_key, &body, &detached)?;
+        }
         // Parsed straight into the compact tables; the body goes before they
         // are sorted and packed, so a large list never sits in memory twice.
         let (builder, _skipped) = {
@@ -416,9 +428,24 @@ impl RoutedOutbound {
         self.nodes.get(id).map(|node| node.resume())
     }
 
+    /// [`TcpOutbound::reset_sessions`] on every node and the DIRECT
+    /// outbound; returns the total dropped.
+    pub fn reset_sessions(&self) -> usize {
+        self.nodes
+            .values()
+            .map(|node| node.reset_sessions())
+            .sum::<usize>()
+            + self.direct.reset_sessions()
+    }
+
     /// The outbound for connections that skip the rules (the direct mode).
     pub fn direct(&self) -> &Arc<dyn TcpOutbound> {
         &self.direct
+    }
+
+    /// The resolver of IP rules, also used for Fake-IP flows that go DIRECT.
+    pub fn resolver(&self) -> &Arc<dyn DomainResolver> {
+        &self.resolver
     }
 
     /// Replaces the resolver used for IP rules (tests inject a fixed one).
@@ -743,6 +770,10 @@ impl TcpOutbound for RoutedOutbound {
 
     fn connect<'a>(&'a self, target: &'a TargetAddr) -> BoxFuture<'a, io::Result<BoxStream>> {
         Box::pin(async move { self.outbound_for(target).await?.connect(target).await })
+    }
+
+    fn reset_sessions(&self) -> usize {
+        RoutedOutbound::reset_sessions(self)
     }
 
     /// UDP follows the same rules as TCP, decided once per flow.
