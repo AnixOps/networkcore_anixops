@@ -210,6 +210,13 @@ pub struct RuleSetConfig {
     /// `DIRECT` by default.
     #[serde(default)]
     pub via: Option<String>,
+    /// Ed25519 public key (32 bytes, base64): every download must come
+    /// with a valid detached signature, see [`crate::rule_sets`].
+    #[serde(default)]
+    pub public_key: Option<String>,
+    /// Where the signature is; `<url>.sig` by default. Needs `public_key`.
+    #[serde(default)]
+    pub signature_url: Option<String>,
 }
 
 impl RuleSetConfig {
@@ -232,7 +239,12 @@ impl RuleSetConfig {
     /// The download settings of a remote set, validated.
     fn remote(&self, name: &str) -> Result<Option<RemoteRuleSet>, RuntimeError> {
         let Some(url) = &self.url else {
-            if self.format.is_some() || self.interval_secs.is_some() || self.via.is_some() {
+            if self.format.is_some()
+                || self.interval_secs.is_some()
+                || self.via.is_some()
+                || self.public_key.is_some()
+                || self.signature_url.is_some()
+            {
                 return Err(rejected("rule set download settings need a url"));
             }
             return Ok(None);
@@ -253,13 +265,56 @@ impl RuleSetConfig {
         if interval_secs < MIN_UPDATE_INTERVAL_SECS {
             return Err(rejected("rule set interval_secs must be at least 600"));
         }
+        let signature = self.signature(url)?;
         Ok(Some(RemoteRuleSet {
             name: name.to_string(),
             url: url.to_string(),
             interval_secs,
             bare,
             via: self.via.clone().unwrap_or_else(|| "DIRECT".to_string()),
+            signature,
         }))
+    }
+
+    #[cfg(feature = "local-proxy")]
+    fn signature(
+        &self,
+        url: &str,
+    ) -> Result<Option<crate::rule_sets::RuleSetSignature>, RuntimeError> {
+        let Some(key) = &self.public_key else {
+            if self.signature_url.is_some() {
+                return Err(rejected("rule set signature_url needs a public_key"));
+            }
+            return Ok(None);
+        };
+        let public_key: [u8; 32] = crate::rule_sets::decode_base64(key)
+            .and_then(|bytes| bytes.try_into().ok())
+            .ok_or_else(|| {
+                rejected("rule set public_key must be a base64 Ed25519 key of 32 bytes")
+            })?;
+        let signature_url = match &self.signature_url {
+            Some(signature_url) => signature_url.trim().to_string(),
+            None => format!("{}.sig", url.split('#').next().unwrap_or(url)),
+        };
+        if !(signature_url.starts_with("https://") || signature_url.starts_with("http://"))
+            || signature_url.len() > 2048
+        {
+            return Err(rejected(
+                "rule set signature_url must be an http or https URL",
+            ));
+        }
+        Ok(Some(crate::rule_sets::RuleSetSignature {
+            public_key,
+            url: signature_url,
+        }))
+    }
+
+    #[cfg(not(feature = "local-proxy"))]
+    fn signature(
+        &self,
+        _url: &str,
+    ) -> Result<Option<crate::rule_sets::RuleSetSignature>, RuntimeError> {
+        Ok(None)
     }
 }
 

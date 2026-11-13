@@ -387,6 +387,17 @@ impl RoutedOutbound {
         let body = crate::fetch::fetch(&*outbound, &remote.url, FETCH_TIMEOUT, MAX_LIST_BYTES)
             .await
             .map_err(crate::fetch::FetchError::as_str)?;
+        if let Some(signature) = &remote.signature {
+            let detached = crate::fetch::fetch(
+                &*outbound,
+                &signature.url,
+                FETCH_TIMEOUT,
+                crate::rule_sets::MAX_SIGNATURE_BYTES,
+            )
+            .await
+            .map_err(|_| "signature_missing")?;
+            crate::rule_sets::verify_list_signature(&signature.public_key, &body, &detached)?;
+        }
         // Parsed straight into the compact tables; the body goes before they
         // are sorted and packed, so a large list never sits in memory twice.
         let (builder, _skipped) = {
