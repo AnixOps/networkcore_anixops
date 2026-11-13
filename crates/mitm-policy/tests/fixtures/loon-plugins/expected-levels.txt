@@ -7,3 +7,4 @@ qx-rewrite-local.snippet full
 qx-headerless.snippet full
 qx-mixed.snippet partial
 surge-module.sgmodule full
+ipleak-demo.sgmodule full
