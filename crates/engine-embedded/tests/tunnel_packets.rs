@@ -106,6 +106,7 @@ fn settings() -> TunnelSettings {
         mtu: 1500,
         tcp_window_bytes: 64 * 1024,
         max_tcp_connections: 8,
+        max_udp_flows: 256,
         max_dns_in_flight: 4,
         idle_timeout: Duration::from_secs(30),
         connect_timeout: Duration::from_secs(5),
