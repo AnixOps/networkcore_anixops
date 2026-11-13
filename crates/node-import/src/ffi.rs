@@ -10,7 +10,7 @@
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
-use crate::{import_text, share_link, ImportError};
+use crate::{import_text, set_anx_license, share_link, AnxLicense, ImportError};
 
 pub const NETWORKCORE_IMPORT_ABI_VERSION: u32 = 1;
 
@@ -146,6 +146,43 @@ pub unsafe extern "C" fn networkcore_import_share_link(
                 NETWORKCORE_IMPORT_OK
             }
             Err(_) => NETWORKCORE_IMPORT_ERR_UNSUPPORTED,
+        }
+    }))
+    .unwrap_or(NETWORKCORE_IMPORT_ERR_PANIC_CAUGHT)
+}
+
+/// Sets the ANX license every ANX outbound imported afterwards carries (see
+/// [`crate::AnxLicense`]): JSON `{"device_key", "device_alg",
+/// "license_cert_path"}`. An empty input clears it.
+///
+/// # Safety
+///
+/// `license` must point to `license_len` readable bytes (it may be null when
+/// `license_len` is 0).
+#[no_mangle]
+pub unsafe extern "C" fn networkcore_import_set_anx_license(
+    license: *const u8,
+    license_len: usize,
+) -> i32 {
+    catch_unwind(AssertUnwindSafe(|| {
+        if license.is_null() && license_len > 0 {
+            return NETWORKCORE_IMPORT_ERR_INVALID_ARGUMENT;
+        }
+        if license_len == 0 {
+            set_anx_license(None);
+            return NETWORKCORE_IMPORT_OK;
+        }
+        if license_len > MAX_SHARE_LINK_INPUT_LEN {
+            return NETWORKCORE_IMPORT_ERR_TOO_LARGE;
+        }
+        // SAFETY: the caller guarantees `license_len` readable bytes.
+        let bytes = unsafe { std::slice::from_raw_parts(license, license_len) };
+        match serde_json::from_slice::<AnxLicense>(bytes) {
+            Ok(value) => {
+                set_anx_license(Some(value));
+                NETWORKCORE_IMPORT_OK
+            }
+            Err(_) => NETWORKCORE_IMPORT_ERR_INVALID_ARGUMENT,
         }
     }))
     .unwrap_or(NETWORKCORE_IMPORT_ERR_PANIC_CAUGHT)

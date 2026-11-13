@@ -48,7 +48,7 @@ use std::sync::{Arc, RwLock};
 use config_core::routing::{
     parse_rule_line, PolicyGroupKind, PolicyGroupSpec, PolicyTarget, RouteMatch, RouteNetwork,
     RouteOutcome, RouteQuery, RouteResolution, RoutingEnvironment, RoutingModel, RoutingRule,
-    RoutingSpec, RuleLine, RuleMatcher,
+    RoutingSpec, RuleIndex, RuleLine, RuleMatcher,
 };
 use config_core::rule_set::RuleSet;
 use engine_outbound::sniff::HttpRequestHead;
@@ -86,6 +86,8 @@ pub struct RoutedOutbound {
 #[derive(Clone, Debug)]
 pub struct RoutingTable {
     pub model: RoutingModel,
+    /// Domain lookup for `model`, built with it.
+    pub index: RuleIndex,
     /// Where the global mode sends every connection.
     pub global: PolicyTarget,
     /// Whether a rule matches the local process, so callers that can look
@@ -560,7 +562,7 @@ impl RoutedOutbound {
         resolved: Option<IpAddr>,
     ) -> RouteResolution {
         self.with_environment(resolved, |environment| {
-            table.model.decide(query, environment)
+            table.model.decide_indexed(&table.index, query, environment)
         })
     }
 
@@ -878,6 +880,7 @@ fn compile_table(
     };
     let mut table = RoutingTable {
         model,
+        index: RuleIndex::default(),
         global,
         uses_process,
         generation,
@@ -931,6 +934,7 @@ fn add_plugin_rules(
     }
     added.append(&mut table.model.rules);
     table.model.rules = added;
+    table.index = RuleIndex::new(&table.model);
 }
 
 /// Checks a reloaded rule list line by line, so the client can point at the

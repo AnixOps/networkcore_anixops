@@ -387,6 +387,7 @@ EOF
   start_snell v4.1.1 snell-v4 4 - none
   start_snell v4.1.1 snell-v4-http 4 - http
   start_snell v5.0.1 snell-v5 4 - none
+  start_snell v5.0.1 snell-v5-http 4 - http
   start_snell v6.0.0 snell-v6-default 6 default none
   start_snell v6.0.0 snell-v6-unshaped 6 unshaped none
   start_snell v6.0.0 snell-v6-unsafe-raw 6 unsafe-raw none
