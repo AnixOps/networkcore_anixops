@@ -24,6 +24,7 @@
 //! | `run_script` | `tag` | `{"scheduled": bool}` |
 //! | `outbound_health` | | `{"outbounds": [{"node", "protocol", "health"}]}`, only outbounds that report health |
 //! | `resume_outbound` | `node` | `{"resumed": bool}` |
+//! | `metrics` | `anonymous` (optional bool) | `{"content_type", "text"}`: [`crate::metrics`] in the Prometheus text format |
 //! | `reload_rules` | `rules`, optional `dry_run` | `{"reloaded": bool, "rules", "generation"}` or `{"reloaded": false, "error": {"line", "code"}}` |
 //! | `outbound_reuse` | | `{"outbounds": [{"node", "protocol", "reuse"}]}`: connection pool (`mux`) and TLS resumption counters, only outbounds that keep them |
 //!
@@ -59,6 +60,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::connections::{Dispatcher, Mode};
+use crate::metrics;
 use crate::tunnel::FlowInterceptor;
 use crate::{RuntimeError, RuntimeErrorCode};
 
@@ -105,6 +107,10 @@ enum ControlRequest {
     OutboundHealth,
     ResumeOutbound {
         node: String,
+    },
+    Metrics {
+        #[serde(default)]
+        anonymous: bool,
     },
     ReloadRules {
         rules: Vec<String>,
@@ -280,6 +286,17 @@ pub fn handle_with_interceptor(
                 None => return Err(invalid("no such node")),
             };
             Ok(json!({ "resumed": resumed }))
+        }
+        ControlRequest::Metrics { anonymous } => {
+            let labels = if anonymous {
+                metrics::Labels::Anonymous
+            } else {
+                metrics::Labels::Named
+            };
+            Ok(json!({
+                "content_type": metrics::CONTENT_TYPE,
+                "text": metrics::render(dispatcher, labels),
+            }))
         }
         ControlRequest::ReloadRules { rules, dry_run } => {
             let routed = dispatcher

@@ -75,11 +75,28 @@ impl Mode {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Network {
     Tcp,
     Udp,
+}
+
+impl Network {
+    fn index(self) -> usize {
+        match self {
+            Self::Tcp => 0,
+            Self::Udp => 1,
+        }
+    }
+
+    /// The lower-case name, as the connection list writes it.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Tcp => "tcp",
+            Self::Udp => "udp",
+        }
+    }
 }
 
 /// One connection as the list shows it.
@@ -218,6 +235,24 @@ pub struct ConnectionTracker {
     upload_total: AtomicU64,
     download_total: AtomicU64,
     sample: Mutex<RateSample>,
+    started: Instant,
+    /// Connections opened since the start, TCP then UDP.
+    opened: [AtomicU64; 2],
+    /// Connections closed since the start, by network and result (`ok` or the
+    /// connection's error code).
+    outcomes: Mutex<BTreeMap<(Network, &'static str), u64>>,
+}
+
+/// Counters since the tracker started, for the `metrics` control command.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TrackerCounters {
+    pub uptime: Duration,
+    pub opened_tcp: u64,
+    pub opened_udp: u64,
+    pub active_tcp: usize,
+    pub active_udp: usize,
+    /// Closed connections by network and result, sorted.
+    pub closed: Vec<(Network, &'static str, u64)>,
 }
 
 impl Default for ConnectionTracker {
@@ -235,6 +270,9 @@ impl Default for ConnectionTracker {
                 upload_rate: 0,
                 download_rate: 0,
             }),
+            started: Instant::now(),
+            opened: [AtomicU64::new(0), AtomicU64::new(0)],
+            outcomes: Mutex::default(),
         }
     }
 }
@@ -271,6 +309,7 @@ impl ConnectionTracker {
             read_waker: AtomicWaker::new(),
             write_waker: AtomicWaker::new(),
         });
+        self.opened[network.index()].fetch_add(1, Ordering::Relaxed);
         lock(&self.active).insert(entry.id, entry.clone());
         Arc::new(ConnectionGuard {
             tracker: self.clone(),
@@ -319,6 +358,28 @@ impl ConnectionTracker {
         }
     }
 
+    /// Counters since the start: opened, active and closed connections.
+    pub fn counters(&self) -> TrackerCounters {
+        let (mut active_tcp, mut active_udp) = (0, 0);
+        for entry in lock(&self.active).values() {
+            match entry.network {
+                Network::Tcp => active_tcp += 1,
+                Network::Udp => active_udp += 1,
+            }
+        }
+        TrackerCounters {
+            uptime: self.started.elapsed(),
+            opened_tcp: self.opened[Network::Tcp.index()].load(Ordering::Relaxed),
+            opened_udp: self.opened[Network::Udp.index()].load(Ordering::Relaxed),
+            active_tcp,
+            active_udp,
+            closed: lock(&self.outcomes)
+                .iter()
+                .map(|(&(network, result), &count)| (network, result, count))
+                .collect(),
+        }
+    }
+
     /// Closes one active connection; `false` when it is not active.
     pub fn close(&self, id: u64) -> bool {
         let entry = lock(&self.active).get(&id).cloned();
@@ -352,6 +413,9 @@ impl ConnectionTracker {
             return;
         }
         let snapshot = entry.snapshot(Some(unix_millis()));
+        *lock(&self.outcomes)
+            .entry((entry.network, snapshot.error.unwrap_or("ok")))
+            .or_default() += 1;
         let mut closed = lock(&self.closed);
         closed.push_front(snapshot);
         trim_closed(&mut closed);
