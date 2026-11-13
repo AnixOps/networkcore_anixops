@@ -679,3 +679,132 @@ fn ipv6_flows_reach_a_proxy_by_their_sniffed_name() {
         );
     });
 }
+
+/// Echoes like [`Echo`] and counts how often its sessions were reset.
+struct Pooled {
+    echo: Echo,
+    resets: std::sync::atomic::AtomicUsize,
+}
+
+impl Pooled {
+    fn new() -> Arc<Self> {
+        Arc::new(Self {
+            echo: Echo("test-pooled"),
+            resets: std::sync::atomic::AtomicUsize::new(0),
+        })
+    }
+
+    fn resets(&self) -> usize {
+        self.resets.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+impl TcpOutbound for Pooled {
+    fn protocol(&self) -> &'static str {
+        "test-pooled"
+    }
+
+    fn connect<'a>(&'a self, target: &'a TargetAddr) -> BoxFuture<'a, io::Result<BoxStream>> {
+        self.echo.connect(target)
+    }
+
+    fn reset_sessions(&self) -> usize {
+        self.resets
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        1
+    }
+}
+
+/// Twenty network changes in a row (sleep/wake, Wi-Fi to cellular) leave no
+/// connection behind and reset the outbound's sessions every time.
+#[test]
+fn reset_network_twenty_times_leaks_nothing() {
+    runtime().block_on(async {
+        let pooled = Pooled::new();
+        let dispatcher = Dispatcher::single(pooled.clone());
+        for cycle in 1..=20 {
+            let mut streams = Vec::new();
+            for _ in 0..3 {
+                let mut stream = dispatcher
+                    .connect_flow(&ip("192.0.2.1:443"), None)
+                    .await
+                    .unwrap();
+                stream.write_all(b"ping").await.unwrap();
+                let mut reply = [0u8; 4];
+                stream.read_exact(&mut reply).await.unwrap();
+                streams.push(stream);
+            }
+            assert_eq!(dispatcher.tracker().connections().active.len(), 3);
+
+            let answer = control_json(&dispatcher, r#"{"cmd":"reset_network"}"#);
+            assert_eq!(answer["closed"], 3);
+            assert_eq!(answer["reset"], 1);
+            assert_eq!(pooled.resets(), cycle);
+
+            // The closed flows fail at once instead of hanging on a dead path.
+            for mut stream in streams {
+                let mut buf = [0u8; 4];
+                assert!(stream.read(&mut buf).await.map_or(true, |n| n == 0));
+            }
+            assert!(dispatcher.tracker().connections().active.is_empty());
+            assert_eq!(dispatcher.tracker().connections().traffic.active, 0);
+        }
+        // The pooled outbound still dials after the last reset.
+        let mut stream = dispatcher
+            .connect_flow(&ip("192.0.2.1:443"), None)
+            .await
+            .unwrap();
+        stream.write_all(b"ok").await.unwrap();
+        let mut reply = [0u8; 2];
+        stream.read_exact(&mut reply).await.unwrap();
+        assert_eq!(&reply, b"ok");
+    });
+}
+
+#[test]
+fn reset_network_can_keep_open_connections() {
+    runtime().block_on(async {
+        let pooled = Pooled::new();
+        let dispatcher = Dispatcher::single(pooled.clone());
+        let mut stream = dispatcher
+            .connect_flow(&ip("192.0.2.1:443"), None)
+            .await
+            .unwrap();
+        let answer = control_json(
+            &dispatcher,
+            r#"{"cmd":"reset_network","close_connections":false}"#,
+        );
+        assert_eq!(answer["closed"], 0);
+        assert_eq!(answer["reset"], 1);
+        stream.write_all(b"still").await.unwrap();
+        let mut reply = [0u8; 5];
+        stream.read_exact(&mut reply).await.unwrap();
+        assert_eq!(&reply, b"still");
+    });
+}
+
+#[test]
+fn reset_network_reaches_every_routed_node_and_direct() {
+    runtime().block_on(async {
+        let hk = Pooled::new();
+        let jp = Pooled::new();
+        let direct = Pooled::new();
+        let nodes = BTreeMap::from([
+            ("hk-1".to_string(), hk.clone() as Arc<dyn TcpOutbound>),
+            ("jp-1".to_string(), jp.clone() as Arc<dyn TcpOutbound>),
+        ]);
+        let spec = RoutingSpec {
+            rules: vec![
+                "DOMAIN-SUFFIX,example.test,hk-1".to_string(),
+                "DOMAIN-SUFFIX,example.jp,jp-1".to_string(),
+                "FINAL,DIRECT".to_string(),
+            ],
+            groups: Vec::new(),
+        };
+        let routed = RoutedOutbound::new(&spec, direct.clone(), nodes).unwrap();
+        let dispatcher = Dispatcher::routed(Arc::new(routed));
+        let answer = control_json(&dispatcher, r#"{"cmd":"reset_network"}"#);
+        assert_eq!(answer["reset"], 3);
+        assert_eq!((hk.resets(), jp.resets(), direct.resets()), (1, 1, 1));
+    });
+}

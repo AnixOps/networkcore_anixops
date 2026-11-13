@@ -6,7 +6,8 @@
 //! on the tunnel thread, a burst at a time. TCP flows are relayed through the
 //! [`Dispatcher`], which routes and tracks them; the host name sniffed from a
 //! flow's first bytes (TLS SNI or HTTP `Host`) goes along for domain rules.
-//! UDP/53 is answered from the DNS hosts, from the DNS cache, or forwarded to
+//! UDP/53 is answered from the DNS hosts, from the Fake-IP table when it is on
+//! (see [`crate::fake_ip`]), from the DNS cache, or forwarded to
 //! the upstream the DNS policy picks (over TCP, TLS or HTTPS, on kept
 //! connections; see [`crate::dns_cache`]), and other UDP goes through the
 //! outbound's UDP flows, one per app socket and destination. An outbound
@@ -39,6 +40,7 @@ use crate::connections::{Dispatcher, Mode};
 use crate::dns::{self, OutboundFailure};
 use crate::dns_cache::{CacheKey, DnsCache, Lookup, UpstreamPool, Waiter};
 use crate::dns_policy::{DnsPolicy, Plan};
+use crate::fake_ip::FakeAnswer;
 use crate::sniff;
 #[cfg(feature = "wireguard")]
 use crate::wireguard::{self, WireGuardSettings};
@@ -167,6 +169,7 @@ pub struct TunnelStats {
     pub(crate) dns_queries: AtomicU64,
     pub(crate) dns_failed: AtomicU64,
     pub(crate) dns_cached: AtomicU64,
+    pub(crate) dns_fake: AtomicU64,
     pub(crate) bytes_up: AtomicU64,
     pub(crate) bytes_down: AtomicU64,
     /// Last `OutboundFailure` code, 0 for none.
@@ -195,6 +198,9 @@ pub struct TunnelStatsSnapshot {
     /// Queries answered from the DNS cache (fresh or stale) or joined to an
     /// identical query in flight; counted in `dns_queries` too.
     pub dns_cached: u64,
+    /// Queries answered from the Fake-IP table (a fake A record, or an empty
+    /// AAAA / HTTPS answer); counted in `dns_queries` too.
+    pub dns_fake: u64,
     pub bytes_up: u64,
     pub bytes_down: u64,
     pub dns_last_failure: Option<&'static str>,
@@ -220,6 +226,7 @@ impl TunnelStats {
             dns_queries: get(&self.dns_queries),
             dns_failed: get(&self.dns_failed),
             dns_cached: get(&self.dns_cached),
+            dns_fake: get(&self.dns_fake),
             bytes_up: get(&self.bytes_up),
             bytes_down: get(&self.bytes_down),
             dns_last_failure: last_failure(&self.dns_last_failure),
@@ -535,6 +542,18 @@ fn spawn_tasks(
                 }
                 Plan::Forward(server) => server,
             };
+            // Fake-IP: names outside the hosts and the filter get a fake
+            // address at once; the dispatcher maps it back on connect.
+            if let Some(FakeAnswer::Reply(reply)) =
+                dispatcher.fake_ip().map(|pool| pool.answer(&payload))
+            {
+                bump(&stats.dns_queries);
+                bump(&stats.dns_fake);
+                if reply_tx.try_send((reply, dst, src)).is_err() {
+                    bump(&stats.dns_failed);
+                }
+                continue;
+            }
             bump(&stats.dns_queries);
             let proxied = matches!(policy_via(&settings, server), DnsVia::Proxy)
                 && dispatcher.mode() != Mode::Direct;

@@ -10,9 +10,10 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use config_core::redirect::RedirectTable;
-use engine_embedded::config::{DnsConfig, DnsRuleConfig, DnsServerConfig, DnsVia};
+use engine_embedded::config::{DnsConfig, DnsRuleConfig, DnsServerConfig, DnsVia, FakeIpConfig};
 use engine_embedded::connections::Dispatcher;
 use engine_embedded::dns_policy::DnsPolicy;
+use engine_embedded::fake_ip::FakeIpPool;
 use engine_embedded::tunnel::{PacketSink, Tunnel, TunnelSettings};
 use engine_outbound::{
     BoxFuture, BoxStream, DatagramRecv, DatagramSend, TargetAddr, TcpOutbound, UdpFlow,
@@ -605,5 +606,92 @@ fn tcp_flow_is_relayed_through_the_outbound() {
     let stats = tunnel.stats();
     assert_eq!(stats.tcp_total, 1);
     assert_eq!(stats.tcp_connect_failed, 0);
+    tunnel.stop();
+}
+
+/// Test outbound that records each target and sends the flow to one server.
+struct RecordingRedirect(SocketAddr, Arc<Mutex<Vec<TargetAddr>>>);
+
+impl TcpOutbound for RecordingRedirect {
+    fn protocol(&self) -> &'static str {
+        "test-recording"
+    }
+
+    fn connect<'a>(&'a self, target: &'a TargetAddr) -> BoxFuture<'a, io::Result<BoxStream>> {
+        self.1.lock().unwrap().push(target.clone());
+        Box::pin(async move {
+            let stream = tokio::net::TcpStream::connect(self.0).await?;
+            Ok(Box::new(stream) as BoxStream)
+        })
+    }
+}
+
+#[test]
+fn fake_ip_answers_dns_and_sends_the_flow_by_name() {
+    let pool = FakeIpPool::from_config(&FakeIpConfig {
+        enabled: true,
+        ..FakeIpConfig::default()
+    })
+    .unwrap()
+    .unwrap();
+    let targets = Arc::new(Mutex::new(Vec::new()));
+    let outbound = Arc::new(RecordingRedirect(start_echo_server(), targets.clone()));
+    let dispatcher = Arc::new(Dispatcher::single(outbound).with_fake_ip(Some(pool)));
+    let (sink, rx) = capture();
+    let mut tunnel =
+        Tunnel::start_with_dispatcher(settings(), dispatcher, None, None, sink).unwrap();
+
+    // example.com gets a fake address at once, without the upstream.
+    let response = ask(&tunnel, &rx, &dns_query());
+    assert_eq!(&response[..2], &[0x12, 0x34]);
+    assert_eq!(&response[6..8], &[0, 1], "one answer");
+    let fake: [u8; 4] = response[response.len() - 4..].try_into().unwrap();
+    assert_eq!(&fake[..2], &[198, 18]);
+    assert_eq!(
+        &response[response.len() - 10..response.len() - 6],
+        &[0, 0, 0, 1]
+    );
+    let stats = tunnel.stats();
+    assert_eq!(stats.dns_queries, 1);
+    assert_eq!(stats.dns_fake, 1);
+
+    // A plain TCP flow (nothing to sniff) to the fake address leaves by name.
+    let client_isn: u32 = 7000;
+    let mut syn = Vec::new();
+    PacketBuilder::ipv4(APP, fake, 64)
+        .tcp(40100, 22, client_isn, 65535)
+        .syn()
+        .write(&mut syn, &[])
+        .unwrap();
+    assert!(tunnel.input_packet(&syn));
+    let server_isn = wait_for(&rx, |sliced| match &sliced.transport {
+        Some(TransportSlice::Tcp(tcp))
+            if tcp.syn() && tcp.ack() && tcp.destination_port() == 40100 =>
+        {
+            Some(tcp.sequence_number())
+        }
+        _ => None,
+    });
+    let mut data = Vec::new();
+    PacketBuilder::ipv4(APP, fake, 64)
+        .tcp(40100, 22, client_isn + 1, 65535)
+        .ack(server_isn.wrapping_add(1))
+        .psh()
+        .write(&mut data, b"SSH-2.0-test\r\n")
+        .unwrap();
+    assert!(tunnel.input_packet(&data));
+    let echoed = wait_for(&rx, |sliced| match &sliced.transport {
+        Some(TransportSlice::Tcp(tcp))
+            if tcp.destination_port() == 40100 && !tcp.payload().is_empty() =>
+        {
+            Some(tcp.payload().to_vec())
+        }
+        _ => None,
+    });
+    assert_eq!(echoed, b"SSH-2.0-test\r\n");
+    assert_eq!(
+        *targets.lock().unwrap(),
+        vec![TargetAddr::Domain("example.com".to_string(), 22)]
+    );
     tunnel.stop();
 }

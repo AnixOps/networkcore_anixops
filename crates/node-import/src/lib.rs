@@ -226,11 +226,19 @@ fn subscription_routing(
 
 /// The engine's `routing.rule_sets` object for imported remote sets, keyed by
 /// id; unset fields are left out so the engine defaults apply.
+///
+/// A list URL ending in `#anixops:pubkey=<base64 Ed25519 key>` asks for
+/// signed downloads: the mark becomes the set's `public_key` (the signature
+/// is then read from `<url>.sig`) and leaves the URL. Other fragments stay.
 pub fn rule_sets_json(rule_sets: &[ImportedRuleSet]) -> Value {
     let mut object = serde_json::Map::new();
     for set in rule_sets {
         let mut entry = serde_json::Map::new();
-        entry.insert("url".to_string(), json!(set.url));
+        let (url, public_key) = split_public_key_mark(&set.url);
+        entry.insert("url".to_string(), json!(url));
+        if let Some(public_key) = public_key {
+            entry.insert("public_key".to_string(), json!(public_key));
+        }
         if let Some(format) = set.format {
             entry.insert("format".to_string(), json!(format));
         }
@@ -243,6 +251,20 @@ pub fn rule_sets_json(rule_sets: &[ImportedRuleSet]) -> Value {
         object.insert(set.id.clone(), Value::Object(entry));
     }
     Value::Object(object)
+}
+
+const PUBLIC_KEY_MARK: &str = "#anixops:pubkey=";
+
+/// Splits `<url>#anixops:pubkey=<key>` into the URL and the key.
+fn split_public_key_mark(url: &str) -> (&str, Option<&str>) {
+    match url.rfind(PUBLIC_KEY_MARK) {
+        Some(index) => {
+            let key = url[index + PUBLIC_KEY_MARK.len()..].trim();
+            let key = (!key.is_empty()).then_some(key);
+            (&url[..index], key)
+        }
+        None => (url, None),
+    }
 }
 
 /// Same rule as the engine's routing outbound ids: 1-128 of `[A-Za-z0-9._-]`.

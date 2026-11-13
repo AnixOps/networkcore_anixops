@@ -66,6 +66,7 @@ fn rules_naming_missing_or_bad_sets_are_rejected() {
         r#""ads":{"url":"https://example.test/list","via":"REJECT"}"#,
         r#""ads":{"url":"https://example.test/list","via":"missing"}"#,
         r#""ads":{"interval_secs":3600}"#,
+        r#""ads":{"public_key":"11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo="}"#,
         r#""ads":{"domain":["bad name"]}"#,
     ] {
         assert!(
@@ -189,5 +190,115 @@ mod remote {
             RouteOutcome::Reject
         );
         runtime.shutdown_background();
+    }
+
+    /// Serves the list at `/ads.list` and `signature` at `/ads.list.sig`.
+    fn signed_server(body: &'static [u8], signature: String) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/ads.list", listener.local_addr().unwrap());
+        thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { break };
+                let mut request = [0u8; 1024];
+                let read = stream.read(&mut request).unwrap_or(0);
+                let line = String::from_utf8_lossy(&request[..read]);
+                let reply: Vec<u8> = if line.starts_with("GET /ads.list.sig ") {
+                    signature.as_bytes().to_vec()
+                } else {
+                    body.to_vec()
+                };
+                let head = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    reply.len()
+                );
+                let _ = stream.write_all(head.as_bytes());
+                let _ = stream.write_all(&reply);
+            }
+        });
+        url
+    }
+
+    fn signed_routed(url: &str, public_key: &str) -> Arc<RoutedOutbound> {
+        routed(
+            r#""RULE-SET,ads,REJECT","FINAL,hk""#,
+            &format!(r#""ads":{{"url":"{url}","public_key":"{public_key}","domain_suffix":["cached.test"]}}"#),
+        )
+        .unwrap()
+    }
+
+    fn run_once(routed: &Arc<RoutedOutbound>) -> tokio::runtime::Runtime {
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.spawn(routed.clone().run_rule_set_updates());
+        routed.rule_sets().refresh_now();
+        runtime
+    }
+
+    #[test]
+    fn signed_sets_install_only_with_a_valid_signature() {
+        use base64::Engine as _;
+        use ring::signature::{Ed25519KeyPair, KeyPair};
+
+        const LIST: &[u8] = b"DOMAIN-SUFFIX,ads.test\n";
+        let rng = ring::rand::SystemRandom::new();
+        let pair =
+            Ed25519KeyPair::from_pkcs8(Ed25519KeyPair::generate_pkcs8(&rng).unwrap().as_ref())
+                .unwrap();
+        let encode = |bytes: &[u8]| base64::engine::general_purpose::STANDARD.encode(bytes);
+        let public_key = encode(pair.public_key().as_ref());
+
+        // A valid signature: the list replaces the cached copy.
+        let url = signed_server(LIST, encode(pair.sign(LIST).as_ref()));
+        let good = signed_routed(&url, &public_key);
+        assert!(good.rule_sets().status()[0].signed);
+        let runtime = run_once(&good);
+        wait_until(|| good.rule_sets().status()[0].updated_at_ms.is_some());
+        assert_eq!(good.route(&domain("x.ads.test", 443)), RouteOutcome::Reject);
+        runtime.shutdown_background();
+
+        // A signature over other bytes: the cached copy stays.
+        let url = signed_server(
+            LIST,
+            encode(pair.sign(b"DOMAIN-SUFFIX,other.test\n").as_ref()),
+        );
+        let bad = signed_routed(&url, &public_key);
+        let runtime = run_once(&bad);
+        wait_until(|| bad.rule_sets().status()[0].last_error.is_some());
+        assert_eq!(
+            bad.rule_sets().status()[0].last_error,
+            Some("signature_invalid")
+        );
+        assert_eq!(
+            bad.route(&domain("x.ads.test", 443)),
+            RouteOutcome::Node("hk".to_string())
+        );
+        assert_eq!(
+            bad.route(&domain("www.cached.test", 443)),
+            RouteOutcome::Reject
+        );
+        runtime.shutdown_background();
+    }
+
+    #[test]
+    fn signature_settings_are_checked() {
+        for set in [
+            r#""ads":{"url":"https://example.test/list","public_key":"c2hvcnQ="}"#,
+            r#""ads":{"url":"https://example.test/list","signature_url":"https://example.test/list.sig"}"#,
+            r#""ads":{"url":"https://example.test/list","public_key":"11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=","signature_url":"ftp://x/sig"}"#,
+        ] {
+            assert!(
+                routed(r#""RULE-SET,ads,REJECT","FINAL,hk""#, set).is_err(),
+                "{set}"
+            );
+        }
+        let unsigned = routed(
+            r#""RULE-SET,ads,REJECT","FINAL,hk""#,
+            r#""ads":{"url":"https://example.test/list"}"#,
+        )
+        .unwrap();
+        assert!(!unsigned.rule_sets().status()[0].signed);
     }
 }
