@@ -16,6 +16,7 @@ pub mod cert;
 pub mod crypto;
 pub mod fingerprint;
 mod handshake;
+pub mod ja;
 pub mod profile;
 pub mod server;
 mod stream;

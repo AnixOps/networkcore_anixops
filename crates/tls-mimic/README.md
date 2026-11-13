@@ -11,15 +11,36 @@ Fingerprints:
   group, version, signature scheme and extension values, per-connection
   permutation of all non-GREASE extensions, `X25519MLKEM768` + `X25519` key
   shares, ECH GREASE (`0xfe0d`), ALPS on the new code point (`0x44cd`), brotli
-  certificate compression offer, and ALPN `h2`, `http/1.1`.
-- `Fingerprint::ChromeNoPq`: the same without the post-quantum hybrid group.
+  certificate compression offer, the `0xca34` extension Chrome 157 stable
+  sends (as captured), and ALPN `h2`, `http/1.1`.
+- `Fingerprint::ChromeNoPq`: the same without the post-quantum hybrid group
+  and the ML-DSA signature schemes. No shipping browser sends it, so it has
+  no capture to check against.
+- `Fingerprint::Edge` (`edge`): desktop Edge 157, the Chrome shape without
+  `0xca34`.
+- `Fingerprint::Firefox` (`firefox`): desktop Firefox 160: no GREASE, a fixed
+  extension order, `X25519MLKEM768` + `X25519` + `P-256` key shares,
+  delegated_credentials and record_size_limit, zlib/brotli/zstd certificate
+  compression offer, ECH GREASE last.
+- `Fingerprint::FirefoxEsr` (`firefox-esr`): Firefox 153 ESR, the Firefox
+  shape plus the `0xc00a` suite and the FFDHE groups.
 - `Fingerprint::Safari`: Safari and every other client of Apple's network
   stack (NSURLSession) on iOS and macOS, taken from Safari 26.6.2 on macOS
   26.7.2: its own cipher order (with the CBC and 3DES suites), a fixed
   extension order, `X25519MLKEM768` + `X25519` key shares, zlib certificate
   compression offer, no ALPS, no ECH GREASE, no session ticket extension.
-  `tests/data/` holds the captured ClientHello the contract test compares
-  against.
+  The iOS simulator's capture is checked against the same profile.
+
+Every fingerprint is checked against its browser by JA4, JA3N (JA3 with the
+extensions sorted) and, for browsers that do not permute extensions, JA3
+(`tls_mimic::ja`). `tests/browser_fingerprints.rs` compares the captures
+committed under `tests/data/` on every test run;
+`.github/workflows/browser-fingerprints.yml` captures current Chrome, Edge,
+Firefox, Firefox ESR (Linux), Safari (`nscurl`) and the iOS simulator
+(macOS) every week and on tls-mimic changes, fails when one moved, and prints
+a profile derived from the capture (`ja::spec_from_hello`). To capture a
+browser by hand: `cargo run -p tls-mimic --example fp_capture -- 127.0.0.1:8443
+out.hex`, then point the browser at `https://<name>:8443/`.
 
 `Fingerprint::platform_default()` (config name `auto`) is Safari on Apple
 platforms and Chrome elsewhere: a Chrome ClientHello from a device whose
@@ -48,7 +69,7 @@ runtime config) are the delivery points.
 
 The client supports only what these protocols need: TLS 1.3 full handshakes
 with `TLS_AES_128_GCM_SHA256`, `TLS_AES_256_GCM_SHA384` and
-`TLS_CHACHA20_POLY1305_SHA256`; `X25519` and `X25519MLKEM768`; Ed25519, ECDSA
+`TLS_CHACHA20_POLY1305_SHA256`; `X25519`, `X25519MLKEM768` and `P-256`; Ed25519, ECDSA
 P-256/P-384 and RSA-PSS CertificateVerify; KeyUpdate. It rejects TLS 1.2,
 HelloRetryRequest, client certificates and compressed certificates, and never
 resumes sessions.
@@ -62,7 +83,7 @@ at a time (`start_raw_read` / `start_raw_write`) for XTLS Vision.
 
 Known fingerprint limits: the hybrid and standalone key shares reuse one X25519
 key (so REALITY servers derive the same auth key from either), and a profile
-can only carry key shares for `X25519` and `X25519MLKEM768`. Validation is the contract test suite plus the
+can only carry key shares for `X25519`, `X25519MLKEM768` and `P-256`. Validation is the contract test suite plus the
 `REALITY interop (Linux)` CI job against OpenSSL, Xray-core and sing-box.
 
 `tls_mimic::server` is the matching minimal TLS 1.3 server for REALITY-style

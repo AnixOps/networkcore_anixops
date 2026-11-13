@@ -1,0 +1,244 @@
+name: Browser fingerprints
+
+# Captures the first ClientHello of current browsers and checks that every
+# tls-mimic fingerprint has the same JA4 and JA3 (JA3N for browsers that
+# permute their extensions) as its target. Runs when tls-mimic changes, every
+# week (a browser release that moves its fingerprint fails it), and by hand.
+# A capture without a profile, or one that differs, prints a profile derived
+# from it (tls_mimic::ja::spec_from_hello) in the test output. The captures
+# are uploaded as an artifact so they can be committed under
+# crates/tls-mimic/tests/data. chrome-nopq has no browser to capture (Chrome
+# ignores --disable-features=PostQuantumKyber now), so it is only checked
+# as Chrome without the post-quantum parts by the unit tests.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * 1"
+  pull_request:
+    paths:
+      - "crates/tls-mimic/**"
+      - ".github/workflows/browser-fingerprints.yml"
+      - ".github/scripts/capture-browser-hello.sh"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: browser-fingerprints-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  linux:
+    name: Chrome, Edge, Firefox (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - name: Setup Rust
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Restore Rust build cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: browser-fingerprints
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+
+      - name: Build the capture tool and the comparison test
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --locked -p tls-mimic --example fp_capture
+          cargo test --locked -p tls-mimic --test browser_fingerprints --no-run
+
+      - name: Install Chrome
+        id: chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+
+      - name: Install Edge
+        id: edge
+        uses: browser-actions/setup-edge@v1
+        with:
+          edge-version: stable
+
+      - name: Install Firefox
+        id: firefox
+        uses: browser-actions/setup-firefox@v1
+        with:
+          firefox-version: latest
+
+      - name: Install Firefox ESR
+        id: firefox-esr
+        uses: browser-actions/setup-firefox@v1
+        with:
+          firefox-version: latest-esr
+
+      - name: Capture ClientHellos
+        shell: bash
+        env:
+          FP_CAPTURE: ${{ github.workspace }}/target/debug/examples/fp_capture
+          CHROME: ${{ steps.chrome.outputs.chrome-path }}
+          EDGE: ${{ steps.edge.outputs.edge-path }}
+          FIREFOX: ${{ steps.firefox.outputs.firefox-path }}
+          FIREFOX_ESR: ${{ steps.firefox-esr.outputs.firefox-path }}
+        run: |
+          set -euo pipefail
+          echo "127.0.0.1 fp.example.test" | sudo tee -a /etc/hosts
+          out="${RUNNER_TEMP}/captures"
+          capture=.github/scripts/capture-browser-hello.sh
+          chromium_flags=(--headless=new --no-sandbox --no-first-run --no-default-browser-check --disable-background-networking)
+          {
+            echo "### Browsers"
+            echo
+            echo "| browser | version |"
+            echo "| --- | --- |"
+            echo "| Chrome | $("${CHROME}" --version) |"
+            echo "| Edge | $("${EDGE}" --version) |"
+            echo "| Firefox | $("${FIREFOX}" --version) |"
+            echo "| Firefox ESR | $("${FIREFOX_ESR}" --version) |"
+          } >> "${GITHUB_STEP_SUMMARY}"
+          failed=0
+          bash "${capture}" chrome "${out}" "${CHROME}" "${chromium_flags[@]}" --user-data-dir="$(mktemp -d)" || failed=1
+          bash "${capture}" edge "${out}" "${EDGE}" "${chromium_flags[@]}" --user-data-dir="$(mktemp -d)" || failed=1
+          bash "${capture}" firefox "${out}" "${FIREFOX}" --headless --no-remote --profile "$(mktemp -d)" || failed=1
+          bash "${capture}" firefox-esr "${out}" "${FIREFOX_ESR}" --headless --no-remote --profile "$(mktemp -d)" || failed=1
+          echo "TLS_MIMIC_CAPTURES=${out}" >> "${GITHUB_ENV}"
+          exit "${failed}"
+
+      - name: Compare with tls-mimic
+        if: always() && env.TLS_MIMIC_CAPTURES != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --locked -p tls-mimic --test browser_fingerprints -- --ignored --nocapture
+
+      - name: Upload captures
+        if: always() && env.TLS_MIMIC_CAPTURES != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: client-hellos-linux
+          path: ${{ env.TLS_MIMIC_CAPTURES }}/*.hex
+          retention-days: 3
+          if-no-files-found: ignore
+
+  apple:
+    name: Safari and iOS (macOS)
+    runs-on: macos-26
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - name: Setup Rust
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Restore Rust build cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: browser-fingerprints
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+
+      - name: Build the capture tool and the comparison test
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --locked -p tls-mimic --example fp_capture
+          cargo test --locked -p tls-mimic --test browser_fingerprints --no-run
+
+      - name: Boot an iPhone simulator
+        id: simulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          udid="$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          devices = json.load(sys.stdin)["devices"]
+          runtimes = sorted((r for r in devices if "iOS" in r), key=lambda r: [int(p) if p.isdigit() else 0 for p in r.rsplit(".", 1)[-1].replace("iOS-", "").split("-")])
+          for runtime in reversed(runtimes):
+              for device in devices[runtime]:
+                  if device["name"].startswith("iPhone"):
+                      print(device["udid"]); sys.exit(0)
+          sys.exit(1)
+          ')"
+          xcrun simctl boot "${udid}" || true
+          xcrun simctl bootstatus "${udid}" -b
+          echo "udid=${udid}" >> "${GITHUB_OUTPUT}"
+          {
+            echo "### Apple"
+            echo
+            echo "| item | value |"
+            echo "| --- | --- |"
+            echo "| macOS | $(sw_vers -productVersion) ($(sw_vers -buildVersion)) |"
+            echo "| Safari | $(defaults read /Applications/Safari.app/Contents/Info CFBundleShortVersionString 2>/dev/null || echo unknown) |"
+            echo "| iOS simulator | $(xcrun simctl list devices -j | python3 -c "import json,sys; d=json.load(sys.stdin)['devices']; print(next(r for r in d for x in d[r] if x['udid']=='${udid}').rsplit('.',1)[-1])") |"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Capture ClientHellos
+        shell: bash
+        env:
+          FP_CAPTURE: ${{ github.workspace }}/target/debug/examples/fp_capture
+          UDID: ${{ steps.simulator.outputs.udid }}
+        run: |
+          set -euo pipefail
+          echo "127.0.0.1 fp.example.test" | sudo tee -a /etc/hosts
+          sudo dscacheutil -flushcache || true
+          sudo killall -HUP mDNSResponder || true
+          out="${RUNNER_TEMP}/captures"
+          capture=.github/scripts/capture-browser-hello.sh
+          failed=0
+          # nscurl is NSURLSession, the same stack (and ClientHello) as Safari.
+          bash "${capture}" safari "${out}" nscurl || failed=1
+          # The simulator runs the iOS network stack; its capture is checked against
+          # the safari profile (the file name picks the profile).
+          # A freshly booted simulator sometimes times out opening the first
+          # URL (Safari is still starting), so launch Safari first and retry.
+          xcrun simctl launch "${UDID}" com.apple.mobilesafari || true
+          sleep 5
+          ios=1
+          for attempt in 1 2 3; do
+            if bash "${capture}" safari-ios "${out}" xcrun simctl openurl "${UDID}"; then
+              ios=0
+              break
+            fi
+            echo "iOS simulator capture attempt ${attempt} failed"
+            sleep 10
+          done
+          [ "${ios}" -eq 0 ] || failed=1
+          echo "TLS_MIMIC_CAPTURES=${out}" >> "${GITHUB_ENV}"
+          exit "${failed}"
+
+      - name: Compare with tls-mimic
+        if: always() && env.TLS_MIMIC_CAPTURES != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --locked -p tls-mimic --test browser_fingerprints -- --ignored --nocapture
+
+      - name: Upload captures
+        if: always() && env.TLS_MIMIC_CAPTURES != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: client-hellos-apple
+          path: ${{ env.TLS_MIMIC_CAPTURES }}/*.hex
+          retention-days: 3
+          if-no-files-found: ignore

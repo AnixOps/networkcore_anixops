@@ -146,7 +146,13 @@ fn chrome_client_hello_has_browser_shape() {
     assert!(is_grease(first.0) && first.1.is_empty());
     assert!(is_grease(last.0) && last.1 == [0]);
     assert_ne!(first.0, last.0);
-    assert_eq!(hello.extensions.len(), 18);
+    assert_eq!(hello.extensions.len(), 19);
+    // Chrome 157 stable sends 0xca34; Edge 157 does not.
+    assert!(extension(&hello, 0xca34).is_some());
+    let edge = build_client_hello(Fingerprint::Edge, "www.example.com", None).unwrap();
+    let edge = parse_hello(&edge.message);
+    assert_eq!(edge.extensions.len(), 18);
+    assert!(extension(&edge, 0xca34).is_none());
 
     let sni = extension(&hello, 0x0000).expect("SNI present");
     assert_eq!(&sni[5..], b"www.example.com");
@@ -225,7 +231,16 @@ fn fingerprint_names_resolve() {
         Fingerprint::from_name("Chrome-NoPQ"),
         Some(Fingerprint::ChromeNoPq)
     );
-    assert_eq!(Fingerprint::from_name("firefox"), None);
+    assert_eq!(
+        Fingerprint::from_name("firefox"),
+        Some(Fingerprint::Firefox)
+    );
+    assert_eq!(
+        Fingerprint::from_name("Firefox-ESR"),
+        Some(Fingerprint::FirefoxEsr)
+    );
+    assert_eq!(Fingerprint::from_name("edge"), Some(Fingerprint::Edge));
+    assert_eq!(Fingerprint::from_name("opera"), None);
     assert_eq!(Fingerprint::from_name("safari"), Some(Fingerprint::Safari));
     assert_eq!(Fingerprint::from_name("iOS"), Some(Fingerprint::Safari));
     assert_eq!(
@@ -366,12 +381,14 @@ fn built_in_fingerprints_round_trip_through_json() {
             .unwrap()
             .permute_extensions
     );
-    assert!(
-        !Fingerprint::Safari
-            .builtin_spec()
-            .unwrap()
-            .permute_extensions
-    );
+    for fixed in [
+        Fingerprint::Safari,
+        Fingerprint::Firefox,
+        Fingerprint::FirefoxEsr,
+    ] {
+        assert!(!fixed.builtin_spec().unwrap().permute_extensions);
+    }
+    assert!(Fingerprint::Edge.builtin_spec().unwrap().permute_extensions);
 }
 
 const SMALL_PROFILE: &str = r#"{
