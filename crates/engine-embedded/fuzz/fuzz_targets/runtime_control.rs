@@ -18,7 +18,7 @@ use std::ptr;
 use std::sync::OnceLock;
 
 use arbitrary::{Arbitrary, Unstructured};
-use engine_embedded::control::MAX_REQUEST_LEN;
+use engine_embedded::control::{MAX_RELOAD_REQUEST_LEN, MAX_REQUEST_LEN};
 use engine_embedded::ffi::{
     networkcore_ios_runtime_control, networkcore_ios_runtime_free_buffer,
     networkcore_ios_runtime_init, NetworkCoreBuffer, NetworkCoreRuntime,
@@ -149,8 +149,13 @@ fn control(handle: usize, request: &[u8]) {
             let answer = unsafe { std::slice::from_raw_parts(buffer.ptr, buffer.len) };
             let parsed: serde_json::Value = serde_json::from_slice(answer).expect("answer is JSON");
             assert!(parsed.is_object(), "answer is not an object");
+            // Only `reload_rules` may be longer than the short limit.
+            let reload = serde_json::from_slice::<serde_json::Value>(request)
+                .ok()
+                .is_some_and(|request| request["cmd"] == "reload_rules");
             assert!(
-                request.len() <= MAX_REQUEST_LEN,
+                request.len() <= MAX_REQUEST_LEN
+                    || (reload && request.len() <= MAX_RELOAD_REQUEST_LEN),
                 "an oversized request was accepted"
             );
         }

@@ -808,3 +808,117 @@ fn reset_network_reaches_every_routed_node_and_direct() {
         assert_eq!((hk.resets(), jp.resets(), direct.resets()), (1, 1, 1));
     });
 }
+
+#[test]
+fn rules_reload_in_place_without_dropping_open_connections() {
+    runtime().block_on(async {
+        let dispatcher = grouped();
+        let answer = control_json(
+            &dispatcher,
+            r#"{"cmd":"select","group":"Proxy","member":"jp-1"}"#,
+        );
+        assert_eq!(answer["now"], "jp-1");
+
+        // A connection opened under the first rules.
+        let mut held = dispatcher
+            .connect_flow(&TargetAddr::Domain("www.example.test".to_string(), 443), None)
+            .await
+            .unwrap();
+        held.write_all(b"before").await.unwrap();
+        let mut buf = [0u8; 6];
+        held.read_exact(&mut buf).await.unwrap();
+        assert_eq!(&buf, b"before");
+
+        // A dry run checks only.
+        let checked = control_json(
+            &dispatcher,
+            r#"{"cmd":"reload_rules","dry_run":true,"rules":["DOMAIN-SUFFIX,example.test,DIRECT","FINAL,Proxy"]}"#,
+        );
+        assert_eq!(checked["reloaded"], false);
+        assert_eq!(checked["generation"], 0);
+        assert!(checked["error"].is_null());
+        assert_eq!(
+            route_of(&dispatcher, "www.example.test").await.1,
+            ["Proxy", "jp-1"]
+        );
+
+        // Refused lists name their first bad line and change nothing.
+        for (rules, line, code) in [
+            (r#"["DOMAIN-SUFFIX,a.test,DIRECT","BOGUS,x,DIRECT","FINAL,DIRECT"]"#, Some(1), "syntax"),
+            (r#"["DOMAIN-SUFFIX,a.test,Nowhere","FINAL,DIRECT"]"#, Some(0), "unknown_target"),
+            (r#"["RULE-SET,missing,DIRECT","FINAL,DIRECT"]"#, Some(0), "unknown_rule_set"),
+            (r#"["FINAL,DIRECT","DOMAIN,a.test,DIRECT"]"#, Some(1), "final_not_last"),
+            (r#"["DOMAIN,a.test,DIRECT"]"#, None, "final_missing"),
+        ] {
+            let refused = control_json(
+                &dispatcher,
+                &format!(r#"{{"cmd":"reload_rules","rules":{rules}}}"#),
+            );
+            assert_eq!(refused["reloaded"], false, "{rules}");
+            assert_eq!(refused["error"]["code"], code, "{rules}");
+            match line {
+                Some(line) => assert_eq!(refused["error"]["line"], line, "{rules}"),
+                None => assert!(refused["error"]["line"].is_null(), "{rules}"),
+            }
+        }
+        assert_eq!(
+            route_of(&dispatcher, "www.example.test").await.1,
+            ["Proxy", "jp-1"]
+        );
+
+        let reloaded = control_json(
+            &dispatcher,
+            r#"{"cmd":"reload_rules","rules":["DOMAIN-SUFFIX,example.test,DIRECT","DOMAIN,other.test,Proxy","FINAL,DIRECT"]}"#,
+        );
+        assert_eq!(reloaded["reloaded"], true);
+        assert_eq!(reloaded["rules"], 3);
+        assert_eq!(reloaded["generation"], 1);
+
+        // New connections follow the new rules; the select choice stays.
+        let (rule, chain) = route_of(&dispatcher, "www.example.test").await;
+        assert_eq!(rule, "DOMAIN-SUFFIX,example.test");
+        assert_eq!(chain, ["DIRECT"]);
+        assert_eq!(
+            route_of(&dispatcher, "other.test").await.1,
+            ["Proxy", "jp-1"]
+        );
+
+        // The connection opened before the swap still carries data.
+        held.write_all(b"after!").await.unwrap();
+        held.read_exact(&mut buf).await.unwrap();
+        assert_eq!(&buf, b"after!");
+        let active = dispatcher.tracker().connections().active;
+        assert!(active.iter().any(|connection| connection.chain == ["Proxy", "jp-1"]));
+    });
+}
+
+#[test]
+fn only_reload_rules_may_exceed_the_short_request_limit() {
+    runtime().block_on(async {
+        let dispatcher = grouped();
+        let mut rules: Vec<String> = (0..2000)
+            .map(|index| format!("DOMAIN-SUFFIX,site-{index}.example,Proxy"))
+            .collect();
+        rules.push("FINAL,DIRECT".to_string());
+        let request = serde_json::json!({ "cmd": "reload_rules", "rules": rules }).to_string();
+        assert!(request.len() > control::MAX_REQUEST_LEN);
+        let answer = control_json(&dispatcher, &request);
+        assert_eq!(answer["reloaded"], true);
+        assert_eq!(answer["rules"], 2001);
+        assert_eq!(
+            route_of(&dispatcher, "www.site-1999.example").await.1,
+            ["Proxy", "hk-1"]
+        );
+
+        let too_long = "x".repeat(control::MAX_RELOAD_REQUEST_LEN);
+        let request = format!(r#"{{"cmd":"reload_rules","rules":["{too_long}"]}}"#);
+        assert!(control::handle(&dispatcher, request.as_bytes()).is_err());
+
+        let single = Dispatcher::single(Arc::new(Echo("test-echo")));
+        assert!(control::handle(
+            &single,
+            br#"{"cmd":"reload_rules","rules":["FINAL,DIRECT"]}"#
+        )
+        .is_err());
+    });
+}

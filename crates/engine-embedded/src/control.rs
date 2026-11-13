@@ -24,7 +24,19 @@
 //! | `run_script` | `tag` | `{"scheduled": bool}` |
 //! | `outbound_health` | | `{"outbounds": [{"node", "protocol", "health"}]}`, only outbounds that report health |
 //! | `resume_outbound` | `node` | `{"resumed": bool}` |
+//! | `reload_rules` | `rules`, optional `dry_run` | `{"reloaded": bool, "rules", "generation"}` or `{"reloaded": false, "error": {"line", "code"}}` |
 //! | `outbound_reuse` | | `{"outbounds": [{"node", "protocol", "reuse"}]}`: connection pool (`mux`) and TLS resumption counters, only outbounds that keep them |
+//!
+//! `reload_rules` swaps the rule lines of a routing config while the engine
+//! runs ([`crate::routing::RoutedOutbound::reload_rules`]): `rules` is the
+//! whole new list ending with `FINAL`, naming only the configured nodes,
+//! groups and rule sets. Open connections and their packets are untouched.
+//! A refused list leaves the running rules in force; `error.line` is the
+//! 0-based index of the first bad line and `error.code` one of
+//! [`crate::routing::reject_code`]. With `dry_run` the list is only checked,
+//! which the client's rule editor uses to mark lines. It is the only command
+//! that may be longer than [`MAX_REQUEST_LEN`], up to
+//! [`MAX_RELOAD_REQUEST_LEN`].
 //!
 //! `reset_network` is what the client sends when the network under the
 //! engine changed (another Wi-Fi, Wi-Fi to cellular, the default interface
@@ -54,8 +66,11 @@ use crate::{RuntimeError, RuntimeErrorCode};
 /// without policy groups.
 pub const SINGLE_NODE: &str = "proxy";
 
-/// Largest request accepted.
+/// Largest request accepted, except `reload_rules`.
 pub const MAX_REQUEST_LEN: usize = 4096;
+
+/// Largest `reload_rules` request accepted: 4096 rules of a typical length.
+pub const MAX_RELOAD_REQUEST_LEN: usize = 1024 * 1024;
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "cmd", rename_all = "snake_case")]
@@ -90,6 +105,11 @@ enum ControlRequest {
     OutboundHealth,
     ResumeOutbound {
         node: String,
+    },
+    ReloadRules {
+        rules: Vec<String>,
+        #[serde(default)]
+        dry_run: bool,
     },
     OutboundReuse,
 }
@@ -138,11 +158,15 @@ pub fn handle_with_interceptor(
     interceptor: Option<&dyn FlowInterceptor>,
     request: &[u8],
 ) -> Result<Vec<u8>, RuntimeError> {
-    if request.is_empty() || request.len() > MAX_REQUEST_LEN {
+    if request.is_empty() || request.len() > MAX_RELOAD_REQUEST_LEN {
         return Err(invalid("control request size is out of range"));
     }
+    let long = request.len() > MAX_REQUEST_LEN;
     let request: ControlRequest = serde_json::from_slice(request)
         .map_err(|_| invalid("control request is not a known command"))?;
+    if long && !matches!(request, ControlRequest::ReloadRules { .. }) {
+        return Err(invalid("control request size is out of range"));
+    }
     let tracker = dispatcher.tracker();
     let answer = match request {
         ControlRequest::Traffic => serde_json::to_value(tracker.traffic()),
@@ -256,6 +280,19 @@ pub fn handle_with_interceptor(
                 None => return Err(invalid("no such node")),
             };
             Ok(json!({ "resumed": resumed }))
+        }
+        ControlRequest::ReloadRules { rules, dry_run } => {
+            let routed = dispatcher
+                .routed_outbound()
+                .ok_or_else(|| invalid("this config has no routing rules"))?;
+            Ok(match routed.reload_rules(&rules, dry_run) {
+                Ok(done) => json!({
+                    "reloaded": done.applied,
+                    "rules": done.rules,
+                    "generation": done.generation,
+                }),
+                Err(rejection) => json!({ "reloaded": false, "error": rejection }),
+            })
         }
     };
     answer
