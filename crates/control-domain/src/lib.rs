@@ -192,6 +192,10 @@ pub const NODE_METADATA_WIREGUARD_PEER_PUBLIC_KEY: &str = "wireguard.peer_public
 pub const NODE_METADATA_WIREGUARD_LOCAL_ADDRESS: &str = "wireguard.local_address";
 pub const NODE_METADATA_WIREGUARD_PRE_SHARED_KEY: &str = "wireguard.pre_shared_key";
 pub const NODE_METADATA_WIREGUARD_MTU: &str = "wireguard.mtu";
+/// The peer's AllowedIPs, comma-separated CIDRs.
+pub const NODE_METADATA_WIREGUARD_ALLOWED_IPS: &str = "wireguard.allowed_ips";
+/// Three reserved header bytes (Cloudflare WARP), comma-separated decimals.
+pub const NODE_METADATA_WIREGUARD_RESERVED: &str = "wireguard.reserved";
 pub const NODE_METADATA_TLS_SERVER_NAME: &str = "tls.server_name";
 pub const NODE_METADATA_TLS_ENABLED: &str = "tls.enabled";
 pub const NODE_METADATA_TLS_INSECURE: &str = "tls.insecure";

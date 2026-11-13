@@ -134,8 +134,9 @@ const FIRST_PAYLOAD_WAIT: Duration = Duration::from_millis(100);
 const FIRST_PAYLOAD_MAX: usize = 4096;
 const RELAY_BUFFER_BYTES: usize = 8 * 1024;
 const DNS_PORT: u16 = 53;
-/// UDP flows open at once; datagrams for a new flow beyond this are dropped.
-const MAX_UDP_FLOWS: usize = 256;
+/// UDP flows open at once by default ([`TunnelSettings::max_udp_flows`]);
+/// datagrams for a new flow beyond the limit are dropped.
+pub const DEFAULT_MAX_UDP_FLOWS: usize = 256;
 /// Datagrams queued per flow while it connects or sends.
 const UDP_FLOW_QUEUE: usize = 64;
 /// A UDP flow without traffic in either direction for this long is closed.
@@ -146,6 +147,9 @@ pub struct TunnelSettings {
     pub mtu: u16,
     pub tcp_window_bytes: u32,
     pub max_tcp_connections: usize,
+    /// UDP flows (app socket, destination) open at once; datagrams for a new
+    /// flow beyond this are dropped. DNS to port 53 does not count.
+    pub max_udp_flows: usize,
     pub max_dns_in_flight: usize,
     pub idle_timeout: Duration,
     pub connect_timeout: Duration,
@@ -761,7 +765,7 @@ fn spawn_dns_exchange(job: DnsExchange) {
 /// Open UDP flows keyed by (app socket, destination). Owned by the task that
 /// reads datagrams from the stack.
 #[derive(Default)]
-struct UdpFlows(HashMap<(SocketAddr, SocketAddr), mpsc::Sender<Vec<u8>>>);
+struct UdpFlows(HashMap<(SocketAddr, SocketAddr), FlowSender>);
 
 impl UdpFlows {
     #[allow(clippy::too_many_arguments)]
@@ -791,14 +795,14 @@ impl UdpFlows {
             payload
         };
         self.0.remove(&key);
-        if self.0.len() >= MAX_UDP_FLOWS {
+        if self.0.len() >= settings.max_udp_flows {
             self.0.retain(|_, flow| !flow.is_closed());
-            if self.0.len() >= MAX_UDP_FLOWS {
+            if self.0.len() >= settings.max_udp_flows {
                 bump(&stats.udp_dropped);
                 return;
             }
         }
-        let (flow, packets) = mpsc::channel(UDP_FLOW_QUEUE);
+        let (flow, packets) = flow_queue();
         let _ = flow.try_send(payload);
         self.0.insert(key, flow);
         tokio::spawn(run_udp_flow(
@@ -814,6 +818,119 @@ impl UdpFlows {
     }
 }
 
+/// The datagrams waiting for one UDP flow.
+///
+/// A flow holds one of these for as long as it lives, and a tunnel may hold
+/// a hundred thousand flows, so it is a plain locked queue that allocates
+/// only for the datagrams it holds; a `tokio::sync::mpsc` channel reserves a
+/// block of slots and padded counters up front (about a kilobyte per flow).
+struct FlowQueue {
+    state: std::sync::Mutex<FlowQueueState>,
+    /// Woken on every datagram and when either end leaves; `notify_one`
+    /// keeps a permit, so a wake between a check and the wait is not lost.
+    ready: tokio::sync::Notify,
+}
+
+#[derive(Default)]
+struct FlowQueueState {
+    packets: std::collections::VecDeque<Vec<u8>>,
+    closed: bool,
+}
+
+fn flow_queue() -> (FlowSender, FlowReceiver) {
+    let queue = Arc::new(FlowQueue {
+        state: std::sync::Mutex::default(),
+        ready: tokio::sync::Notify::new(),
+    });
+    (FlowSender(queue.clone()), FlowReceiver(queue))
+}
+
+impl FlowQueue {
+    fn state(&self) -> std::sync::MutexGuard<'_, FlowQueueState> {
+        self.state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn close(&self) {
+        self.state().closed = true;
+        self.ready.notify_one();
+    }
+}
+
+/// The tunnel's end: queues datagrams for the flow's task.
+struct FlowSender(Arc<FlowQueue>);
+
+impl FlowSender {
+    fn try_send(&self, packet: Vec<u8>) -> Result<(), TrySendError<Vec<u8>>> {
+        let mut state = self.0.state();
+        if state.closed {
+            return Err(TrySendError::Closed(packet));
+        }
+        if state.packets.len() >= UDP_FLOW_QUEUE {
+            return Err(TrySendError::Full(packet));
+        }
+        state.packets.push_back(packet);
+        drop(state);
+        self.0.ready.notify_one();
+        Ok(())
+    }
+
+    fn is_closed(&self) -> bool {
+        self.0.state().closed
+    }
+}
+
+impl Drop for FlowSender {
+    fn drop(&mut self) {
+        self.0.close();
+    }
+}
+
+/// The flow task's end.
+struct FlowReceiver(Arc<FlowQueue>);
+
+impl FlowReceiver {
+    /// The next datagram; `None` once the tunnel dropped the flow and the
+    /// queue is empty. Cancel safe: a datagram is only taken when returned.
+    async fn recv(&mut self) -> Option<Vec<u8>> {
+        loop {
+            {
+                let mut state = self.0.state();
+                if let Some(packet) = state.packets.pop_front() {
+                    return Some(packet);
+                }
+                if state.closed {
+                    return None;
+                }
+            }
+            self.0.ready.notified().await;
+        }
+    }
+}
+
+impl Drop for FlowReceiver {
+    fn drop(&mut self) {
+        let mut state = self.0.state();
+        state.closed = true;
+        // Datagrams nobody will send go now, not with the tunnel's map entry.
+        state.packets = std::collections::VecDeque::new();
+    }
+}
+
+/// Waits for the next reply of a flow. The receiver moves into the future
+/// and comes back with the reply, so a pending read is never cancelled
+/// halfway through a datagram while the flow lives.
+type PendingReply =
+    BoxFuture<'static, (Box<dyn engine_outbound::DatagramRecv>, io::Result<Vec<u8>>)>;
+
+fn next_reply(mut recv: Box<dyn engine_outbound::DatagramRecv>) -> PendingReply {
+    Box::pin(async move {
+        let reply = recv.recv().await;
+        (recv, reply)
+    })
+}
+
 /// QUIC's port: a flow there that cannot be opened is refused with ICMP so
 /// the app falls back to TCP at once.
 const QUIC_PORT: u16 = 443;
@@ -823,9 +940,13 @@ const MAX_ICMP_PER_FLOW: u32 = 4;
 
 /// Relays one UDP flow until it idles out or either side ends. Replies go
 /// back to the app from the destination it sent to.
+///
+/// One task per flow, sized for the relay loop: opening the flow (routing,
+/// rules, the outbound's handshake) runs in a boxed future that is freed
+/// once the flow is open, so it does not stay in every flow's task.
 #[allow(clippy::too_many_arguments)]
 async fn run_udp_flow(
-    mut packets: mpsc::Receiver<Vec<u8>>,
+    mut packets: FlowReceiver,
     app: SocketAddr,
     destination: SocketAddr,
     dispatcher: Arc<Dispatcher>,
@@ -834,10 +955,15 @@ async fn run_udp_flow(
     raw: Arc<dyn PacketWriter>,
     connect_timeout: Duration,
 ) {
-    let target = TargetAddr::Ip(destination);
-    let opened =
-        tokio::time::timeout(connect_timeout, dispatcher.open_udp_flow(&target, None)).await;
-    let Ok(Ok(UdpFlow { mut send, mut recv })) = opened else {
+    let opened = {
+        let open: BoxFuture<'_, io::Result<UdpFlow>> = Box::pin(async {
+            let target = TargetAddr::Ip(destination);
+            dispatcher.open_udp_flow(&target, None).await
+        });
+        tokio::time::timeout(connect_timeout, open).await
+    };
+    drop(dispatcher);
+    let Ok(Ok(UdpFlow { mut send, recv })) = opened else {
         bump(&stats.udp_failed);
         // Stay mapped and drop this flow's datagrams until it goes quiet, so
         // an outbound without UDP is not asked again for every packet. QUIC
@@ -859,26 +985,13 @@ async fn run_udp_flow(
         }
         return;
     };
+    drop(raw);
     bump(&stats.udp_flows);
-    // Replies are read on a task of their own, so a receiver never has to
-    // survive being cancelled halfway through a datagram.
-    let activity = Arc::new(AtomicU64::new(0));
-    let mut reader = {
-        let activity = activity.clone();
-        let stats = stats.clone();
-        tokio::spawn(async move {
-            while let Ok(reply) = recv.recv().await {
-                activity.fetch_add(1, Ordering::Relaxed);
-                stats
-                    .bytes_down
-                    .fetch_add(reply.len() as u64, Ordering::Relaxed);
-                if replies.send((reply, destination, app)).await.is_err() {
-                    break;
-                }
-            }
-        })
-    };
-    let mut last_seen = 0;
+    let mut pending = next_reply(recv);
+    // The flow ends after a whole idle period without a datagram either way.
+    let idle = tokio::time::sleep(UDP_IDLE_TIMEOUT);
+    tokio::pin!(idle);
+    let mut active = false;
     loop {
         tokio::select! {
             packet = packets.recv() => {
@@ -887,19 +1000,26 @@ async fn run_udp_flow(
                     break;
                 }
                 stats.bytes_up.fetch_add(packet.len() as u64, Ordering::Relaxed);
-                activity.fetch_add(1, Ordering::Relaxed);
+                active = true;
             }
-            _ = &mut reader => break,
-            _ = tokio::time::sleep(UDP_IDLE_TIMEOUT) => {
-                let seen = activity.load(Ordering::Relaxed);
-                if seen == last_seen {
+            (recv, reply) = &mut pending => {
+                let Ok(reply) = reply else { break };
+                stats.bytes_down.fetch_add(reply.len() as u64, Ordering::Relaxed);
+                if replies.send((reply, destination, app)).await.is_err() {
                     break;
                 }
-                last_seen = seen;
+                active = true;
+                pending = next_reply(recv);
+            }
+            () = &mut idle => {
+                if !active {
+                    break;
+                }
+                active = false;
+                idle.as_mut().reset(tokio::time::Instant::now() + UDP_IDLE_TIMEOUT);
             }
         }
     }
-    reader.abort();
 }
 
 async fn handle_tcp(

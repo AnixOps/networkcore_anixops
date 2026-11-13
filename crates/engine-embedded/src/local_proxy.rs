@@ -90,6 +90,7 @@ impl LocalProxy {
                         mtu: config.mtu,
                         tcp_window_bytes: limits.tcp_window_bytes,
                         max_tcp_connections: limits.max_tcp_connections,
+                        max_udp_flows: limits.max_udp_flows,
                         max_dns_in_flight: limits.max_dns_in_flight,
                         idle_timeout: Duration::from_secs(limits.idle_timeout_secs),
                         connect_timeout: Duration::from_secs(limits.connect_timeout_secs),

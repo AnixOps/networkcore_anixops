@@ -826,6 +826,7 @@ dependencies = [
  "outbound-tuic",
  "outbound-vless",
  "outbound-vmess",
+ "outbound-wireguard",
  "rcgen",
  "ring",
  "rustls",
@@ -2385,6 +2386,19 @@ dependencies = [
  "transport-tls",
  "transport-ws",
  "transport-xhttp",
+]
+
+[[package]]
+name = "outbound-wireguard"
+version = "0.2.0"
+dependencies = [
+ "base64 0.22.1",
+ "boringtun",
+ "engine-outbound",
+ "serde",
+ "serde_json",
+ "smoltcp",
+ "tokio",
 ]
 
 [[package]]

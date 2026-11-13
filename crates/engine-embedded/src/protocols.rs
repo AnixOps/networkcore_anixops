@@ -16,7 +16,7 @@
 //! | `tuic`        | `tuic`         | `outbound-tuic`        |
 //! | `vless`       | `vless`        | `outbound-vless`       |
 //! | `vmess`       | `vmess`        | `outbound-vmess`       |
-//! | `wireguard`   | `wireguard`    | this crate + boringtun |
+//! | `wireguard`   | `wireguard`    | `outbound-wireguard`; a single `outbound` runs as this crate's whole-device tunnel |
 //!
 //! A new protocol adds its crate as an optional dependency, a feature, and one
 //! `register` call below. A build without a feature rejects that `type` with
@@ -76,6 +76,8 @@ pub fn default_registry() -> OutboundRegistry {
     registry.register(Arc::new(outbound_vless::VlessFactory));
     #[cfg(feature = "vmess")]
     registry.register(Arc::new(outbound_vmess::VmessFactory));
+    #[cfg(feature = "wireguard")]
+    registry.register(Arc::new(outbound_wireguard::WireGuardFactory));
     let extras = EXTRA_OUTBOUNDS
         .read()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -85,13 +87,11 @@ pub fn default_registry() -> OutboundRegistry {
     registry
 }
 
-/// Every config `type` this build accepts, including packet tunnels.
+/// Every config `type` this build accepts. WireGuard is registered as a
+/// routable outbound, so the whole-device tunnel adds no name of its own.
 pub fn supported_types() -> Vec<&'static str> {
     let registry = default_registry();
-    #[allow(unused_mut)]
     let mut types: Vec<&'static str> = registry.type_names().collect();
-    #[cfg(feature = "wireguard")]
-    types.push(crate::wireguard::TYPE_NAME);
     types.sort_unstable();
     types
 }
