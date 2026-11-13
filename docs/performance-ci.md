@@ -10,6 +10,8 @@
 | F7 长稳 | 预热后 RSS 斜率 ≤ 1 MiB/h，连接失败率 ≤ 0.1%，结束无残留流与 fd | `tunnel_bench soak` | `soak.yml` | 每周六 5.5 h（托管 runner）；24 h 手动选自托管 runner；改动 soak 本身的 PR 跑 30 min 冒烟（斜率门槛放宽到 20 MiB/h） |
 | C4 IPC 模糊测试 | `networkcore_ios_runtime_control` 不 panic、回答必为 JSON 对象、错误码在文档集合内 | `crates/engine-embedded/fuzz` 的 `runtime_control` | `ci.yml` / HTTP/2 MITM fuzz | 每个 Rust PR（30 s）、main（60 s） |
 
+R2 的门槛是绝对值，而托管 runner 的 CPU 快慢相差约 1.5 倍：PR 上 head 超出门槛时，会在同一台 runner 上再测 base；head 不比 base 慢 15% 以上就只告警（runner 偏慢，不是回归），否则失败。
+
 `perf.yml` 的隧道基准（base 对 head）仍只做信息展示，不设门槛。
 
 ## 说明
