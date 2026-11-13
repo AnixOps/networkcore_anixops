@@ -26,11 +26,11 @@ use control_domain::{
     NODE_METADATA_IWAN_USERNAME, NODE_METADATA_MIERU_HANDSHAKE_MODE, NODE_METADATA_MIERU_MTU,
     NODE_METADATA_MIERU_MULTIPLEXING, NODE_METADATA_MIERU_PASSWORD, NODE_METADATA_MIERU_PORT_RANGE,
     NODE_METADATA_MIERU_TRAFFIC_PATTERN, NODE_METADATA_MIERU_TRANSPORT,
-    NODE_METADATA_MIERU_USERNAME, NODE_METADATA_PATH, NODE_METADATA_SHADOWSOCKS_METHOD,
-    NODE_METADATA_SHADOWSOCKS_PASSWORD, NODE_METADATA_SNELL_MODE, NODE_METADATA_SNELL_OBFS,
-    NODE_METADATA_SNELL_OBFS_HOST, NODE_METADATA_SNELL_OBFS_URI, NODE_METADATA_SNELL_PSK,
-    NODE_METADATA_SNELL_REUSE, NODE_METADATA_SNELL_USER_KEY, NODE_METADATA_SNELL_VERSION,
-    NODE_METADATA_SOURCE_FORMAT, NODE_METADATA_TLS_ALPN,
+    NODE_METADATA_MIERU_USERNAME, NODE_METADATA_MULTIPLEX, NODE_METADATA_PATH,
+    NODE_METADATA_SHADOWSOCKS_METHOD, NODE_METADATA_SHADOWSOCKS_PASSWORD, NODE_METADATA_SNELL_MODE,
+    NODE_METADATA_SNELL_OBFS, NODE_METADATA_SNELL_OBFS_HOST, NODE_METADATA_SNELL_OBFS_URI,
+    NODE_METADATA_SNELL_PSK, NODE_METADATA_SNELL_REUSE, NODE_METADATA_SNELL_USER_KEY,
+    NODE_METADATA_SNELL_VERSION, NODE_METADATA_SOURCE_FORMAT, NODE_METADATA_TLS_ALPN,
     NODE_METADATA_TLS_CERTIFICATE_PUBLIC_KEY_SHA256, NODE_METADATA_TLS_ENABLED,
     NODE_METADATA_TLS_INSECURE, NODE_METADATA_TLS_REALITY_PUBLIC_KEY,
     NODE_METADATA_TLS_REALITY_SHORT_ID, NODE_METADATA_TLS_SERVER_NAME,
@@ -202,6 +202,8 @@ struct RawClashProxy {
     multiplexing: Option<RawClashScalar>,
     #[serde(rename = "port-range")]
     port_range: Option<RawClashScalar>,
+    /// sing-mux client multiplexing (mihomo).
+    smux: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -235,6 +237,8 @@ struct RawSingBoxOutbound {
     transport: Option<RawSingBoxTransport>,
     /// The tag of the outbound this one dials through (a proxy chain).
     detour: Option<RawSingBoxScalar>,
+    /// sing-mux client multiplexing.
+    multiplex: Option<serde_json::Value>,
     /// iWAN (an AnixOps extension; sing-box has no such type).
     username: Option<RawSingBoxScalar>,
     mtu: Option<RawSingBoxScalar>,
@@ -990,6 +994,7 @@ fn parse_clash_proxy(mut raw: RawClashProxy, source_id: &str) -> DomainResult<No
         }
     };
 
+    metadata.extend(multiplex_metadata(raw.smux.as_ref()));
     let name_id = sanitize_identifier(&name);
     let name_id = if name_id.is_empty() {
         "node".to_string()
@@ -1017,6 +1022,58 @@ fn parse_clash_proxy(mut raw: RawClashProxy, source_id: &str) -> DomainResult<No
             protocol_tag.to_string(),
         ],
         metadata,
+    })
+}
+
+/// The engine's `multiplex` object for a Clash `smux` or sing-box
+/// `multiplex` that is turned on: the protocol and pool sizes, in either
+/// spelling (`max-connections`, `max_connections`). `None` when it is off
+/// or not an object. Values that make no sense are dropped, not rejected,
+/// so a node still imports.
+fn multiplex_metadata(raw: Option<&serde_json::Value>) -> Option<MetadataEntry> {
+    use serde_json::Value;
+    let object = raw?.as_object()?;
+    let enabled = match object.get("enabled") {
+        Some(Value::Bool(enabled)) => *enabled,
+        Some(Value::String(text)) => matches!(text.trim(), "true" | "1"),
+        Some(Value::Number(number)) => number.as_u64() == Some(1),
+        _ => false,
+    };
+    if !enabled {
+        return None;
+    }
+    let count = |names: [&str; 2]| {
+        names.iter().find_map(|name| match object.get(*name)? {
+            Value::Number(number) => number.as_u64(),
+            Value::String(text) => text.trim().parse::<u64>().ok(),
+            _ => None,
+        })
+    };
+    let mut settings = serde_json::Map::new();
+    if let Some(protocol) = object.get("protocol").and_then(Value::as_str) {
+        if matches!(protocol, "smux" | "yamux" | "h2mux") {
+            settings.insert("protocol".into(), protocol.into());
+        }
+    }
+    match count(["max_streams", "max-streams"]).filter(|n| *n > 0) {
+        Some(streams) => {
+            settings.insert("max_streams".into(), streams.into());
+        }
+        None => {
+            if let Some(n) = count(["max_connections", "max-connections"]).filter(|n| *n > 0) {
+                settings.insert("max_connections".into(), n.into());
+            }
+            if let Some(n) = count(["min_streams", "min-streams"]).filter(|n| *n > 0) {
+                settings.insert("min_streams".into(), n.into());
+            }
+        }
+    }
+    if object.get("padding").and_then(Value::as_bool) == Some(true) {
+        settings.insert("padding".into(), true.into());
+    }
+    Some(MetadataEntry {
+        key: NODE_METADATA_MULTIPLEX.to_string(),
+        value: Value::Object(settings).to_string(),
     })
 }
 
@@ -1140,6 +1197,7 @@ fn parse_sing_box_outbound(
         tls,
         transport,
         detour,
+        multiplex,
         username,
         mtu,
         encrypt,
@@ -1316,6 +1374,7 @@ fn parse_sing_box_outbound(
             value: detour,
         });
     }
+    metadata.extend(multiplex_metadata(multiplex.as_ref()));
 
     let tag = optional_sing_box_scalar_field(tag);
     let host_id = sanitize_identifier(&host);

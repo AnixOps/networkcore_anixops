@@ -5,15 +5,25 @@
 //! the plain, verifying client. `insecure` turns certificate verification off
 //! for servers with self-signed certificates, as share links allow with
 //! `allowInsecure=1`, but still checks the handshake signatures.
+//!
+//! Sessions resume: every configuration keeps tickets in a [`TicketStore`],
+//! and a [`TlsConnector`] counts its handshakes and how many of them
+//! resumed ([`TlsStats`]).
+
+pub mod tickets;
 
 use std::io;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use engine_outbound::BoxStream;
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+use rustls::client::Resumption;
 use rustls::crypto::{verify_tls12_signature, verify_tls13_signature, CryptoProvider};
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
-use rustls::{ClientConfig, DigitallySignedStruct, RootCertStore, SignatureScheme};
+use rustls::{ClientConfig, DigitallySignedStruct, HandshakeKind, RootCertStore, SignatureScheme};
+
+pub use tickets::TicketStore;
 
 /// TLS settings of one outbound.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -25,11 +35,40 @@ pub struct TlsSettings {
     pub insecure: bool,
 }
 
+/// Handshakes of a [`TlsConnector`].
+#[derive(Debug, Default)]
+pub struct TlsStats {
+    pub handshakes: AtomicU64,
+    /// Handshakes that resumed an earlier session.
+    pub resumed: AtomicU64,
+}
+
+impl TlsStats {
+    /// Share of handshakes that resumed, 0 to 1.
+    pub fn resumption_rate(&self) -> f64 {
+        let handshakes = self.handshakes.load(Ordering::Relaxed);
+        if handshakes == 0 {
+            return 0.0;
+        }
+        self.resumed.load(Ordering::Relaxed) as f64 / handshakes as f64
+    }
+
+    /// The counters as JSON, for an outbound's health.
+    pub fn health_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "tls_handshakes": self.handshakes.load(Ordering::Relaxed),
+            "tls_resumed": self.resumed.load(Ordering::Relaxed),
+            "tls_resumption_rate": (self.resumption_rate() * 1000.0).round() / 1000.0,
+        })
+    }
+}
+
 /// A configured client; cheap to clone and shared by every connection.
 #[derive(Clone)]
 pub struct TlsConnector {
     connector: tokio_rustls::TlsConnector,
     server_name: ServerName<'static>,
+    stats: Arc<TlsStats>,
 }
 
 impl TlsConnector {
@@ -39,6 +78,7 @@ impl TlsConnector {
         Ok(Self {
             connector: tokio_rustls::TlsConnector::from(Arc::new(client_config(settings)?)),
             server_name,
+            stats: Arc::new(TlsStats::default()),
         })
     }
 
@@ -48,7 +88,16 @@ impl TlsConnector {
             .connector
             .connect(self.server_name.clone(), transport)
             .await?;
+        self.stats.handshakes.fetch_add(1, Ordering::Relaxed);
+        if stream.get_ref().1.handshake_kind() == Some(HandshakeKind::Resumed) {
+            self.stats.resumed.fetch_add(1, Ordering::Relaxed);
+        }
         Ok(Box::new(stream))
+    }
+
+    /// Handshakes so far, shared by every clone.
+    pub fn stats(&self) -> &Arc<TlsStats> {
+        &self.stats
     }
 }
 
@@ -75,6 +124,7 @@ pub fn client_config(settings: &TlsSettings) -> io::Result<ClientConfig> {
         .iter()
         .map(|protocol| protocol.as_bytes().to_vec())
         .collect();
+    config.resumption = Resumption::store(Arc::new(TicketStore::new()));
     Ok(config)
 }
 

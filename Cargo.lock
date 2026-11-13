@@ -3694,6 +3694,7 @@ dependencies = [
  "engine-outbound",
  "rcgen",
  "rustls",
+ "serde_json",
  "tokio",
  "tokio-rustls",
  "webpki-roots",
