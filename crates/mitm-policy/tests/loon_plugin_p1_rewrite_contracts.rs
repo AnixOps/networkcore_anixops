@@ -3,7 +3,7 @@
 
 use control_domain::{
     GrantedPermissions, HookPoint, HttpMitmAction, HttpMitmEvent, HttpMitmOutcome, HttpMitmPhase,
-    MetadataEntry, MitmPluginService, PluginInstance,
+    MetadataEntry, MitmHostnameDecision, MitmPluginService, PluginInstance,
 };
 use mitm_policy::loon_map_local::{match_map_local, parse_map_local_line};
 use mitm_policy::loon_plugin::{
@@ -612,4 +612,85 @@ fn reused_engines_follow_the_policy_of_each_instance() {
             HttpMitmAction::Reject { .. }
         ));
     }
+}
+
+/// The ipleak.net demo handed to users: the page shows the address from its
+/// own HTML and from `ipv4|ipv6.ipleak.net/?mode=ajax` HTML fragments (bodies
+/// below as the site served them on 2026-11-13, with a documentation address),
+/// not from `/json/`, so a `/json`-only rule never changed what the page shows.
+#[test]
+fn ipleak_demo_rewrites_the_address_the_page_shows() {
+    let plugin = import_loon_plugin(include_str!("fixtures/loon-plugins/ipleak-demo.sgmodule"))
+        .expect("ipleak demo should import");
+    assert_eq!(
+        plugin.report.level,
+        LoonSupportLevel::Full,
+        "{}",
+        plugin.report.render_text("ipleak-demo")
+    );
+    assert_eq!(
+        plugin.mitm_hostnames.include,
+        vec!["ipleak.net".to_string(), "*.ipleak.net".to_string()]
+    );
+
+    let (service, instance) = load(&plugin);
+    for host in ["ipleak.net", "ipv4.ipleak.net", "ipv6.ipleak.net"] {
+        assert_eq!(
+            service
+                .evaluate_mitm_hostname(&instance, host, false)
+                .expect("hostname should evaluate"),
+            MitmHostnameDecision::Intercept,
+            "{host}"
+        );
+    }
+
+    let rewrite = |url: &str, body: &str| -> Option<String> {
+        let mut response = event(HttpMitmPhase::Response, url, body);
+        response.method = Some("GET".to_string());
+        let outcome = service
+            .handle_http_mitm_event(&instance, &response)
+            .expect("event should plan");
+        outcome
+            .body_mutation
+            .map(|mutation| String::from_utf8(mutation.body).unwrap())
+    };
+
+    let fragment = "<div class='ip_box ipv4_box' data-h='ipv4' data-i='203_0_113_7'><div><a data-tooltip='Click for more details about this IP' class='ip' rel='nofollow' href='/203.0.113.7'>203.0.113.7</a></div><div class='ip_stats'></div></div>";
+    let rewritten = rewrite("https://ipv4.ipleak.net/?mode=ajax&_=1794586992", fragment)
+        .expect("ajax fragment should be rewritten");
+    assert!(rewritten.contains(">233.333.333.333</a>"), "{rewritten}");
+    assert!(!rewritten.contains("203.0.113.7"), "{rewritten}");
+
+    let page = "<script src=\"/static/js/jquery-4.0.0.min.js\"></script><div id='jsonData' data-json='{&quot;ip&quot;:&quot;203.0.113.7&quot;,&quot;latitude&quot;:37.751}'></div><table class='properties details'><tr data-tooltip=''><td>IP: </td><td>203.0.113.7</td></tr></table>";
+    let rewritten = rewrite("https://ipleak.net/", page).expect("main page should be rewritten");
+    assert!(
+        rewritten.contains("<td>IP: </td><td>233.333.333.333</td>"),
+        "{rewritten}"
+    );
+    assert!(
+        rewritten.contains("&quot;ip&quot;:&quot;233.333.333.333&quot;"),
+        "{rewritten}"
+    );
+    assert!(rewritten.contains("jquery-4.0.0.min.js"), "{rewritten}");
+    assert!(rewritten.contains("37.751"), "{rewritten}");
+
+    let json = rewrite(
+        "https://ipleak.net/json/",
+        r#"{"country_code":"US","ip":"203.0.113.7"}"#,
+    )
+    .expect("json should be rewritten");
+    assert_eq!(json, r#"{"country_code":"US","ip":"233.333.333.333"}"#);
+
+    // Scripts and lookups of other addresses are left alone.
+    assert_eq!(
+        rewrite(
+            "https://ipleak.net/static/js/index.js",
+            "var a = '1.2.3.4';"
+        ),
+        None
+    );
+    assert_eq!(
+        rewrite("https://ipleak.net/json/8.8.8.8", r#"{"ip":"8.8.8.8"}"#),
+        None
+    );
 }

@@ -1,0 +1,11 @@
+#!name = ipleak IP 改写演示
+#!desc = 把 ipleak.net 页面显示的 IPv4 改成 233.333.333.333，用来确认 MITM 生效
+
+[Body Rewrite]
+# 页面上的 IP 来自首页 HTML（IP 详情表、jsonData）和 ipv4/ipv6.ipleak.net/?mode=ajax 返回的 HTML 片段，不走 /json/。
+http-response ^https?://(ipv4\.|ipv6\.)?ipleak\.net/(\?.*)?$ [0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3} 233.333.333.333
+# 直接打开 https://ipleak.net/json/ 时改 JSON 的 ip 字段。
+http-response-jq ^https?://(ipv4\.|ipv6\.)?ipleak\.net/json/?(\?.*)?$ '.ip = "233.333.333.333"'
+
+[MITM]
+hostname = %APPEND% ipleak.net, *.ipleak.net
