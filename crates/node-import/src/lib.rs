@@ -26,12 +26,12 @@ use control_domain::{
     NODE_METADATA_HYSTERIA2_OBFS_TYPE, NODE_METADATA_HYSTERIA2_PASSWORD,
     NODE_METADATA_IWAN_ENCRYPT, NODE_METADATA_IWAN_MTU, NODE_METADATA_IWAN_PASSWORD,
     NODE_METADATA_IWAN_USERNAME, NODE_METADATA_MIERU_PASSWORD, NODE_METADATA_MIERU_PORT_RANGE,
-    NODE_METADATA_MIERU_TRANSPORT, NODE_METADATA_MIERU_USERNAME, NODE_METADATA_PATH,
-    NODE_METADATA_SHADOWSOCKS_METHOD, NODE_METADATA_SHADOWSOCKS_PASSWORD, NODE_METADATA_SNELL_MODE,
-    NODE_METADATA_SNELL_OBFS, NODE_METADATA_SNELL_OBFS_HOST, NODE_METADATA_SNELL_OBFS_URI,
-    NODE_METADATA_SNELL_PSK, NODE_METADATA_SNELL_REUSE, NODE_METADATA_SNELL_USER_KEY,
-    NODE_METADATA_SNELL_VERSION, NODE_METADATA_TLS_ALPN, NODE_METADATA_TLS_ENABLED,
-    NODE_METADATA_TLS_INSECURE, NODE_METADATA_TLS_REALITY_PUBLIC_KEY,
+    NODE_METADATA_MIERU_TRANSPORT, NODE_METADATA_MIERU_USERNAME, NODE_METADATA_MULTIPLEX,
+    NODE_METADATA_PATH, NODE_METADATA_SHADOWSOCKS_METHOD, NODE_METADATA_SHADOWSOCKS_PASSWORD,
+    NODE_METADATA_SNELL_MODE, NODE_METADATA_SNELL_OBFS, NODE_METADATA_SNELL_OBFS_HOST,
+    NODE_METADATA_SNELL_OBFS_URI, NODE_METADATA_SNELL_PSK, NODE_METADATA_SNELL_REUSE,
+    NODE_METADATA_SNELL_USER_KEY, NODE_METADATA_SNELL_VERSION, NODE_METADATA_TLS_ALPN,
+    NODE_METADATA_TLS_ENABLED, NODE_METADATA_TLS_INSECURE, NODE_METADATA_TLS_REALITY_PUBLIC_KEY,
     NODE_METADATA_TLS_REALITY_SHORT_ID, NODE_METADATA_TLS_SERVER_NAME,
     NODE_METADATA_TLS_UTLS_FINGERPRINT, NODE_METADATA_TROJAN_PASSWORD,
     NODE_METADATA_TUIC_CONGESTION_CONTROL, NODE_METADATA_TUIC_PASSWORD, NODE_METADATA_TUIC_UUID,
@@ -89,6 +89,19 @@ pub fn outbound_json(node: &NodeDescriptor) -> Result<Value, Unsupported> {
             return Err("this protocol cannot connect through another node");
         }
         outbound["via"] = json!(via);
+    }
+    if let Some(multiplex) = metadata(node, NODE_METADATA_MULTIPLEX) {
+        // Only stream protocols whose servers take sing-mux, and not a
+        // vless flow (the engine's rule); elsewhere the node runs without.
+        let flow = outbound["flow"].as_str().unwrap_or_default();
+        let multiplexed = match node.protocol {
+            Protocol::Shadowsocks | Protocol::Trojan | Protocol::Vmess => true,
+            Protocol::Vless => flow.is_empty() || flow == "none",
+            _ => false,
+        };
+        if let (true, Ok(settings)) = (multiplexed, serde_json::from_str::<Value>(multiplex)) {
+            outbound["multiplex"] = settings;
+        }
     }
     Ok(outbound)
 }
@@ -399,15 +412,18 @@ fn vless(node: &NodeDescriptor) -> Result<Value, Unsupported> {
         }
         let server_name = metadata(node, NODE_METADATA_TLS_SERVER_NAME)
             .ok_or("vless REALITY server name is missing")?;
-        // tls-mimic has a Chrome and a Safari fingerprint. A link that names
-        // Safari or iOS gets Safari, one that names nothing gets the
-        // platform's own (`auto`), every other uTLS name falls back to Chrome.
+        // uTLS names that tls-mimic has a captured fingerprint for keep it
+        // (Safari and iOS share Apple's network stack), a link that names
+        // nothing gets the platform's own (`auto`), every other uTLS name
+        // (android, 360, qq, random...) falls back to Chrome.
         let fingerprint = match metadata(node, NODE_METADATA_TLS_UTLS_FINGERPRINT)
             .map(|name| name.to_ascii_lowercase())
             .as_deref()
         {
             None | Some("" | "auto") => "auto",
             Some("safari" | "ios") => "safari",
+            Some("firefox") => "firefox",
+            Some("edge") => "edge",
             Some(_) => "chrome",
         };
         let mut outbound = json!({

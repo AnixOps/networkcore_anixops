@@ -12,8 +12,8 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use crate::cert;
 use crate::crypto::{invalid_data, CipherSuite, RecordCipher, MAX_CIPHERTEXT, MAX_PLAINTEXT};
 use crate::fingerprint::{
-    build_from_spec_with_psk, put_u24, Fingerprint, KeyShareSecrets, PskShape, GROUP_X25519,
-    GROUP_X25519_MLKEM768, SESSION_ID_OFFSET,
+    build_from_spec_with_psk, put_u24, Fingerprint, KeyShareSecrets, PskShape, GROUP_SECP256R1,
+    GROUP_X25519, GROUP_X25519_MLKEM768, SESSION_ID_OFFSET,
 };
 use crate::stream::TlsStream;
 
@@ -529,6 +529,7 @@ fn shared_secret(secrets: &KeyShareSecrets, group: u16, share: &[u8]) -> io::Res
             shared.extend_from_slice(&secrets.x25519_shared(&peer)?);
             Ok(shared)
         }
+        GROUP_SECP256R1 => secrets.secp256r1_shared(share),
         _ => Err(invalid_data(
             "server selected an unsupported key share group",
         )),

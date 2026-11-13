@@ -7,6 +7,7 @@
 ## 治理、发布与运维
 
 - [CI/CD Policy](ci-cd-policy.md)：本地与 GitHub Actions 的职责、按改动范围选择验证任务、客户端互通矩阵与新增兼容用例的方法
+- [性能与长稳 CI](performance-ci.md)：规则决策、5000 并发、10 万 UDP 会话、24 h 长稳与 IPC 模糊测试的门槛和所在 workflow
 - [Release Strategy](release-strategy.md)：tag 发布门禁、产物矩阵与回滚
 - [Alpha Release Feature Matrix](alpha-release-feature-matrix.md)：每个 alpha/beta/rc/stable 版本的能力边界
 - [Manual Intervention List](manual-intervention.md)：需要人工处理的事项
@@ -24,6 +25,7 @@
 - [规则与策略组模型（M2）](architecture/routing-policy-group-model.md)
 - [内嵌引擎 DNS：上游、hosts、按域名分流与 fake-ip](architecture/embedded-dns.md)
 - [前置节点（`via`）与入口 → 传输 → 出口模型](architecture/outbound-via.md)
+- [出站多路复用（`multiplex`）与连接复用](architecture/outbound-multiplex.md)
 - [Public Core Client Reference](architecture/public-core-client-reference.md)
 
 ## 协议规格

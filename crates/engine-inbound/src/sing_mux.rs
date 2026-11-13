@@ -49,6 +49,11 @@
 //! loop relays get here: an inbound that connects its streams itself
 //! (AnyTLS, Snell) dials the name like any other.
 //!
+//! smux and yamux frames toward the client go through a
+//! [`FairQueue`]: control frames first, then the stream that sent the
+//! fewest bytes lately, at most two frames waiting per stream, so a
+//! download on one stream does not hold back the answers of the others.
+//!
 //! TCP Brutal is not negotiated.
 
 mod h2mux;
@@ -62,14 +67,14 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::task::{ready, Context, Poll};
 
+use engine_outbound::mux::fair::{Discipline, FairQueue};
 use engine_outbound::{BoxFuture, BoxStream, ProxyStream, TargetAddr, TcpOutbound};
 use futures_util::stream::{FuturesUnordered, StreamExt};
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, ReadBuf};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tokio::sync::{mpsc, Notify, Semaphore};
 
 use self::padding::Padded;
 use crate::addr::{read_addr_port, write_addr_port, SOCKS};
-use crate::mux::write_frames;
 use crate::server::{relay_stream, InboundStats, ServeSettings};
 use crate::stream::PrefixedStream;
 use crate::udp::{Datagram, DatagramCodec, DatagramReader, UdpOutbound};
@@ -103,8 +108,8 @@ const STATUS_OK: u8 = 0;
 const MAX_STREAMS: usize = 256;
 /// Payload bytes per frame toward the client.
 const MAX_PAYLOAD: usize = 16 * 1024;
-/// Frames queued toward the client.
-const QUEUE: usize = 16;
+/// Bytes written to the client at once.
+const BATCH: usize = 16 * 1024;
 
 /// Whether `target` asks for a multiplexed connection instead of naming a
 /// destination.
@@ -348,13 +353,11 @@ struct MuxStream {
     ended: bool,
     /// The bytes the read loop may still queue; closed with the stream.
     room: Arc<Semaphore>,
-    frames: mpsc::Sender<Vec<u8>>,
+    queue: Arc<FairQueue>,
     /// yamux: the bytes the client still takes.
     window: Option<Arc<Semaphore>>,
     /// yamux: bytes read since the client's window was last reopened.
     taken: u32,
-    /// yamux: window updates on their way to the queue.
-    updates: mpsc::UnboundedSender<Vec<u8>>,
     /// The frame on its way to the queue.
     sending: Option<BoxFuture<'static, bool>>,
     /// The server's FIN is out.
@@ -364,9 +367,10 @@ struct MuxStream {
 }
 
 impl MuxStream {
-    /// Queues `frame` once the client's window has room for `credit` bytes.
+    /// Queues `frame` in the stream's lane once the client's window has
+    /// room for `credit` bytes and the lane has room for a frame.
     fn send(&mut self, frame: Vec<u8>, credit: usize) {
-        let frames = self.frames.clone();
+        let (queue, id) = (self.queue.clone(), self.id);
         let window = self.window.clone().filter(|_| credit > 0);
         self.sending = Some(Box::pin(async move {
             if let Some(window) = window {
@@ -375,7 +379,7 @@ impl MuxStream {
                     Err(_) => return false,
                 }
             }
-            frames.send(frame).await.is_ok()
+            std::future::poll_fn(|cx| queue.poll_room(cx, id)).await && queue.push(id, frame)
         }));
     }
 
@@ -392,13 +396,11 @@ impl MuxStream {
     }
 
     /// yamux: reopens the client's window by what the relay has read, half
-    /// a window at a time. The update waits for the queue in the
-    /// connection's loop, not here: reads are polled only while the relay
-    /// wants data, and a wait nobody polls keeps its place in the queue.
+    /// a window at a time, ahead of any data.
     fn grant(&mut self) {
         if self.taken >= WINDOW / 2 {
             let update = yamux_header(YAMUX_WINDOW_UPDATE, 0, self.id, self.taken);
-            let _ = self.updates.send(update);
+            self.queue.push_control(update);
             self.taken = 0;
         }
     }
@@ -538,33 +540,31 @@ async fn relay_frames(
     stats: &Arc<InboundStats>,
 ) {
     let (mut reader, mut writer) = tokio::io::split(stream);
-    let (frames, mut outgoing) = mpsc::channel::<Vec<u8>>(QUEUE);
-    let (updates, mut granted) = mpsc::unbounded_channel::<Vec<u8>>();
+    let queue = Arc::new(FairQueue::new(Discipline::Fair));
     let (spawn, mut spawned) = mpsc::unbounded_channel::<MuxStream>();
 
-    let read = read_loop(protocol, &mut reader, &frames, &updates, &spawn);
-    let write = write_frames(&mut writer, &mut outgoing);
-    // Window updates on their way to the queue; a client sends within its
-    // window, so there are never many.
-    let grant = async {
-        while let Some(update) = granted.recv().await {
-            let _ = frames.send(update).await;
+    let read = read_loop(protocol, &mut reader, &queue, &spawn);
+    let write = async {
+        while let Some(batch) = queue.next_batch(BATCH).await {
+            if writer.write_all(&batch).await.is_err() || writer.flush().await.is_err() {
+                return;
+            }
         }
     };
-    tokio::pin!(read, write, grant);
+    tokio::pin!(read, write);
 
     let mut running = FuturesUnordered::new();
     loop {
         tokio::select! {
             _ = &mut read => break,
             _ = &mut write => break,
-            _ = &mut grant => break,
             Some(stream) = spawned.recv() => {
                 running.push(serve_stream(stream, user.clone(), outbound, udp, settings, stats));
             }
             Some(()) = running.next(), if !running.is_empty() => {}
         }
     }
+    queue.close();
 }
 
 /// Reads client frames and hands their data to the streams. Returns when
@@ -572,14 +572,13 @@ async fn relay_frames(
 async fn read_loop<R: AsyncRead + Unpin>(
     protocol: Protocol,
     reader: &mut R,
-    frames: &mpsc::Sender<Vec<u8>>,
-    updates: &mpsc::UnboundedSender<Vec<u8>>,
+    queue: &Arc<FairQueue>,
     spawn: &mpsc::UnboundedSender<MuxStream>,
 ) {
     let mut streams: HashMap<u32, Handle> = HashMap::new();
     while let Ok(frame) = protocol.read(reader).await {
         if let Some(reply) = frame.reply {
-            if frames.send(reply).await.is_err() {
+            if !queue.push_control(reply) {
                 return;
             }
         }
@@ -587,7 +586,7 @@ async fn read_loop<R: AsyncRead + Unpin>(
             // Streams count until their relay is gone.
             streams.retain(|_, stream| !stream.room.is_closed());
             if streams.len() >= MAX_STREAMS || streams.contains_key(&frame.stream) {
-                if frames.send(protocol.reset(frame.stream)).await.is_err() {
+                if !queue.push_control(protocol.reset(frame.stream)) {
                     return;
                 }
                 continue;
@@ -605,10 +604,9 @@ async fn read_loop<R: AsyncRead + Unpin>(
                 read: 0,
                 ended: false,
                 room: room.clone(),
-                frames: frames.clone(),
+                queue: queue.clone(),
                 window: window.clone(),
                 taken: 0,
-                updates: updates.clone(),
                 sending: None,
                 shut: false,
                 dropped: dropped.clone(),
@@ -628,7 +626,7 @@ async fn read_loop<R: AsyncRead + Unpin>(
             );
             // A yamux client waits for the stream to be acknowledged.
             let ack = yamux_header(YAMUX_WINDOW_UPDATE, FLAG_ACK, frame.stream, 0);
-            if protocol == Protocol::Yamux && frames.send(ack).await.is_err() {
+            if protocol == Protocol::Yamux && !queue.push_control(ack) {
                 return;
             }
         }
@@ -672,14 +670,20 @@ async fn serve_stream(
     settings: &ServeSettings,
     stats: &Arc<InboundStats>,
 ) {
-    let (frames, reset) = (stream.frames.clone(), stream.protocol.reset(stream.id));
+    let (queue, id, reset) = (
+        stream.queue.clone(),
+        stream.id,
+        stream.protocol.reset(stream.id),
+    );
     let dropped = stream.dropped.clone();
     tokio::select! {
         _ = relay_request(stream, user, outbound, udp, settings, stats) => {}
         _ = dropped.notified() => {}
     }
-    // The client ignores it for a stream both sides have closed.
-    let _ = frames.send(reset).await;
+    // Behind the stream's last data; the client ignores it for a stream
+    // both sides have closed.
+    queue.push(id, reset);
+    queue.retire(id);
 }
 
 /// Reads the request of a stream, of any multiplexer, and relays the stream

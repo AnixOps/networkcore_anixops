@@ -6,6 +6,7 @@ named <side>-<outbound>-<round>.json.
 
 --rules FILE: the rule_bench report (decision latency by query kind, gate).
 --scale DIR: tunnel_bench scale-<outbound>.json and udp-sessions.json (gates).
+--soak FILE: the tunnel_bench soak report (memory trend, gate).
 """
 
 import json
@@ -163,7 +164,72 @@ def scale_summary(root):
         print("No results.")
 
 
+def soak_summary(path):
+    print("### Tunnel soak")
+    print()
+    try:
+        report = json.loads(Path(path).read_text())
+    except (OSError, ValueError):
+        print("No results.")
+        return
+    print(
+        f"{fmt(report.get('hours'))} h, outbound `{report.get('outbound')}`, "
+        f"{report.get('conns_per_s')} short connections/s, {report.get('pool')} held: {verdict(report)}"
+    )
+    print()
+    print("| Metric | Value |")
+    print("| --- | ---: |")
+    rows = [
+        ("RSS trend after warm-up", "rss_slope_mb_per_h", "MiB/h"),
+        ("Gate", "max_slope_mb_per_h", "MiB/h"),
+        ("RSS first / last (KiB)", None, ""),
+        ("RSS max", "rss_max_kb", "KiB"),
+        ("File descriptor trend", "fds_slope_per_h", "/h"),
+        ("Connections", "connections", ""),
+        ("Failed", "failed", ""),
+        ("Download bursts (failed)", None, ""),
+        ("Burst throughput p50 / min (Mbit/s)", None, ""),
+        ("TCP active after close", "tcp_active_after_close", ""),
+        ("FDs at start / after close", None, ""),
+        ("Tunnel CPU", "cpu_s", "s"),
+        ("Samples (warm-up skipped)", None, ""),
+    ]
+    for label, key, unit in rows:
+        if key is not None:
+            raw = report.get(key)
+            value = fmt(raw) + (f" {unit}" if unit and raw is not None else "")
+        elif label.startswith("RSS first"):
+            value = f"{fmt(report.get('rss_first_kb'))} / {fmt(report.get('rss_last_kb'))}"
+        elif label.startswith("Download"):
+            value = f"{report.get('bursts', 0)} ({report.get('burst_failed', 0)})"
+        elif label.startswith("Burst"):
+            value = f"{fmt(report.get('burst_mbps_p50'))} / {fmt(report.get('burst_mbps_min'))}"
+        elif label.startswith("FDs"):
+            value = f"{fmt(report.get('fds_baseline'))} / {fmt(report.get('fds_after_close'))}"
+        else:
+            value = f"{report.get('samples', 0)} ({report.get('warmup_samples', 0)})"
+        print(f"| {label} | {value} |")
+    series = report.get("series") or []
+    if series:
+        step = max(1, len(series) // 24)
+        print()
+        print("<details><summary>RSS over time</summary>")
+        print()
+        print("| Hours | RSS (KiB) | FDs | TCP active | Threads |")
+        print("| ---: | ---: | ---: | ---: | ---: |")
+        for point in series[::step] + ([series[-1]] if (len(series) - 1) % step else []):
+            print(
+                f"| {point.get('h', 0):.2f} | {fmt(point.get('rss_kb'))} | {fmt(point.get('fds'))} | "
+                f"{fmt(point.get('tcp_active'))} | {fmt(point.get('threads'))} |"
+            )
+        print()
+        print("</details>")
+
+
 def main():
+    if len(sys.argv) > 2 and sys.argv[1] == "--soak":
+        soak_summary(sys.argv[2])
+        return
     if len(sys.argv) > 2 and sys.argv[1] == "--rules":
         rules_summary(sys.argv[2])
         return

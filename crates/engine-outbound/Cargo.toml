@@ -9,7 +9,8 @@ description = "Pluggable outbound interfaces shared by the embedded engine and i
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", default-features = false, features = ["net", "io-util", "time"] }
+# sync, rt and macros for the client multiplexer (`mux`).
+tokio = { version = "1", default-features = false, features = ["net", "io-util", "time", "sync", "rt", "macros"] }
 
 [dev-dependencies]
 tokio = { version = "1", default-features = false, features = ["net", "io-util", "rt", "macros", "time"] }

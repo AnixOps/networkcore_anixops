@@ -1,0 +1,35 @@
+{
+  "note": "Desktop Edge 157 (captured from Microsoft Edge 157.0.4341.46 on Linux, 2026-11-13): the Chrome 157 shape without the 0xca34 extension Chrome stable now sends.",
+  "cipher_suites": [
+    "grease", "0x1301", "0x1302", "0x1303", "0xc02b", "0xc02f", "0xc02c", "0xc030",
+    "0xcca9", "0xcca8", "0xc013", "0xc014", "0x009c", "0x009d", "0x002f", "0x0035"
+  ],
+  "extensions": [
+    "grease",
+    "server_name",
+    "extended_master_secret",
+    "renegotiation_info",
+    { "type": "supported_groups", "groups": ["grease", "0x11ec", "0x001d", "0x0017", "0x0018"] },
+    { "type": "ec_point_formats", "formats": [0] },
+    "session_ticket",
+    "alpn",
+    "status_request",
+    {
+      "type": "signature_algorithms",
+      "schemes": [
+        "grease", "0x0904", "0x0905", "0x0906",
+        "0x0403", "0x0804", "0x0401", "0x0503", "0x0805", "0x0501", "0x0806", "0x0601"
+      ]
+    },
+    "signed_certificate_timestamp",
+    { "type": "key_share", "groups": ["grease", "0x11ec", "0x001d"] },
+    { "type": "psk_key_exchange_modes", "modes": [1] },
+    { "type": "supported_versions", "versions": ["grease", "0x0304", "0x0303"] },
+    { "type": "compress_certificate", "algorithms": ["0x0002"] },
+    { "type": "application_settings", "code_point": "0x44cd", "protocols": ["h2"] },
+    "ech_grease",
+    { "type": "grease", "body": "00" }
+  ],
+  "permute_extensions": true,
+  "alpn": ["h2", "http/1.1"]
+}

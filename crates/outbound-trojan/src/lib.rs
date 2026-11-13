@@ -137,6 +137,11 @@ impl TcpOutbound for TrojanOutbound {
         PROTOCOL
     }
 
+    /// TLS resumption counters (`outbound_reuse`).
+    fn reuse_stats(&self) -> Option<serde_json::Value> {
+        Some(self.tls.stats().health_json())
+    }
+
     fn connect<'a>(&'a self, target: &'a TargetAddr) -> BoxFuture<'a, io::Result<BoxStream>> {
         Box::pin(async move {
             let stream = self.open(CMD_CONNECT, target).await?;
