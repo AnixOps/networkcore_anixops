@@ -230,11 +230,19 @@ fn subscription_routing(
 
 /// The engine's `routing.rule_sets` object for imported remote sets, keyed by
 /// id; unset fields are left out so the engine defaults apply.
+///
+/// A list URL ending in `#anixops:pubkey=<base64 Ed25519 key>` asks for
+/// signed downloads: the mark becomes the set's `public_key` (the signature
+/// is then read from `<url>.sig`) and leaves the URL. Other fragments stay.
 pub fn rule_sets_json(rule_sets: &[ImportedRuleSet]) -> Value {
     let mut object = serde_json::Map::new();
     for set in rule_sets {
         let mut entry = serde_json::Map::new();
-        entry.insert("url".to_string(), json!(set.url));
+        let (url, public_key) = split_public_key_mark(&set.url);
+        entry.insert("url".to_string(), json!(url));
+        if let Some(public_key) = public_key {
+            entry.insert("public_key".to_string(), json!(public_key));
+        }
         if let Some(format) = set.format {
             entry.insert("format".to_string(), json!(format));
         }
@@ -247,6 +255,20 @@ pub fn rule_sets_json(rule_sets: &[ImportedRuleSet]) -> Value {
         object.insert(set.id.clone(), Value::Object(entry));
     }
     Value::Object(object)
+}
+
+const PUBLIC_KEY_MARK: &str = "#anixops:pubkey=";
+
+/// Splits `<url>#anixops:pubkey=<key>` into the URL and the key.
+fn split_public_key_mark(url: &str) -> (&str, Option<&str>) {
+    match url.rfind(PUBLIC_KEY_MARK) {
+        Some(index) => {
+            let key = url[index + PUBLIC_KEY_MARK.len()..].trim();
+            let key = (!key.is_empty()).then_some(key);
+            (&url[..index], key)
+        }
+        None => (url, None),
+    }
 }
 
 /// Same rule as the engine's routing outbound ids: 1-128 of `[A-Za-z0-9._-]`.
@@ -627,6 +649,36 @@ fn wireguard(node: &NodeDescriptor) -> Result<Value, Unsupported> {
     Ok(outbound)
 }
 
+/// This device's ANX license (anx spec §2.4.1): the device key and where the
+/// license the panel signed for it is kept. The client sets it once it has a
+/// device key; every ANX outbound built afterwards carries it, and the
+/// outbound reads the license file each time it connects, so a refreshed
+/// license needs no new import. Absent (the default), ANX outbounds are as
+/// before: a node that does not require licenses never asks for one.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+pub struct AnxLicense {
+    /// The device's private key, PKCS#8 DER in hex.
+    pub device_key: String,
+    /// `ed25519` or `p256`.
+    pub device_alg: String,
+    /// The license file: the certificate in hex, as the subscription's
+    /// `X-AnixOps-Anx-License` header carried it.
+    pub license_cert_path: String,
+}
+
+static ANX_LICENSE: std::sync::RwLock<Option<AnxLicense>> = std::sync::RwLock::new(None);
+
+/// Sets (or with `None` clears) the license every ANX outbound carries.
+pub fn set_anx_license(license: Option<AnxLicense>) {
+    if let Ok(mut current) = ANX_LICENSE.write() {
+        *current = license;
+    }
+}
+
+fn anx_license() -> Option<AnxLicense> {
+    ANX_LICENSE.read().ok().and_then(|current| current.clone())
+}
+
 /// ANX-A under the A2 jacket. The public engine does not compile the
 /// protocol in; a client build that does reads this entry (`type = "anx"`:
 /// `server_name`, `public_key`, `user_key`, optional `alpn`, `fingerprint`).
@@ -668,6 +720,11 @@ fn anx(node: &NodeDescriptor) -> Result<Value, Unsupported> {
         metadata(node, NODE_METADATA_ANX_BARE_PORT).and_then(|p| p.parse::<u16>().ok())
     {
         outbound["bare_port"] = json!(port);
+    }
+    if let Some(license) = anx_license() {
+        outbound["device_key"] = json!(license.device_key);
+        outbound["device_alg"] = json!(license.device_alg);
+        outbound["license_cert_path"] = json!(license.license_cert_path);
     }
     Ok(outbound)
 }

@@ -430,6 +430,33 @@ rules:
     assert!(import_text(&plain).unwrap().routing.unwrap()["rule_sets"].is_null());
 }
 
+/// A `#anixops:pubkey=` mark on a list URL becomes the set's signing key and
+/// leaves the URL the engine downloads.
+#[test]
+fn rule_set_public_key_mark_becomes_public_key() {
+    let key = "11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=";
+    let text = format!(
+        r#"
+proxies:
+  - {{ name: HK 01, type: ss, server: 82.47.34.99, port: 11111, cipher: aes-256-gcm, password: f43c0eee-13b9-4f07-bec9-d4b744141503 }}
+rule-providers:
+  gfw:
+    type: http
+    behavior: domain
+    url: "https://rules.example/gfw.txt#anixops:pubkey={key}"
+rules:
+  - RULE-SET,gfw,HK 01
+  - MATCH,DIRECT
+"#
+    );
+    let routing = import_text(&text).unwrap().routing.unwrap();
+    assert_eq!(
+        routing["rule_sets"]["gfw"]["url"],
+        "https://rules.example/gfw.txt"
+    );
+    assert_eq!(routing["rule_sets"]["gfw"]["public_key"], key);
+}
+
 /// A land node behind a Panabit iWAN line, as the panel sends it to the App:
 /// sing-box JSON with `detour`, and `iwan` as an AnixOps extension type.
 const IWAN_LINE: &str = r#"{

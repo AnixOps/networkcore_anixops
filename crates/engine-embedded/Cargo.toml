@@ -15,9 +15,9 @@ http = ["dep:outbound-http"]
 hysteria2 = ["dep:outbound-hysteria2"]
 # Panabit iWAN: a layer-3 tunnel used as a routable outbound with its own stack.
 iwan = ["dep:outbound-iwan"]
-# Desktop local proxy (SOCKS5/HTTP listener) and URL delay tests; the iOS
-# tunnel does not use them.
-local-proxy = ["dep:inbound-mixed", "dep:transport-tls"]
+# Desktop local proxy (SOCKS5/HTTP listener), URL delay tests and remote rule
+# set downloads (with optional Ed25519 signatures).
+local-proxy = ["dep:base64", "dep:inbound-mixed", "dep:ring", "dep:transport-tls"]
 mieru = ["dep:outbound-mieru"]
 # HTTPS decryption with the shared mitm-policy rewrite engine (src/mitm).
 mitm = ["dep:base64", "dep:engine-native", "dep:mitm-policy", "dep:rcgen", "dep:rustls", "dep:time", "dep:tokio-rustls", "dep:transport-tls"]
@@ -95,6 +95,8 @@ etherparse = "0.16"
 inbound-iwan = { path = "../inbound-iwan" }
 inbound-mixed = { path = "../inbound-mixed" }
 inbound-shadowsocks = { path = "../inbound-shadowsocks" }
+# tests/rule_sets.rs: signs lists for the signature check.
+ring = "0.17"
 tokio = { version = "1", default-features = false, features = ["rt", "rt-multi-thread", "net", "io-util", "time", "sync", "macros"] }
 
 # Linux TUN benchmark of the packet tunnel (.github/workflows/perf.yml).
