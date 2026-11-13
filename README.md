@@ -157,3 +157,7 @@ HTTP/2、HTTP/3/QUIC、pinning bypass、streaming、无界 CONNECT session 和 b
 客户端源码（`apps/windows-gui`、`apps/windows-service`、`apps/linux-gui`、`apps/ios`、`installer/windows`）已连同历史迁到 [AnixOps/anixops-net](https://github.com/AnixOps/anixops-net)。
 
 公有内核客户端参考见 [public-core-client-reference](docs/architecture/public-core-client-reference.md)；持久订阅边界见 [subscription-catalog-persistence-source-contract.md](docs/architecture/subscription-catalog-persistence-source-contract.md)。
+
+## 用户协议
+
+使用前请阅读 [TERMS.md](TERMS.md)（用户协议、禁止用途与免责声明）。Apache-2.0 见 [LICENSE](LICENSE)，名称与标识见 [TRADEMARKS.md](TRADEMARKS.md)。
