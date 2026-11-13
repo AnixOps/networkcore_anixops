@@ -33,8 +33,9 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::Notify;
 
 use crate::config::DnsVia;
-use crate::direct::DirectOutbound;
-use crate::routing::{RouteInfo, RoutedOutbound};
+use crate::direct::{self, DirectOutbound};
+use crate::fake_ip::FakeIpPool;
+use crate::routing::{DomainResolver, RouteInfo, RoutedOutbound};
 
 /// Closed connections kept for the list, newest first.
 pub const MAX_CLOSED_CONNECTIONS: usize = 128;
@@ -541,6 +542,12 @@ pub struct Dispatcher {
     tracker: Arc<ConnectionTracker>,
     /// Destination rewrites applied before routing, in every mode.
     redirects: Arc<RedirectTable>,
+    /// Fake-IP table: flows to its addresses go out by name.
+    fake_ip: Option<Arc<FakeIpPool>>,
+    /// Resolves the name of a Fake-IP flow that goes DIRECT (the `dns`
+    /// section of a routed config); without one the direct dialer gets the
+    /// name.
+    resolver: Option<Arc<dyn DomainResolver>>,
 }
 
 impl Dispatcher {
@@ -554,6 +561,8 @@ impl Dispatcher {
             mode: AtomicU8::new(Mode::Rule as u8),
             tracker: Arc::default(),
             redirects: Arc::default(),
+            fake_ip: None,
+            resolver: None,
         }
     }
 
@@ -563,11 +572,73 @@ impl Dispatcher {
         Self {
             outbound: routed.clone(),
             direct: routed.direct().clone(),
+            resolver: Some(routed.resolver().clone()),
             routed: Some(routed),
             mode: AtomicU8::new(Mode::Rule as u8),
             tracker: Arc::default(),
             redirects: Arc::default(),
+            fake_ip: None,
         }
+    }
+
+    /// Sends flows to the addresses of `pool` out by the name each address
+    /// stands for; see [`crate::fake_ip`]. The tunnel answers DNS from the
+    /// same pool.
+    pub fn with_fake_ip(mut self, pool: Option<Arc<FakeIpPool>>) -> Self {
+        self.fake_ip = pool;
+        self
+    }
+
+    /// The Fake-IP table, when it is on.
+    pub fn fake_ip(&self) -> Option<&Arc<FakeIpPool>> {
+        self.fake_ip.as_ref()
+    }
+
+    /// The name target of a flow to a Fake-IP address, `Ok(None)` for any
+    /// other flow, or an error when the address maps to no name and nothing
+    /// was sniffed.
+    fn unfake(&self, target: &TargetAddr, host: Option<&str>) -> io::Result<Option<TargetAddr>> {
+        let (Some(pool), TargetAddr::Ip(address)) = (&self.fake_ip, target) else {
+            return Ok(None);
+        };
+        if !pool.contains(address.ip()) {
+            return Ok(None);
+        }
+        match pool.resolve_flow(address.ip(), host) {
+            Some(name) => Ok(Some(TargetAddr::Domain(name, address.port()))),
+            None => Err(io::Error::new(
+                io::ErrorKind::AddrNotAvailable,
+                "fake-ip address maps to no name",
+            )),
+        }
+    }
+
+    /// The target to hand `outbound` for a Fake-IP flow: a DIRECT flow gets
+    /// the address the `dns` section gives, so the name never goes to the
+    /// system resolver (which may answer from the tunnel's own fake range).
+    async fn direct_target(
+        &self,
+        target: &TargetAddr,
+        outbound: &dyn TcpOutbound,
+    ) -> io::Result<Option<TargetAddr>> {
+        let (TargetAddr::Domain(name, port), Some(resolver)) = (target, &self.resolver) else {
+            return Ok(None);
+        };
+        if outbound.protocol() != direct::PROTOCOL {
+            return Ok(None);
+        }
+        let address = resolver.resolve(name).await?;
+        if self
+            .fake_ip
+            .as_ref()
+            .is_some_and(|pool| pool.contains(address))
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::AddrNotAvailable,
+                "name resolved into the fake-ip range",
+            ));
+        }
+        Ok(Some(TargetAddr::Ip(SocketAddr::new(address, *port))))
     }
 
     /// Rewrites the destination of every matching flow before it is routed;
@@ -638,6 +709,19 @@ impl Dispatcher {
 
     pub fn routed_outbound(&self) -> Option<&Arc<RoutedOutbound>> {
         self.routed.as_ref()
+    }
+
+    /// [`TcpOutbound::reset_sessions`] on every outbound flows can take
+    /// (the nodes, or the single outbound, and DIRECT), after the device
+    /// changed networks or woke up. Returns the total dropped.
+    pub fn reset_sessions(&self) -> usize {
+        let direct = if self.routed.is_some() {
+            // The routed outbound resets its own DIRECT.
+            0
+        } else {
+            self.direct.reset_sessions()
+        };
+        self.outbound.reset_sessions() + direct
     }
 
     pub fn tracker(&self) -> &Arc<ConnectionTracker> {
@@ -741,6 +825,11 @@ impl Dispatcher {
         process: Option<&str>,
         http: Option<&HttpRequestHead>,
     ) -> io::Result<BoxStream> {
+        let unfaked = self.unfake(target, host)?;
+        let (target, host) = match &unfaked {
+            Some(named) => (named, None),
+            None => (target, host),
+        };
         let guard = self.tracker.open(Network::Tcp, target, host, process);
         let redirected = self.redirect(target, host, process, RouteNetwork::Tcp, http);
         let (target, host) = match &redirected {
@@ -756,7 +845,12 @@ impl Dispatcher {
         let outbound = self
             .route(target, host, process, RouteNetwork::Tcp, http, &guard)
             .await?;
-        let named = proxied_name(target, host, &*outbound);
+        let resolved = if unfaked.is_some() {
+            self.direct_target(target, &*outbound).await?
+        } else {
+            None
+        };
+        let named = resolved.or_else(|| proxied_name(target, host, &*outbound));
         let stream = outbound.connect(named.as_ref().unwrap_or(target)).await?;
         guard.connected();
         Ok(Box::new(TrackedStream {
@@ -771,6 +865,11 @@ impl Dispatcher {
         target: &TargetAddr,
         host: Option<&str>,
     ) -> io::Result<UdpFlow> {
+        let unfaked = self.unfake(target, host)?;
+        let (target, host) = match &unfaked {
+            Some(named) => (named, None),
+            None => (target, host),
+        };
         let guard = self.tracker.open(Network::Udp, target, host, None);
         let redirected = self.redirect(target, host, None, RouteNetwork::Udp, None);
         let (target, host) = match &redirected {
@@ -786,7 +885,14 @@ impl Dispatcher {
         let outbound = self
             .route(target, host, None, RouteNetwork::Udp, None, &guard)
             .await?;
-        let flow = outbound.open_udp(target).await?;
+        let resolved = if unfaked.is_some() {
+            self.direct_target(target, &*outbound).await?
+        } else {
+            None
+        };
+        let flow = outbound
+            .open_udp(resolved.as_ref().unwrap_or(target))
+            .await?;
         guard.connected();
         Ok(UdpFlow::new(
             Box::new(TrackedSend {
@@ -824,6 +930,10 @@ impl Dispatcher {
 impl TcpOutbound for Dispatcher {
     fn protocol(&self) -> &'static str {
         self.outbound.protocol()
+    }
+
+    fn reset_sessions(&self) -> usize {
+        Dispatcher::reset_sessions(self)
     }
 
     fn connect<'a>(&'a self, target: &'a TargetAddr) -> BoxFuture<'a, io::Result<BoxStream>> {

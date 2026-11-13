@@ -210,6 +210,12 @@ impl TcpOutbound for SnellOutbound {
         PROTOCOL
     }
 
+    /// Drops the idle reusable connections, which still use the old network
+    /// after the device changed networks or woke up.
+    fn reset_sessions(&self) -> usize {
+        self.pool.clear()
+    }
+
     fn connect<'a>(&'a self, target: &'a TargetAddr) -> BoxFuture<'a, io::Result<BoxStream>> {
         Box::pin(async move { Ok(Box::new(self.connect_stream(target).await?) as BoxStream) })
     }
@@ -331,6 +337,17 @@ impl Pool {
             }
         }
         None
+    }
+
+    /// Drops every idle connection and returns how many there were.
+    fn clear(&self) -> usize {
+        let mut idle = self
+            .idle
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let dropped = idle.len();
+        idle.clear();
+        dropped
     }
 
     fn put(&self, conn: SnellConn) {

@@ -31,6 +31,7 @@ pub mod udp;
 
 use std::io;
 use std::net::IpAddr;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 
 use engine_outbound::{
@@ -58,11 +59,16 @@ pub struct TuicOutbound {
     password: Vec<u8>,
     quic: QuicConnector,
     session: Mutex<Option<Session>>,
+    /// Bumped by [`TcpOutbound::reset_sessions`]; a session from an older
+    /// generation is never reused.
+    generation: AtomicU64,
 }
 
 /// One authenticated QUIC connection.
 struct Session {
     quic: QuicConnection,
+    /// The outbound's generation when this session was opened.
+    generation: u64,
     /// Started with the first UDP session.
     udp: OnceLock<Arc<udp::Dispatch>>,
 }
@@ -85,6 +91,7 @@ impl TuicOutbound {
             password: password.into_bytes(),
             quic: QuicConnector::new(server, port, tls, &["h3"], congestion)?,
             session: Mutex::new(None),
+            generation: AtomicU64::new(0),
         })
     }
 
@@ -110,15 +117,19 @@ impl TuicOutbound {
     }
 
     async fn live<'a>(&self, session: &'a mut Option<Session>) -> io::Result<&'a Session> {
-        let open = session
-            .as_ref()
-            .is_some_and(|current| current.quic.connection.close_reason().is_none());
+        let generation = self.generation.load(Ordering::Acquire);
+        let open = session.as_ref().is_some_and(|current| {
+            current.generation == generation && current.quic.connection.close_reason().is_none()
+        });
         if !open {
-            *session = None;
+            if let Some(stale) = session.take() {
+                stale.quic.connection.close(0u32.into(), b"network changed");
+            }
             let fresh = self.quic.connect().await?;
             authenticate(&fresh.connection, &self.uuid, &self.password).await?;
             *session = Some(Session {
                 quic: fresh,
+                generation,
                 udp: OnceLock::new(),
             });
         }
@@ -162,6 +173,24 @@ pub fn auth_token(
 impl TcpOutbound for TuicOutbound {
     fn protocol(&self) -> &'static str {
         PROTOCOL
+    }
+
+    /// Closes the shared QUIC connection, which still points at the old
+    /// network after the device changed networks or woke up; the next flow
+    /// opens a fresh one.
+    fn reset_sessions(&self) -> usize {
+        self.generation.fetch_add(1, Ordering::AcqRel);
+        match self.session.try_lock() {
+            Ok(mut session) => match session.take() {
+                Some(stale) => {
+                    stale.quic.connection.close(0u32.into(), b"network changed");
+                    1
+                }
+                None => 0,
+            },
+            // A dial holds the lock; it sees the new generation next time.
+            Err(_) => 1,
+        }
     }
 
     fn connect<'a>(&'a self, target: &'a TargetAddr) -> BoxFuture<'a, io::Result<BoxStream>> {
