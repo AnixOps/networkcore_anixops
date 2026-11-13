@@ -15,6 +15,7 @@
 //! Errors are plain [`std::io::Error`] values. Implementations must keep
 //! credentials (UUIDs, passwords, private keys) out of error messages.
 
+pub mod mux;
 pub mod protect;
 pub mod registry;
 pub mod sniff;
@@ -223,6 +224,14 @@ pub trait TcpOutbound: Send + Sync {
     /// show and to report to its panel. Outbounds that keep none return the
     /// default `None`. Counters only; never destinations.
     fn health(&self) -> Option<serde_json::Value> {
+        None
+    }
+
+    /// How this outbound reuses connections and TLS sessions, as a JSON
+    /// object: the multiplexer's pool (`mux`) and TLS resumption counters
+    /// (`tls_handshakes`, `tls_resumed`). Outbounds that keep none return
+    /// the default `None`. Counters only; never destinations.
+    fn reuse_stats(&self) -> Option<serde_json::Value> {
         None
     }
 

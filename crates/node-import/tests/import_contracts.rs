@@ -813,6 +813,64 @@ fn anixops_path_mark_tags_the_next_link() {
     }
 }
 
+/// sing-box `multiplex` and Clash `smux` become the engine's `multiplex`
+/// for stream protocols; a vless flow and disabled settings run without.
+#[test]
+fn subscription_multiplexing_becomes_multiplex() {
+    let sing_box = r#"{
+  "outbounds": [
+    {"type": "trojan", "tag": "Muxed trojan", "server": "198.51.100.20", "server_port": 443,
+     "password": "pw", "tls": {"enabled": true, "server_name": "land.example"},
+     "multiplex": {"enabled": true, "protocol": "h2mux", "max_connections": 2, "min_streams": 8, "padding": true}},
+    {"type": "shadowsocks", "tag": "Streams ss", "server": "198.51.100.21", "server_port": 8388,
+     "method": "aes-128-gcm", "password": "pw",
+     "multiplex": {"enabled": true, "max_streams": 16, "max_connections": 4}},
+    {"type": "shadowsocks", "tag": "Off ss", "server": "198.51.100.22", "server_port": 8388,
+     "method": "aes-128-gcm", "password": "pw", "multiplex": {"enabled": false, "protocol": "smux"}}
+  ]
+}"#;
+    let report = import_text(sing_box).unwrap();
+    let node = |name: &str| {
+        report
+            .nodes
+            .iter()
+            .find(|node| node.name == name)
+            .unwrap_or_else(|| panic!("{name} imports"))
+            .outbound
+            .clone()
+    };
+    assert_eq!(
+        node("Muxed trojan")["multiplex"],
+        serde_json::json!({"protocol": "h2mux", "max_connections": 2, "min_streams": 8, "padding": true})
+    );
+    // max_streams wins over the settings it cannot be used with.
+    assert_eq!(
+        node("Streams ss")["multiplex"],
+        serde_json::json!({"max_streams": 16})
+    );
+    assert!(node("Off ss").get("multiplex").is_none());
+
+    let clash = r#"
+proxies:
+  - name: Clash ss
+    type: ss
+    server: 198.51.100.23
+    port: 8388
+    cipher: aes-128-gcm
+    password: pw
+    smux:
+      enabled: true
+      protocol: smux
+      max-connections: 4
+      min-streams: "4"
+"#;
+    let report = import_text(clash).unwrap();
+    assert_eq!(
+        report.nodes[0].outbound["multiplex"],
+        serde_json::json!({"protocol": "smux", "max_connections": 4, "min_streams": 4})
+    );
+}
+
 #[test]
 fn wireguard_links_import_with_allowed_ips_and_reserved() {
     let key = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=";

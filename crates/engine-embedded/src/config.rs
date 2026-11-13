@@ -19,6 +19,7 @@ use config_core::redirect::{
 };
 use config_core::routing::{PolicyGroupSpec, RoutingRule, RoutingSpec};
 use config_core::rule_set::{BareDomain, RuleSet, RuleSetEntries, MAX_RULE_SET_ENTRIES};
+use engine_outbound::mux::{MuxConfig, MuxOutbound};
 use engine_outbound::registry::{OutboundRegistry, Settings};
 use engine_outbound::{Dialer, OutboundDialer, TcpOutbound};
 use serde::Deserialize;
@@ -140,6 +141,11 @@ pub struct OutboundConfig {
     /// `docs/architecture/outbound-via.md`. Never part of `settings`.
     #[serde(default)]
     pub via: Option<Via>,
+    /// Client multiplexing over pooled connections (sing-box `multiplex`);
+    /// see `docs/architecture/outbound-multiplex.md`. Never part of
+    /// `settings`.
+    #[serde(default)]
+    pub multiplex: Option<serde_json::Value>,
     #[serde(flatten)]
     pub settings: Settings,
 }
@@ -1009,9 +1015,38 @@ fn build_single_outbound(
             "this protocol opens its own sockets and cannot run through a via",
         ));
     }
-    registry
+    let built = registry
         .build(&outbound.kind, &outbound.settings, dialer)
-        .map_err(rejected)
+        .map_err(rejected)?;
+    match &outbound.multiplex {
+        None => Ok(built),
+        Some(multiplex) => multiplexed(outbound, multiplex, built),
+    }
+}
+
+/// Protocols whose servers take sing-mux connections.
+const MULTIPLEXED_TYPES: [&str; 4] = ["shadowsocks", "trojan", "vless", "vmess"];
+
+/// Wraps `built` in the client multiplexer when `multiplex` turns it on.
+fn multiplexed(
+    outbound: &OutboundConfig,
+    multiplex: &serde_json::Value,
+    built: Arc<dyn TcpOutbound>,
+) -> Result<Arc<dyn TcpOutbound>, RuntimeError> {
+    let Some(settings) = MuxConfig::parse(multiplex).map_err(rejected)? else {
+        return Ok(built);
+    };
+    if !MULTIPLEXED_TYPES.contains(&outbound.kind.as_str()) {
+        return Err(rejected(
+            "multiplex works with shadowsocks, trojan, vless and vmess only",
+        ));
+    }
+    // Vision splices the inner TLS onto the connection; streams cannot.
+    let flow = outbound.settings.get("flow").and_then(|flow| flow.as_str());
+    if flow.is_some_and(|flow| !flow.is_empty() && flow != "none") {
+        return Err(rejected("a vless flow cannot be multiplexed"));
+    }
+    Ok(Arc::new(MuxOutbound::new(built, settings)))
 }
 
 pub(crate) fn is_identifier(value: &str) -> bool {
