@@ -231,7 +231,10 @@ fn fingerprint_names_resolve() {
         Fingerprint::from_name("Chrome-NoPQ"),
         Some(Fingerprint::ChromeNoPq)
     );
-    assert_eq!(Fingerprint::from_name("firefox"), Some(Fingerprint::Firefox));
+    assert_eq!(
+        Fingerprint::from_name("firefox"),
+        Some(Fingerprint::Firefox)
+    );
     assert_eq!(
         Fingerprint::from_name("Firefox-ESR"),
         Some(Fingerprint::FirefoxEsr)
