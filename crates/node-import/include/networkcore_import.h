@@ -40,6 +40,9 @@ uint32_t networkcore_import_abi_version(void);
 int32_t networkcore_import_nodes(const uint8_t *text, size_t text_len, NetworkCoreImportBuffer *out);
 /* node: JSON {"name": ..., "outbound": {...}}; out: the share link as UTF-8 text. */
 int32_t networkcore_import_share_link(const uint8_t *node, size_t node_len, NetworkCoreImportBuffer *out);
+/* license: JSON {"device_key", "device_alg", "license_cert_path"} (anx spec 2.4.1);
+ * ANX outbounds imported afterwards carry it. An empty input clears it. */
+int32_t networkcore_import_set_anx_license(const uint8_t *license, size_t license_len);
 void networkcore_import_free_buffer(NetworkCoreImportBuffer buffer);
 
 #ifdef __cplusplus
