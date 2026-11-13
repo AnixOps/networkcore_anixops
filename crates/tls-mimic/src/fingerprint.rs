@@ -269,7 +269,7 @@ pub fn clear_profiles() {
         .write()
         .unwrap_or_else(|poisoned| poisoned.into_inner()) = Overrides {
         revision: String::new(),
-        specs: [None, None, None],
+        specs: [const { None }; COUNT],
     };
 }
 
