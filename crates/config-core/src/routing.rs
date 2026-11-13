@@ -9,7 +9,7 @@
 //! or network work; those inputs come from a [`RoutingEnvironment`].
 
 use control_domain::{DomainError, DomainResult};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
@@ -779,6 +779,55 @@ impl RoutingModel {
         environment: &dyn RoutingEnvironment,
     ) -> RouteResolution {
         let domain = query.domain.as_deref().map(normalize_query_domain);
+        self.decide_over(
+            (0..self.rules.len()).map(|index| (index, false)),
+            None,
+            domain,
+            query,
+            environment,
+        )
+    }
+
+    /// [`RoutingModel::decide`] with the DOMAIN and DOMAIN-SUFFIX rules
+    /// looked up in `index` instead of tried one by one; the result is the
+    /// same. An index built for a different rule list (see
+    /// [`RuleIndex::fits`]) is ignored and every rule is tried.
+    pub fn decide_indexed(
+        &self,
+        index: &RuleIndex,
+        query: &RouteQuery,
+        environment: &dyn RoutingEnvironment,
+    ) -> RouteResolution {
+        if !index.fits(self) {
+            return self.decide(query, environment);
+        }
+        let domain = query.domain.as_deref().map(normalize_query_domain);
+        let first = domain
+            .as_deref()
+            .and_then(|domain| index.first_domain_match(domain));
+        let before = index
+            .others
+            .partition_point(|&(rule, _)| first.is_none_or(|first| rule < first));
+        self.decide_over(
+            index.others[..before].iter().copied(),
+            first,
+            domain,
+            query,
+            environment,
+        )
+    }
+
+    /// Tries the rules at `candidates` (ascending) in order, passing over
+    /// those flagged as needing an address while there is none; when none
+    /// matches, the rule at `matched_after` is the match, else FINAL.
+    fn decide_over(
+        &self,
+        candidates: impl Iterator<Item = (usize, bool)>,
+        matched_after: Option<usize>,
+        domain: Option<String>,
+        query: &RouteQuery,
+        environment: &dyn RoutingEnvironment,
+    ) -> RouteResolution {
         let process = query.process.as_deref().map(str::to_lowercase);
         let user_agent = query.user_agent.as_deref().map(str::to_lowercase);
         let url = query.url.as_deref();
@@ -787,7 +836,11 @@ impl RoutingModel {
         let mut resolve_attempted = false;
         let balance_key = domain.clone().or_else(|| query.ip.map(|ip| ip.to_string()));
 
-        for (index, rule) in self.rules.iter().enumerate() {
+        for (index, needs_ip) in candidates {
+            if needs_ip && ip.is_none() {
+                continue;
+            }
+            let rule = &self.rules[index];
             if rule.matcher.matches_ip() && ip.is_none() && !rule.no_resolve && !resolve_attempted {
                 resolve_attempted = true;
                 if let Some(domain) = domain.as_deref() {
@@ -824,6 +877,15 @@ impl RoutingModel {
             }
         }
 
+        if let Some(index) = matched_after {
+            return self.resolution(
+                RouteMatch::Rule(index),
+                &self.rules[index].target,
+                resolved_ip,
+                balance_key.as_deref(),
+                environment,
+            );
+        }
         self.resolution(
             RouteMatch::Final,
             &self.final_target,
@@ -906,6 +968,82 @@ impl RoutingModel {
             outcome,
             resolved_ip,
         }
+    }
+}
+
+/// Hash lookup for the DOMAIN and DOMAIN-SUFFIX rules of a
+/// [`RoutingModel`], which are most of a large subscription: a decision then
+/// tries only the other rules that come before the first domain rule that
+/// matches, instead of every rule. Build it again whenever the rule list
+/// changes; [`RoutingModel::decide_indexed`] ignores an index whose rule
+/// count no longer fits.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RuleIndex {
+    rule_count: usize,
+    /// First rule index of each exact domain.
+    exact: HashMap<String, usize>,
+    /// First rule index of each suffix (without a leading dot).
+    suffix: HashMap<String, usize>,
+    /// Every other rule, ascending, with whether it is an IP-CIDR or GEOIP
+    /// rule marked `no-resolve`: such a rule neither matches nor resolves
+    /// while the connection has no address, so it is passed over then.
+    others: Vec<(usize, bool)>,
+}
+
+impl RuleIndex {
+    pub fn new(model: &RoutingModel) -> Self {
+        let mut index = Self {
+            rule_count: model.rules.len(),
+            ..Self::default()
+        };
+        for (position, rule) in model.rules.iter().enumerate() {
+            match &rule.matcher {
+                RuleMatcher::Domain(domain) => {
+                    index.exact.entry(domain.clone()).or_insert(position);
+                }
+                // A suffix with a leading dot or none at all matches in ways
+                // a lookup by label does not reproduce; it stays in order.
+                RuleMatcher::DomainSuffix(suffix)
+                    if !suffix.is_empty() && !suffix.starts_with('.') =>
+                {
+                    index.suffix.entry(suffix.clone()).or_insert(position);
+                }
+                matcher => index.others.push((
+                    position,
+                    rule.no_resolve
+                        && matches!(matcher, RuleMatcher::IpCidr(_) | RuleMatcher::GeoIp(_)),
+                )),
+            }
+        }
+        index
+    }
+
+    /// Whether this index was built for a model with `model`'s rule count.
+    pub fn fits(&self, model: &RoutingModel) -> bool {
+        self.rule_count == model.rules.len()
+    }
+
+    /// Rules tried one by one: those that are neither DOMAIN nor
+    /// DOMAIN-SUFFIX.
+    pub fn unindexed_len(&self) -> usize {
+        self.others.len()
+    }
+
+    /// The first DOMAIN or DOMAIN-SUFFIX rule matching the normalized
+    /// `domain`: an exact rule for the domain, or a suffix rule for the
+    /// domain itself or any part of it after a dot.
+    fn first_domain_match(&self, domain: &str) -> Option<usize> {
+        let mut first = self.exact.get(domain).copied();
+        let mut keep = |found: Option<&usize>| {
+            if let Some(&found) = found {
+                first = Some(first.map_or(found, |current: usize| current.min(found)));
+            }
+        };
+        keep(self.suffix.get(domain));
+        for (dot, _) in domain.match_indices('.') {
+            keep(self.suffix.get(&domain[dot + 1..]));
+        }
+        first
     }
 }
 
@@ -1451,6 +1589,14 @@ fn normalize_domain_wildcard(value: &str) -> DomainResult<String> {
 
 /// Glob match where `*` is any run (dots included) and `?` one byte.
 fn wildcard_matches(pattern: &[u8], text: &[u8]) -> bool {
+    // The literal runs before the first and after the last wildcard are
+    // anchored: a cheap reject for most texts before the backtracking walk.
+    let is_wild = |b: &u8| *b == b'*' || *b == b'?';
+    let head = pattern.iter().position(is_wild).unwrap_or(pattern.len());
+    let tail = pattern.iter().rposition(is_wild).map_or(0, |last| last + 1);
+    if !text.starts_with(&pattern[..head]) || !text.ends_with(&pattern[tail..]) {
+        return false;
+    }
     let (mut p, mut t) = (0, 0);
     let mut star: Option<(usize, usize)> = None;
     while t < text.len() {
