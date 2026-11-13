@@ -260,6 +260,13 @@ async fn streams_reuse_pooled_connections() {
     assert!(rate >= 0.8, "reuse rate {rate}");
     let reuse = mux.reuse_stats().unwrap();
     assert_eq!(reuse["mux"]["streams_opened"], 100);
+
+    // After a network change the pool starts over.
+    assert_eq!(mux.reset_sessions(), opened as usize);
+    timeout(TIMEOUT, echo_once(&mux, echo, b"new network"))
+        .await
+        .expect("echo after reset timed out");
+    assert_eq!(stats.sessions_opened.load(Ordering::Relaxed), opened + 1);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

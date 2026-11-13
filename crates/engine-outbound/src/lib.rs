@@ -242,6 +242,16 @@ pub trait TcpOutbound: Send + Sync {
     fn resume(&self) -> bool {
         false
     }
+
+    /// Drops the connections this outbound keeps between flows (a shared
+    /// QUIC connection, a pool of idle streams), after the device changed
+    /// networks or woke from sleep: they still use the old path and would
+    /// stall the next flows until they time out. The next flow dials afresh.
+    /// Returns how many sessions or idle connections were dropped; the
+    /// default keeps none. Flows already open are left alone.
+    fn reset_sessions(&self) -> usize {
+        0
+    }
 }
 
 /// The error a [`TcpOutbound::probe`] that ran out of time fails with.

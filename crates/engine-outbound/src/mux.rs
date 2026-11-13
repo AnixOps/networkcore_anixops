@@ -275,13 +275,20 @@ impl MuxOutbound {
         sessions.len()
     }
 
-    /// Closes every pooled connection; their streams fail. For a network
-    /// change, when the connections are known to be gone.
-    pub fn reset(&self) {
+    /// Takes every pooled connection out of the pool: no new stream goes to
+    /// them, the streams on them run on, and each closes once its last
+    /// stream ends. For a network change, when the old path is gone.
+    /// Returns how many connections were dropped.
+    pub fn reset(&self) -> usize {
         let sessions = std::mem::take(&mut *lock(&self.sessions));
+        let mut dropped = 0;
         for session in sessions {
-            session.shutdown();
+            if !session.is_closed() {
+                dropped += 1;
+            }
+            session.retire();
         }
+        dropped
     }
 
     /// The pooled connection a new stream should use, if any.
@@ -394,6 +401,10 @@ impl TcpOutbound for MuxOutbound {
 
     fn resume(&self) -> bool {
         self.inner.resume()
+    }
+
+    fn reset_sessions(&self) -> usize {
+        self.reset() + self.inner.reset_sessions()
     }
 }
 
@@ -581,6 +592,14 @@ impl Session {
             state.reset = true;
         }
         state.wake();
+    }
+
+    /// No new streams; closes once the last stream ends.
+    fn retire(&self) {
+        self.draining.store(true, Ordering::Relaxed);
+        if self.active() == 0 {
+            self.shutdown();
+        }
     }
 
     fn shutdown(&self) {
