@@ -52,9 +52,10 @@ pub const SESSION_ID_OFFSET: usize = 39;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum Fingerprint {
     /// Current desktop Chrome: GREASE, permuted extensions, X25519MLKEM768 +
-    /// X25519 key shares, ECH GREASE, the new ALPS code point, and (Chrome 157,
-    /// checked against Chrome for Testing 157.0.8103.38) a GREASE signature
-    /// scheme followed by ML-DSA-44/65/87 at the front of signature_algorithms.
+    /// X25519 key shares, ECH GREASE, the new ALPS code point, a GREASE
+    /// signature scheme followed by ML-DSA-44/65/87 at the front of
+    /// signature_algorithms, and the 0xca34 extension (captured from Chrome
+    /// 157.0.8103.78).
     #[default]
     Chrome,
     /// The same Chrome shape without the post-quantum hybrid group, for
@@ -65,13 +66,29 @@ pub enum Fingerprint {
     /// shares, zlib certificate compression, no ALPS, no ECH GREASE. Captured
     /// from Safari 26.6.2 on macOS 26.7.2.
     Safari,
+    /// Desktop Edge: the Chrome shape without the 0xca34 extension (captured
+    /// from Edge 157).
+    Edge,
+    /// Desktop Firefox: no GREASE, fixed extension order, X25519MLKEM768 +
+    /// X25519 + P-256 key shares, delegated_credentials, record_size_limit,
+    /// ECH GREASE (captured from Firefox 160).
+    Firefox,
+    /// Firefox ESR: the Firefox shape plus one more CBC suite and the FFDHE
+    /// groups (captured from Firefox 153 ESR).
+    FirefoxEsr,
 }
 
+/// How many fingerprints this build has.
+const COUNT: usize = Fingerprint::ALL.len();
+
 impl Fingerprint {
-    pub const ALL: [Fingerprint; 3] = [
+    pub const ALL: [Fingerprint; 6] = [
         Fingerprint::Chrome,
         Fingerprint::ChromeNoPq,
         Fingerprint::Safari,
+        Fingerprint::Edge,
+        Fingerprint::Firefox,
+        Fingerprint::FirefoxEsr,
     ];
 
     /// Resolves a configured name. `auto` is [`Fingerprint::platform_default`].
@@ -80,6 +97,9 @@ impl Fingerprint {
             "chrome" | "chrome-pq" => Some(Fingerprint::Chrome),
             "chrome-nopq" | "chrome-no-pq" | "chrome120" => Some(Fingerprint::ChromeNoPq),
             "safari" | "ios" | "apple" => Some(Fingerprint::Safari),
+            "edge" | "msedge" => Some(Fingerprint::Edge),
+            "firefox" => Some(Fingerprint::Firefox),
+            "firefox-esr" | "firefoxesr" => Some(Fingerprint::FirefoxEsr),
             "auto" => Some(Fingerprint::platform_default()),
             _ => None,
         }
@@ -91,6 +111,9 @@ impl Fingerprint {
             Fingerprint::Chrome => "chrome",
             Fingerprint::ChromeNoPq => "chrome-nopq",
             Fingerprint::Safari => "safari",
+            Fingerprint::Edge => "edge",
+            Fingerprint::Firefox => "firefox",
+            Fingerprint::FirefoxEsr => "firefox-esr",
         }
     }
 
@@ -111,6 +134,9 @@ impl Fingerprint {
             Fingerprint::Chrome => 0,
             Fingerprint::ChromeNoPq => 1,
             Fingerprint::Safari => 2,
+            Fingerprint::Edge => 3,
+            Fingerprint::Firefox => 4,
+            Fingerprint::FirefoxEsr => 5,
         }
     }
 
@@ -119,13 +145,16 @@ impl Fingerprint {
             Fingerprint::Chrome => include_str!("../fingerprints/chrome.json"),
             Fingerprint::ChromeNoPq => include_str!("../fingerprints/chrome-nopq.json"),
             Fingerprint::Safari => include_str!("../fingerprints/safari.json"),
+            Fingerprint::Edge => include_str!("../fingerprints/edge.json"),
+            Fingerprint::Firefox => include_str!("../fingerprints/firefox.json"),
+            Fingerprint::FirefoxEsr => include_str!("../fingerprints/firefox-esr.json"),
         }
     }
 
     /// The spec compiled into this build.
     pub fn builtin_spec(self) -> io::Result<Arc<ClientHelloSpec>> {
-        static BUILTIN: [OnceLock<Arc<ClientHelloSpec>>; 3] =
-            [OnceLock::new(), OnceLock::new(), OnceLock::new()];
+        static BUILTIN: [OnceLock<Arc<ClientHelloSpec>>; COUNT] =
+            [const { OnceLock::new() }; COUNT];
         let slot = &BUILTIN[self.index()];
         if let Some(spec) = slot.get() {
             return Ok(spec.clone());
@@ -153,12 +182,12 @@ impl Fingerprint {
 /// The installed bundle: one slot per fingerprint, `None` = built-in.
 struct Overrides {
     revision: String,
-    specs: [Option<Arc<ClientHelloSpec>>; 3],
+    specs: [Option<Arc<ClientHelloSpec>>; COUNT],
 }
 
 static OVERRIDES: RwLock<Overrides> = RwLock::new(Overrides {
     revision: String::new(),
-    specs: [None, None, None],
+    specs: [const { None }; COUNT],
 });
 
 /// What [`install_profiles`] did with a bundle.
@@ -186,7 +215,7 @@ pub struct InstalledProfiles {
 /// place. Connections opened afterwards use the new specs.
 pub fn install_profiles(json: &str) -> io::Result<InstalledProfiles> {
     let bundle = profile::parse_bundle(json)?;
-    let mut table: [Option<Arc<ClientHelloSpec>>; 3] = [None, None, None];
+    let mut table: [Option<Arc<ClientHelloSpec>>; COUNT] = [const { None }; COUNT];
     let mut report = InstalledProfiles {
         revision: bundle.revision,
         ..InstalledProfiles::default()

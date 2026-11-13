@@ -159,8 +159,10 @@ pub fn decode_hex(text: &str) -> io::Result<Vec<u8>> {
 fn u16_list(body: &[u8], skip: usize) -> Vec<u16> {
     body.get(skip..)
         .unwrap_or_default()
-        .chunks_exact(2)
-        .map(|pair| u16::from_be_bytes([pair[0], pair[1]]))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|pair| u16::from_be_bytes(*pair))
         .collect()
 }
 
@@ -461,10 +463,12 @@ fn md5_hex(input: &[u8]) -> String {
         message.push(0);
     }
     message.extend_from_slice(&bit_len.to_le_bytes());
-    for block in message.chunks_exact(64) {
+    for block in message.as_chunks::<64>().0 {
         let words: Vec<u32> = block
-            .chunks_exact(4)
-            .map(|word| u32::from_le_bytes([word[0], word[1], word[2], word[3]]))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|word| u32::from_le_bytes(*word))
             .collect();
         let [mut a, mut b, mut c, mut d] = state;
         for i in 0..64 {

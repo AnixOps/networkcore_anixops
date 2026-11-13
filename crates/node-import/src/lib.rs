@@ -399,15 +399,18 @@ fn vless(node: &NodeDescriptor) -> Result<Value, Unsupported> {
         }
         let server_name = metadata(node, NODE_METADATA_TLS_SERVER_NAME)
             .ok_or("vless REALITY server name is missing")?;
-        // tls-mimic has a Chrome and a Safari fingerprint. A link that names
-        // Safari or iOS gets Safari, one that names nothing gets the
-        // platform's own (`auto`), every other uTLS name falls back to Chrome.
+        // uTLS names that tls-mimic has a captured fingerprint for keep it
+        // (Safari and iOS share Apple's network stack), a link that names
+        // nothing gets the platform's own (`auto`), every other uTLS name
+        // (android, 360, qq, random...) falls back to Chrome.
         let fingerprint = match metadata(node, NODE_METADATA_TLS_UTLS_FINGERPRINT)
             .map(|name| name.to_ascii_lowercase())
             .as_deref()
         {
             None | Some("" | "auto") => "auto",
             Some("safari" | "ios") => "safari",
+            Some("firefox") => "firefox",
+            Some("edge") => "edge",
             Some(_) => "chrome",
         };
         let mut outbound = json!({

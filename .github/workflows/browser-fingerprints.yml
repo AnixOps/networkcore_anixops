@@ -5,7 +5,11 @@ name: Browser fingerprints
 # permute their extensions) as its target. Runs when tls-mimic changes, every
 # week (a browser release that moves its fingerprint fails it), and by hand.
 # A capture without a profile, or one that differs, prints a profile derived
-# from it (tls_mimic::ja::spec_from_hello) in the test output.
+# from it (tls_mimic::ja::spec_from_hello) in the test output. The captures
+# are uploaded as an artifact so they can be committed under
+# crates/tls-mimic/tests/data. chrome-nopq has no browser to capture (Chrome
+# ignores --disable-features=PostQuantumKyber now), so it is only checked
+# as Chrome without the post-quantum parts by the unit tests.
 
 on:
   workflow_dispatch:
@@ -109,7 +113,6 @@ jobs:
           } >> "${GITHUB_STEP_SUMMARY}"
           failed=0
           bash "${capture}" chrome "${out}" "${CHROME}" "${chromium_flags[@]}" --user-data-dir="$(mktemp -d)" || failed=1
-          bash "${capture}" chrome-nopq "${out}" "${CHROME}" "${chromium_flags[@]}" --user-data-dir="$(mktemp -d)" --disable-features=PostQuantumKyber || failed=1
           bash "${capture}" edge "${out}" "${EDGE}" "${chromium_flags[@]}" --user-data-dir="$(mktemp -d)" || failed=1
           bash "${capture}" firefox "${out}" "${FIREFOX}" --headless --no-remote --profile "$(mktemp -d)" || failed=1
           bash "${capture}" firefox-esr "${out}" "${FIREFOX_ESR}" --headless --no-remote --profile "$(mktemp -d)" || failed=1
@@ -122,6 +125,15 @@ jobs:
         run: |
           set -euo pipefail
           cargo test --locked -p tls-mimic --test browser_fingerprints -- --ignored --nocapture
+
+      - name: Upload captures
+        if: always() && env.TLS_MIMIC_CAPTURES != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: client-hellos-linux
+          path: ${{ env.TLS_MIMIC_CAPTURES }}/*.hex
+          retention-days: 3
+          if-no-files-found: ignore
 
   apple:
     name: Safari and iOS (macOS)
@@ -196,7 +208,9 @@ jobs:
           failed=0
           # nscurl is NSURLSession, the same stack (and ClientHello) as Safari.
           bash "${capture}" safari "${out}" nscurl || failed=1
-          bash "${capture}" ios "${out}" xcrun simctl openurl "${UDID}" || failed=1
+          # The simulator runs the iOS network stack; its capture is checked against
+          # the safari profile (the file name picks the profile).
+          bash "${capture}" safari-ios "${out}" xcrun simctl openurl "${UDID}" || failed=1
           echo "TLS_MIMIC_CAPTURES=${out}" >> "${GITHUB_ENV}"
           exit "${failed}"
 
@@ -206,3 +220,12 @@ jobs:
         run: |
           set -euo pipefail
           cargo test --locked -p tls-mimic --test browser_fingerprints -- --ignored --nocapture
+
+      - name: Upload captures
+        if: always() && env.TLS_MIMIC_CAPTURES != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: client-hellos-apple
+          path: ${{ env.TLS_MIMIC_CAPTURES }}/*.hex
+          retention-days: 3
+          if-no-files-found: ignore
