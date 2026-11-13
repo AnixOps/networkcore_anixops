@@ -166,7 +166,11 @@ mod linux {
                 ss,
                 inbound,
                 Arc::new(Redirect(sink_addr)),
-                ServeSettings::default(),
+                // The default cap (4096) is below the scale test's count.
+                ServeSettings {
+                    max_connections: 1 << 20,
+                    ..ServeSettings::default()
+                },
                 Arc::new(InboundStats::default()),
             ));
             println!("READY {} {}", sink_addr.port(), ss_port);
