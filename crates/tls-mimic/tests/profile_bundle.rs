@@ -41,13 +41,13 @@ fn a_bundle_replaces_built_in_fingerprints_until_cleared() {
     let bundle = serde_json::json!({
         "format": 1,
         "revision": "test-1",
-        "profiles": { "chrome": next, "firefox": { "anything": true } },
+        "profiles": { "chrome": next, "some-future-browser": { "anything": true } },
     })
     .to_string();
     let installed = install_profiles(&bundle).unwrap();
     assert_eq!(installed.revision, "test-1");
     assert_eq!(installed.replaced, [Fingerprint::Chrome]);
-    assert_eq!(installed.ignored, ["firefox"]);
+    assert_eq!(installed.ignored, ["some-future-browser"]);
     assert_eq!(installed_profiles().revision, "test-1");
     assert_eq!(installed_profiles().replaced, [Fingerprint::Chrome]);
     assert_eq!(

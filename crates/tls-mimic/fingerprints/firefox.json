@@ -1,0 +1,28 @@
+{
+  "note": "Desktop Firefox 160 (captured from Firefox 160.0 on Linux, 2026-11-13): no GREASE, fixed extension order, X25519MLKEM768 + X25519 + P-256 key shares, delegated_credentials (0x0022) and record_size_limit (0x001c) sent as captured, ECH GREASE last.",
+  "cipher_suites": [
+    "0x1301", "0x1303", "0x1302", "0xc02b", "0xc02f", "0xcca9", "0xcca8", "0xc02c",
+    "0xc030", "0xc013", "0xc014", "0x009c", "0x009d", "0x002f", "0x0035"
+  ],
+  "extensions": [
+    "server_name",
+    "extended_master_secret",
+    "renegotiation_info",
+    { "type": "supported_groups", "groups": ["0x11ec", "0x001d", "0x0017", "0x0018", "0x0019"] },
+    { "type": "ec_point_formats", "formats": [0] },
+    "session_ticket",
+    "alpn",
+    "status_request",
+    { "type": "raw", "body": "00080403050306030203", "id": "0x0022" },
+    "signed_certificate_timestamp",
+    { "type": "key_share", "groups": ["0x11ec", "0x001d", "0x0017"] },
+    { "type": "supported_versions", "versions": ["0x0304", "0x0303"] },
+    { "type": "signature_algorithms", "schemes": ["0x0403", "0x0503", "0x0603", "0x0804", "0x0805", "0x0806", "0x0401", "0x0501", "0x0601", "0x0203", "0x0201"] },
+    { "type": "psk_key_exchange_modes", "modes": [1] },
+    { "type": "raw", "body": "4001", "id": "0x001c" },
+    { "type": "compress_certificate", "algorithms": ["0x0001", "0x0002", "0x0003"] },
+    "ech_grease"
+  ],
+  "permute_extensions": false,
+  "alpn": ["h2", "http/1.1"]
+}

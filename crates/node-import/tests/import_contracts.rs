@@ -614,11 +614,15 @@ vless://00000000-0000-0000-0000-000000000006@c.example.test:443?security=reality
     let again = import_text(&link).unwrap();
     assert_eq!(&again.nodes[0].outbound, outbound);
 
-    // uTLS names: Safari and iOS map to the Safari fingerprint, the rest to Chrome.
+    // uTLS names: Safari and iOS map to the Safari fingerprint, Firefox and
+    // Edge to their own, the rest to Chrome.
     for (fp, expected) in [
         ("ios", "safari"),
         ("Safari", "safari"),
-        ("firefox", "chrome"),
+        ("firefox", "firefox"),
+        ("Edge", "edge"),
+        ("android", "chrome"),
+        ("randomized", "chrome"),
     ] {
         let report = import_text(&format!(
             "vless://00000000-0000-0000-0000-000000000006@c.example.test:443?security=reality&sni=www.example.com&pbk=KEY&sid=ab12&fp={fp}&flow=xtls-rprx-vision&type=tcp#R"

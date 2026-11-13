@@ -52,9 +52,10 @@ pub const SESSION_ID_OFFSET: usize = 39;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum Fingerprint {
     /// Current desktop Chrome: GREASE, permuted extensions, X25519MLKEM768 +
-    /// X25519 key shares, ECH GREASE, the new ALPS code point, and (Chrome 157,
-    /// checked against Chrome for Testing 157.0.8103.38) a GREASE signature
-    /// scheme followed by ML-DSA-44/65/87 at the front of signature_algorithms.
+    /// X25519 key shares, ECH GREASE, the new ALPS code point, a GREASE
+    /// signature scheme followed by ML-DSA-44/65/87 at the front of
+    /// signature_algorithms, and the 0xca34 extension (captured from Chrome
+    /// 157.0.8103.78).
     #[default]
     Chrome,
     /// The same Chrome shape without the post-quantum hybrid group, for
@@ -65,13 +66,29 @@ pub enum Fingerprint {
     /// shares, zlib certificate compression, no ALPS, no ECH GREASE. Captured
     /// from Safari 26.6.2 on macOS 26.7.2.
     Safari,
+    /// Desktop Edge: the Chrome shape without the 0xca34 extension (captured
+    /// from Edge 157).
+    Edge,
+    /// Desktop Firefox: no GREASE, fixed extension order, X25519MLKEM768 +
+    /// X25519 + P-256 key shares, delegated_credentials, record_size_limit,
+    /// ECH GREASE (captured from Firefox 160).
+    Firefox,
+    /// Firefox ESR: the Firefox shape plus one more CBC suite and the FFDHE
+    /// groups (captured from Firefox 153 ESR).
+    FirefoxEsr,
 }
 
+/// How many fingerprints this build has.
+const COUNT: usize = Fingerprint::ALL.len();
+
 impl Fingerprint {
-    pub const ALL: [Fingerprint; 3] = [
+    pub const ALL: [Fingerprint; 6] = [
         Fingerprint::Chrome,
         Fingerprint::ChromeNoPq,
         Fingerprint::Safari,
+        Fingerprint::Edge,
+        Fingerprint::Firefox,
+        Fingerprint::FirefoxEsr,
     ];
 
     /// Resolves a configured name. `auto` is [`Fingerprint::platform_default`].
@@ -80,6 +97,9 @@ impl Fingerprint {
             "chrome" | "chrome-pq" => Some(Fingerprint::Chrome),
             "chrome-nopq" | "chrome-no-pq" | "chrome120" => Some(Fingerprint::ChromeNoPq),
             "safari" | "ios" | "apple" => Some(Fingerprint::Safari),
+            "edge" | "msedge" => Some(Fingerprint::Edge),
+            "firefox" => Some(Fingerprint::Firefox),
+            "firefox-esr" | "firefoxesr" => Some(Fingerprint::FirefoxEsr),
             "auto" => Some(Fingerprint::platform_default()),
             _ => None,
         }
@@ -91,6 +111,9 @@ impl Fingerprint {
             Fingerprint::Chrome => "chrome",
             Fingerprint::ChromeNoPq => "chrome-nopq",
             Fingerprint::Safari => "safari",
+            Fingerprint::Edge => "edge",
+            Fingerprint::Firefox => "firefox",
+            Fingerprint::FirefoxEsr => "firefox-esr",
         }
     }
 
@@ -111,6 +134,9 @@ impl Fingerprint {
             Fingerprint::Chrome => 0,
             Fingerprint::ChromeNoPq => 1,
             Fingerprint::Safari => 2,
+            Fingerprint::Edge => 3,
+            Fingerprint::Firefox => 4,
+            Fingerprint::FirefoxEsr => 5,
         }
     }
 
@@ -119,13 +145,16 @@ impl Fingerprint {
             Fingerprint::Chrome => include_str!("../fingerprints/chrome.json"),
             Fingerprint::ChromeNoPq => include_str!("../fingerprints/chrome-nopq.json"),
             Fingerprint::Safari => include_str!("../fingerprints/safari.json"),
+            Fingerprint::Edge => include_str!("../fingerprints/edge.json"),
+            Fingerprint::Firefox => include_str!("../fingerprints/firefox.json"),
+            Fingerprint::FirefoxEsr => include_str!("../fingerprints/firefox-esr.json"),
         }
     }
 
     /// The spec compiled into this build.
     pub fn builtin_spec(self) -> io::Result<Arc<ClientHelloSpec>> {
-        static BUILTIN: [OnceLock<Arc<ClientHelloSpec>>; 3] =
-            [OnceLock::new(), OnceLock::new(), OnceLock::new()];
+        static BUILTIN: [OnceLock<Arc<ClientHelloSpec>>; COUNT] =
+            [const { OnceLock::new() }; COUNT];
         let slot = &BUILTIN[self.index()];
         if let Some(spec) = slot.get() {
             return Ok(spec.clone());
@@ -153,12 +182,12 @@ impl Fingerprint {
 /// The installed bundle: one slot per fingerprint, `None` = built-in.
 struct Overrides {
     revision: String,
-    specs: [Option<Arc<ClientHelloSpec>>; 3],
+    specs: [Option<Arc<ClientHelloSpec>>; COUNT],
 }
 
 static OVERRIDES: RwLock<Overrides> = RwLock::new(Overrides {
     revision: String::new(),
-    specs: [None, None, None],
+    specs: [const { None }; COUNT],
 });
 
 /// What [`install_profiles`] did with a bundle.
@@ -186,7 +215,7 @@ pub struct InstalledProfiles {
 /// place. Connections opened afterwards use the new specs.
 pub fn install_profiles(json: &str) -> io::Result<InstalledProfiles> {
     let bundle = profile::parse_bundle(json)?;
-    let mut table: [Option<Arc<ClientHelloSpec>>; 3] = [None, None, None];
+    let mut table: [Option<Arc<ClientHelloSpec>>; COUNT] = [const { None }; COUNT];
     let mut report = InstalledProfiles {
         revision: bundle.revision,
         ..InstalledProfiles::default()
@@ -240,7 +269,7 @@ pub fn clear_profiles() {
         .write()
         .unwrap_or_else(|poisoned| poisoned.into_inner()) = Overrides {
         revision: String::new(),
-        specs: [None, None, None],
+        specs: [const { None }; COUNT],
     };
 }
 
@@ -417,7 +446,8 @@ impl ClientHelloSpec {
         }
         for share in shares {
             match share {
-                Code::Grease | Code::Value(GROUP_X25519 | GROUP_X25519_MLKEM768) => {}
+                Code::Grease
+                | Code::Value(GROUP_X25519 | GROUP_X25519_MLKEM768 | GROUP_SECP256R1) => {}
                 Code::Value(_) => {
                     return Err(invalid_data(
                         "fingerprint has a key share for a group this client does not implement",
@@ -445,6 +475,14 @@ impl ClientHelloSpec {
 pub struct KeyShareSecrets {
     pub(crate) x25519: StaticSecret,
     pub(crate) mlkem768: Option<MlKemShare>,
+    /// The P-256 share (Firefox offers one); ring consumes the key in the
+    /// agreement, so it is taken out once the server picked the group.
+    pub(crate) secp256r1: Option<P256Share>,
+}
+
+pub(crate) struct P256Share {
+    pub(crate) private: std::sync::Mutex<Option<ring::agreement::EphemeralPrivateKey>>,
+    pub(crate) public: Vec<u8>,
 }
 
 pub(crate) struct MlKemShare {
@@ -453,7 +491,7 @@ pub(crate) struct MlKemShare {
 }
 
 impl KeyShareSecrets {
-    fn generate(with_mlkem: bool) -> Self {
+    fn generate(with_mlkem: bool, with_p256: bool) -> io::Result<Self> {
         let mut rng = rand_core::OsRng;
         let x25519 = StaticSecret::random_from_rng(rng);
         let mlkem768 = with_mlkem.then(|| {
@@ -463,7 +501,49 @@ impl KeyShareSecrets {
                 encapsulation: encapsulation.as_bytes().as_slice().to_vec(),
             }
         });
-        Self { x25519, mlkem768 }
+        let secp256r1 = if with_p256 {
+            let private = ring::agreement::EphemeralPrivateKey::generate(
+                &ring::agreement::ECDH_P256,
+                &ring::rand::SystemRandom::new(),
+            )
+            .map_err(|_| invalid_data("P-256 key generation failed"))?;
+            let public = private
+                .compute_public_key()
+                .map_err(|_| invalid_data("P-256 key generation failed"))?
+                .as_ref()
+                .to_vec();
+            Some(P256Share {
+                private: std::sync::Mutex::new(Some(private)),
+                public,
+            })
+        } else {
+            None
+        };
+        Ok(Self {
+            x25519,
+            mlkem768,
+            secp256r1,
+        })
+    }
+
+    /// ECDH over P-256 with the client's ephemeral key; usable once.
+    pub fn secp256r1_shared(&self, peer_public: &[u8]) -> io::Result<Vec<u8>> {
+        let share = self
+            .secp256r1
+            .as_ref()
+            .ok_or_else(|| invalid_data("server selected P-256 without an offer"))?;
+        let private = share
+            .private
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take()
+            .ok_or_else(|| invalid_data("P-256 key share was already used"))?;
+        ring::agreement::agree_ephemeral(
+            private,
+            &ring::agreement::UnparsedPublicKey::new(&ring::agreement::ECDH_P256, peer_public),
+            |shared| shared.to_vec(),
+        )
+        .map_err(|_| invalid_data("invalid P-256 key share"))
     }
 
     pub fn x25519_public(&self) -> [u8; 32] {
@@ -583,7 +663,10 @@ pub fn build_from_spec_with_psk(
     let with_mlkem = spec
         .key_share_groups()
         .contains(&Code::Value(GROUP_X25519_MLKEM768));
-    let secrets = KeyShareSecrets::generate(with_mlkem);
+    let with_p256 = spec
+        .key_share_groups()
+        .contains(&Code::Value(GROUP_SECP256R1));
+    let secrets = KeyShareSecrets::generate(with_mlkem, with_p256)?;
     let alpn: Vec<Vec<u8>> = alpn
         .map(|protocols| protocols.to_vec())
         .unwrap_or_else(|| spec.default_alpn.clone());
@@ -808,6 +891,13 @@ fn encode_extension(
                 let (id, data): (u16, Vec<u8>) = match group {
                     Code::Grease => (grease.group, vec![0]),
                     Code::Value(GROUP_X25519) => (GROUP_X25519, secrets.x25519_public().to_vec()),
+                    Code::Value(GROUP_SECP256R1) => {
+                        let share = secrets
+                            .secp256r1
+                            .as_ref()
+                            .ok_or_else(|| invalid_data("missing P-256 key"))?;
+                        (GROUP_SECP256R1, share.public.clone())
+                    }
                     Code::Value(GROUP_X25519_MLKEM768) => {
                         let share = secrets
                             .mlkem768
