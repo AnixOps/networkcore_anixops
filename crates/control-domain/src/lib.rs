@@ -177,6 +177,9 @@ pub const NODE_METADATA_ANX_WG_PORT: &str = "anx.wg_port";
 pub const NODE_METADATA_ANX_BARE_PORT: &str = "anx.bare_port";
 /// Id of the node this one connects through (`via`, a proxy chain).
 pub const NODE_METADATA_VIA: &str = "proxy.via";
+/// Client multiplexing the subscription turned on for the node (Clash
+/// `smux`, sing-box `multiplex`), as the engine's `multiplex` JSON object.
+pub const NODE_METADATA_MULTIPLEX: &str = "proxy.multiplex";
 /// How the node's traffic crosses the border, from an AnixOps subscription's
 /// `#anixops:path=trunk` line: `trunk` for a domestic ingress whose
 /// cross-border leg is a link many users share. Clients pick such a node by
