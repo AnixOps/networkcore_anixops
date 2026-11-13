@@ -27,6 +27,7 @@ use crate::connections::{Dispatcher, Mode};
 use crate::direct::DirectOutbound;
 use crate::dns_policy::DnsPolicy;
 use crate::dns_resolver::PolicyResolver;
+use crate::fake_ip::FakeIpPool;
 use crate::routing::RoutedOutbound;
 use crate::rule_sets::{
     RemoteRuleSet, RuleSetStore, DEFAULT_UPDATE_INTERVAL_SECS, MIN_UPDATE_INTERVAL_SECS,
@@ -302,6 +303,58 @@ pub struct DnsConfig {
     /// Per-domain servers, first match wins.
     #[serde(default)]
     pub rules: Vec<DnsRuleConfig>,
+    /// Fake-IP answers for the packet tunnel; see [`crate::fake_ip`].
+    #[serde(default)]
+    pub fake_ip: FakeIpConfig,
+}
+
+/// The `dns.fake_ip` section; off unless `enabled`.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FakeIpConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    /// IPv4 network the fake addresses come from, /8 to /22; its first 256
+    /// addresses are never handed out (the tunnel's own interface and DNS).
+    #[serde(default = "default_fake_ip_range")]
+    pub range: String,
+    /// Most names kept; the least recently used name gives up its address
+    /// when the table is full.
+    #[serde(default = "default_fake_ip_max_entries")]
+    pub max_entries: usize,
+    /// Names that keep their real answers, besides the built-in list:
+    /// `name`, `+.name` (it and its subdomains) or `*` for one label
+    /// (`time.*.com`).
+    #[serde(default)]
+    pub filter: Vec<String>,
+    /// Whether the built-in list ([`crate::fake_ip::DEFAULT_FILTER`]: LAN,
+    /// NTP, STUN, captive portal, push) applies.
+    #[serde(default = "default_true")]
+    pub default_filter: bool,
+}
+
+impl Default for FakeIpConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            range: default_fake_ip_range(),
+            max_entries: default_fake_ip_max_entries(),
+            filter: Vec::new(),
+            default_filter: true,
+        }
+    }
+}
+
+fn default_fake_ip_range() -> String {
+    "198.18.0.0/15".to_string()
+}
+
+fn default_fake_ip_max_entries() -> usize {
+    65_536
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Default for DnsConfig {
@@ -313,6 +366,7 @@ impl Default for DnsConfig {
             default: None,
             hosts: BTreeMap::new(),
             rules: Vec::new(),
+            fake_ip: FakeIpConfig::default(),
         }
     }
 }
@@ -485,6 +539,24 @@ impl RuntimeConfig {
     #[cfg(not(feature = "tls-fingerprints"))]
     pub fn install_tls_fingerprints(&self) {}
 
+    /// The Fake-IP pool of `dns.fake_ip`, `None` when it is off. Each call
+    /// builds a new, empty pool: build it once per runtime.
+    pub fn fake_ip_pool(&self) -> Result<Option<Arc<FakeIpPool>>, RuntimeError> {
+        let pool = FakeIpPool::from_config(&self.dns.fake_ip).map_err(rejected)?;
+        if let Some(pool) = &pool {
+            if self
+                .dns
+                .hosts
+                .values()
+                .flatten()
+                .any(|address| pool.contains(*address))
+            {
+                return Err(rejected("dns hosts must not use the fake_ip range"));
+            }
+        }
+        Ok(pool)
+    }
+
     /// The parsed `redirects` lines.
     pub fn redirect_table(&self) -> Result<RedirectTable, RuntimeError> {
         RedirectTable::parse(&self.redirects).map_err(|error| {
@@ -554,6 +626,7 @@ impl RuntimeConfig {
             return Err(rejected("resource limits are out of range"));
         }
         crate::dns_policy::DnsPolicy::from_config(&self.dns).map_err(rejected)?;
+        self.fake_ip_pool()?;
         Ok(())
     }
 
@@ -608,7 +681,8 @@ impl RuntimeConfig {
             None => Dispatcher::single(self.build_outbound(registry, dialer.clone())?)
                 .with_direct(Arc::new(DirectOutbound::new(dialer))),
         }
-        .with_redirects(self.redirect_table()?);
+        .with_redirects(self.redirect_table()?)
+        .with_fake_ip(self.fake_ip_pool()?);
         dispatcher.set_mode(self.mode);
         Ok(dispatcher)
     }

@@ -4,7 +4,8 @@
 //! The tunnel only sees destination addresses, so domain rules match a
 //! [`TargetAddr::Domain`] (the desktop local proxy passes one) or the host
 //! name the tunnel sniffed from the flow, given to
-//! [`RoutedOutbound::route_flow`]; FakeIP is not wired yet. A domain target that reaches
+//! [`RoutedOutbound::route_flow`]; with Fake-IP the dispatcher hands over the
+//! name of a fake address as a domain target (see [`crate::fake_ip`]). A domain target that reaches
 //! an IP rule without `no-resolve` is resolved once with the
 //! [`DomainResolver`] (the config's `dns` section through
 //! [`crate::dns_resolver::PolicyResolver`] in a built runtime, never the
@@ -429,6 +430,11 @@ impl RoutedOutbound {
     /// The outbound for connections that skip the rules (the direct mode).
     pub fn direct(&self) -> &Arc<dyn TcpOutbound> {
         &self.direct
+    }
+
+    /// The resolver of IP rules, also used for Fake-IP flows that go DIRECT.
+    pub fn resolver(&self) -> &Arc<dyn DomainResolver> {
+        &self.resolver
     }
 
     /// Replaces the resolver used for IP rules (tests inject a fixed one).

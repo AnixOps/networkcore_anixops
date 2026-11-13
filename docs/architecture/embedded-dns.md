@@ -1,6 +1,6 @@
-# 内嵌引擎 DNS：上游、hosts、按域名分流与 fake-ip 评估
+# 内嵌引擎 DNS：上游、hosts、按域名分流与 fake-ip
 
-适用范围：`crates/engine-embedded`（iOS 隧道、桌面 local proxy 的嵌入式内核）。代码见 `src/dns.rs`、`src/dns_policy.rs`，配置见 `src/config.rs` 的 `DnsConfig`。
+适用范围：`crates/engine-embedded`（iOS 隧道、桌面 local proxy 的嵌入式内核）。代码见 `src/dns.rs`、`src/dns_policy.rs`、`src/fake_ip.rs`，配置见 `src/config.rs` 的 `DnsConfig`。
 
 ## 现状
 
@@ -98,24 +98,86 @@
 
 ## 不在本次范围
 
-- 不做 fake-ip（见下文）。缓存只缩短真实解析，不省掉首次解析。
+- fake-ip 默认关闭（见下文「fake-ip」）。不开时缓存只缩短真实解析，不省掉首次解析。
 - 不支持 UDP 上游：UDP 走代理需要逐个出站的 UDP 支持，且容易被干扰。
 - 不做 DoH over HTTP/2。HTTP/1.1 keep-alive 已能复用连接，但同一连接上一次只跑一个查询，并发靠多条连接。
 - 不支持 DoQ（DNS over QUIC）。
 
-## fake-ip 评估
+## fake-ip
 
-### 它解决什么
+`dns.fake_ip.enabled` 打开后（默认关闭），包隧道对应用的 `A` 查询立刻回一个保留网段里的假地址，应用连到这个地址时再还原出域名，按域名分流，由代理解析。下面先是实现，再是当初的评估。
+
+### 配置
+
+```json
+"dns": {
+  "fake_ip": {
+    "enabled": true,
+    "range": "198.18.0.0/15",
+    "max_entries": 65536,
+    "filter": ["+.corp.example", "api.*.example"],
+    "default_filter": true
+  }
+}
+```
+
+- `range`：IPv4 网段，`/8` 到 `/22`，须按前缀对齐。前 256 个地址（默认即 `198.18.0.0/24`）永不分配：客户端把隧道接口地址 `198.18.0.1` 和 DNS `198.18.0.2` 放在这里。最后一个地址也不分配。
+- `max_entries`：表中最多保留的域名数，默认 65536，上限 1048576，并且不超过网段可用地址数（`/15` 为 130815）。
+- `filter`：额外的例外名单，命中的名字照常转发给上游、拿真实地址。写法：`name`（精确）、`+.name`（它和所有子域名）、带 `*` 的模式（每个 `*` 恰好代表一级标签，如 `time.*.com`）。最多 1024 条（含内置）。
+- `default_filter`：是否启用内置例外名单 `fake_ip::DEFAULT_FILTER`（默认 `true`）：`.lan`/`.local`/`.home.arpa` 等局域网名、`localhost`、NTP（`time.*.com`、`+.ntp.org` 等）、STUN（`stun.*.*`、PlayStation/Xbox/Nintendo）、captive portal 与连通性检测（`captive.apple.com`、`+.msftconnecttest.com`）、Apple 推送（`+.push.apple.com`）、QQ 本地登录。
+- `hosts` 里的名字仍先由 `hosts` 应答；`hosts` 的地址落在 `range` 内时拒绝整份配置。没有点的单标签名（局域网搜索域）不给假地址。
+
+### 应答
+
+- `A`：假地址，TTL 1 秒。同一个名字留在表里期间总拿到同一个地址。
+- `AAAA` 与 `HTTPS`（SVCB，类型 65）：空应答（NOERROR、无记录），应用改用 IPv4 连假地址；`HTTPS` 记录的地址提示会绕过假地址，所以一并清空。
+- 其他类型（MX、TXT、SRV…）和例外名单里的名字照常走上游。
+- 统计：`TunnelStatsSnapshot.dns_fake` 计假应答数（也计入 `dns_queries`）。
+
+### 连接还原
+
+`Dispatcher` 在改写（`redirects`）和分流之前，把目标落在 `range` 内的 TCP 连接与 UDP 流换成 `域名:端口`，所以：
+
+- 域名规则对所有协议生效，不只是能嗅探 SNI / Host 的 TLS、HTTP。连接列表显示 `域名:端口`。
+- 走代理时域名交给节点，在远端解析。
+- 分到 `DIRECT` 时，内核用本节的 DNS 设置（`PolicyResolver`，与 IP 规则解析同一套）解析出真实地址再直连，不用系统解析器——桌面 TUN 的系统 DNS 可能就指向隧道，会拿回假地址。解析结果仍落在 `range` 内时拒绝该连接。单出站配置（没有 `routing`）的直连模式没有 `dns` 段解析器，按域名交给直连拨号器。
+- MITM 接管的流量同样先还原再连接源站。
+
+映射表由运行时持有，隧道停止再启动（同一进程内）时保留，减少“应用还缓存着旧假地址”的失败。
+
+### 内存与回收
+
+每个表项约 100 字节加域名本身。表满后用 CLOCK 算法（近似 LRU，无需链表）回收：最近被查询或被连接过的地址会被跳过一轮，回收的是一圈内都没用过的名字。
+
+`tests/fake_ip_memory.rs` 用计数分配器实测 10 万个约 40 字节的域名：必须低于 50 MB（验收线；Network Extension 整个进程约 50 MB），实际在 CI 日志里打印（`fake-ip: … MiB`）；表满后再加 1 万个名字不再增长。
+
+### 冲突检测
+
+冲突都计数，不静默处理，计数在 `RuntimeStatus.fake_ip`（`FakeIpStats`，只有数字，没有域名或地址）：
+
+| 计数 | 含义 | 处理 |
+| --- | --- | --- |
+| `misses` | 连到 `range` 内但表里没有对应名字的地址（进程重启、应用缓存超过 TTL、地址被回收） | 有嗅探到的 SNI / Host 就用它继续（`recovered`），否则拒绝连接，不发到无意义的地址 |
+| `conflicts` | 嗅探到的名字和地址对应的名字不同（应用用了已经分给别的名字的旧地址） | 以嗅探到的名字为准 |
+| `recycled_young` | 回收了 10 分钟内还用过的地址 | 说明 `max_entries` 对这台设备偏小 |
+
+另有 `entries`、`capacity`、`assigned`、`recycled`。
+
+测试：`src/fake_ip.rs` 单元测试（分配、回收顺序、冲突、应答格式、例外名单、配置校验）、`tests/fake_ip.rs`（经 Dispatcher 还原、域名规则、DIRECT 用 dns 段解析、未命中拒绝与恢复、配置）、`tests/tunnel_packets.rs` 的 `fake_ip_answers_dns_and_sends_the_flow_by_name`（包级：DNS 拿假地址，非 TLS 的 TCP 连接按域名出站）、`tests/fake_ip_memory.rs`。
+
+### 当初的评估（2026-10）
+
+#### 它解决什么
 
 fake-ip 对每个查询立刻回一个保留网段（通常是 `198.18.0.0/15`）里的假地址，并记下“假地址 → 域名”的映射。应用随后连接假地址时，隧道按映射还原出域名，再按域名选路，把域名交给代理解析。
 
-### 对本项目的收益
+#### 对本项目的收益
 
 1. 首包延迟更低：应用不必等真实 DNS 往返（经代理的 DoH 常要几百毫秒）。
 2. 不做嗅探也能拿到域名：非 TLS、非 HTTP 的 TCP 协议（例如 SSH、自定义协议）也能按域名规则分流。目前这类连接只能按 IP 规则匹配。
 3. 不泄露 DNS：真实解析在代理端完成，本地上游根本收不到查询。
 
-### 代价与风险
+#### 代价与风险
 
 1. 状态与内存：要维护一张有上限、可回收的映射表（LRU）。Network Extension 只有约 50 MB 内存，表的大小和老化策略必须控制。
 2. 映射丢失：隧道重启或映射被回收后，应用还缓存着假地址，连接会失败。一般做法是 TTL 设得很短（1 秒），关闭隧道时清空系统 DNS 缓存，但 iOS 不提供这个接口。
@@ -123,7 +185,7 @@ fake-ip 对每个查询立刻回一个保留网段（通常是 `198.18.0.0/15`�
 4. 直连流量也会先拿到假地址，要在隧道里替应用解析真实地址再直连，等于在内核里再实现一个解析器（可复用本次的 `dns_policy`）。
 5. 绕过 VPN 的应用（自己指定 DNS 服务器或使用 DoH 的应用）不受影响，也就得不到好处。
 
-### 结论与建议
+#### 当时的结论（已按此实现为可选模式）
 
 本次不实现 fake-ip。
 
