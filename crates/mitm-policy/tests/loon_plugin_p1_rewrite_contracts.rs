@@ -3,7 +3,8 @@
 
 use control_domain::{
     GrantedPermissions, HookPoint, HttpMitmAction, HttpMitmEvent, HttpMitmOutcome, HttpMitmPhase,
-    MetadataEntry, MitmHostnameDecision, MitmPluginService, PluginInstance,
+    MetadataEntry, MitmHostnameDecision, MitmPluginService, PluginInstance, PluginManifest,
+    PluginPackage, PluginPermission,
 };
 use mitm_policy::loon_map_local::{match_map_local, parse_map_local_line};
 use mitm_policy::loon_plugin::{
@@ -633,7 +634,30 @@ fn ipleak_demo_rewrites_the_address_the_page_shows() {
         vec!["ipleak.net".to_string(), "*.ipleak.net".to_string()]
     );
 
-    let (service, instance) = load(&plugin);
+    // Load it the way the packet tunnel does: merged, with `[MITM] enable = true`.
+    let package = PluginPackage {
+        manifest: PluginManifest {
+            id: "user.ipleak-demo".to_string(),
+            version: "1".to_string(),
+            permissions: vec![
+                PluginPermission::ReadRequest,
+                PluginPermission::ModifyRequest,
+                PluginPermission::ReadResponse,
+                PluginPermission::ModifyResponse,
+            ],
+            hooks: vec![HookPoint::Request, HookPoint::Response],
+        },
+        source: merged_plugin_source("ipleak demo", &[&plugin]),
+    };
+    let service = AnixOpsMitmPluginService::new();
+    let instance = service
+        .load(
+            &package,
+            &GrantedPermissions {
+                permissions: package.manifest.permissions.clone(),
+            },
+        )
+        .expect("merged policy should load");
     for host in ["ipleak.net", "ipv4.ipleak.net", "ipv6.ipleak.net"] {
         assert_eq!(
             service
