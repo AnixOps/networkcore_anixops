@@ -1002,11 +1002,11 @@ mod pcapng {
     }
 
     fn sum(bytes: &[u8], mut acc: u32) -> u32 {
-        let mut pairs = bytes.chunks_exact(2);
-        for pair in &mut pairs {
-            acc = acc.wrapping_add(u32::from(u16::from_be_bytes([pair[0], pair[1]])));
+        let (pairs, rest) = bytes.as_chunks::<2>();
+        for pair in pairs {
+            acc = acc.wrapping_add(u32::from(u16::from_be_bytes(*pair)));
         }
-        if let [last] = pairs.remainder() {
+        if let [last] = rest {
             acc = acc.wrapping_add(u32::from(*last) << 8);
         }
         acc
