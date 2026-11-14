@@ -29,6 +29,14 @@
 //! | `metrics` | `anonymous` (optional bool) | `{"content_type", "text"}`: [`crate::metrics`] in the Prometheus text format |
 //! | `reload_rules` | `rules`, optional `dry_run` | `{"reloaded": bool, "rules", "generation"}` or `{"reloaded": false, "error": {"line", "code"}}` |
 //! | `outbound_reuse` | | `{"outbounds": [{"node", "protocol", "reuse"}]}`: connection pool (`mux`) and TLS resumption counters, only outbounds that keep them |
+//! | `capture` | | [`crate::capture::CaptureStatus`] |
+//! | `set_capture` | `enabled`, optional `max_total_bytes` | [`crate::capture::CaptureStatus`]: keep the bytes of new connections |
+//! | `clear_capture` | | [`crate::capture::CaptureStatus`] |
+//! | `capture_connection` | `id` | `{"capture": {...} \| null}`: kept bytes and decrypted HTTP messages of one connection |
+//! | `export_capture` | `format` (`pcapng` \| `har`), optional `id` | `{"format", "file_name", "content_type", "size", "data_base64"}` |
+//!
+//! Capture is off until `set_capture` turns it on and lasts until the engine
+//! stops; see [`crate::capture`] for what is kept and its memory budget.
 //!
 //! `reload_rules` swaps the rule lines of a routing config while the engine
 //! runs ([`crate::routing::RoutedOutbound::reload_rules`]): `rules` is the
@@ -61,6 +69,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+use crate::capture::{self, ExportFormat};
 use crate::connections::{Dispatcher, Mode};
 use crate::metrics;
 use crate::tunnel::FlowInterceptor;
@@ -124,6 +133,21 @@ enum ControlRequest {
         dry_run: bool,
     },
     OutboundReuse,
+    Capture,
+    SetCapture {
+        enabled: bool,
+        #[serde(default)]
+        max_total_bytes: Option<usize>,
+    },
+    ClearCapture,
+    CaptureConnection {
+        id: u64,
+    },
+    ExportCapture {
+        format: ExportFormat,
+        #[serde(default)]
+        id: Option<u64>,
+    },
 }
 
 /// Script commands, answered by the flow interceptor.
@@ -308,6 +332,25 @@ pub fn handle_with_interceptor(
                 "content_type": metrics::CONTENT_TYPE,
                 "text": metrics::render(dispatcher, labels),
             }))
+        }
+        ControlRequest::Capture => serde_json::to_value(tracker.capture().status()),
+        ControlRequest::SetCapture {
+            enabled,
+            max_total_bytes,
+        } => {
+            tracker.capture().set(enabled, max_total_bytes);
+            serde_json::to_value(tracker.capture().status())
+        }
+        ControlRequest::ClearCapture => {
+            tracker.capture().clear();
+            serde_json::to_value(tracker.capture().status())
+        }
+        ControlRequest::CaptureConnection { id } => {
+            Ok(json!({ "capture": tracker.capture().connection_json(id) }))
+        }
+        ControlRequest::ExportCapture { format, id } => {
+            // The file goes out as written, without a JSON value in between.
+            return Ok(capture::export_answer(tracker.capture(), format, id));
         }
         ControlRequest::ReloadRules { rules, dry_run } => {
             let routed = dispatcher

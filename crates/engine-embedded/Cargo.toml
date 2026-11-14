@@ -17,10 +17,10 @@ hysteria2 = ["dep:outbound-hysteria2"]
 iwan = ["dep:outbound-iwan"]
 # Desktop local proxy (SOCKS5/HTTP listener), URL delay tests and remote rule
 # set downloads (with optional Ed25519 signatures).
-local-proxy = ["dep:base64", "dep:inbound-mixed", "dep:ring", "dep:transport-tls"]
+local-proxy = ["dep:inbound-mixed", "dep:ring", "dep:transport-tls"]
 mieru = ["dep:outbound-mieru"]
 # HTTPS decryption with the shared mitm-policy rewrite engine (src/mitm).
-mitm = ["dep:base64", "dep:engine-native", "dep:mitm-policy", "dep:rcgen", "dep:rustls", "dep:time", "dep:tokio-rustls", "dep:transport-tls"]
+mitm = ["dep:engine-native", "dep:mitm-policy", "dep:rcgen", "dep:rustls", "dep:time", "dep:tokio-rustls", "dep:transport-tls"]
 # `[Script]` execution for MITM plugins in QuickJS (script-runtime).
 scripts = ["mitm", "engine-native/quickjs"]
 shadowsocks = ["dep:outbound-shadowsocks"]
@@ -36,10 +36,11 @@ vless = ["dep:outbound-vless", "tls-fingerprints"]
 vmess = ["dep:outbound-vmess"]
 # Whole-device WireGuard tunnel (a single `outbound`) plus the routable
 # WireGuard outbound of `outbound-wireguard` for routed configs.
-wireguard = ["dep:base64", "dep:boringtun", "dep:outbound-wireguard", "dep:ring"]
+wireguard = ["dep:boringtun", "dep:outbound-wireguard", "dep:ring"]
 
 [dependencies]
-base64 = { version = "0.22", optional = true }
+# Capture exports (src/capture.rs), certificates and keys.
+base64 = "0.22"
 # WireGuard Noise state machine only; the `device` feature (its own TUN and sockets) stays off.
 boringtun = { version = "0.7", default-features = false, optional = true }
 config-core = { path = "../config-core" }

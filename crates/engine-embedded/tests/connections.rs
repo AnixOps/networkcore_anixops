@@ -1058,3 +1058,87 @@ fn block_quic_starts_from_the_config() {
     assert_eq!(ask(&routed)["block_quic"], true);
     assert!(EmbeddedRuntime::from_json(config(r#""block_quic":"yes","#).as_bytes()).is_err());
 }
+
+#[test]
+fn capture_is_off_by_default_and_keeps_bytes_once_on() {
+    runtime().block_on(async {
+        let dispatcher = Dispatcher::single(Arc::new(Echo("test-echo")));
+        let status = control_json(&dispatcher, r#"{"cmd":"capture"}"#);
+        assert_eq!(status["enabled"], false);
+        let mut before = dispatcher
+            .connect_flow(&ip("192.0.2.1:80"), Some("before.example.test"))
+            .await
+            .unwrap();
+        before.write_all(b"not kept").await.unwrap();
+
+        let status = control_json(
+            &dispatcher,
+            r#"{"cmd":"set_capture","enabled":true,"max_total_bytes":1048576}"#,
+        );
+        assert_eq!(status["enabled"], true);
+        assert_eq!(status["max_total_bytes"], 1_048_576);
+        let mut stream = dispatcher
+            .connect_flow(&ip("192.0.2.1:80"), Some("www.example.test"))
+            .await
+            .unwrap();
+        stream.write_all(b"GET / HTTP/1.1\r\n\r\n").await.unwrap();
+        let mut reply = [0u8; 18];
+        stream.read_exact(&mut reply).await.unwrap();
+
+        let list = dispatcher.tracker().connections();
+        let old = list
+            .active
+            .iter()
+            .find(|c| c.host.as_deref() == Some("before.example.test"))
+            .unwrap();
+        let new = list
+            .active
+            .iter()
+            .find(|c| c.host.as_deref() == Some("www.example.test"))
+            .unwrap();
+        assert!(!old.captured);
+        assert!(new.captured);
+        let listed = control_json(&dispatcher, r#"{"cmd":"connections"}"#);
+        assert!(
+            listed["active"][0].get("captured").is_none(),
+            "false is left out"
+        );
+
+        let none = control_json(
+            &dispatcher,
+            &format!(r#"{{"cmd":"capture_connection","id":{}}}"#, old.id),
+        );
+        assert!(none["capture"].is_null());
+        let capture = control_json(
+            &dispatcher,
+            &format!(r#"{{"cmd":"capture_connection","id":{}}}"#, new.id),
+        );
+        let capture = &capture["capture"];
+        assert_eq!(capture["host"], "www.example.test");
+        assert_eq!(capture["upload"]["captured"], 18);
+        assert_eq!(capture["download"]["captured"], 18);
+        assert_eq!(capture["chunks"][0]["dir"], "up");
+        assert_eq!(capture["chunks"][1]["dir"], "down");
+
+        let export = control_json(
+            &dispatcher,
+            &format!(
+                r#"{{"cmd":"export_capture","format":"pcapng","id":{}}}"#,
+                new.id
+            ),
+        );
+        assert_eq!(export["content_type"], "application/vnd.tcpdump.pcap");
+        assert!(export["size"].as_u64().unwrap() > 0);
+
+        drop(stream);
+        let status = control_json(&dispatcher, r#"{"cmd":"set_capture","enabled":false}"#);
+        assert_eq!(status["enabled"], false);
+        assert_eq!(
+            status["connections"], 1,
+            "turning it off keeps what was kept"
+        );
+        let status = control_json(&dispatcher, r#"{"cmd":"clear_capture"}"#);
+        assert_eq!(status["connections"], 0);
+        assert_eq!(status["used_bytes"], 0);
+    });
+}

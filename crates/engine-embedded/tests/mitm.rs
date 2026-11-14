@@ -9,6 +9,8 @@ use std::time::Duration;
 
 use base64::Engine as _;
 use engine_embedded::config::MitmConfig;
+use engine_embedded::connections::Dispatcher;
+use engine_embedded::control;
 use engine_embedded::mitm::{p256_pkcs8_from_x963, MitmEngine};
 use engine_embedded::tunnel::{FlowInterceptor, InterceptedFlow};
 use engine_embedded::{EmbeddedRuntime, RuntimeErrorCode};
@@ -841,4 +843,112 @@ async fn local_proxy_decrypts_listed_hosts_and_relays_the_rest() {
     )
     .unwrap();
     assert!(!plain.decrypts_https());
+}
+
+fn base64_field(value: &serde_json::Value) -> Vec<u8> {
+    base64::engine::general_purpose::STANDARD
+        .decode(value.as_str().expect("a base64 string"))
+        .unwrap()
+}
+
+fn control_json(dispatcher: &Dispatcher, request: &str) -> serde_json::Value {
+    serde_json::from_slice(&control::handle(dispatcher, request.as_bytes()).unwrap()).unwrap()
+}
+
+#[tokio::test]
+async fn capture_keeps_decrypted_http_under_the_origin_connection() {
+    let device_root = root("NetworkCore Test Device Root");
+    let engine = Arc::new(MitmEngine::new(&mitm_config(&device_root)).unwrap());
+    let (requests_tx, _requests) = mpsc::unbounded_channel();
+    let dispatcher = Arc::new(Dispatcher::single(Arc::new(PlainOrigin {
+        requests: requests_tx,
+        body: b"captured body".to_vec(),
+    })));
+    let status = control_json(&dispatcher, r#"{"cmd":"set_capture","enabled":true}"#);
+    assert_eq!(status["enabled"], true);
+
+    let target: SocketAddr = "192.0.2.20:80".parse().unwrap();
+    let first =
+        b"POST /submit?x=1 HTTP/1.1\r\nHost: plain.example.test\r\nContent-Length: 5\r\n\r\nhello"
+            .to_vec();
+    let host = engine
+        .claim(&first, target)
+        .expect("plain HTTP is taken over");
+    let (mut app, tunnel_side) = tokio::io::duplex(64 * 1024);
+    let flow = InterceptedFlow {
+        inbound: Box::new(tunnel_side),
+        first,
+        host,
+        target,
+    };
+    let server = tokio::spawn({
+        let engine = engine.clone();
+        let dispatcher = dispatcher.clone();
+        async move {
+            let _ = engine
+                .serve_flow(
+                    flow,
+                    dispatcher.as_ref(),
+                    Duration::from_secs(5),
+                    Duration::from_secs(5),
+                )
+                .await;
+        }
+    });
+    let (head, body) = tokio::time::timeout(Duration::from_secs(10), read_response(&mut app))
+        .await
+        .expect("relayed in time");
+    assert!(head.starts_with("HTTP/1.1 200"), "{head}");
+    assert_eq!(body, "captured body");
+
+    let list = dispatcher.tracker().connections();
+    let connection = list
+        .active
+        .iter()
+        .chain(&list.closed)
+        .next()
+        .expect("the origin connection is listed");
+    assert!(connection.captured);
+    let request = format!(r#"{{"cmd":"capture_connection","id":{}}}"#, connection.id);
+    let mut capture = serde_json::Value::Null;
+    for _ in 0..100 {
+        capture = control_json(&dispatcher, &request)["capture"].clone();
+        if capture["http"]
+            .as_array()
+            .is_some_and(|http| !http.is_empty())
+        {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(capture["decrypted"], true, "{capture}");
+    assert!(capture["chunks"].as_array().unwrap().is_empty());
+    let exchange = &capture["http"][0];
+    assert_eq!(exchange["method"], "POST");
+    assert!(
+        exchange["url"].as_str().unwrap().ends_with("/submit?x=1"),
+        "{exchange}"
+    );
+    assert_eq!(exchange["status"], 200);
+    assert_eq!(
+        base64_field(&exchange["request"]["body"]["data_base64"]),
+        b"hello"
+    );
+    assert_eq!(
+        base64_field(&exchange["response"]["body"]["data_base64"]),
+        b"captured body"
+    );
+
+    let export = control_json(&dispatcher, r#"{"cmd":"export_capture","format":"har"}"#);
+    assert_eq!(export["format"], "har");
+    let har: serde_json::Value =
+        serde_json::from_slice(&base64_field(&export["data_base64"])).unwrap();
+    let entry = &har["log"]["entries"][0];
+    assert_eq!(entry["request"]["postData"]["text"], "hello");
+    assert_eq!(entry["response"]["content"]["text"], "captured body");
+
+    let export = control_json(&dispatcher, r#"{"cmd":"export_capture","format":"pcapng"}"#);
+    let pcap = base64_field(&export["data_base64"]);
+    assert!(pcap.windows(13).any(|window| window == b"captured body"));
+    server.abort();
 }
