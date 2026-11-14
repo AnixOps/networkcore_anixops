@@ -75,6 +75,7 @@ use rustls::{ClientConfig, ServerConfig};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 use self::http1::{Body, Conn, Framing, Head};
+use crate::capture::{CaptureStore, CapturedBody, HttpExchange};
 use crate::config::MitmConfig;
 use crate::tunnel::{FlowInterceptor, InterceptedFlow, TunnelSettings, TunnelStats};
 
@@ -353,7 +354,26 @@ impl MitmEngine {
     /// and relays HTTP/1.1 through the rewrite hook until either side closes.
     /// A plain HTTP flow is relayed as it is, without TLS on either side.
     /// A keep-alive client that sends nothing for `idle_timeout` is closed.
+    ///
+    /// With capture on, the requests and responses are filed under the
+    /// connection `outbound` opened to the origin (see [`crate::capture`]).
     pub async fn serve_flow(
+        &self,
+        flow: InterceptedFlow,
+        outbound: &dyn TcpOutbound,
+        connect_timeout: Duration,
+        idle_timeout: Duration,
+    ) -> io::Result<()> {
+        crate::capture::scope(self.serve_captured_flow(
+            flow,
+            outbound,
+            connect_timeout,
+            idle_timeout,
+        ))
+        .await
+    }
+
+    async fn serve_captured_flow(
         &self,
         flow: InterceptedFlow,
         outbound: &dyn TcpOutbound,
@@ -431,6 +451,9 @@ impl MitmEngine {
         C: AsyncRead + AsyncWrite + Unpin,
         O: AsyncRead + AsyncWrite + Unpin,
     {
+        // The connection to the origin is open: with capture on, its HTTP
+        // messages are kept instead of its re-encrypted bytes.
+        let capture = crate::capture::current_flow();
         loop {
             let Ok(request) = tokio::time::timeout(idle_timeout, client.read_head()).await else {
                 return Ok(());
@@ -441,6 +464,10 @@ impl MitmEngine {
             let (method, path, version) = split_request_line(&request.start_line)?;
             let request_framing = request.framing()?;
             let url = format!("{scheme}://{authority}{path}");
+            // Filed when this iteration ends, whichever way it ends.
+            let mut recording = capture
+                .as_ref()
+                .map(|capture| Recording::new(capture, &method, &url, &request.headers));
             // A body no rule reads is forwarded as it arrives, not held whole.
             let stream_request = !self.needs_body(&url, HttpMitmPhase::Request);
             let stream_response = !self.needs_body(&url, HttpMitmPhase::Response);
@@ -448,8 +475,17 @@ impl MitmEngine {
                 Vec::new()
             } else {
                 match client.read_body(request_framing, MAX_BODY_BYTES).await? {
-                    Body::Complete(body) => body,
+                    Body::Complete(body) => {
+                        if let Some(recording) = &mut recording {
+                            recording.exchange.request_body = CapturedBody::of(&body);
+                        }
+                        body
+                    }
                     Body::TooLarge(raw) => {
+                        if let Some(recording) = &mut recording {
+                            recording.exchange.request_body = CapturedBody::of(&raw);
+                            recording.exchange.note = Some("too_large");
+                        }
                         origin.write_all(&request.encode()).await?;
                         origin.write_all(&raw).await?;
                         return passthrough(client, origin).await;
@@ -485,6 +521,9 @@ impl MitmEngine {
                     report.body.len(),
                     close,
                 );
+                if let Some(recording) = &mut recording {
+                    recording.response(&response, &report.body, Some("answered_locally"));
+                }
                 client.write_all(&response.encode()).await?;
                 client.write_all(&report.body).await?;
                 if close {
@@ -521,7 +560,13 @@ impl MitmEngine {
             };
             origin.write_all(&upstream_request.encode()).await?;
             if stream_request {
+                if recording.is_some() {
+                    client.start_tap(crate::capture::MAX_HTTP_BODY_BYTES);
+                }
                 client.copy_body(request_framing, &mut origin).await?;
+                if let (Some(recording), Some((data, size))) = (&mut recording, client.take_tap()) {
+                    recording.exchange.request_body = CapturedBody { data, size };
+                }
             } else {
                 origin.write_all(&report.body).await?;
             }
@@ -547,6 +592,9 @@ impl MitmEngine {
                     value.to_ascii_lowercase().starts_with("text/event-stream")
                 });
             if streaming {
+                if let Some(recording) = &mut recording {
+                    recording.response(&response, &[], Some("streaming"));
+                }
                 client.write_all(&response.encode()).await?;
                 return passthrough(client, origin).await;
             }
@@ -585,6 +633,9 @@ impl MitmEngine {
                         report.body.len(),
                         true,
                     );
+                    if let Some(recording) = &mut recording {
+                        recording.response(&head, &report.body, Some("answered_locally"));
+                    }
                     client.write_all(&head.encode()).await?;
                     client.write_all(&report.body).await?;
                     return Ok(());
@@ -595,7 +646,14 @@ impl MitmEngine {
                     headers: from_metadata(&report.headers),
                 };
                 client.write_all(&head.encode()).await?;
+                if let Some(recording) = &mut recording {
+                    recording.response(&head, &[], None);
+                    origin.start_tap(crate::capture::MAX_HTTP_BODY_BYTES);
+                }
                 origin.copy_body(framing, &mut client).await?;
+                if let (Some(recording), Some((data, size))) = (&mut recording, origin.take_tap()) {
+                    recording.exchange.response_body = CapturedBody { data, size };
+                }
                 if close {
                     return Ok(());
                 }
@@ -605,6 +663,9 @@ impl MitmEngine {
             let response_body = match origin.read_body(framing, MAX_BODY_BYTES).await? {
                 Body::Complete(body) => body,
                 Body::TooLarge(raw) => {
+                    if let Some(recording) = &mut recording {
+                        recording.response(&response, &raw, Some("too_large"));
+                    }
                     client.write_all(&response.encode()).await?;
                     client.write_all(&raw).await?;
                     return passthrough(client, origin).await;
@@ -634,6 +695,10 @@ impl MitmEngine {
                     start_line: head.start_line,
                     headers: from_metadata(&report.headers),
                 };
+            }
+            if let Some(recording) = &mut recording {
+                let body: &[u8] = if no_body { &[] } else { &report.body };
+                recording.response(&head, body, None);
             }
             client.write_all(&head.encode()).await?;
             if !no_body {
@@ -713,6 +778,45 @@ impl FlowInterceptor for MitmEngine {
                 crate::tunnel::bump(&stats.mitm_failed);
             }
         })
+    }
+}
+
+/// One decrypted exchange being captured, filed under its connection when
+/// dropped, so every way out of the relay loop keeps what was seen.
+struct Recording<'a> {
+    capture: &'a (Arc<CaptureStore>, u64),
+    exchange: HttpExchange,
+}
+
+impl<'a> Recording<'a> {
+    fn new(
+        capture: &'a (Arc<CaptureStore>, u64),
+        method: &str,
+        url: &str,
+        headers: &[(String, String)],
+    ) -> Self {
+        Self {
+            capture,
+            exchange: HttpExchange::new(method, url, headers),
+        }
+    }
+
+    /// The response as the client got it: `head` and the first bytes of
+    /// `body`.
+    fn response(&mut self, head: &Head, body: &[u8], note: Option<&'static str>) {
+        self.exchange.status = response_status(&head.start_line).ok();
+        self.exchange.response_headers = head.headers.clone();
+        self.exchange.response_body = CapturedBody::of(body);
+        if note.is_some() {
+            self.exchange.note = note;
+        }
+    }
+}
+
+impl Drop for Recording<'_> {
+    fn drop(&mut self) {
+        let (store, id) = self.capture;
+        store.add_exchange(*id, std::mem::take(&mut self.exchange));
     }
 }
 

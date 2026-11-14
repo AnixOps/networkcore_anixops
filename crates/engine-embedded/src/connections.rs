@@ -32,6 +32,7 @@ use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::Notify;
 
+use crate::capture::{self, CaptureStore, Direction};
 use crate::config::DnsVia;
 use crate::direct::{self, DirectOutbound};
 use crate::fake_ip::FakeIpPool;
@@ -127,6 +128,10 @@ pub struct ConnectionSnapshot {
     /// `rejected` (a REJECT rule), `quic_blocked` (a UDP flow to port 443
     /// refused by `block_quic`) or `connect_failed`.
     pub error: Option<&'static str>,
+    /// Capture was on as the connection opened: `capture_connection` may
+    /// have its bytes (see [`crate::capture`]).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub captured: bool,
 }
 
 /// A rewritten destination: the new one and the `redirects` line that chose it.
@@ -168,6 +173,8 @@ struct Entry {
     download: AtomicU64,
     connected: AtomicBool,
     error: Mutex<Option<&'static str>>,
+    /// Capture keeps this connection's bytes.
+    captured: bool,
     aborted: AtomicBool,
     abort: Notify,
     read_waker: AtomicWaker,
@@ -192,6 +199,7 @@ impl Entry {
             upload: self.upload.load(Ordering::Relaxed),
             download: self.download.load(Ordering::Relaxed),
             error: *lock(&self.error),
+            captured: self.captured,
         }
     }
 
@@ -242,6 +250,8 @@ pub struct ConnectionTracker {
     /// Connections closed since the start, by network and result (`ok` or the
     /// connection's error code).
     outcomes: Mutex<BTreeMap<(Network, &'static str), u64>>,
+    /// The bytes of connections opened while capture is on.
+    capture: Arc<CaptureStore>,
 }
 
 /// Counters since the tracker started, for the `metrics` control command.
@@ -274,6 +284,7 @@ impl Default for ConnectionTracker {
             started: Instant::now(),
             opened: [AtomicU64::new(0), AtomicU64::new(0)],
             outcomes: Mutex::default(),
+            capture: Arc::default(),
         }
     }
 }
@@ -292,19 +303,26 @@ impl ConnectionTracker {
             TargetAddr::Domain(domain, _) => Some(domain.clone()),
             TargetAddr::Ip(_) => host.map(str::to_string),
         };
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let destination = target.to_string();
+        let started_at_ms = unix_millis();
+        let captured =
+            self.capture
+                .begin(id, network, host.as_deref(), &destination, started_at_ms);
         let entry = Arc::new(Entry {
-            id: self.next_id.fetch_add(1, Ordering::Relaxed),
+            id,
             network,
             host,
             process: process.map(str::to_string),
-            destination: target.to_string(),
-            started_at_ms: unix_millis(),
+            destination,
+            started_at_ms,
             redirect: Mutex::default(),
             route: Mutex::default(),
             upload: AtomicU64::new(0),
             download: AtomicU64::new(0),
             connected: AtomicBool::new(false),
             error: Mutex::new(None),
+            captured,
             aborted: AtomicBool::new(false),
             abort: Notify::new(),
             read_waker: AtomicWaker::new(),
@@ -316,6 +334,11 @@ impl ConnectionTracker {
             tracker: self.clone(),
             entry,
         })
+    }
+
+    /// The capture switch and what it kept; see [`crate::capture`].
+    pub fn capture(&self) -> &Arc<CaptureStore> {
+        &self.capture
     }
 
     pub fn traffic(&self) -> TrafficSnapshot {
@@ -414,6 +437,10 @@ impl ConnectionTracker {
             return;
         }
         let snapshot = entry.snapshot(Some(unix_millis()));
+        if entry.captured {
+            self.capture
+                .end(entry.id, snapshot.ended_at_ms.unwrap_or_default());
+        }
         *lock(&self.outcomes)
             .entry((entry.network, snapshot.error.unwrap_or("ok")))
             .or_default() += 1;
@@ -478,6 +505,13 @@ impl ConnectionGuard {
             .fetch_add(bytes, Ordering::Relaxed);
     }
 
+    /// Keeps `data` when capture keeps this connection.
+    fn capture(&self, direction: Direction, data: &[u8]) {
+        if self.entry.captured {
+            self.tracker.capture.record(self.entry.id, direction, data);
+        }
+    }
+
     fn count_download(&self, bytes: usize) {
         let bytes = bytes as u64;
         self.entry.download.fetch_add(bytes, Ordering::Relaxed);
@@ -523,6 +557,7 @@ impl AsyncRead for TrackedStream {
         let read = buf.filled().len() - before;
         if read > 0 {
             this.guard.count_download(read);
+            this.guard.capture(Direction::Down, &buf.filled()[before..]);
         }
         result
     }
@@ -543,6 +578,7 @@ impl AsyncWrite for TrackedStream {
         let result = Pin::new(&mut this.inner).poll_write(cx, buf);
         if let Poll::Ready(Ok(written)) = &result {
             this.guard.count_upload(*written);
+            this.guard.capture(Direction::Up, &buf[..*written]);
         }
         result
     }
@@ -569,6 +605,7 @@ impl DatagramSend for TrackedSend {
             }
             self.inner.send(payload).await?;
             self.guard.count_upload(payload.len());
+            self.guard.capture(Direction::Up, payload);
             Ok(())
         })
     }
@@ -588,6 +625,7 @@ impl DatagramRecv for TrackedRecv {
                 _ = guard.entry.aborted() => return Err(closed_from_list()),
             };
             guard.count_download(datagram.len());
+            guard.capture(Direction::Down, &datagram);
             Ok(datagram)
         })
     }
@@ -922,6 +960,10 @@ impl Dispatcher {
             None => (target, host),
         };
         let guard = self.tracker.open(Network::Tcp, target, host, process);
+        if guard.entry.captured {
+            // HTTPS decryption files its HTTP messages under this connection.
+            capture::note_flow(&self.tracker.capture, guard.entry.id);
+        }
         let redirected = self.redirect(target, host, process, RouteNetwork::Tcp, http);
         let (target, host) = match &redirected {
             Some((new, rule)) => {

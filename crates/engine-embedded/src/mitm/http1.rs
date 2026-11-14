@@ -84,11 +84,47 @@ pub enum Body {
 pub struct Conn<S> {
     io: S,
     buf: Vec<u8>,
+    /// While set, [`Conn::copy_body`] keeps the first bytes of the body it
+    /// copies (without chunk framing), for capture.
+    tap: Option<Tap>,
+}
+
+struct Tap {
+    data: Vec<u8>,
+    size: u64,
+    limit: usize,
+}
+
+impl Tap {
+    fn keep(&mut self, bytes: &[u8]) {
+        self.size = self.size.saturating_add(bytes.len() as u64);
+        let room = self.limit.saturating_sub(self.data.len());
+        self.data.extend_from_slice(&bytes[..bytes.len().min(room)]);
+    }
 }
 
 impl<S: AsyncRead + AsyncWrite + Unpin> Conn<S> {
     pub fn new(io: S, prefix: Vec<u8>) -> Self {
-        Self { io, buf: prefix }
+        Self {
+            io,
+            buf: prefix,
+            tap: None,
+        }
+    }
+
+    /// Keeps the first `limit` bytes of the next bodies [`Conn::copy_body`]
+    /// copies, until [`Conn::take_tap`].
+    pub fn start_tap(&mut self, limit: usize) {
+        self.tap = Some(Tap {
+            data: Vec::new(),
+            size: 0,
+            limit,
+        });
+    }
+
+    /// The bytes kept since [`Conn::start_tap`] and the body length seen.
+    pub fn take_tap(&mut self) -> Option<(Vec<u8>, u64)> {
+        self.tap.take().map(|tap| (tap.data, tap.size))
     }
 
     /// The stream and any bytes read but not consumed.
@@ -186,7 +222,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Conn<S> {
         W: AsyncRead + AsyncWrite + Unpin,
     {
         match framing {
-            Framing::Length(length) => self.copy_exact(length, dst).await?,
+            Framing::Length(length) => self.copy_exact(length, dst, true).await?,
             Framing::Chunked => loop {
                 let mut line = Vec::new();
                 let size_text = self.read_line(&mut line).await?;
@@ -205,11 +241,15 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Conn<S> {
                     }
                     break;
                 }
-                self.copy_exact(size.saturating_add(2), dst).await?;
+                self.copy_exact(size, dst, true).await?;
+                self.copy_exact(2, dst, false).await?;
             },
             Framing::UntilClose => loop {
                 if !self.buf.is_empty() {
                     dst.io.write_all(&self.buf).await?;
+                    if let Some(tap) = &mut self.tap {
+                        tap.keep(&self.buf);
+                    }
                     self.buf.clear();
                 }
                 if self.fill().await? == 0 {
@@ -220,7 +260,12 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Conn<S> {
         dst.io.flush().await
     }
 
-    async fn copy_exact<W>(&mut self, mut remaining: usize, dst: &mut Conn<W>) -> io::Result<()>
+    async fn copy_exact<W>(
+        &mut self,
+        mut remaining: usize,
+        dst: &mut Conn<W>,
+        tap: bool,
+    ) -> io::Result<()>
     where
         W: AsyncRead + AsyncWrite + Unpin,
     {
@@ -230,6 +275,9 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Conn<S> {
             }
             let take = remaining.min(self.buf.len());
             dst.io.write_all(&self.buf[..take]).await?;
+            if let (true, Some(kept)) = (tap, &mut self.tap) {
+                kept.keep(&self.buf[..take]);
+            }
             self.buf.drain(..take);
             remaining -= take;
         }
@@ -342,6 +390,17 @@ mod tests {
             panic!("body should be too large");
         };
         assert_eq!(raw, b"4\r\nwiki\r\n5\r\n");
+    }
+
+    #[tokio::test]
+    async fn taps_keep_body_bytes_without_chunk_framing() {
+        let (out, _far) = tokio::io::duplex(1024);
+        let mut dst = Conn::new(out, Vec::new());
+        let mut conn = buffered(b"4\r\nwiki\r\n5\r\npedia\r\n0\r\n\r\n");
+        conn.start_tap(6);
+        conn.copy_body(Framing::Chunked, &mut dst).await.unwrap();
+        assert_eq!(conn.take_tap(), Some((b"wikipe".to_vec(), 9)));
+        assert_eq!(conn.take_tap(), None);
     }
 
     #[tokio::test]

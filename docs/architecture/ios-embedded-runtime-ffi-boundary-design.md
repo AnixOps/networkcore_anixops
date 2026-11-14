@@ -113,6 +113,11 @@ struct 必须采用 C-compatible layout，字段必须固定大小、对齐和 o
 | `set_block_quic` | `enabled` | `{"block_quic": bool}`；之后的新 UDP 流按新设置处理，已建立的流不变 |
 | `groups` | | `{"groups": [{"id", "type", "now", "members": [{"name", "latency_ms"}]}]}`，单出站配置为空列表 |
 | `select` | `group`、`member` | `{"now": member}`；只用于 select 组，未知组、非 select 组或非成员返回 `INVALID_ARGUMENT` |
+| `capture` | | `{"enabled", "max_total_bytes", "used_bytes", "connections"}` |
+| `set_capture` | `enabled`，可选 `max_total_bytes` | 同上；打开后新建的连接开始抓包，关闭后已抓到的保留 |
+| `clear_capture` | | 同上；清空已抓到的内容 |
+| `capture_connection` | `id` | `{"capture": {…} \| null}`：该连接抓到的字节块与 MITM 解密后的 HTTP 请求 / 响应 |
+| `export_capture` | `format`（`pcapng` \| `har`），可选 `id` | `{"format", "file_name", "content_type", "size", "data_base64"}` |
 
 模式：`rule` 按配置的规则与策略组；`global` 全部发往 `routing.global`（策略组 id、节点 id 或 `DIRECT`，缺省为第一个策略组，
 没有策略组时为第一个节点），单出站配置走该出站；`direct` 全部直连。启动模式取配置顶层的 `mode`（缺省 `rule`）。运行时切换的模式和
@@ -130,6 +135,17 @@ select 组选择只保留到 runtime 停止，客户端应把它们写回 profil
 
 连接列表包含用户访问的目的地址，只保存在内存中，只在显式的 `connections` 请求中返回，不写入 status、日志或错误；
 负载内容与出站配置（密钥、UUID、密码）不会进入列表。隧道自身的 DNS 查询不列为连接。
+
+抓包（`crates/engine-embedded/src/capture.rs`）默认关闭，客户端用 `set_capture` 打开，只保留到 runtime 停止。打开后每条
+新连接保留每个方向前 64 KiB 的应用负载（出站协议加密之前：明文协议是明文，HTTPS 是 TLS 记录；TCP 同方向连续的读写合并成一块，
+UDP 每个数据报一块，每条连接最多 512 块），连接列表里这类连接带 `"captured": true`。被 MITM 接管的连接不保留重新加密后的字节，
+改为保留解密后的 HTTP/1.1 请求（应用发出的原样）与响应（应用收到的），body 各保留前 64 KiB，每条连接最多 64 次交换，
+`note` 标出 `answered_locally`（改写规则直接应答）、`streaming`（升级或事件流，不留 body）、`too_large`（之后不再解密）。
+全部内容共用一个内存预算（缺省 2 MiB，`max_total_bytes` 可设 64 KiB–16 MiB），超出时先丢最早的连接，Network Extension
+不会因此超出内存上限。导出：`pcapng` 把每条连接写成 raw IP 上的合成 TCP（含三次握手与 FIN）或 UDP 流，客户端地址固定为
+`10.7.0.1` / `fd00::1`，域名目标从 `198.18.0.0/15` 取地址并写进名字解析块，Wireshark 可直接“追踪流”；MITM 连接里放的是解密后的
+HTTP 文本。`har` 是 HAR 1.2，只含 MITM 解密的 HTTP 交换。抓到的内容只在 `capture_connection` / `export_capture` 中返回，
+不写入 status、日志或错误。
 
 ## ABI Version Negotiation
 

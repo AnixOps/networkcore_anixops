@@ -9,6 +9,8 @@
 //! - [`connections`]: the dispatcher every flow goes through, which routes
 //!   it and keeps the connection list and traffic counters that [`control`]
 //!   requests read.
+//! - [`capture`]: opt-in capture of connection bytes and decrypted HTTP
+//!   messages under a memory budget, exported as pcapng or HAR.
 //! - Outbounds implementing [`engine_outbound::TcpOutbound`], looked up by
 //!   config `type` in the registry from [`protocols`]: Shadowsocks-2022
 //!   (`outbound-shadowsocks`), VLESS + REALITY (`outbound-vless`) and direct
@@ -27,6 +29,7 @@
 //! The runtime never starts a process, never touches Apple SDK objects and
 //! never puts credentials or traffic into errors, status or logs.
 
+pub mod capture;
 pub mod config;
 pub mod connections;
 pub mod control;
