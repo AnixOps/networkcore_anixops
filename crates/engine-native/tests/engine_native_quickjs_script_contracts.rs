@@ -313,6 +313,38 @@ fn quickjs_script_defers_when_the_authorized_asset_changes() {
 }
 
 #[test]
+fn quickjs_script_source_is_read_and_hashed_once_while_the_file_is_unchanged() {
+    let dir = temp_dir("source-cache");
+    let script = dir.join("asset.js");
+    std::fs::write(&script, "$done({ body: 'authorized' });").unwrap();
+    let modified = std::fs::metadata(&script).unwrap().modified().unwrap();
+    let hook = hook(executor(&script, None), 1000);
+
+    let first = hook.plan_plain_http(&message(HttpMitmPhase::Response, "original"));
+    assert_eq!(String::from_utf8(first.body).unwrap(), "authorized");
+
+    // Same size and modification time: the verified copy in memory runs and
+    // the file is not read again, so these bytes never execute.
+    std::fs::write(&script, "$done({ body: 'xxxxxxxxxx' });").unwrap();
+    std::fs::File::options()
+        .write(true)
+        .open(&script)
+        .unwrap()
+        .set_modified(modified)
+        .unwrap();
+    let cached = hook.plan_plain_http(&message(HttpMitmPhase::Response, "original"));
+    assert!(!cached.script_dispatch_deferred);
+    assert_eq!(String::from_utf8(cached.body).unwrap(), "authorized");
+
+    // A real change (new size) is read, hashed and refused as before.
+    std::fs::write(&script, "$done({ body: 'replaced' });").unwrap();
+    let changed = hook.plan_plain_http(&message(HttpMitmPhase::Response, "original"));
+    assert!(changed.script_dispatch_deferred);
+    assert_eq!(String::from_utf8(changed.body).unwrap(), "original");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn quickjs_executor_rejects_missing_assets_and_corrupt_stores() {
     let dir = temp_dir("config");
     let mut script_assets = BTreeMap::new();
