@@ -40,6 +40,9 @@ pub const QUICKJS_MAX_SCALED_MEMORY_LIMIT_BYTES: usize = 32 * 1024 * 1024;
 pub const QUICKJS_MAX_PENDING_NOTIFICATIONS: usize = 64;
 /// Longest run a scheduled script may ask for.
 pub const QUICKJS_MAX_SCHEDULED_TIMEOUT_SECS: u32 = 300;
+/// Verified script sources kept in memory between dispatches, in total.
+/// Past it a script is read and hashed on every dispatch, as before.
+pub const QUICKJS_SOURCE_CACHE_MAX_BYTES: usize = 4 * 1024 * 1024;
 
 /// What a scheduled, event or generic script run is for.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -90,6 +93,52 @@ pub struct NativeQuickJsScriptExecutor {
     notifications: Arc<Mutex<VecDeque<ScriptNotification>>>,
     /// Shared cap on the heap limits of dispatches running at once.
     budget: Option<Arc<MemoryBudget>>,
+    /// Sources that matched their pinned hash, by script URL, so a dispatch
+    /// does not read and hash a script of up to 4 MiB on every request.
+    sources: Arc<Mutex<SourceCache>>,
+}
+
+/// Verified sources with the file metadata they were read under. A file
+/// whose size or modification time changed is read and hashed again, so a
+/// replaced script is still refused.
+#[derive(Default)]
+struct SourceCache {
+    entries: BTreeMap<String, CachedSource>,
+    bytes: usize,
+}
+
+struct CachedSource {
+    len: u64,
+    modified: Option<std::time::SystemTime>,
+    source: Arc<str>,
+}
+
+impl SourceCache {
+    fn get(&self, url: &str, metadata: &std::fs::Metadata) -> Option<Arc<str>> {
+        let cached = self.entries.get(url)?;
+        (metadata.file_type().is_file()
+            && cached.len == metadata.len()
+            && cached.modified == metadata.modified().ok())
+        .then(|| cached.source.clone())
+    }
+
+    fn put(&mut self, url: &str, metadata: &std::fs::Metadata, source: Arc<str>) {
+        if let Some(old) = self.entries.remove(url) {
+            self.bytes -= old.source.len();
+        }
+        if self.bytes + source.len() > QUICKJS_SOURCE_CACHE_MAX_BYTES {
+            return;
+        }
+        self.bytes += source.len();
+        self.entries.insert(
+            url.to_string(),
+            CachedSource {
+                len: metadata.len(),
+                modified: metadata.modified().ok(),
+                source,
+            },
+        );
+    }
 }
 
 impl std::fmt::Debug for NativeQuickJsScriptExecutor {
@@ -130,6 +179,7 @@ impl NativeQuickJsScriptExecutor {
             store,
             notifications: Arc::default(),
             budget: None,
+            sources: Arc::default(),
         })
     }
 
@@ -410,7 +460,9 @@ impl NativeQuickJsScriptExecutor {
     }
 
     /// Source of a mapped script, checked against the hash pinned at build.
-    fn script_source(&self, script_url: &str) -> Result<String, &'static str> {
+    fn script_source(&self, script_url: &str) -> Result<Arc<str>, &'static str> {
+        const UNAVAILABLE: &str =
+            "native HTTP script runtime mapped local script asset is unavailable or unsafe";
         let asset_path =
             self.config.script_assets.get(script_url).ok_or(
                 "native HTTP script dispatch has no explicitly configured local script asset",
@@ -418,16 +470,29 @@ impl NativeQuickJsScriptExecutor {
         let expected_hash = self.script_asset_hashes.get(script_url).ok_or(
             "native HTTP script runtime could not record the mapped local script asset hash",
         )?;
-        let (source, actual_hash) = read_script_asset(std::path::Path::new(asset_path)).ok_or(
-            "native HTTP script runtime mapped local script asset is unavailable or unsafe",
-        )?;
+        let path = std::path::Path::new(asset_path);
+        let metadata = std::fs::symlink_metadata(path).map_err(|_| UNAVAILABLE)?;
+        if let Some(source) = self
+            .sources
+            .lock()
+            .ok()
+            .and_then(|cache| cache.get(script_url, &metadata))
+        {
+            return Ok(source);
+        }
+        let (source, actual_hash) = read_script_asset(path).ok_or(UNAVAILABLE)?;
         if actual_hash != *expected_hash {
             return Err(
                 "native HTTP script runtime mapped local script asset changed after authorization",
             );
         }
-        String::from_utf8(source)
-            .map_err(|_| "native HTTP script runtime mapped local script asset is not UTF-8")
+        let source: Arc<str> = String::from_utf8(source)
+            .map_err(|_| "native HTTP script runtime mapped local script asset is not UTF-8")?
+            .into();
+        if let Ok(mut cache) = self.sources.lock() {
+            cache.put(script_url, &metadata, source.clone());
+        }
+        Ok(source)
     }
 }
 

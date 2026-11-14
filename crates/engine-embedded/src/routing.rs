@@ -25,6 +25,12 @@
 //! member) and round-robin takes them in turn; all of them use every member
 //! (url-test and fallback their first) until a check has finished.
 //!
+//! Health checks are lazy, as Clash's `lazy: true`: after the first round a
+//! group is measured again only when a flow went through it since the last
+//! round. A phone in a pocket then stops dialing every member of every
+//! url-test group every few minutes; each dial through a node keeps that
+//! node's session (and the radio) awake for minutes after it.
+//!
 //! ## Hot reload
 //!
 //! The compiled rules live in a [`RoutingTable`] behind one pointer: every
@@ -43,7 +49,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::io;
 use std::net::IpAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
 use config_core::routing::{
     parse_rule_line, PolicyGroupKind, PolicyGroupSpec, PolicyTarget, RouteMatch, RouteNetwork,
@@ -78,6 +84,9 @@ pub struct RoutedOutbound {
     selected: RwLock<BTreeMap<String, String>>,
     /// Connections routed by round-robin groups so far.
     round_robin: AtomicUsize,
+    /// Groups a flow went through since the last health check round, by id
+    /// (see [`RoutedOutbound::run_health_checks`]).
+    used_groups: Mutex<BTreeSet<String>>,
 }
 
 /// One compiled rule list: the model, where the global mode goes, and
@@ -294,6 +303,7 @@ impl RoutedOutbound {
             latencies: Arc::default(),
             selected: RwLock::default(),
             round_robin: AtomicUsize::new(0),
+            used_groups: Mutex::default(),
         })
     }
 
@@ -673,6 +683,7 @@ impl RoutedOutbound {
         let resolution = self.with_environment(None, |environment| {
             table.model.route_to(&table.global, environment)
         });
+        self.note_used(&resolution);
         let mut route = describe(&table, &resolution);
         route.rule = "MODE,global".to_string();
         (route, self.outbound_of(&resolution.outcome))
@@ -745,8 +756,37 @@ impl RoutedOutbound {
         query.process = process.map(str::to_string);
         let table = self.table();
         let resolution = self.resolve_query(&table, &query).await;
+        self.note_used(&resolution);
         let outbound = self.outbound_of(&resolution.outcome);
         (describe(&table, &resolution), outbound)
+    }
+
+    /// Remembers the groups a user flow went through, for lazy health
+    /// checks. Takes the lock only when the path has groups.
+    fn note_used(&self, resolution: &RouteResolution) {
+        if resolution.group_path.is_empty() {
+            return;
+        }
+        let mut used = self
+            .used_groups
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        for group in &resolution.group_path {
+            if !used.contains(group) {
+                used.insert(group.clone());
+            }
+        }
+    }
+
+    /// The groups used since the last call, and forgets them.
+    #[cfg(any(feature = "local-proxy", test))]
+    fn take_used_groups(&self) -> BTreeSet<String> {
+        std::mem::take(
+            &mut *self
+                .used_groups
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+        )
     }
 
     async fn resolve_query(&self, table: &RoutingTable, query: &RouteQuery) -> RouteResolution {
@@ -762,9 +802,11 @@ impl RoutedOutbound {
     }
 
     /// Measures every member of the health-checked groups through its
-    /// outbound, then again after the shortest group interval, forever. Group
-    /// members that are groups themselves or REJECT are not measured. Never
-    /// returns when no group needs checks.
+    /// outbound, then again after the shortest group interval, forever, but
+    /// only the groups a flow went through since the previous round (lazy;
+    /// a round with none measures nothing). Group members that are groups
+    /// themselves or REJECT are not measured. Never returns when no group
+    /// needs checks.
     #[cfg(feature = "local-proxy")]
     pub async fn run_health_checks(self: Arc<Self>) {
         use std::time::Duration;
@@ -786,9 +828,12 @@ impl RoutedOutbound {
         else {
             return std::future::pending().await;
         };
+        let mut first = true;
         loop {
+            let due = due_groups(&checked, first, &self.take_used_groups());
+            first = false;
             let mut probes = tokio::task::JoinSet::new();
-            for (group, check) in &checked {
+            for (group, check) in due {
                 for member in &group.members {
                     let outbound = match member {
                         PolicyTarget::Node(id) => self.nodes.get(id).cloned(),
@@ -818,6 +863,27 @@ impl RoutedOutbound {
             tokio::time::sleep(Duration::from_secs(u64::from(interval))).await;
         }
     }
+}
+
+/// The health-checked groups to measure this round: all of them in the
+/// first round, afterwards only those in `used` (lazy checks).
+#[cfg(any(feature = "local-proxy", test))]
+fn due_groups<'a>(
+    checked: &'a [(
+        &'a config_core::routing::PolicyGroup,
+        config_core::routing::HealthCheck,
+    )],
+    first: bool,
+    used: &BTreeSet<String>,
+) -> Vec<(
+    &'a config_core::routing::PolicyGroup,
+    &'a config_core::routing::HealthCheck,
+)> {
+    checked
+        .iter()
+        .filter(|(group, _)| first || used.contains(&group.id))
+        .map(|(group, check)| (*group, check))
+        .collect()
 }
 
 /// The rule, group path and outbound of a decision, as the connection
@@ -1061,5 +1127,99 @@ impl RoutedOutbound {
                 io::Error::new(io::ErrorKind::NotFound, "routed node is not configured")
             }),
         }
+    }
+}
+
+#[cfg(test)]
+mod lazy_health_tests {
+    use super::*;
+
+    struct Refuse;
+
+    impl TcpOutbound for Refuse {
+        fn protocol(&self) -> &'static str {
+            "test-refuse"
+        }
+
+        fn connect<'a>(&'a self, _target: &'a TargetAddr) -> BoxFuture<'a, io::Result<BoxStream>> {
+            Box::pin(async { Err(io::Error::other("refused")) })
+        }
+    }
+
+    fn group(id: &str, kind: &str, members: &[&str]) -> PolicyGroupSpec {
+        PolicyGroupSpec {
+            id: id.to_string(),
+            kind: kind.to_string(),
+            members: members.iter().map(|m| m.to_string()).collect(),
+            default: None,
+            url: None,
+            interval_secs: None,
+            tolerance_ms: None,
+        }
+    }
+
+    fn routed() -> RoutedOutbound {
+        let node = || -> Arc<dyn TcpOutbound> { Arc::new(Refuse) };
+        let nodes = BTreeMap::from([("hk-1".to_string(), node()), ("jp-1".to_string(), node())]);
+        let spec = RoutingSpec {
+            rules: vec![
+                "DOMAIN-SUFFIX,example.jp,JP".to_string(),
+                "FINAL,Proxy".to_string(),
+            ],
+            groups: vec![
+                group("Proxy", "select", &["HK", "JP"]),
+                group("HK", "url-test", &["hk-1", "jp-1"]),
+                group("JP", "url-test", &["jp-1", "hk-1"]),
+            ],
+        };
+        RoutedOutbound::new(&spec, node(), nodes).expect("spec should validate")
+    }
+
+    fn checked(routed: &RoutedOutbound) -> Vec<String> {
+        let table = routed.table();
+        let checked: Vec<_> = table
+            .model
+            .groups
+            .iter()
+            .filter_map(|group| Some((group, group.health_check.clone()?)))
+            .collect();
+        let used = routed.take_used_groups();
+        due_groups(&checked, false, &used)
+            .into_iter()
+            .map(|(group, _)| group.id.clone())
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn only_groups_a_flow_went_through_are_due() {
+        let routed = routed();
+        // No traffic: nothing to measure after the first round.
+        assert!(checked(&routed).is_empty());
+
+        let target = TargetAddr::Domain("www.example.jp".to_string(), 443);
+        let (route, _) = routed.route_flow(&target, None, None).await;
+        assert_eq!(route.chain, vec!["JP".to_string(), "jp-1".to_string()]);
+        assert_eq!(checked(&routed), vec!["JP".to_string()]);
+        // Taken once: the next round without traffic is idle again.
+        assert!(checked(&routed).is_empty());
+
+        // FINAL goes through the select group into its first member, HK.
+        let other = TargetAddr::Domain("other.example".to_string(), 443);
+        routed.route_flow(&other, None, None).await;
+        assert_eq!(checked(&routed), vec!["HK".to_string()]);
+    }
+
+    #[test]
+    fn the_first_round_measures_every_checked_group() {
+        let routed = routed();
+        let table = routed.table();
+        let checked: Vec<_> = table
+            .model
+            .groups
+            .iter()
+            .filter_map(|group| Some((group, group.health_check.clone()?)))
+            .collect();
+        let due = due_groups(&checked, true, &BTreeSet::new());
+        assert_eq!(due.len(), 2);
     }
 }
