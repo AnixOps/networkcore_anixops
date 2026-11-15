@@ -822,6 +822,13 @@ impl FlowInterceptor for MitmEngine {
         plain_http_host(first)
     }
 
+    /// QUIC to a `[MITM]` host would pass by decryption, so it is refused
+    /// and the app falls back to TCP (HTTP/2 or HTTP/1.1), where it is
+    /// decrypted. QUIC itself is not terminated.
+    fn refuses_quic(&self, host: &str) -> bool {
+        self.intercepts(host)
+    }
+
     fn serve<'a>(
         &'a self,
         flow: InterceptedFlow,

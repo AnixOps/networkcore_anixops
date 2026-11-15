@@ -109,6 +109,15 @@ pub trait FlowInterceptor: Send + Sync {
         None
     }
 
+    /// Whether QUIC to `host` (the server name of a QUIC client's first
+    /// packets, or the Fake-IP name of the address) is refused, so the app
+    /// falls back to TCP where [`FlowInterceptor::claim`] can take it. The
+    /// default refuses none.
+    fn refuses_quic(&self, host: &str) -> bool {
+        let _ = host;
+        false
+    }
+
     /// Answers a script control command; `None` when the interceptor runs
     /// no scripts.
     fn script_control(&self, request: &crate::control::ScriptControl) -> Option<serde_json::Value> {
@@ -187,6 +196,7 @@ pub struct TunnelStats {
     pub(crate) tcp_last_failure: AtomicU8,
     pub(crate) mitm_flows: AtomicU64,
     pub(crate) mitm_failed: AtomicU64,
+    pub(crate) quic_mitm_fallback: AtomicU64,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
@@ -217,6 +227,9 @@ pub struct TunnelStatsSnapshot {
     pub tcp_last_failure: Option<&'static str>,
     pub mitm_flows: u64,
     pub mitm_failed: u64,
+    /// QUIC flows to a decrypted host refused so the app falls back to TCP
+    /// (see [`FlowInterceptor::refuses_quic`]); counted in `udp_failed` too.
+    pub quic_mitm_fallback: u64,
 }
 
 impl TunnelStats {
@@ -243,6 +256,7 @@ impl TunnelStats {
             tcp_last_failure: last_failure(&self.tcp_last_failure),
             mitm_flows: get(&self.mitm_flows),
             mitm_failed: get(&self.mitm_failed),
+            quic_mitm_fallback: get(&self.quic_mitm_fallback),
         }
     }
 }
@@ -476,6 +490,9 @@ fn spawn_tasks(
         }
     });
 
+    // UDP flows to QUIC's port ask the interceptor first.
+    let udp_interceptor = interceptor.clone();
+
     // TCP flows.
     let tcp_permits = Arc::new(Semaphore::new(settings.max_tcp_connections));
     let tcp_dispatcher = dispatcher.clone();
@@ -532,6 +549,7 @@ fn spawn_tasks(
                     src,
                     dst,
                     &dispatcher,
+                    udp_interceptor.as_ref(),
                     &stats,
                     &reply_tx,
                     &raw_sink,
@@ -781,6 +799,7 @@ impl UdpFlows {
         src: SocketAddr,
         dst: SocketAddr,
         dispatcher: &Arc<Dispatcher>,
+        interceptor: Option<&Arc<dyn FlowInterceptor>>,
         stats: &Arc<TunnelStats>,
         replies: &mpsc::Sender<UdpMsg>,
         raw: &Arc<dyn PacketWriter>,
@@ -816,6 +835,7 @@ impl UdpFlows {
             src,
             dst,
             dispatcher.clone(),
+            interceptor.filter(|_| dst.port() == QUIC_PORT).cloned(),
             stats.clone(),
             replies.clone(),
             raw.clone(),
@@ -943,6 +963,10 @@ use crate::connections::QUIC_PORT;
 /// ICMP errors sent per refused flow (QUIC clients resend their first
 /// packet a few times).
 const MAX_ICMP_PER_FLOW: u32 = 4;
+/// Longest wait for the rest of a QUIC ClientHello split over Initial
+/// packets. Clients send those back to back, so this only bounds a client
+/// that never sends the rest.
+const QUIC_HELLO_WAIT: Duration = Duration::from_millis(200);
 
 /// Relays one UDP flow until it idles out or either side ends. Replies go
 /// back to the app from the destination it sent to.
@@ -950,17 +974,46 @@ const MAX_ICMP_PER_FLOW: u32 = 4;
 /// One task per flow, sized for the relay loop: opening the flow (routing,
 /// rules, the outbound's handshake) runs in a boxed future that is freed
 /// once the flow is open, so it does not stay in every flow's task.
+///
+/// With an `interceptor` (only for QUIC's port), the QUIC client's first
+/// packets are read for the server name first; QUIC to a host the
+/// interceptor decrypts is refused like `block_quic`, so the app falls back
+/// to TCP and its requests are decrypted instead of passing by. The packets
+/// read meanwhile are relayed first once the flow opens.
 #[allow(clippy::too_many_arguments)]
 async fn run_udp_flow(
     mut packets: FlowReceiver,
     app: SocketAddr,
     destination: SocketAddr,
     dispatcher: Arc<Dispatcher>,
+    interceptor: Option<Arc<dyn FlowInterceptor>>,
     stats: Arc<TunnelStats>,
     replies: mpsc::Sender<UdpMsg>,
     raw: Arc<dyn PacketWriter>,
     connect_timeout: Duration,
 ) {
+    let mut held = Vec::new();
+    if let Some(interceptor) = interceptor {
+        // Boxed like opening below, so the sniffing state is freed after.
+        let refused = {
+            let sniff: BoxFuture<'_, Option<String>> = Box::pin(async {
+                let sniffed = sniff_quic_name(&mut packets, &mut held).await;
+                let mapped = dispatcher.fake_ip_name(destination.ip());
+                [sniffed, mapped]
+                    .into_iter()
+                    .flatten()
+                    .find(|host| interceptor.refuses_quic(host))
+            });
+            sniff.await
+        };
+        if let Some(host) = refused {
+            dispatcher.refuse_quic_for_decryption(destination, &host);
+            bump(&stats.udp_failed);
+            bump(&stats.quic_mitm_fallback);
+            refuse_udp_flow(packets, held, app, destination, &stats, raw.as_ref()).await;
+            return;
+        }
+    }
     let opened = {
         let open: BoxFuture<'_, io::Result<UdpFlow>> = Box::pin(async {
             let target = TargetAddr::Ip(destination);
@@ -971,28 +1024,19 @@ async fn run_udp_flow(
     drop(dispatcher);
     let Ok(Ok(UdpFlow { mut send, recv })) = opened else {
         bump(&stats.udp_failed);
-        // Stay mapped and drop this flow's datagrams until it goes quiet, so
-        // an outbound without UDP is not asked again for every packet. QUIC
-        // is refused with ICMP port unreachable, so it falls back to TCP
-        // instead of waiting for its handshake to time out.
-        let mut refused = 0;
-        while let Ok(Some(datagram)) = tokio::time::timeout(UDP_IDLE_TIMEOUT, packets.recv()).await
-        {
-            bump(&stats.udp_dropped);
-            if destination.port() == QUIC_PORT && refused < MAX_ICMP_PER_FLOW {
-                if let Some(packet) =
-                    crate::icmp::port_unreachable(app, destination, datagram.len())
-                {
-                    refused += 1;
-                    bump(&stats.packets_out);
-                    raw.write(&packet);
-                }
-            }
-        }
+        refuse_udp_flow(packets, held, app, destination, &stats, raw.as_ref()).await;
         return;
     };
     drop(raw);
     bump(&stats.udp_flows);
+    for packet in held {
+        if send.send(&packet).await.is_err() {
+            return;
+        }
+        stats
+            .bytes_up
+            .fetch_add(packet.len() as u64, Ordering::Relaxed);
+    }
     let mut pending = next_reply(recv);
     // The flow ends after a whole idle period without a datagram either way.
     let idle = tokio::time::sleep(UDP_IDLE_TIMEOUT);
@@ -1025,6 +1069,59 @@ async fn run_udp_flow(
                 idle.as_mut().reset(tokio::time::Instant::now() + UDP_IDLE_TIMEOUT);
             }
         }
+    }
+}
+
+/// Reads a QUIC client's first datagrams into `held` until the server name
+/// of its ClientHello shows; `None` when they are not QUIC Initial packets,
+/// carry no name, or the rest does not come within [`QUIC_HELLO_WAIT`].
+async fn sniff_quic_name(packets: &mut FlowReceiver, held: &mut Vec<Vec<u8>>) -> Option<String> {
+    use engine_outbound::quic_sniff::{QuicHello, Sniffed};
+
+    let mut hello = QuicHello::default();
+    let deadline = tokio::time::Instant::now() + QUIC_HELLO_WAIT;
+    loop {
+        let datagram = tokio::time::timeout_at(deadline, packets.recv())
+            .await
+            .ok()??;
+        let sniffed = hello.push(&datagram);
+        held.push(datagram);
+        match sniffed {
+            Sniffed::Name(name) => return Some(name),
+            Sniffed::None => return None,
+            Sniffed::Pending => {}
+        }
+    }
+}
+
+/// Drops a flow that could not be opened (or was refused), staying mapped
+/// until it goes quiet so an outbound without UDP is not asked again for
+/// every packet. QUIC is refused with ICMP port unreachable, so it falls
+/// back to TCP instead of waiting for its handshake to time out.
+async fn refuse_udp_flow(
+    mut packets: FlowReceiver,
+    held: Vec<Vec<u8>>,
+    app: SocketAddr,
+    destination: SocketAddr,
+    stats: &TunnelStats,
+    raw: &dyn PacketWriter,
+) {
+    let mut refused = 0;
+    let mut refuse = |datagram: &[u8]| {
+        bump(&stats.udp_dropped);
+        if destination.port() == QUIC_PORT && refused < MAX_ICMP_PER_FLOW {
+            if let Some(packet) = crate::icmp::port_unreachable(app, destination, datagram.len()) {
+                refused += 1;
+                bump(&stats.packets_out);
+                raw.write(&packet);
+            }
+        }
+    };
+    for datagram in held {
+        refuse(&datagram);
+    }
+    while let Ok(Some(datagram)) = tokio::time::timeout(UDP_IDLE_TIMEOUT, packets.recv()).await {
+        refuse(&datagram);
     }
 }
 

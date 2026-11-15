@@ -14,7 +14,7 @@
 
 use std::collections::{BTreeMap, VecDeque};
 use std::io;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -126,7 +126,8 @@ pub struct ConnectionSnapshot {
     pub upload: u64,
     pub download: u64,
     /// `rejected` (a REJECT rule), `quic_blocked` (a UDP flow to port 443
-    /// refused by `block_quic`) or `connect_failed`.
+    /// refused by `block_quic`), `quic_mitm_fallback` (QUIC to a decrypted
+    /// host, refused so the app uses TCP) or `connect_failed`.
     pub error: Option<&'static str>,
     /// Capture was on as the connection opened: `capture_connection` may
     /// have its bytes (see [`crate::capture`]).
@@ -662,6 +663,10 @@ pub const QUIC_PORT: u16 = 443;
 /// The rule a flow refused by `block_quic` shows in the connection list.
 pub const BLOCK_QUIC_RULE: &str = "BLOCK-QUIC";
 
+/// The rule a QUIC flow to a decrypted host shows in the connection list:
+/// refused so the app falls back to TCP, where HTTPS decryption takes it.
+pub const MITM_QUIC_RULE: &str = "MITM-QUIC";
+
 impl Dispatcher {
     /// Every flow through `outbound`, as a config with one outbound runs. The
     /// direct mode uses the system's sockets; see [`Dispatcher::with_direct`].
@@ -990,6 +995,31 @@ impl Dispatcher {
             inner: stream,
             guard,
         }))
+    }
+
+    /// The name the Fake-IP table gave `address`, if it is a fake address.
+    pub fn fake_ip_name(&self, address: IpAddr) -> Option<String> {
+        let pool = self.fake_ip.as_ref()?;
+        if !pool.contains(address) {
+            return None;
+        }
+        pool.lookup(address).map(|name| name.to_string())
+    }
+
+    /// Records a QUIC flow to `destination` refused because HTTPS to `host`
+    /// is decrypted (see `FlowInterceptor::refuses_quic`): it shows in the
+    /// connection list as rule [`MITM_QUIC_RULE`], error
+    /// `quic_mitm_fallback`.
+    pub fn refuse_quic_for_decryption(&self, destination: SocketAddr, host: &str) {
+        let guard = self
+            .tracker
+            .open(Network::Udp, &TargetAddr::Ip(destination), Some(host), None);
+        guard.set_route(RouteInfo {
+            rule: MITM_QUIC_RULE.to_string(),
+            chain: vec!["REJECT".to_string()],
+            outbound: "REJECT".to_string(),
+        });
+        guard.fail("quic_mitm_fallback");
     }
 
     /// Opens a UDP flow to `target`.

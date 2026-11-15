@@ -806,3 +806,168 @@ fn a_short_connection_closed_by_the_tunnel_is_released_promptly() {
     );
     tunnel.stop();
 }
+
+/// Interceptor that decrypts nothing over TCP here but names the hosts whose
+/// QUIC it refuses, as HTTPS decryption does for its `[MITM]` hosts.
+struct RefusesQuic(&'static [&'static str]);
+
+impl engine_embedded::tunnel::FlowInterceptor for RefusesQuic {
+    fn claim(&self, _first: &[u8], _target: SocketAddr) -> Option<String> {
+        None
+    }
+
+    fn refuses_quic(&self, host: &str) -> bool {
+        self.0.contains(&host)
+    }
+
+    fn serve<'a>(
+        &'a self,
+        _flow: engine_embedded::tunnel::InterceptedFlow,
+        _outbound: &'a dyn TcpOutbound,
+        _settings: &'a TunnelSettings,
+        _stats: &'a engine_embedded::tunnel::TunnelStats,
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(async {})
+    }
+}
+
+fn quic_tunnel(decrypted: &'static [&'static str]) -> (Tunnel, Arc<Dispatcher>, Receiver<Vec<u8>>) {
+    let echo = start_udp_echo_server();
+    let dispatcher = Arc::new(Dispatcher::single(Arc::new(UdpRedirect(echo))));
+    let (sink, rx) = capture();
+    let tunnel = Tunnel::start_with_dispatcher(
+        settings(),
+        dispatcher.clone(),
+        Some(Arc::new(RefusesQuic(decrypted))),
+        None,
+        sink,
+    )
+    .unwrap();
+    (tunnel, dispatcher, rx)
+}
+
+fn udp_to_remote(port: u16, payload: &[u8]) -> Vec<u8> {
+    let mut packet = Vec::new();
+    PacketBuilder::ipv4(APP, REMOTE, 64)
+        .udp(port, 443)
+        .write(&mut packet, payload)
+        .unwrap();
+    packet
+}
+
+fn icmp_port_unreachable(rx: &Receiver<Vec<u8>>, port: u16) {
+    let quoted = wait_for(rx, |sliced| match &sliced.transport {
+        Some(TransportSlice::Icmpv4(icmp)) => Some(icmp.slice().to_vec()),
+        _ => None,
+    });
+    assert_eq!(&quoted[..2], &[3, 3], "port unreachable");
+    assert_eq!(&quoted[8 + 20..8 + 22], &port.to_be_bytes());
+}
+
+fn echoed(rx: &Receiver<Vec<u8>>, port: u16, payload: &[u8]) {
+    let mut expected = b"echo:".to_vec();
+    expected.extend_from_slice(payload);
+    wait_for(rx, |sliced| match &sliced.transport {
+        Some(TransportSlice::Udp(udp))
+            if udp.destination_port() == port && udp.payload() == expected.as_slice() =>
+        {
+            Some(())
+        }
+        _ => None,
+    });
+}
+
+fn hex(text: &str) -> Vec<u8> {
+    let digits: Vec<u8> = text
+        .bytes()
+        .filter(|b| b.is_ascii_hexdigit())
+        .map(|b| (b as char).to_digit(16).unwrap() as u8)
+        .collect();
+    digits
+        .chunks(2)
+        .map(|pair| (pair[0] << 4) | pair[1])
+        .collect()
+}
+
+#[test]
+fn quic_to_a_decrypted_host_is_refused_so_the_app_uses_tcp() {
+    // RFC 9001 appendix A.2: a real client Initial naming example.com.
+    let initial = hex(include_str!(
+        "../../engine-outbound/testdata/rfc9001-a2-client-initial.hex"
+    ));
+    let (mut tunnel, dispatcher, rx) = quic_tunnel(&["example.com"]);
+    assert!(tunnel.input_packet(&udp_to_remote(40010, &initial)));
+    icmp_port_unreachable(&rx, 40010);
+    let stats = tunnel.stats();
+    assert_eq!(stats.quic_mitm_fallback, 1);
+    assert_eq!(stats.udp_flows, 0, "never opened through the outbound");
+
+    let refused: Vec<_> = dispatcher
+        .tracker()
+        .connections()
+        .closed
+        .into_iter()
+        .filter(|c| c.error == Some("quic_mitm_fallback"))
+        .collect();
+    assert_eq!(refused.len(), 1);
+    assert_eq!(refused[0].rule, "MITM-QUIC");
+    assert_eq!(refused[0].host.as_deref(), Some("example.com"));
+    tunnel.stop();
+}
+
+#[test]
+fn a_client_hello_over_two_initials_is_read_before_refusing() {
+    use engine_outbound::quic_sniff::testing::{client_hello, crypto, initial};
+    use engine_outbound::quic_sniff::V1;
+
+    let hello = client_hello("video.example.com");
+    let dcid = [9u8; 8];
+    let one = initial(V1, &dcid, &crypto(0, &hello[..900]));
+    let two = initial(V1, &dcid, &crypto(900, &hello[900..]));
+    let (mut tunnel, _dispatcher, rx) = quic_tunnel(&["video.example.com"]);
+    assert!(tunnel.input_packet(&udp_to_remote(40011, &one)));
+    assert!(tunnel.input_packet(&udp_to_remote(40011, &two)));
+    icmp_port_unreachable(&rx, 40011);
+    assert_eq!(tunnel.stats().quic_mitm_fallback, 1);
+    tunnel.stop();
+}
+
+#[test]
+fn quic_to_other_hosts_passes_with_the_packets_read_in_order() {
+    use engine_outbound::quic_sniff::testing::{client_hello, crypto, initial};
+    use engine_outbound::quic_sniff::V1;
+
+    let hello = client_hello("video.example.com");
+    let dcid = [7u8; 8];
+    let one = initial(V1, &dcid, &crypto(0, &hello[..900]));
+    let two = initial(V1, &dcid, &crypto(900, &hello[900..]));
+    let (mut tunnel, _dispatcher, rx) = quic_tunnel(&["example.com"]);
+    assert!(tunnel.input_packet(&udp_to_remote(40012, &one)));
+    assert!(tunnel.input_packet(&udp_to_remote(40012, &two)));
+    echoed(&rx, 40012, &one);
+    echoed(&rx, 40012, &two);
+    // Not QUIC at all: relayed without waiting.
+    assert!(tunnel.input_packet(&udp_to_remote(40013, b"plain")));
+    echoed(&rx, 40013, b"plain");
+    let stats = tunnel.stats();
+    assert_eq!(stats.quic_mitm_fallback, 0);
+    assert_eq!(stats.udp_flows, 2);
+    assert_eq!(stats.udp_dropped, 0);
+    tunnel.stop();
+}
+
+#[test]
+fn a_hello_that_never_completes_passes_after_a_short_wait() {
+    use engine_outbound::quic_sniff::testing::{client_hello, crypto, initial};
+    use engine_outbound::quic_sniff::V1;
+
+    let hello = client_hello("example.com");
+    let one = initial(V1, &[5u8; 8], &crypto(0, &hello[..900]));
+    let (mut tunnel, _dispatcher, rx) = quic_tunnel(&["example.com"]);
+    let sent = Instant::now();
+    assert!(tunnel.input_packet(&udp_to_remote(40014, &one)));
+    echoed(&rx, 40014, &one);
+    assert!(sent.elapsed() < Duration::from_secs(2));
+    assert_eq!(tunnel.stats().quic_mitm_fallback, 0);
+    tunnel.stop();
+}
